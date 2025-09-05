@@ -1,0 +1,62 @@
+/* Fondo opcional (suave), puedes cambiar por imagen institucional */
+:root{
+    --rojoTec: #dc3545;
+    --azulFuerte: #1a71cf;
+}
+
+.colorBlueTec {
+    color: var(--azulFuerte);
+}
+
+.bgBlueTec {
+    background-color: var(--azulFuerte);
+    border-color: var(--azulFuerte);
+}
+
+.bgBlueTec:hover {
+    background-color: #084a8e;
+    border-color: #084a8e;
+}
+body {
+    background: url('../images/fondo.png') no-repeat center center fixed;
+    background-size: cover;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.login-card {
+    background: rgba(255, 255, 255, 1);
+    width: 100%;
+    max-width: 420px;
+    border-radius: 1rem;
+    border-top : 5px solid var(--rojoTec) !important;
+    box-shadow: 6px 5px 5px 0px rgba(0,0,0,0.41);
+    z-index: 1;
+}
+
+.form-control:focus {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 .2rem rgba(220, 53, 69, .15);
+}
+
+.btn-danger {
+    border-radius: .75rem;
+    margin-top: 2rem;
+}
+
+.brand {
+    letter-spacing: .5px;
+}
+
+.modal-content { box-shadow: 0 8px 30px rgba(0,0,0,.15); }
+.modal-title { letter-spacing: .2px; }
+
+
+/* Mobile tweaks */
+@media (max-width: 576px) {
+    .login-card {
+        margin: 0 12px;
+    }
+}

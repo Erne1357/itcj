@@ -1,0 +1,71 @@
+venv/
+database/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# Virtualenv / entornos
+.env
+.venv/
+venv/
+ENV/
+
+# Archivos temporales de desarrollo
+*.swp
+*.swo
+*.tmp
+*.bak
+*.DS_Store
+Thumbs.db
+
+# --- Flask / Config ---
+instance/
+*.sqlite
+*.sqlite3
+
+# --- Docker ---
+# Evitar archivos de datos y volúmenes locales
+docker-compose.override.yml
+docker-compose.override.yaml
+docker-data/
+data/
+volumes/
+
+# --- Base de datos y seeds locales ---
+database/DDL/*.sql
+database/DML/*.sql
+database/seeds/
+!database/DDL/README.md
+!database/DML/README.md
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Cache ---
+.cache/
+__cache__/
+.cache-*
+
+# --- Frontend ---
+node_modules/
+dist/
+build/
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+*.code-workspace
+
+addStudents.py
+
+# --- Archivos en producción ---
+compose/docker-compose.prod.yml
+docker/nginx/nginx.prod.conf 

@@ -1,0 +1,8 @@
+FROM postgres:16
+
+ENV TZ = "America/Chihuahua"
+
+COPY ../../database/DDL/0*.sql /docker-entrypoint-initdb.d/
+COPY ../../database/DML/0*.sql /docker-entrypoint-initdb.d/
+COPY ../../database/DML/1*.sql /docker-entrypoint-initdb.d/
+

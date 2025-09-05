@@ -1,0 +1,52 @@
+services:
+  redis:
+    restart: always
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  postgres:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.db
+    env_file: ../../.env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile
+    env_file: ../../.env
+    volumes:
+      # Monta todo el proyecto en /app
+      - ../../:/app
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"  # Para desarrollo directo
+
+  nginx:
+    restart: always
+    image: nginx:alpine
+    environment:
+      TZ: America/Chihuahua
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Monta todos los directorios static de las apps
+      - ../../itcj/core/static:/www/static/core:ro
+      - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
+      # Para futuras apps:
+      # - ../../itcj/apps/tickets/static:/www/static/tickets:ro
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:

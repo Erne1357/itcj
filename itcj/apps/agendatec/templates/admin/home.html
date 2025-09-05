@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Admin · Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    .metric-card {
+        min-height: 110px;
+    }
+
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+
+    .metric-sub {
+        color: #6c757d;
+    }
+
+    .card-scroll {
+        max-height: 380px;
+        overflow: auto;
+    }
+
+    .pieHost {
+        position: relative;
+        height: 260px;
+    }
+
+    .miniPieBox {
+        position: relative;
+        height: 180px;
+    }
+
+    /* Alturas estables para charts dentro de tabs ocultos */
+    #panePieGlobal .pieHost {
+        position: relative;
+        height: 260px;
+    }
+
+    #panePieMini .miniPieBox {
+        position: relative;
+        height: 180px;
+    }
+
+    #paneSeries .seriesHost {
+        position: relative;
+        height: 260px;
+    }
+
+    .actHost {
+        position: relative;
+        height: 280px;
+        /* alto base móvil */
+    }
+
+    @media (min-width: 992px) {
+        .actHost {
+            height: 320px;
+        }
+
+        /* un poco más alto en desktop */
+    }
+
+    .actHost>canvas {
+        width: 100% !important;
+        height: 100% !important;
+        display: block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h4 mb-0">Dashboard de Administración</h1>
+    <div class="d-flex gap-2">
+        <input id="fltFrom" type="date" class="form-control form-control-sm">
+        <input id="fltTo" type="date" class="form-control form-control-sm">
+        <button id="btnApplyRange" class="btn btn-primary btn-sm">
+            <i class="bi bi-arrow-repeat"></i> Actualizar
+        </button>
+    </div>
+</div>
+
+<div class="row g-5">
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card metric-card shadow-sm">
+            <div class="card-body">
+                <div class="metric-sub">Pendientes</div>
+                <div id="mPending" class="metric-value">–</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card metric-card shadow-sm">
+            <div class="card-body">
+                <div class="metric-sub">Resueltas</div>
+                <div id="mSolved" class="metric-value">–</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card metric-card shadow-sm">
+            <div class="card-body">
+                <div class="metric-sub">Atendidas s/r</div>
+                <div id="mNotCompleted" class="metric-value">–</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card metric-card shadow-sm">
+            <div class="card-body">
+                <div class="metric-sub">No asistieron</div>
+                <div id="mNoShow" class="metric-value">–</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card metric-card shadow-sm">
+            <div class="card-body">
+                <div class="metric-sub">Otro horario</div>
+                <div id="mOtherSlot" class="metric-value">–</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card metric-card shadow-sm">
+            <div class="card-body">
+                <div class="metric-sub">Canceladas</div>
+                <div id="mCanceled" class="metric-value">–</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mt-1">
+    <!-- IZQUIERDA: card con pestañas -->
+    <div class="col-12 col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+                <!-- Tabs -->
+                <ul class="nav nav-pills" id="leftTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="tabSeries" data-bs-toggle="tab" data-bs-target="#paneSeries"
+                            type="button" role="tab" aria-controls="paneSeries" aria-selected="true">
+                            Serie día/hora
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tabPieGlobal" data-bs-toggle="tab" data-bs-target="#panePieGlobal"
+                            type="button" role="tab" aria-controls="panePieGlobal" aria-selected="false">
+                            Pastel global
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tabPieMini" data-bs-toggle="tab" data-bs-target="#panePieMini"
+                            type="button" role="tab" aria-controls="panePieMini" aria-selected="false">
+                            Por coordinador
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tabBarsGlobal" data-bs-toggle="tab"
+                            data-bs-target="#paneBarsGlobal" type="button" role="tab" aria-controls="paneBarsGlobal"
+                            aria-selected="false">
+                            Porcentajes global
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tabBarsCoord" data-bs-toggle="tab" data-bs-target="#paneBarsCoord"
+                            type="button" role="tab" aria-controls="paneBarsCoord" aria-selected="false">
+                            Porcentaces P/coord
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="tabActivity" data-bs-toggle="tab" data-bs-target="#paneActivity"
+                            type="button" role="tab" aria-controls="paneActivity" aria-selected="false">
+                            Actividad por hora
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Controles para pasteles -->
+                <div id="pieControls" class="ms-auto d-flex flex-wrap align-items-center gap-2">
+                    <div class="form-check form-switch">
+                        <input id="pieByDay" class="form-check-input" type="checkbox">
+                        <label class="form-check-label" for="pieByDay">Desglose por día</label>
+                    </div>
+
+                    <select id="pieDay" class="form-select form-select-sm" style="width:auto; min-width: 140px;"
+                        hidden></select>
+
+                    <button id="btnPiesReload" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-repeat"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-body">
+                <div class="tab-content">
+                    <!-- Serie -->
+                    <div class="tab-pane fade show active" id="paneSeries" role="tabpanel" aria-labelledby="tabSeries"
+                        tabindex="0">
+                        <div class="seriesHost">
+                            <canvas id="chSeries"></canvas>
+                        </div>
+                        <small class="text-muted">rango aplicado</small>
+                    </div>
+
+                    <!-- Pastel global -->
+                    <div class="tab-pane fade" id="panePieGlobal" role="tabpanel" aria-labelledby="tabPieGlobal"
+                        tabindex="0">
+                        <div class="pieHost border rounded p-2" style="position:relative; height: 260px;">
+                            <canvas id="chCoordGlobal" style="width:100%; height:100%;"></canvas>
+                        </div>
+                        <small id="lblGlobalTotal" class="text-muted d-block mt-1">Total: –</small>
+                    </div>
+
+                    <!-- Mini pasteles por coordinador -->
+                    <div class="tab-pane fade" id="panePieMini" role="tabpanel" aria-labelledby="tabPieMini"
+                        tabindex="0">
+                        <div class="border rounded p-2">
+                            <div id="miniPieGrid" class="row g-3"></div>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="paneBarsGlobal" role="tabpanel" aria-labelledby="tabBarsGlobal"
+                        tabindex="0">
+                        <div class="border rounded p-2">
+                            <canvas id="chBarsGlobal" style="width:100%;height:320px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Barras % por coordinador (apiladas 100%) -->
+                    <div class="tab-pane fade" id="paneBarsCoord" role="tabpanel" aria-labelledby="tabBarsCoord"
+                        tabindex="0">
+                        <div class="border rounded p-2">
+                            <canvas id="chBarsCoord" style="width:100%;height:420px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Actividad por hora -->
+                    <div class="tab-pane fade" id="paneActivity" role="tabpanel" aria-labelledby="tabActivity"
+                        tabindex="0">
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <div class="input-group input-group-sm" style="max-width:320px;">
+                                <span class="input-group-text">Coordinador</span>
+                                <select id="selActCoord" class="form-select form-select-sm">
+                                    <!-- se llena dinámicamente -->
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-2">
+                                    <h6 class="mb-2">Global</h6>
+                                    <canvas id="chActGlobal" style="width:100%;height:280px;"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="border rounded p-2">
+                                    <h6 class="mb-2">Seleccionado</h6>
+                                    <canvas id="chActCoord" style="width:100%;height:280px;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DERECHA: pendientes + no-show -->
+    <div class="col-12 col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <span class="fw-semibold">Pendientes por coordinador</span>
+            </div>
+            <div class="card-body card-scroll">
+                <div class="text-center mb-2">
+                    <span class="me-3">
+                        <span class="d-inline-block rounded-circle bg-primary me-1"
+                            style="width:10px;height:10px;vertical-align:middle;"></span>
+                        Citas
+                    </span>
+                    <span class="me-3">
+                        <span class="d-inline-block rounded-circle bg-danger me-1"
+                            style="width:10px;height:10px;vertical-align:middle;"></span>
+                        Bajas
+                    </span>
+                </div>
+                <ul id="lstPendingByCoord" class="list-group list-group-flush small"></ul>
+            </div>
+            <div class="card-footer">
+                Porcentaje inasistencias: <span id="lblNoShowRate" class="fw-semibold">–</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
+<script>
+    window.__adminDashboard = {
+        fetchUrl: "{{ url_for('agendatec_api.api_admin.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
+        piesUrl: "{{ url_for('agendatec_api.api_admin.stats_coordinators') }}"
+    };
+</script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home_pies.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/mail_survey.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home_bars.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home_activity.js') }}?v={{ static_version }}"></script>
+{% endblock %}

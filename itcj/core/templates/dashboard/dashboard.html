@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Windows</title>
+    <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard.css')}}?v={{ static_version }}">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+
+<body>
+    <div id="desktop" class="desktop">
+        <div class="desktop-background"></div>
+
+        <div class="desktop-icons">
+
+            <div class="desktop-icon" data-app="agendatec">
+                <div class="icon-container">
+                    <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec"
+                        style="width:45px;height:45px;">
+                </div>
+                <span class="icon-label">AgendaTec</span>
+            </div>
+
+            <div class="desktop-icon" data-app="compras">
+                <div class="icon-container">
+                    <i data-lucide="shopping-cart"></i>
+                </div>
+                <span class="icon-label">Compras</span>
+            </div>
+
+            <div class="desktop-icon" data-app="tickets">
+                <div class="icon-container">
+                    <i data-lucide="ticket"></i>
+                </div>
+                <span class="icon-label">Tickets</span>
+            </div>
+
+
+        </div>
+        <div class="desktop-icon recycle-bin">
+            <div class="icon-container">
+                <i data-lucide="trash-2"></i>
+            </div>
+            <span class="icon-label">Papelera de reciclaje</span>
+        </div>
+
+        <div id="windows-container"></div>
+
+        <div class="taskbar">
+            <button class="start-button">
+                <i data-lucide="menu"></i>
+            </button>
+
+            <div class="search-container">
+                <i data-lucide="search" class="search-icon"></i>
+                <input type="text" placeholder="&copy; 2025 ITCJ. Todos los derechos reservados." class="search-input disabled" readonly>
+            </div>
+
+            <div class="pinned-apps">
+                <button class="pinned-app" title="AgendaTec">
+                    <i data-lucide="calendar"></i>
+                </button>
+                <button class="pinned-app" title="Compras">
+                    <i data-lucide="shopping-cart"></i>
+                </button>
+                <button class="pinned-app" title="Tickets">
+                    <i data-lucide="ticket"></i>
+                </button>
+            </div>
+
+            <div id="open-apps" class="open-apps"></div>
+
+            <div class="system-tray">
+                <button class="system-icon">
+                    <i data-lucide="wifi"></i>
+                </button>
+                <button class="system-icon">
+                    <i data-lucide="volume-2"></i>
+                </button>
+                <button class="system-icon">
+                    <i data-lucide="battery"></i>
+                </button>
+
+                <div class="datetime">
+                    <div id="time"></div>
+                    <div id="date"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{url_for('static',filename = 'core/js/dashboard.js') }}?v={{ static_version }}"></script>
+</body>
+
+</html>

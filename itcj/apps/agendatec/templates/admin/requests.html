@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Admin · Solicitudes{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0">Solicitudes</h1>
+  <div class="row g-2">
+    <div class="col-auto">
+      <input id="fltFrom" type="date" class="form-control form-control-sm">
+    </div>
+    <div class="col-auto">
+      <input id="fltTo" type="date" class="form-control form-control-sm">
+    </div>
+    <div class="col-auto">
+      <select id="fltStatus" class="form-select form-select-sm">
+        <option value="">Todos los estados</option>
+        <option value="PENDING">Pendientes</option>
+        <option value="RESOLVED_SUCCESS">Resueltas</option>
+        <option value="RESOLVED_NOT_COMPLETED">Atendidas sin resolver</option>
+        <option value="NO_SHOW">No asistió</option>
+        <option value="ATTENDED_OTHER_SLOT">Otro horario</option>
+        <option value="CANCELED">Canceladas</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="fltProgram" class="form-select form-select-sm">
+        <option value="">Programa</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="fltCoordinator" class="form-select form-select-sm">
+        <option value="">Coordinador</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <input id="txtQ" class="form-control form-control-sm" placeholder="No. control / Alumno">
+    </div>
+    <div class="col-auto">
+      <button id="btnSearch" class="btn btn-primary btn-sm"><i class="bi bi-search"></i></button>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>ID</th>
+          <th>Tipo</th>
+          <th>Estado</th>
+          <th>Programa</th>
+          <th>Alumno</th>
+          <th>Coordinador</th>
+          <th>Creado</th>
+          <th style="width: 120px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tblReqBody"></tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex justify-content-between align-items-center">
+    <div><small id="lblTotal">0 registros</small></div>
+    <div class="d-flex gap-2">
+      <button id="btnPrev" class="btn btn-outline-secondary btn-sm">Anterior</button>
+      <button id="btnNext" class="btn btn-outline-secondary btn-sm">Siguiente</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal cambio de estado -->
+<div class="modal fade" id="mdlStatus" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Cambiar estado</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="curReqInfo" class="mb-3 small text-muted"></div>
+        <div class="mb-2">
+          <label class="form-label">Nuevo estado</label>
+          <select id="fNewStatus" class="form-select">
+            <option value="RESOLVED_SUCCESS">Resuelta</option>
+            <option value="RESOLVED_NOT_COMPLETED">Atendida sin resolver</option>
+            <option value="NO_SHOW">No asistió</option>
+            <option value="ATTENDED_OTHER_SLOT">Otro horario</option>
+            <option value="CANCELED">Cancelada</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Motivo (opcional)</label>
+          <textarea id="fReason" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnApplyStatus" class="btn btn-primary">Aplicar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
+<script>
+  window.__adminRequestsCfg = {
+    listUrl: "{{ url_for('agendatec_api.api_admin.admin_list_requests') }}",
+    statusBase: "{{ url_for('agendatec_api.api_admin.admin_change_request_status', req_id=0) }}".replace(/0$/, ''),
+    programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
+    // si expones un listado de coordinadores:
+    coordsUrl: "{{ url_for('agendatec_api.api_admin.list_coordinators') }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/requests.js') }}?v={{ static_version }}"></script>
+{% endblock %}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es" data-bs-theme="light">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgendaTec · Iniciar sesión</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{url_for('static',filename = 'core/css/auth.css')}}?v={{ static_version }}" rel="stylesheet">
+    <link rel="shortcut icon" href="{{url_for('static',filename = 'core/icon/favicon.ico')}}" type="image/x-icon">
+</head>
+
+<body class="bg-body" style="min-height:100dvh;">
+    <div class="login-bg"></div>
+    <main class="container d-flex align-items-center justify-content-center" style="min-height:100dvh;">
+        <div class="card border-0 login-card">
+            <div class="card-body p-4 p-md-5">
+                <h1 class="mb-4 text-center fw-bold brand text-danger">ITCJ</h1>
+
+                <form id="loginForm" class="needs-validation" novalidate>
+                    <div class="form-floating mb-3">
+                        <input type="text" class="form-control" id="control_number" placeholder="Usuario"
+                             required>
+                        <label for="control_number">Usuario (número de control)</label>
+                        <div class="invalid-feedback">Ingresa tú número de control</div>
+                    </div>
+
+                    <div class="form-floating mb-3">
+                        <input type="password" class="form-control" id="nip" placeholder="NIP" inputmode="numeric"
+                            pattern="[0-9]{3,5}" maxlength="5" required>
+                        <label for="nip">NIP</label>
+                        <div class="invalid-feedback">Ingresa 4 dígitos.</div>
+                    </div>
+
+                    <div id="alertBox" class="alert alert-danger mt-3 d-none" role="alert"></div>
+
+                    <div class="d-grid">
+                        <button class="btn btn-danger btn-lg bgBlueTec" id="btnLogin" type="submit">
+                            Iniciar sesión
+                        </button>
+                    </div>
+
+                    <div class="text-center" style="margin-top: 1.5rem;">
+                        
+                        <a href="#" class="text-muted" style="font-size: 1rem;" data-bs-toggle="modal"
+                            data-bs-target="#infoModal">
+                            <i class="bi bi-info-circle"></i>
+                            <span>Información</span>
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal de información -->
+    <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg"> <!-- cambia a modal-md si lo prefieres -->
+            <div class="modal-content border-0 rounded-4">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title fw-bold" id="infoModalLabel">¿Cómo funciona AgendaTec?</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+
+                <div class="modal-body pt-0">
+                    <div class="mb-4">
+                        <h6 class="fw-semibold mb-2 colorBlueTec">Tipos de solicitud</h6>
+                        <ul class="mb-0">
+                            <li><strong>Baja</strong>: se <u>crea únicamente una solicitud</u> en el sistema para que el
+                                coordinador la procese. <strong>NO</strong> se agenda cita.</li>
+                            <li><strong>Alta</strong> o <strong>Alta y Baja</strong>: se <u>agenda una cita</u> con el
+                                coordinador para revisar el caso (disponibilidad de grupo, cambios, profesor, etc.).
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="mb-4">
+                        <h6 class="fw-semibold mb-2 colorBlueTec">Usuario y NIP</h6>
+                        <p class="mb-2">Debes iniciar sesión con el mismo <strong>número de control</strong> y
+                            <strong>NIP</strong> que utilizas en:</p>
+                        <ul class="mb-2">
+                            <li><a href="http://sii.cdjuarez.tecnm.mx" _blank><em>sii.cdjuarez.tecnm.mx</em></a></li>
+                            <li><a href="http://siisae.cdjuarez.tecnm.mx" _blank><em>siisae.cdjuarez.tecnm.mx</em></a></li>
+                        </ul>
+                        <p class="mb-0">
+                            <strong>Importante:</strong> el número de control son <u>solo 8 dígitos</u>.
+                            Si tu correo institucional inicia con una letra (por ejemplo
+                            <code>L{número_de_control}@cdjuarez.tecnm.mx</code>),
+                            <u>esa “L” no forma parte</u> de tu número de control. Ingresa únicamente los dígitos.
+                        </p>
+                    </div>
+
+                    <div class="alert alert-light border shadow-sm small mb-0" role="alert"
+                        style="border-radius: .75rem;">
+                        <div class="d-flex">
+                            <div class="me-2">ℹ️</div>
+                            <div>
+                                <strong>Consejo:</strong> verifica que tu solicitud sea la correcta.
+                                Solo puedes tener <u>una solicitud activa</u> a la vez; si la cancelas, podrás crear
+                                otra.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-danger px-4" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
+    <script src="{{url_for('static',filename = 'core/js/auth.js')}}?v={{static_version}}" defer></script>
+</body>
+
+</html>

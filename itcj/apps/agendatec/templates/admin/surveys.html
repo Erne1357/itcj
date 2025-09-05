@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Admin · Encuestas{% endblock %}
+
+{% block extra_css %}
+<style>
+  .tab-btn { cursor:pointer; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-3">Encuestas por correo</h1>
+
+<ul class="nav nav-tabs" id="survTabs">
+  <li class="nav-item">
+    <a class="nav-link active tab-btn" data-target="#tabConn">Conexión Outlook</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link tab-btn" data-target="#tabSend">Enviar encuestas</a>
+  </li>
+</ul>
+
+<div class="tab-content border-start border-end border-bottom p-3">
+  <div id="tabConn" class="tab-pane fade show active">
+    <h6 class="mb-3">Sesión con Microsoft (delegado)</h6>
+    <div class="mb-2">
+      <div>Estado: <span id="msStatus" class="badge text-bg-secondary">verificando…</span></div>
+      <div class="small text-muted" id="msAccountTxt">
+        {% if ms_account and ms_account.username %}
+          Conectado como <strong>{{ ms_account.username }}</strong>
+        {% else %}
+          No hay sesión activa
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-primary" href="{{ url_for('agendatec_pages.admin_surveys_pages.ms_login') }}"><i class="bi bi-box-arrow-in-right"></i> Iniciar sesión</a>
+      <button id="btnMsLogout" class="btn btn-outline-danger"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</button>
+    </div>
+    <hr>
+    <p class="small text-muted">
+      Guardamos un cache de tokens para renovar el acceso en segundo plano (hasta ~90 días).
+    </p>
+  </div>
+
+  <div id="tabSend" class="tab-pane fade">
+    <h6 class="mb-3">Enviar correos</h6>
+    <div class="row g-2">
+      <div class="col-auto">
+        <label class="form-label mb-0 small">De</label>
+        <input id="fromDate" type="date" class="form-control form-control-sm">
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-0 small">A</label>
+        <input id="toDate" type="date" class="form-control form-control-sm">
+      </div>
+      <div class="col-auto align-self-end">
+        <div class="form-check">
+          <input id="testMode" class="form-check-input" type="checkbox" checked>
+          <label class="form-check-label small" for="testMode">Modo prueba</label>
+        </div>
+      </div>
+      <div class="col-auto align-self-end">
+        <button id="btnSend" class="btn btn-success btn-sm"><i class="bi bi-send"></i> Enviar</button>
+      </div>
+    </div>
+    <div class="mt-3">
+      <pre id="out" class="small bg-light p-2 rounded" style="max-height:240px;overflow:auto"></pre>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  const $ = s=>document.querySelector(s);
+  // tabs
+  document.querySelectorAll(".tab-btn").forEach(a=>{
+    a.addEventListener("click", ev=>{
+      document.querySelectorAll(".nav-link").forEach(x=>x.classList.remove("active"));
+      document.querySelectorAll(".tab-pane").forEach(x=>x.classList.remove("show","active"));
+      a.classList.add("active");
+      const tgt = a.getAttribute("data-target");
+      const pane = document.querySelector(tgt);
+      pane.classList.add("show","active");
+    });
+  });
+
+  async function refreshStatus(){
+    const r = await fetch("{{ url_for('agendatec_pages.admin_surveys_pages.ms_status') }}", {credentials:"include"});
+    const j = await r.json();
+    $("#msStatus").textContent = j.connected ? "Conectado" : "Sin sesión";
+    $("#msStatus").className = j.connected ? "badge text-bg-success" : "badge text-bg-secondary";
+    const who = j?.account?.username || "—";
+    $("#msAccountTxt").innerHTML = j.connected
+      ? `Conectado como <strong>${who}</strong>`
+      : "No hay sesión activa";
+  }
+
+  $("#btnMsLogout")?.addEventListener("click", async ()=>{
+    await fetch("{{ url_for('agendatec_pages.admin_surveys_pages.ms_logout') }}", {method:"POST", credentials:"include"});
+    refreshStatus();
+  });
+
+  // enviar
+  $("#btnSend")?.addEventListener("click", async ()=>{
+    const f = $("#fromDate").value, t=$("#toDate").value, test=$("#testMode").checked?1:0;
+    const out = $("#out");
+    out.textContent = "Enviando…\n";
+    const u = new URL("{{ url_for('agendatec_api.api_admin.send_surveys') }}", window.location.origin);
+    if (f) u.searchParams.set("from", f);
+    if (t) u.searchParams.set("to", t);
+    u.searchParams.set("test", String(test));
+    u.searchParams.set("limit", "700"); u.searchParams.set("offset","0");
+    const r = await fetch(u, {method:"POST", credentials:"include"});
+    const j = await r.json().catch(()=>({}));
+    out.textContent += JSON.stringify(j, null, 2);
+  });
+
+  // fechas por defecto
+  const to = new Date(); const from = new Date(Date.now()-7*86400000);
+  $("#toDate").value = to.toISOString().slice(0,10);
+  $("#fromDate").value = from.toISOString().slice(0,10);
+
+  refreshStatus();
+})();
+</script>
+{% endblock %}

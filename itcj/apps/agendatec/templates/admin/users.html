@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Admin · Usuarios{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0">Gestión de Coordinadores</h1>
+  <div class="d-flex gap-2">
+    <select id="fltProgram" class="form-select form-select-sm">
+      <option value="">Todos los programas</option>
+    </select>
+    <input id="txtSearch" class="form-control form-control-sm" placeholder="Buscar por nombre/correo">
+    <button id="btnReload" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i></button>
+    <button id="btnNew" class="btn btn-primary btn-sm"><i class="bi bi-person-plus"></i> Nuevo</button>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Nombre</th>
+          <th>Correo</th>
+          <th>Programas</th>
+          <th style="width: 120px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tblCoordsBody">
+        <!-- filas vía JS -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Nuevo/Editar -->
+<div class="modal fade" id="mdlCoord" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="mdlTitle" class="modal-title">Nuevo coordinador</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nombre</label>
+            <input id="fName" class="form-control" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Correo</label>
+            <input id="fEmail" class="form-control" type="email">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">NIP inicial</label>
+            <input id="fNip" class="form-control" maxlength="4" placeholder="1234">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Programas</label>
+            <select id="fPrograms" multiple class="form-select"></select>
+            <div class="form-text">Mantén CTRL/⌘ para elegir varios.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnSaveCoord" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Endpoints a usar desde JS:
+  window.__adminUsersCfg = {
+    listUrl: "{{ url_for('agendatec_api.api_admin.list_coordinators') }}",
+    createUrl: "{{ url_for('agendatec_api.api_admin.create_coordinator') }}",
+    updateBase: "{{ url_for('agendatec_api.api_admin.update_coordinator', coord_id=0) }}".replace(/0$/, ''),
+    programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/users.js') }}?v={{ static_version }}"></script>
+{% endblock %}
