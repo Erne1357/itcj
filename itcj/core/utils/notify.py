@@ -1,7 +1,7 @@
 # utils/notify.py
 from datetime import datetime
-from ...apps.agendatec.models import db
-from ...apps.agendatec.models.notification import Notification
+from itcj.apps.agendatec.models import db
+from itcj.apps.agendatec.models.notification import Notification
 
 def create_notification(*, user_id: int, type: str, title: str, body: str|None, data: dict|None,
                         source_request_id: int|None = None, source_appointment_id: int|None = None,

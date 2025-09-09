@@ -1,8 +1,8 @@
 # sockets/notifications.py
 from flask import g, request
 from flask_socketio import emit, join_room
-from ..utils.socket_auth import current_user_from_environ
-from ...apps.agendatec.models import db
+from itcj.core.utils.socket_auth import current_user_from_environ
+from itcj.apps.agendatec.models import db
 
 NAMESPACE = "/notify"
 

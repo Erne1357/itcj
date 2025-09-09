@@ -2,14 +2,14 @@
 from datetime import datetime, timedelta, date
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
-from .....core.utils.decorators import api_auth_required, api_role_required
-from ...models import db
-from ...models.program import Program
-from ...models.user import User
-from ...models.coordinator import Coordinator
-from ...models.program_coordinator import ProgramCoordinator
-from ...models.time_slot import TimeSlot            # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), is_booked
-from ...models.availability_window import AvailabilityWindow  # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), slot_minutes
+from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.apps.agendatec.models import db
+from itcj.apps.agendatec.models.program import Program
+from itcj.core.models.user import User
+from itcj.apps.agendatec.models.coordinator import Coordinator
+from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.apps.agendatec.models.time_slot import TimeSlot            # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), is_booked
+from itcj.apps.agendatec.models.availability_window import AvailabilityWindow  # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), slot_minutes
 
 api_avail_bp = Blueprint("api_avail", __name__)
 

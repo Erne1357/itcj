@@ -4,8 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Windows</title>
+    <title>ITCJ - Dashboard</title>
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard.css')}}?v={{ static_version }}">
+    <link rel="shortcut icon" href="{{url_for('static',filename = 'core/icon/favicon.ico')}}?v={{ static_version }}"
+        type="image/x-icon">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 
@@ -55,7 +57,8 @@
 
             <div class="search-container">
                 <i data-lucide="search" class="search-icon"></i>
-                <input type="text" placeholder="&copy; 2025 ITCJ. Todos los derechos reservados." class="search-input disabled" readonly>
+                <input type="text" placeholder="&copy; 2025 ITCJ. Todos los derechos reservados."
+                    class="search-input disabled" readonly>
             </div>
 
             <div class="pinned-apps">
@@ -90,7 +93,10 @@
             </div>
         </div>
     </div>
-
+    <button id="logout-fab" class="logout-fab" title="Salir" aria-label="Salir">
+        <i data-lucide="door-open"></i>
+        <span>Salir</span>
+    </button>
     <script src="{{url_for('static',filename = 'core/js/dashboard.js') }}?v={{ static_version }}"></script>
 </body>
 

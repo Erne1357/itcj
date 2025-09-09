@@ -52,14 +52,14 @@ def api_role_required(roles: list[str]):
     return deco
 
 # Decorador para verificar si el coordinador debe cambiar su contraseña
-def coord_pw_changed_required(view):
+def pw_changed_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
         cu = g.get("current_user")
         # Solo aplica para coordinadores
         if cu and cu.get("role") == "coordinator":
             # Debes tener una función que verifique el estado, por ejemplo:
-            from ...apps.agendatec.models import Coordinator
+            from itcj.apps.agendatec.models import Coordinator
             coord = Coordinator.query.filter_by(user_id=cu["sub"]).first()
             if coord and getattr(coord, "must_change_pw", False):
                 # Redirige a home del coordinador (donde está el modal)

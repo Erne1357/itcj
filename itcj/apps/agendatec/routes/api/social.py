@@ -2,13 +2,13 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from sqlalchemy import and_
-from .....core.utils.decorators import api_auth_required, api_role_required
-from ...models import db
-from ...models.time_slot import TimeSlot
-from ...models.appointment import Appointment
-from ...models.request import Request
-from ...models.program import Program
-from ...models.user import User
+from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.apps.agendatec.models import db
+from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.apps.agendatec.models.appointment import Appointment
+from itcj.apps.agendatec.models.request import Request
+from itcj.apps.agendatec.models.program import Program
+from itcj.core.models.user import User
 
 api_social_bp = Blueprint("api_social", __name__)
 

@@ -3,21 +3,21 @@ from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify, g,current_app
 from sqlalchemy import and_, or_, func
 from sqlalchemy.exc import IntegrityError
-from .....core.utils.decorators import api_auth_required, api_role_required
-from ...models import db
-from ...models.user import User
-from ...models.coordinator import Coordinator
-from ...models.program import Program
-from ...models.program_coordinator import ProgramCoordinator
-from ...models.availability_window import AvailabilityWindow
-from ...models.time_slot import TimeSlot
-from ...models.request import Request
-from ...models.appointment import Appointment
-from .....core.utils.security import verify_nip, hash_nip
-from .....core.sockets import socketio
-from .....core.sockets.requests import broadcast_request_status_changed
-from .....core.utils.notify import create_notification
-from .....core.sockets.notifications import push_notification
+from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.apps.agendatec.models import db
+from itcj.core.models.user import User
+from itcj.apps.agendatec.models.coordinator import Coordinator
+from itcj.apps.agendatec.models.program import Program
+from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
+from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.apps.agendatec.models.request import Request
+from itcj.apps.agendatec.models.appointment import Appointment
+from itcj.core.utils.security import verify_nip, hash_nip
+from itcj.core.sockets import socketio
+from itcj.core.sockets.requests import broadcast_request_status_changed
+from itcj.core.utils.notify import create_notification
+from itcj.core.sockets.notifications import push_notification
 
 api_coord_bp = Blueprint("api_coord", __name__)
 

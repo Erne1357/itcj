@@ -1,7 +1,7 @@
-from ...apps.agendatec.models import db
-from ...apps.agendatec.models.user import User
-from ...apps.agendatec.models.role import Role
-from ..utils.security import verify_nip
+from itcj.apps.agendatec.models import db
+from itcj.core.models.user import User
+from itcj.core.models.role import Role
+from itcj.core.utils.security import verify_nip
 from flask import current_app
 
 def authenticate(control_number: str, nip: str):

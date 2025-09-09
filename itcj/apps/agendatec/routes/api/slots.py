@@ -3,10 +3,10 @@ from datetime import date
 import json
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
-from .....core.utils.decorators import api_auth_required, api_role_required
-from .....core.utils.redis_conn import get_redis, get_hold_ttl
-from ...models import db
-from ...models.time_slot import TimeSlot
+from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
+from itcj.apps.agendatec.models import db
+from itcj.apps.agendatec.models.time_slot import TimeSlot
 
 api_slots_bp = Blueprint("api_slots", __name__)
 

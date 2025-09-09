@@ -2,9 +2,9 @@
 from datetime import timedelta
 from flask import g, request, current_app
 from flask_socketio import emit, join_room, leave_room
-from ...apps.agendatec.models import db, TimeSlot
-from ..utils.redis_conn import get_redis, get_hold_ttl
-from ..utils.socket_auth import current_user_from_environ
+from itcj.apps.agendatec.models import db, TimeSlot
+from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
+from itcj.core.utils.socket_auth import current_user_from_environ
 
 NAMESPACE = "/slots"
 

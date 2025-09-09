@@ -1,9 +1,9 @@
 # sockets/requests.py
 from flask import g, request,current_app
 from flask_socketio import emit, join_room, leave_room
-from ..utils.socket_auth import current_user_from_environ
+from itcj.core.utils.socket_auth import current_user_from_environ
 import logging
-from ...apps.agendatec.models import db
+from itcj.apps.agendatec.models import db
 
 NAMESPACE = "/requests"
 

@@ -1,7 +1,7 @@
 # routes/pages/auth.py
 from flask import Blueprint, render_template, g, redirect
-from ....core.utils.decorators import login_required, role_required_page
-from .... import role_home
+from itcj.core.utils.decorators import login_required, role_required_page
+from itcj import role_home
 
 pages_dashboard_bp = Blueprint("pages_dashboard", __name__,template_folder='../../templates', static_folder='../../static')
 

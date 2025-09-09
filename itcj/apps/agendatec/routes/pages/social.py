@@ -1,6 +1,6 @@
 # routes/templates/social.py
 from flask import Blueprint, render_template
-from .....core.utils.decorators import login_required, role_required_page
+from itcj.core.utils.decorators import login_required, role_required_page
 
 social_pages_bp = Blueprint("social_pages", __name__)
 

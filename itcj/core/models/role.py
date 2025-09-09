@@ -4,7 +4,7 @@ class Role(db.Model):
     __tablename__ = "roles"
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.Text, unique=True, nullable=False)  # 'student','social_service','coordinator','admin'
+    name = db.Column(db.Text, unique=True, nullable=False)  
 
     users = db.relationship("User", back_populates="role", cascade="all, delete", passive_deletes=True)
 

@@ -1,9 +1,9 @@
 # sockets/__init__.py
 from flask_socketio import SocketIO
 from flask import current_app, request, g
-from ..utils.redis_conn import REDIS_URL, REDIS_HOST, REDIS_PORT
-from ..utils.jwt_tools import decode_jwt
-from ...extensions import db
+from itcj.core.utils.redis_conn import REDIS_URL, REDIS_HOST, REDIS_PORT
+from itcj.core.utils.jwt_tools import decode_jwt
+from itcj.core.extensions import db
 import os
 
 # Configuración de Redis para SocketIO
@@ -36,11 +36,11 @@ socketio = SocketIO(
 @socketio.on("connect")
 def handle_global_connect(auth=None):
     """
-    Autentica globalmente desde la cookie 'agendatec_token'.
+    Autentica globalmente desde la cookie 'itcj_token'.
     """
     try:
         # Obtener token desde cookies
-        token = request.cookies.get("agendatec_token")
+        token = request.cookies.get("itcj_token")
         if not token:
             current_app.logger.warning("WebSocket: No se encontró token")
             return False

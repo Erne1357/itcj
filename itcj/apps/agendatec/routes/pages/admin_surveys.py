@@ -1,7 +1,7 @@
 # routes/pages/admin_surveys.py
 from flask import Blueprint, render_template, redirect, request, url_for, jsonify, g
-from .....core.utils.decorators import login_required,role_required_page
-from .....core.utils.msgraph_mail import build_auth_url, process_auth_code, acquire_token_silent, clear_account_and_cache, read_account_info
+from itcj.core.utils.decorators import login_required,role_required_page
+from itcj.core.utils.msgraph_mail import build_auth_url, process_auth_code, acquire_token_silent, clear_account_and_cache, read_account_info
 
 admin_surveys_pages = Blueprint("admin_surveys_pages", __name__, template_folder="../../templates")
 

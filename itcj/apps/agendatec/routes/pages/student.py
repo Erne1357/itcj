@@ -1,8 +1,8 @@
 # routes/templates/student.py
 from flask import Blueprint, render_template,g, current_app,request,url_for,redirect
-from .....core.utils.decorators import login_required, role_required_page
-from ...services.student.home import has_request
-from .....core.utils.admit_window import is_student_window_open, get_student_window, fmt_spanish
+from itcj.core.utils.decorators import login_required, role_required_page
+from itcj.apps.agendatec.services.student.home import has_request
+from itcj.core.utils.admit_window import is_student_window_open, get_student_window, fmt_spanish
 import os
 from datetime import datetime
 student_pages_bp = Blueprint("student_pages", __name__)

@@ -8,28 +8,28 @@ from sqlalchemy import func, case, and_, or_, cast, Date
 from sqlalchemy.orm import joinedload, contains_eager
 from sqlalchemy.sql import extract
 
-from ...models import db
-from ...models.user import User
-from ...models.role import Role
-from ...models.coordinator import Coordinator
-from ...models.program import Program
-from ...models.program_coordinator import ProgramCoordinator
-from ...models.request import Request as Req
-from ...models.appointment import Appointment
-from ...models.time_slot import TimeSlot
-from ...models.notification import Notification
-from ...models.audit_log import AuditLog
-from ...models.survey_dispatches import SurveyDispatch
+from itcj.apps.agendatec.models import db
+from itcj.core.models.user import User
+from itcj.core.models.role import Role
+from itcj.apps.agendatec.models.coordinator import Coordinator
+from itcj.apps.agendatec.models.program import Program
+from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.apps.agendatec.models.request import Request as Req
+from itcj.apps.agendatec.models.appointment import Appointment
+from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.apps.agendatec.models.notification import Notification
+from itcj.apps.agendatec.models.audit_log import AuditLog
+from itcj.apps.agendatec.models.survey_dispatches import SurveyDispatch
 
-from .....core.utils.decorators import api_auth_required, api_role_required
-from .....core.utils.jwt_tools import encode_jwt
-from .....core.utils.security import hash_nip  # si ya tienes util p/ NIP hash (ajusta si difiere)
-from .....core.utils.notify import create_notification as notify_user  # si ya tienes un helper (ajusta si difiere)
+from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.jwt_tools import encode_jwt
+from itcj.core.utils.security import hash_nip  # si ya tienes util p/ NIP hash (ajusta si difiere)
+from itcj.core.utils.notify import create_notification as notify_user  # si ya tienes un helper (ajusta si difiere)
 import logging,os
 from xlsxwriter import Workbook
-from .....core.utils.msgraph_mail import acquire_token_silent, graph_send_mail
+from itcj.core.utils.msgraph_mail import acquire_token_silent, graph_send_mail
 from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
-from .....core.utils.email_tools import student_email
+from itcj.core.utils.email_tools import student_email
 
 # XLSX
 from io import BytesIO
@@ -462,10 +462,10 @@ def list_coordinators():
     Filtros opcionales: q (texto), program_id (int).
     """
     from sqlalchemy.orm import joinedload
-    from ...models.coordinator import Coordinator
-    from ...models.program_coordinator import ProgramCoordinator
-    from ...models.program import Program
-    from ...models.user import User
+    from itcj.apps.agendatec.models.coordinator import Coordinator
+    from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+    from itcj.apps.agendatec.models.program import Program
+    from itcj.core.models.user import User
 
     q = (request.args.get("q") or "").strip().lower()
     program_id = request.args.get("program_id", type=int)
@@ -813,8 +813,8 @@ def send_surveys():
         targets = ["jefatura_cc@cdjuarez.tecnm.mx"]
     else:
         # EJEMPLO: obtén correos a partir de tus modelos
-        from ...models.user import User
-        from ...models.request import Request as Req
+        from itcj.core.models.user import User
+        from itcj.apps.agendatec.models.request import Request as Req
         q = (
             db.session.query(User)
             .join(Req, Req.student_id == User.id)

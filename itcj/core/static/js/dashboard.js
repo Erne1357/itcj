@@ -234,8 +234,8 @@ class WindowsDesktop {
       },
       papelera: {
         name: "Papelera",
-        url: "/auth/logut",
-        iframeSrc: "/auth/logout",
+        url: "/api/auth/v1/auth/logout",
+        iframeSrc: "/api/auth/v1/auth/logout",
         icon: "trash-2",
       }
     }
@@ -355,5 +355,18 @@ class WindowsDesktop {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  new WindowsDesktop()
+  const desktop = new WindowsDesktop()
+
+  const logoutBtn = document.getElementById("logout-fab")
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/v1/auth/logout", { method: "POST", credentials: "include" })
+      } catch (e) {
+        // ignoramos errores de red; forzamos logout del lado cliente
+      }
+      desktop.closeAllWindows()
+      window.location.href = "/auth/login"
+    })
+  }
 })

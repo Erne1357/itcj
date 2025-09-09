@@ -2,7 +2,7 @@
 from sqlalchemy.dialects.postgresql import JSONB, ENUM
 from . import db
 
-notif_type_pg_enum = ENUM("APPOINTMENT_CREATED","APPOINTMENT_CANCELED", "REQUEST_STATUS_CHANGED", "DROP_CREATED", "SYSTEM",name="notfi_type_enum", create_type=False)
+notif_type_pg_enum = ENUM("APPOINTMENT_CREATED","APPOINTMENT_CANCELED", "REQUEST_STATUS_CHANGED", "DROP_CREATED", "SYSTEM",name="notif_type_enum", create_type=False)
 
 class Notification(db.Model):
     __tablename__ = "notifications"

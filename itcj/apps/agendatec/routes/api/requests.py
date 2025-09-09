@@ -2,20 +2,20 @@
 from datetime import date
 from flask import Blueprint, request, jsonify, g, current_app
 from sqlalchemy.exc import IntegrityError
-from .....core.utils.decorators import api_auth_required, api_role_required, api_closed
-from ...models import db
-from ...models.user import User
-from ...models.program import Program
-from ...models.program_coordinator import ProgramCoordinator
-from ...models.time_slot import TimeSlot    # id, coordinator_id, day (DATE), start_time (TIME), is_booked
-from ...models.request import Request
-from ...models.appointment import Appointment
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed
+from itcj.apps.agendatec.models import db
+from itcj.core.models.user import User
+from itcj.apps.agendatec.models.program import Program
+from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.apps.agendatec.models.time_slot import TimeSlot    # id, coordinator_id, day (DATE), start_time (TIME), is_booked
+from itcj.apps.agendatec.models.request import Request
+from itcj.apps.agendatec.models.appointment import Appointment
 import logging
-from .....core.sockets import socketio
-from .....core.utils.redis_conn import get_redis
-from .....core.sockets.requests import broadcast_appointment_created, broadcast_drop_created, broadcast_request_status_changed
-from .....core.utils.notify import create_notification
-from .....core.sockets.notifications import push_notification
+from itcj.core.sockets import socketio
+from itcj.core.utils.redis_conn import get_redis
+from itcj.core.sockets.requests import broadcast_appointment_created, broadcast_drop_created, broadcast_request_status_changed
+from itcj.core.utils.notify import create_notification
+from itcj.core.sockets.notifications import push_notification
 from datetime import datetime
 api_req_bp = Blueprint("api_requests", __name__)
 

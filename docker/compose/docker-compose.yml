@@ -23,7 +23,6 @@ services:
       dockerfile: docker/backend/Dockerfile
     env_file: ../../.env
     volumes:
-      # Monta todo el proyecto en /app
       - ../../:/app
     depends_on:
       - postgres

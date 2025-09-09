@@ -1,6 +1,6 @@
 # backend/routes/pages/admin.py
 from flask import Blueprint, render_template
-from .....core.utils.decorators import role_required_page, login_required
+from itcj.core.utils.decorators import role_required_page, login_required
 
 admin_pages_bp = Blueprint("admin_pages", __name__)
 

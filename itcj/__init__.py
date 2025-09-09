@@ -1,6 +1,6 @@
 # itcj/__init__.py
 from flask import Flask,request, jsonify, render_template, redirect, url_for,g, current_app
-from .extensions import db, migrate
+from .core.extensions import db, migrate
 from werkzeug.exceptions import HTTPException
 from .core.utils.jwt_tools import encode_jwt, decode_jwt
 from .core.utils.admit_window import is_student_window_open, get_student_window
@@ -31,7 +31,7 @@ def create_app():
     @app.before_request
     def load_current_user():
         g.current_user = None
-        token = request.cookies.get("agendatec_token")
+        token = request.cookies.get("itcj_token")
         data = decode_jwt(token) if token else None
         if data:
             g.current_user = data  # dict con sub, role, cn, name, iat, exp
@@ -51,7 +51,7 @@ def create_app():
                 hours=current_app.config["JWT_EXPIRES_HOURS"]
             )
             resp.set_cookie(
-                "agendatec_token", new_token, httponly=True,
+                "itcj_token", new_token, httponly=True,
                 samesite=current_app.config["COOKIE_SAMESITE"],
                 secure=current_app.config["COOKIE_SECURE"],
                 max_age=current_app.config["JWT_EXPIRES_HOURS"] * 3600,

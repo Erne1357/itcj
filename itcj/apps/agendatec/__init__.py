@@ -1,5 +1,5 @@
 from flask import Blueprint,redirect, url_for, g, current_app
-from ...core.utils.decorators import login_required
+from itcj.core.utils.decorators import login_required
 import logging
 
 # Blueprint de AgendaTec

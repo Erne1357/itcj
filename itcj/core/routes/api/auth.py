@@ -1,7 +1,7 @@
 # routes/api/auth.py
 from flask import Blueprint, request, jsonify, make_response, current_app
-from ...utils.jwt_tools import encode_jwt, decode_jwt
-from ...services.auth_service import authenticate, authenticate_by_username
+from itcj.core.utils.jwt_tools import encode_jwt, decode_jwt
+from itcj.core.services.auth_service import authenticate, authenticate_by_username
 
 api_auth_bp = Blueprint("api_auth", __name__)
 
@@ -32,7 +32,7 @@ def api_login():
     )
     resp = make_response({"user":{"id":user["id"],"role":user["role"],"full_name":user["full_name"]}})
     resp.set_cookie(
-        "agendatec_token", token, httponly=True,
+        "itcj_token", token, httponly=True,
         samesite=current_app.config["COOKIE_SAMESITE"],
         secure=current_app.config["COOKIE_SECURE"],
         max_age=current_app.config["JWT_EXPIRES_HOURS"]*3600,
@@ -42,7 +42,7 @@ def api_login():
 
 @api_auth_bp.get("/me")
 def api_me():
-    token = request.cookies.get("agendatec_token")
+    token = request.cookies.get("itcj_token")
     data = decode_jwt(token) if token else None
     if not data:
         return jsonify({"error":"unauthorized"}), 401
@@ -54,7 +54,7 @@ def api_me():
 @api_auth_bp.post("/logout")
 def api_logout():
     resp = make_response({}, 204)
-    resp.set_cookie("agendatec_token","",expires=0,httponly=True,
+    resp.set_cookie("itcj_token","",expires=0,httponly=True,
                     samesite=current_app.config["COOKIE_SAMESITE"],
                     secure=current_app.config["COOKIE_SECURE"],
                     path="/")
