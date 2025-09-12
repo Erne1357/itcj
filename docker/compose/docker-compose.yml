@@ -1,3 +1,4 @@
+name: itcj
 services:
   redis:
     restart: always

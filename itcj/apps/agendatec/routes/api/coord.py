@@ -14,11 +14,11 @@ from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.apps.agendatec.models.request import Request
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.core.utils.security import verify_nip, hash_nip
-from itcj.core.sockets import socketio
 from itcj.core.sockets.requests import broadcast_request_status_changed
 from itcj.core.utils.notify import create_notification
 from itcj.core.sockets.notifications import push_notification
 
+socketio = current_app.extensions.get('socketio')
 api_coord_bp = Blueprint("api_coord", __name__)
 
 ALLOWED_DAYS = {date(2025,8,25), date(2025,8,26), date(2025,8,27)}

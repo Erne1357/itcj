@@ -23,6 +23,7 @@ def create_app():
 
     from .core.sockets import init_socketio
     socketio = init_socketio(app)
+    app.extensions['socketio'] = socketio
 
     #Registrar blueprints de los módulos principales
     registerBlueprints(app)
