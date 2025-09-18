@@ -4,10 +4,10 @@ from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
 from itcj.core.utils.decorators import api_auth_required, api_role_required
 from itcj.apps.agendatec.models import db
-from itcj.apps.agendatec.models.program import Program
+from itcj.core.models.program import Program
 from itcj.core.models.user import User
-from itcj.apps.agendatec.models.coordinator import Coordinator
-from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.core.models.coordinator import Coordinator
+from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.time_slot import TimeSlot            # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), is_booked
 from itcj.apps.agendatec.models.availability_window import AvailabilityWindow  # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), slot_minutes
 

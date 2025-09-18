@@ -2,10 +2,10 @@
 from flask import Blueprint, request, jsonify
 from itcj.core.utils.decorators import api_auth_required
 from itcj.apps.agendatec.models import db
-from itcj.apps.agendatec.models.program import Program
+from itcj.core.models.program import Program
 from itcj.core.models.user import User
-from itcj.apps.agendatec.models.coordinator import Coordinator
-from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.core.models.coordinator import Coordinator
+from itcj.core.models.program_coordinator import ProgramCoordinator
 
 api_programs_bp = Blueprint("api_programs", __name__)
 

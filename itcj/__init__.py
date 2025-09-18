@@ -172,16 +172,20 @@ def registerBlueprints(app):
     #Registro de apis
     from itcj.core.routes.api.auth import api_auth_bp
     from .apps.agendatec import agendatec_api_bp
+    from itcj.apps.tickets import tickets_api_bp
     app.register_blueprint(api_auth_bp, url_prefix="/api/auth/v1/auth")
     app.register_blueprint(agendatec_api_bp)
+    app.register_blueprint(tickets_api_bp, url_prefix="/api/tickets/v1")
 
     #Registro de páginas
     from itcj.core.routes.pages.auth import pages_auth_bp
     from .apps.agendatec import agendatec_pages_bp
     from itcj.core.routes.pages.dashboard import pages_dashboard_bp
+    from itcj.apps.tickets import tickets_pages_bp
     app.register_blueprint(pages_dashboard_bp, url_prefix="/dashboard")
     app.register_blueprint(pages_auth_bp, url_prefix="/auth")
     app.register_blueprint(agendatec_pages_bp, url_prefix="/agendatec")
+    app.register_blueprint(tickets_pages_bp, url_prefix="/tickets")
 
 def register_error_handlers(app):
     MESSAGES = {

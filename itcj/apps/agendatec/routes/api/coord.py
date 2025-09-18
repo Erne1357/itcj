@@ -6,9 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from itcj.core.utils.decorators import api_auth_required, api_role_required
 from itcj.apps.agendatec.models import db
 from itcj.core.models.user import User
-from itcj.apps.agendatec.models.coordinator import Coordinator
-from itcj.apps.agendatec.models.program import Program
-from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.core.models.coordinator import Coordinator
+from itcj.core.models.program import Program
+from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
 from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.apps.agendatec.models.request import Request
@@ -18,7 +18,6 @@ from itcj.core.sockets.requests import broadcast_request_status_changed
 from itcj.core.utils.notify import create_notification
 from itcj.core.sockets.notifications import push_notification
 
-socketio = current_app.extensions.get('socketio')
 api_coord_bp = Blueprint("api_coord", __name__)
 
 ALLOWED_DAYS = {date(2025,8,25), date(2025,8,26), date(2025,8,27)}
@@ -199,6 +198,7 @@ def set_day_config():
     start_s = (data.get("start") or "").strip()
     end_s   = (data.get("end") or "").strip()
     slot_minutes = int(data.get("slot_minutes", 10))
+    socketio = current_app.extensions.get('socketio')
 
     # --- Validaciones de fecha/hora ---
     try:
@@ -342,6 +342,7 @@ def delete_day_range():
     day_s = (data.get("day") or "").strip()
     start_s = (data.get("start") or "").strip()
     end_s   = (data.get("end") or "").strip()
+    socketio = current_app.extensions.get('socketio')
 
     # Validaciones de fecha/hora
     try:
@@ -514,6 +515,7 @@ def coord_appointments():
 @api_role_required(["coordinator","admin"])
 def update_appointment(ap_id: int):
     coord_id = _current_coordinator_id()
+    socketio = current_app.extensions.get('socketio')
     if not coord_id:
         return jsonify({"error":"coordinator_not_found"}), 404
     ap = db.session.query(Appointment).get(ap_id)
@@ -663,6 +665,7 @@ def update_request_status(req_id: int):
     data = request.get_json(silent=True) or {}
     new_status = (data.get("status") or "").upper()
     allowed = {"RESOLVED_SUCCESS","RESOLVED_NOT_COMPLETED","NO_SHOW","ATTENDED_OTHER_SLOT","CANCELED"}
+    socketio = current_app.extensions.get('socketio')
     if new_status not in allowed:
         return jsonify({"error":"invalid_status"}), 400
 

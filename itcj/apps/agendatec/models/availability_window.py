@@ -1,7 +1,7 @@
 from . import db
 
 class AvailabilityWindow(db.Model):
-    __tablename__ = "availability_windows"
+    __tablename__ = "agendatec_availability_windows"
 
     id = db.Column(db.Integer, primary_key=True)
     coordinator_id = db.Column(db.Integer, db.ForeignKey("coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)

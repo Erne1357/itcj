@@ -11,9 +11,9 @@ from sqlalchemy.sql import extract
 from itcj.apps.agendatec.models import db
 from itcj.core.models.user import User
 from itcj.core.models.role import Role
-from itcj.apps.agendatec.models.coordinator import Coordinator
-from itcj.apps.agendatec.models.program import Program
-from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.core.models.coordinator import Coordinator
+from itcj.core.models.program import Program
+from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.request import Request as Req
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.apps.agendatec.models.time_slot import TimeSlot
@@ -462,9 +462,9 @@ def list_coordinators():
     Filtros opcionales: q (texto), program_id (int).
     """
     from sqlalchemy.orm import joinedload
-    from itcj.apps.agendatec.models.coordinator import Coordinator
-    from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
-    from itcj.apps.agendatec.models.program import Program
+    from itcj.core.models.coordinator import Coordinator
+    from itcj.core.models.program_coordinator import ProgramCoordinator
+    from itcj.core.models.program import Program
     from itcj.core.models.user import User
 
     q = (request.args.get("q") or "").strip().lower()

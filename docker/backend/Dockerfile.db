@@ -2,7 +2,8 @@ FROM postgres:16
 
 ENV TZ = "America/Chihuahua"
 
-COPY ../../database/DDL/0*.sql /docker-entrypoint-initdb.d/
-COPY ../../database/DML/0*.sql /docker-entrypoint-initdb.d/
-COPY ../../database/DML/1*.sql /docker-entrypoint-initdb.d/
-
+#COPY ../../database/DDL/0*.sql /docker-entrypoint-initdb.d/
+#COPY ../../database/DML/0*.sql /docker-entrypoint-initdb.d/
+#COPY ../../database/DML/1*.sql /docker-entrypoint-initdb.d/
+COPY ../../database/agendatec.dump /docker-entrypoint-initdb.d/agendatec.dump
+COPY ../../database/init-itcj.sh /docker-entrypoint-initdb.d/init-itcj.sh

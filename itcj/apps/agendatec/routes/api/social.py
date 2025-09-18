@@ -7,7 +7,7 @@ from itcj.apps.agendatec.models import db
 from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.apps.agendatec.models.request import Request
-from itcj.apps.agendatec.models.program import Program
+from itcj.core.models.program import Program
 from itcj.core.models.user import User
 
 api_social_bp = Blueprint("api_social", __name__)

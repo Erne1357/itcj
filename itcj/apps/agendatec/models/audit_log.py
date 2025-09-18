@@ -1,7 +1,7 @@
 from . import db
 
 class AuditLog(db.Model):
-    __tablename__ = "audit_logs"
+    __tablename__ = "agendatec_audit_logs"
 
     id = db.Column(db.BigInteger, primary_key=True)
 

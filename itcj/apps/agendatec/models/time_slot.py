@@ -1,7 +1,7 @@
 from . import db
 
 class TimeSlot(db.Model):
-    __tablename__ = "time_slots"
+    __tablename__ = "agendatec_time_slots"
 
     id = db.Column(db.BigInteger, primary_key=True)
     coordinator_id = db.Column(db.Integer, db.ForeignKey("coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)

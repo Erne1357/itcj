@@ -2,7 +2,7 @@
 import os
 bind = "0.0.0.0:8000"
 worker_class = "eventlet"
-workers = int(os.getenv("GUNICORN_WORKERS", "3"))          # luego puedes probar 8
+workers = int(os.getenv("GUNICORN_WORKERS", "1"))          # luego puedes probar 8
 worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "2000"))
 graceful_timeout = 30
 timeout = 120

@@ -5,8 +5,8 @@ from sqlalchemy.exc import IntegrityError
 from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed
 from itcj.apps.agendatec.models import db
 from itcj.core.models.user import User
-from itcj.apps.agendatec.models.program import Program
-from itcj.apps.agendatec.models.program_coordinator import ProgramCoordinator
+from itcj.core.models.program import Program
+from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.time_slot import TimeSlot    # id, coordinator_id, day (DATE), start_time (TIME), is_booked
 from itcj.apps.agendatec.models.request import Request
 from itcj.apps.agendatec.models.appointment import Appointment
@@ -18,7 +18,6 @@ from itcj.core.sockets.notifications import push_notification
 from datetime import datetime
 
 api_req_bp = Blueprint("api_requests", __name__)
-socketio = current_app.extensions.get('socketio')
 # Días permitidos
 ALLOWED_DAYS = {date(2025, 8, 25), date(2025, 8, 26), date(2025, 8, 27)}
 
@@ -79,6 +78,7 @@ def create_request():
     exists = (db.session.query(Request)
               .filter(Request.student_id == u.id)
               .first())
+    socketio = current_app.extensions.get('socketio')
     if exists and exists.status != "CANCELED":
         return jsonify({"error": "already_has_petition"}), 409
 
@@ -252,6 +252,7 @@ def cancel_request(req_id: int):
     r = (db.session.query(Request)
          .filter(Request.id == req_id, Request.student_id == u.id)
          .first())
+    socketio = current_app.extensions.get('socketio')
     if not r:
         return jsonify({"error": "request_not_found"}), 404
     if r.status != "PENDING":

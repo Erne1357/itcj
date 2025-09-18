@@ -9,7 +9,7 @@ request_status_pg_enum = ENUM(
 )
 
 class Request(db.Model):
-    __tablename__ = "requests"
+    __tablename__ = "agendatec_requests"
 
     id = db.Column(db.BigInteger, primary_key=True)
 

@@ -1,0 +1,363 @@
+/* SITEC - Sistema Integral de Tickets del Centro de Cómputo ITCJ */
+:root {
+  --sitec-primary: #059669;
+  --sitec-secondary: #10b981;
+  --sitec-accent: #0891b2;
+  --sitec-danger: #dc2626;
+  --sitec-warning: #f59e0b;
+  --sitec-success: #10b981;
+  --sitec-light: #f1f5f9;
+  --sitec-dark: #374151;
+  --sitec-muted: #6b7280;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background-color: var(--sitec-light);
+  color: var(--sitec-dark);
+}
+
+/* Background gradient */
+.sitec-bg {
+  background: linear-gradient(135deg, #ffffff 0%, var(--sitec-light) 100%);
+}
+
+/* Header */
+.sitec-header {
+  background: linear-gradient(135deg, var(--sitec-primary) 0%, var(--sitec-secondary) 100%);
+  border-bottom: 3px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.sitec-logo {
+  width: 64px;
+  height: 64px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.sitec-title {
+  color: white;
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.sitec-subtitle {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1rem;
+}
+
+.sitec-status-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  animation: pulse 2s infinite;
+}
+
+/* Main Content */
+.sitec-main-title {
+  font-size: 3.5rem;
+  font-weight: 700;
+  color: var(--sitec-dark);
+  margin-bottom: 1.5rem;
+}
+
+.sitec-main-subtitle {
+  font-size: 1.5rem;
+  color: var(--sitec-muted);
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Help Card */
+.sitec-help-card {
+  background: white;
+  border: none;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.sitec-help-card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.sitec-help-icon {
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  animation: bounce-in 0.6s ease-out;
+}
+
+.sitec-help-icon i {
+  font-size: 2.5rem;
+  color: white;
+}
+
+.sitec-btn-primary {
+  background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+  border: none;
+  border-radius: 12px;
+  padding: 15px 30px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(5, 150, 105, 0.3);
+}
+
+.sitec-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(5, 150, 105, 0.4);
+  background: linear-gradient(135deg, var(--sitec-secondary), var(--sitec-primary));
+}
+
+/* Service Cards */
+.sitec-section-title {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--sitec-dark);
+}
+
+.sitec-service-card {
+  background: white;
+  border: none;
+  border-radius: 15px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  border-left: 4px solid var(--sitec-primary);
+}
+
+.sitec-service-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.sitec-service-icon {
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sitec-service-icon i {
+  font-size: 1.5rem;
+  color: white;
+}
+
+.sitec-service-examples {
+  background: var(--sitec-light);
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+/* Footer */
+.sitec-footer {
+  background: var(--sitec-dark);
+  color: white;
+  border-top: 3px solid var(--sitec-primary);
+}
+
+/* Animations */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-in-up {
+  animation: slide-in-up 0.6s ease-out;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sitec-main-title {
+    font-size: 2.5rem;
+  }
+
+  .sitec-main-subtitle {
+    font-size: 1.2rem;
+  }
+
+  .sitec-title {
+    font-size: 2rem;
+  }
+}
+
+/* Status Badges */
+.status-badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-creado {
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.status-leido {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.status-en-revision {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.status-atendido {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.status-liberado {
+  background-color: #e0e7ff;
+  color: #3730a3;
+}
+
+.status-cerrado {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Priority Badges */
+.priority-baja {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.priority-media {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.priority-alta {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.priority-urgente {
+  background-color: #fecaca;
+  color: #991b1b;
+  animation: pulse 1.5s infinite;
+}
+
+/* Form Styles */
+.sitec-form-control {
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.sitec-form-control:focus {
+  border-color: var(--sitec-primary);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+  outline: none;
+}
+
+.sitec-form-label {
+  font-weight: 600;
+  color: var(--sitec-dark);
+  margin-bottom: 8px;
+}
+
+/* Ticket Animation */
+.ticket-send-animation {
+  animation: ticket-send 1.2s ease-out forwards;
+}
+
+@keyframes ticket-send {
+  0% {
+    transform: translateY(0) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  25% {
+    transform: translateY(-10px) scale(1.02) rotate(1deg);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-30px) scale(1.05) rotate(-1deg);
+    opacity: 0.7;
+  }
+  75% {
+    transform: translateY(-60px) scale(0.95) rotate(2deg);
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(-120px) scale(0.8) rotate(0deg);
+    opacity: 0;
+  }
+}
+
+/* Loading States */
+.loading-shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}

@@ -228,7 +228,7 @@ class WindowsDesktop {
       },
       tickets: {
         name: "Tickets",
-        url: "/tickets/admin/panel", 
+        url: "/tickets/", 
         iframeSrc: "/tickets/",
         icon: "ticket",
       },
