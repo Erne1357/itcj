@@ -4,6 +4,7 @@ from .core.extensions import db, migrate
 from werkzeug.exceptions import HTTPException
 from .core.utils.jwt_tools import encode_jwt, decode_jwt
 from .core.utils.admit_window import is_student_window_open, get_student_window
+from itcj.core.utils.role_home import role_home
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -82,7 +83,7 @@ def create_app():
     def home():
         if g.current_user:
             return redirect(role_home(g.current_user.get("role")))
-        return redirect(url_for("pages_auth.login_page"))
+        return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor
     def inject_globals():
@@ -170,20 +171,18 @@ def create_app():
 
 def registerBlueprints(app):
     #Registro de apis
-    from itcj.core.routes.api.auth import api_auth_bp
-    from .apps.agendatec import agendatec_api_bp
+    from itcj.apps.agendatec import agendatec_api_bp
     from itcj.apps.tickets import tickets_api_bp
-    app.register_blueprint(api_auth_bp, url_prefix="/api/auth/v1/auth")
-    app.register_blueprint(agendatec_api_bp)
+    from itcj.core import api_core_bp
+    app.register_blueprint(api_core_bp, url_prefix="/api/core/v1")
+    app.register_blueprint(agendatec_api_bp,url_prefix="/api/agendatec/v1")
     app.register_blueprint(tickets_api_bp, url_prefix="/api/tickets/v1")
 
     #Registro de páginas
-    from itcj.core.routes.pages.auth import pages_auth_bp
-    from .apps.agendatec import agendatec_pages_bp
-    from itcj.core.routes.pages.dashboard import pages_dashboard_bp
+    from itcj.apps.agendatec import agendatec_pages_bp
     from itcj.apps.tickets import tickets_pages_bp
-    app.register_blueprint(pages_dashboard_bp, url_prefix="/dashboard")
-    app.register_blueprint(pages_auth_bp, url_prefix="/auth")
+    from itcj.core import pages_core_bp
+    app.register_blueprint(pages_core_bp, url_prefix="/itcj")
     app.register_blueprint(agendatec_pages_bp, url_prefix="/agendatec")
     app.register_blueprint(tickets_pages_bp, url_prefix="/tickets")
 
@@ -230,7 +229,7 @@ def register_error_handlers(app):
         # Páginas: 401 → login; grandes → plantilla; resto → plantilla genérica también
         if code == 401:
             # puedes agregar ?next=<ruta_actual>
-            return redirect(url_for("pages_auth.login_page"))
+            return redirect(url_for("pages_core.pages_auth.login_page"))
         page_code = code if code in MESSAGES else 500
         return render_error_page(page_code, msg)
 
@@ -248,13 +247,8 @@ def register_error_handlers(app):
                 if wants_json():
                     return jsonify({"error": _e.name if isinstance(_e, HTTPException) else "error", "status": c}), c
                 if c == 401:
-                    return redirect(url_for("pages_auth.login_page"))
+                    return redirect(url_for("pages_core.pages_auth.login_page"))
                 return render_error_page(c, MESSAGES.get(c, "Error"))
             return _h
         app.register_error_handler(code, _factory(code))
 
-def role_home(role: str) -> str:
-        return { "student": "/agendatec/student/home",
-                 "coordinator": "/dashboard/dashboard",
-                 "social_service": "/dashboard/dashboard",
-                  "admin":"/dashboard/dashboard" }.get(role, "/")

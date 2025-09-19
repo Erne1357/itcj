@@ -10,7 +10,7 @@ def login_required(view):
     def wrapper(*args, **kwargs):
         if not g.get("current_user"):
             next_url = request.path
-            return redirect(url_for("pages_auth.login_page", next=next_url))
+            return redirect(url_for("pages_core.pages_auth.login_page", next=next_url))
         return view(*args, **kwargs)
     return wrapper
 
@@ -21,7 +21,7 @@ def role_required_page(roles: list[str]):
             cu = g.get("current_user")
             if not cu:
                 next_url = request.path
-                return redirect(url_for("pages_auth.login_page", next=next_url))
+                return redirect(url_for("pages_core.pages_auth.login_page", next=next_url))
             if cu.get("role") not in roles:
                 # 403 o redirigir a su home
                 return redirect("/")
@@ -51,19 +51,19 @@ def api_role_required(roles: list[str]):
         return wrapper
     return deco
 
-# Decorador para verificar si el coordinador debe cambiar su contraseña
+# Decorador para verificar si el usuario debe cambiar su contraseña
 def pw_changed_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
         cu = g.get("current_user")
-        # Solo aplica para coordinadores
-        if cu and cu.get("role") == "coordinator":
+        # Solo aplica para personal que no sea estudiante
+        if cu and cu.get("role") != "student":
             # Debes tener una función que verifique el estado, por ejemplo:
-            from itcj.apps.agendatec.models import Coordinator
-            coord = Coordinator.query.filter_by(user_id=cu["sub"]).first()
-            if coord and getattr(coord, "must_change_pw", False):
-                # Redirige a home del coordinador (donde está el modal)
-                return redirect(url_for("agendatec_pages.coord_pages.coord_home_page"))
+            from itcj.core.models.user import User
+            user = User.query.filter_by(id=cu["sub"]).first()
+            if user and getattr(user, "must_change_password", False):
+                # Redirige a dashboard si no ha cambiado su contraseña
+                return redirect(url_for("pages_core.pages_dashboard.dashboard"))
         return view(*args, **kwargs)
     return wrapper
 

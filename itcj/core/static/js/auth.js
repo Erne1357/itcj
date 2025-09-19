@@ -1,7 +1,7 @@
 // static/js/auth.js
 (async () => {
   try {
-    const r = await fetch("/api/auth/v1/auth/me", { credentials: "include" });
+    const r = await fetch("/api/core/v1/auth/me", { credentials: "include" });
     if (r.ok) {
       const { user } = await r.json();
       if (user?.role === "student") window.location.href = "/student/home";
@@ -33,7 +33,7 @@
     const payload = { control_number: idOrUser, nip };
 
     try {
-      const res = await fetch("/api/auth/v1/auth/login", {
+      const res = await fetch("/api/core/v1/auth/login", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

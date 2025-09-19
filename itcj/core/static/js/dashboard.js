@@ -2,11 +2,25 @@ class WindowsDesktop {
   constructor() {
     this.openWindows = []
     this.windowZIndex = 1000
+    this.grid = { rows: 9, cols: 18 }
+    this.desktopItems = [
+      //Position (1,1)
+      { id: 'agendatec', name: 'AgendaTec', icon: 'calendar', r: 1, c: 1, w: 1, h: 1 },
+      //Position (2,1)
+      { id: 'tickets', name: 'Tickets', icon: 'ticket', r: 2, c: 1, w: 1, h: 1 },
+      //Position (3,1)
+      { id: 'compras', name: 'Compras', icon: 'shopping-cart', r: 3, c: 1, w: 1, h: 1 },
+      //Position (9,1)
+      { id: 'settings', name: 'Configuración', icon: 'settings', r: 9, c: 1, w: 1, h: 1 },
+      //Position (1,18)
+      { id: 'recycle', name: 'Papelera de reciclaje', icon: 'trash-2', r: 1, c: 18, w: 1, h: 1, readonly: true }
+    ]
     this.init()
   }
 
   init() {
     lucide.createIcons()
+    this.renderDesktopGrid()
     this.setupDesktopIcons()
     this.setupPostMessageListener() // Nueva función
     this.updateDateTime()
@@ -42,10 +56,10 @@ class WindowsDesktop {
   handleLogout() {
     // Mostrar mensaje de logout si es necesario
     console.log('Cerrando sesión en dashboard principal...')
-    
+
     // Cerrar todas las ventanas
     this.closeAllWindows()
-    
+
     // Recargar la página principal para limpiar el estado
     window.location.href = '/auth/login'
   }
@@ -81,7 +95,43 @@ class WindowsDesktop {
       }
     })
   }
+  renderDesktopGrid() {
+    const grid = document.getElementById('desktop-grid')
+    if (!grid) return
 
+    grid.innerHTML = ''
+
+    this.desktopItems.forEach(item => {
+      const tile = document.createElement('div')
+      tile.className = 'desktop-icon'
+      tile.dataset.app = item.id
+
+      // Colocación en la cuadrícula (1-indexed)
+      tile.style.gridColumn = `${item.c} / span ${item.w || 1}`
+      tile.style.gridRow = `${item.r} / span ${item.h || 1}`
+
+      // Contenido del icono (usa lucide o imagen según el caso)
+      tile.innerHTML = `
+      <div class="icon-container">
+        ${item.id === 'agendatec'
+          ? `<img src="/static/agendatec/icon/agendatec.ico" alt="AgendaTec" style="width:45px;height:45px;">`
+          : `<i data-lucide="${item.icon || 'square'}"></i>`
+        }
+      </div>
+      <span class="icon-label">${item.name}</span>
+    `
+
+      // Si es readonly (p. ej. papelera decorativa), puedes bloquear la apertura
+      if (item.readonly) {
+        tile.addEventListener('click', (e) => e.preventDefault())
+      }
+
+      grid.appendChild(tile)
+    })
+
+    // Re-pintar iconos lucide que hayan entrado por innerHTML
+    lucide.createIcons()
+  }
   createWindow(appId, config) {
     const window = document.createElement("div")
     window.className = "app-window"
@@ -144,7 +194,7 @@ class WindowsDesktop {
           lastUrl = currentUrl
           const pathname = new URL(currentUrl).pathname
           urlSpan.textContent = pathname
-          
+
           // Verificar si es logout
           if (pathname.endsWith('/logout') || pathname === '/auth/login') {
             console.log('Logout detectado via URL monitoring:', pathname)
@@ -221,30 +271,36 @@ class WindowsDesktop {
         icon: "calendar",
       },
       compras: {
-        name: "Compras", 
+        name: "Compras",
         url: "/compras/dashboard",
         iframeSrc: "/compras/",
         icon: "shopping-cart",
       },
       tickets: {
         name: "Tickets",
-        url: "/tickets/", 
+        url: "/tickets/",
         iframeSrc: "/tickets/",
         icon: "ticket",
       },
       papelera: {
         name: "Papelera",
-        url: "/api/auth/v1/auth/logout",
-        iframeSrc: "/api/auth/v1/auth/logout",
+        url: "/api/core/v1/auth/logout",
+        iframeSrc: "/api/core/v1/auth/logout",
         icon: "trash-2",
-      }
+      },
+      settings: {
+        name: "Configuración",
+        url: "/settings/",
+        iframeSrc: "/settings/",
+        icon: "settings",
+      },
     }
 
-    return configs[appId] || { 
-      name: "App", 
-      url: "/app/home", 
-      iframeSrc: "/app/home", 
-      icon: "square" 
+    return configs[appId] || {
+      name: "App",
+      url: "/app/home",
+      iframeSrc: "/app/home",
+      icon: "square"
     }
   }
 
@@ -361,12 +417,12 @@ document.addEventListener("DOMContentLoaded", () => {
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       try {
-        await fetch("/api/auth/v1/auth/logout", { method: "POST", credentials: "include" })
+        await fetch("/api/core/v1/auth/logout", { method: "POST", credentials: "include" })
       } catch (e) {
         // ignoramos errores de red; forzamos logout del lado cliente
       }
       desktop.closeAllWindows()
-      window.location.href = "/auth/login"
+      window.location.href = "/itcj/login"
     })
   }
 })

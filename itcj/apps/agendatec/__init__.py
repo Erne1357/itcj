@@ -42,7 +42,7 @@ def home():
         current_app.logger.info(f"Redirigiendo a home de {g.current_user.get('role') if g.current_user else 'anónimo'}")
         if g.current_user:
             return redirect(role_home(g.current_user.get("role")))
-        return redirect(url_for("pages_auth.login_page"))
+        return redirect(url_for("pages_core.pages_auth.login_page"))
 
 def role_home(role: str) -> str:
         return { "student": "/agendatec/student/home",

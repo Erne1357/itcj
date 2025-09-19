@@ -28,15 +28,26 @@ body {
   opacity: 0.8;
 }
 
-.desktop-icons {
+.desktop-grid {
   position: absolute;
+  /* margen interno: 16px y deja espacio para la taskbar de 48px */
   top: 16px;
   left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  width: 80px; /* o el ancho que ocupen tus iconos */
-  padding: 0;
+  right: 16px;
+  bottom: 64px; /* 48px de taskbar + margen */
+  display: grid;
+  grid-template-columns: repeat(18, 1fr);
+  grid-template-rows: repeat(9, 1fr);
+  gap: 12px;
+  align-content: start;
+  justify-content: start;
+}
+
+.desktop-grid .desktop-icon {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .desktop-icon {
