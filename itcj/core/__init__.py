@@ -13,7 +13,7 @@ api_core_bp.register_blueprint(api_user_bp, url_prefix="/user")
 
 from .routes.pages.auth import pages_auth_bp
 from .routes.pages.dashboard import pages_dashboard_bp
-from .routes.pages.settings import pages_settings_bp
+from .routes.pages.config import pages_settings_bp
 pages_core_bp.register_blueprint(pages_auth_bp)
 pages_core_bp.register_blueprint(pages_dashboard_bp)
 pages_core_bp.register_blueprint(pages_settings_bp)

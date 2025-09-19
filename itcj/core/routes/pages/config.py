@@ -5,7 +5,7 @@ from itcj.core.utils import role_home
 
 pages_settings_bp = Blueprint("pages_settings", __name__)
 
-@pages_settings_bp.get("/settings")
+@pages_settings_bp.get("/config")
 @login_required
 @role_required_page(["coordinator","social_service","admin"])
 def settings():

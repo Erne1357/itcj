@@ -2,7 +2,7 @@ class WindowsDesktop {
   constructor() {
     this.openWindows = []
     this.windowZIndex = 1000
-    this.grid = { rows: 9, cols: 18 }
+    this.grid = { rows: 9, cols: 17 }
     this.desktopItems = [
       //Position (1,1)
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar', r: 1, c: 1, w: 1, h: 1 },
@@ -290,8 +290,8 @@ class WindowsDesktop {
       },
       settings: {
         name: "Configuración",
-        url: "/settings/",
-        iframeSrc: "/settings/",
+        url: "/itcj/config",
+        iframeSrc: "/itcj/config",
         icon: "settings",
       },
     }
