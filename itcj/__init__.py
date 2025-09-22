@@ -175,7 +175,7 @@ def registerBlueprints(app):
     from itcj.apps.tickets import tickets_api_bp
     from itcj.core import api_core_bp
     app.register_blueprint(api_core_bp, url_prefix="/api/core/v1")
-    app.register_blueprint(agendatec_api_bp,url_prefix="/api/agendatec/v1")
+    app.register_blueprint(agendatec_api_bp)
     app.register_blueprint(tickets_api_bp, url_prefix="/api/tickets/v1")
 
     #Registro de páginas

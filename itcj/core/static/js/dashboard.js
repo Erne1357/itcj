@@ -84,13 +84,13 @@ class WindowsDesktop {
     this.closeAllWindows()
 
     // Recargar la página principal para limpiar el estado
-    window.location.href = '/auth/login'
+    window.location.href = '/itcj/login'
   }
 
   handleSessionExpired() {
     console.log('Sesión expirada, redirigiendo...')
     this.closeAllWindows()
-    window.location.href = '/auth/login?session_expired=true'
+    window.location.href = '/itcj/login?session_expired=true'
   }
 
   closeAllWindows() {
@@ -230,7 +230,7 @@ class WindowsDesktop {
           urlSpan.textContent = pathname
 
           // Verificar si es logout
-          if (pathname.endsWith('/logout') || pathname === '/auth/login') {
+          if (pathname.endsWith('/logout') || pathname === '/itcj/login') {
             console.log('Logout detectado via URL monitoring:', pathname)
             this.handleLogout()
             return

@@ -29,7 +29,7 @@
     
     // Verificar rutas de logout
     if (currentPath.endsWith('/logout') || 
-        currentPath === '/auth/login' ||
+        currentPath === '/itcj/login' ||
         currentPath.includes('login')) {
       
       console.log('Logout detectado en iframe:', currentPath)
