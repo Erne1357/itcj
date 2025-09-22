@@ -2,31 +2,54 @@ class WindowsDesktop {
   constructor() {
     this.openWindows = []
     this.windowZIndex = 1000
-    this.grid = { rows: 9, cols: 17 }
+    this.cols = 0
+    this.rows = 0
     this.desktopItems = [
-      //Position (1,1)
-      { id: 'agendatec', name: 'AgendaTec', icon: 'calendar', r: 1, c: 1, w: 1, h: 1 },
-      //Position (2,1)
-      { id: 'tickets', name: 'Tickets', icon: 'ticket', r: 2, c: 1, w: 1, h: 1 },
-      //Position (3,1)
-      { id: 'compras', name: 'Compras', icon: 'shopping-cart', r: 3, c: 1, w: 1, h: 1 },
-      //Position (9,1)
-      { id: 'settings', name: 'Configuración', icon: 'settings', r: 9, c: 1, w: 1, h: 1 },
-      //Position (1,18)
-      { id: 'recycle', name: 'Papelera de reciclaje', icon: 'trash-2', r: 1, c: 18, w: 1, h: 1, readonly: true }
+      { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
+      { id: 'tickets', name: 'Tickets', icon: 'ticket' },
+      { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
+
+      // anclados:
+      { id: 'recycle', name: 'Papelera de reciclaje', icon: 'trash-2', pin: 'last-col-first-row', readonly: true },
+      { id: 'settings', name: 'Configuración', icon: 'settings', pin: 'bottom-first-col' },
     ]
     this.init()
   }
 
   init() {
     lucide.createIcons()
+    // Observa el tamaño del contenedor para recalcular C×R
+    const grid = document.getElementById('desktop-grid')
+    const ro = new ResizeObserver(() => {
+      this.computeGridCR()
+      this.renderDesktopGrid()
+    })
+    ro.observe(grid)
+
+    // primer cálculo
+    this.computeGridCR()
     this.renderDesktopGrid()
-    this.setupDesktopIcons()
-    this.setupPostMessageListener() // Nueva función
+    this.setupPostMessageListener()
     this.updateDateTime()
     setInterval(() => this.updateDateTime(), 1000)
   }
+  computeGridCR() {
+    const grid = document.getElementById('desktop-grid')
+    if (!grid) return
+    const styles = getComputedStyle(grid)
+    const tile = parseInt(styles.getPropertyValue('--tile'), 10) || 100
+    const gap = parseInt(styles.getPropertyValue('--gap'), 10) || 12
+    const W = grid.clientWidth
+    const H = grid.clientHeight
+    const cols = Math.max(1, Math.floor((W + gap) / (tile + gap)))
+    const rows = Math.max(1, Math.floor((H + gap) / (tile + gap)))
 
+    // guarda y fija plantilla explícita (C×R)
+    this.cols = cols
+    this.rows = rows
+    grid.style.gridTemplateColumns = `repeat(${cols}, ${tile}px)`
+    grid.style.gridTemplateRows = `repeat(${rows}, ${tile}px)`
+  }
   // Nueva función para escuchar mensajes de los iframes
   setupPostMessageListener() {
     window.addEventListener('message', (event) => {
@@ -98,39 +121,50 @@ class WindowsDesktop {
   renderDesktopGrid() {
     const grid = document.getElementById('desktop-grid')
     if (!grid) return
-
     grid.innerHTML = ''
 
-    this.desktopItems.forEach(item => {
-      const tile = document.createElement('div')
-      tile.className = 'desktop-icon'
-      tile.dataset.app = item.id
-
-      // Colocación en la cuadrícula (1-indexed)
-      tile.style.gridColumn = `${item.c} / span ${item.w || 1}`
-      tile.style.gridRow = `${item.r} / span ${item.h || 1}`
-
-      // Contenido del icono (usa lucide o imagen según el caso)
-      tile.innerHTML = `
-      <div class="icon-container">
-        ${item.id === 'agendatec'
+    const buildTile = (item) => {
+      const el = document.createElement('div')
+      el.className = 'desktop-icon'
+      el.dataset.app = item.id
+      el.innerHTML = `
+                <div class="icon-container">
+                    ${item.id === 'agendatec'
           ? `<img src="/static/agendatec/icon/agendatec.ico" alt="AgendaTec" style="width:45px;height:45px;">`
-          : `<i data-lucide="${item.icon || 'square'}"></i>`
-        }
-      </div>
-      <span class="icon-label">${item.name}</span>
-    `
+          : `<i data-lucide="${item.icon || 'square'}"></i>`}
+                </div>
+                <span class="icon-label">${item.name}</span>`
+      if (item.readonly) el.addEventListener('click', e => e.preventDefault())
+      return el
+    }
 
-      // Si es readonly (p. ej. papelera decorativa), puedes bloquear la apertura
-      if (item.readonly) {
-        tile.addEventListener('click', (e) => e.preventDefault())
-      }
+    const items = [...this.desktopItems]
+    const recycle = items.find(i => i.pin === 'last-col-first-row')
+    const settings = items.find(i => i.pin === 'bottom-first-col')
 
-      grid.appendChild(tile)
-    })
+    // 1) Papelera: última columna (C), primera fila
+    if (recycle) {
+      const t = buildTile(recycle)
+      t.style.gridColumn = String(this.cols)
+      t.style.gridRow = '1'
+      grid.appendChild(t)
+    }
 
-    // Re-pintar iconos lucide que hayan entrado por innerHTML
+    // 2) Normales (sin posición → el auto-placement los coloca de izq->der, arr->abajo)
+    items.filter(i => i !== recycle && i !== settings)
+      .forEach(i => grid.appendChild(buildTile(i)))
+
+    // 3) Configuración: primera columna, última fila (R)
+    if (settings) {
+      const t = buildTile(settings)
+      t.style.gridColumn = '1'
+      t.style.gridRow = String(this.rows)
+      grid.appendChild(t)
+    }
+
     lucide.createIcons()
+    // ¡La solución está aquí!
+    this.setupDesktopIcons()
   }
   createWindow(appId, config) {
     const window = document.createElement("div")
@@ -228,7 +262,6 @@ class WindowsDesktop {
   // Resto de tu código existente...
   setupDesktopIcons() {
     const desktopIcons = document.querySelectorAll(".desktop-icon[data-app]")
-
     desktopIcons.forEach((icon) => {
       let clickCount = 0
       let clickTimer = null

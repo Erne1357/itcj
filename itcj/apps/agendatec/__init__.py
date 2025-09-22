@@ -1,12 +1,14 @@
 from flask import Blueprint,redirect, url_for, g, current_app
 from itcj.core.utils.decorators import login_required
+from itcj.core.utils.decorators import guard_blueprint
 import logging
 
 # Blueprint de AgendaTec
 agendatec_api_bp = Blueprint('agendatec_api', __name__, )
 agendatec_pages_bp = Blueprint('agendatec_pages', __name__, template_folder='/templates', static_folder='/static')
 
-
+#guard_blueprint(agendatec_api_bp, "agendatec")
+#guard_blueprint(agendatec_pages_bp, "agendatec")
 from .routes.api.programs_academic import api_programs_bp
 from .routes.api.availability import api_avail_bp
 from .routes.api.requests import api_req_bp

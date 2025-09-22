@@ -8,12 +8,14 @@ pages_core_bp = Blueprint('pages_core', __name__, template_folder='templates', s
 
 from .routes.api.auth import api_auth_bp
 from .routes.api.user import api_user_bp
+from .routes.api.authz import api_authz_bp
 api_core_bp.register_blueprint(api_auth_bp, url_prefix="/auth")
 api_core_bp.register_blueprint(api_user_bp, url_prefix="/user")
+api_core_bp.register_blueprint(api_authz_bp, url_prefix="/authz")
 
 from .routes.pages.auth import pages_auth_bp
 from .routes.pages.dashboard import pages_dashboard_bp
-from .routes.pages.config import pages_settings_bp
+from .routes.pages.config import pages_config_bp
 pages_core_bp.register_blueprint(pages_auth_bp)
 pages_core_bp.register_blueprint(pages_dashboard_bp)
-pages_core_bp.register_blueprint(pages_settings_bp)
+pages_core_bp.register_blueprint(pages_config_bp)

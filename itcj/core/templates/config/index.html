@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración del Sistema - ITCJ</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        .config-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .config-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .stats-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 0.8em;
+        }
+        .section-header {
+            border-left: 4px solid #0d6efd;
+            padding-left: 15px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="section-header">
+                    <h2 class="mb-1"><i class="bi bi-gear-fill me-2"></i>Configuración del Sistema</h2>
+                    <p class="text-muted">Gestiona aplicaciones, roles, permisos y usuarios del sistema</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tarjetas de navegación principal -->
+        <div class="row g-4">
+            <!-- Apps Management -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="card config-card h-100 position-relative">
+                    <div class="card-body text-center p-4">
+                        <span class="badge bg-primary stats-badge">{{ apps|length }}</span>
+                        <i class="bi bi-app-indicator display-4 text-primary mb-3"></i>
+                        <h5 class="card-title">Aplicaciones</h5>
+                        <p class="card-text text-muted">Gestiona las aplicaciones del sistema y sus configuraciones</p>
+                        <a href="{{ url_for('pages_core.pages_config.apps_management') }}" class="btn btn-primary">
+                            <i class="bi bi-gear me-1"></i>Gestionar Apps
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Roles Management -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="card config-card h-100 position-relative">
+                    <div class="card-body text-center p-4">
+                        <span class="badge bg-success stats-badge">{{ roles|length }}</span>
+                        <i class="bi bi-people-fill display-4 text-success mb-3"></i>
+                        <h5 class="card-title">Roles Globales</h5>
+                        <p class="card-text text-muted">Crea y administra roles globales del sistema</p>
+                        <a href="{{ url_for('pages_core.pages_config.roles_management') }}" class="btn btn-success">
+                            <i class="bi bi-person-plus me-1"></i>Gestionar Roles
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Management -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="card config-card h-100 position-relative">
+                    <div class="card-body text-center p-4">
+                        <span class="badge bg-info stats-badge">{{ users_count }}</span>
+                        <i class="bi bi-person-lines-fill display-4 text-info mb-3"></i>
+                        <h5 class="card-title">Usuarios</h5>
+                        <p class="card-text text-muted">Administra usuarios y sus asignaciones por aplicación</p>
+                        <a href="{{ url_for('pages_core.pages_config.users_management') }}" class="btn btn-info">
+                            <i class="bi bi-person-gear me-1"></i>Gestionar Usuarios
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Stats -->
+            <div class="col-12 col-md-6 col-xl-3">
+                <div class="card config-card h-100">
+                    <div class="card-body text-center p-4">
+                        <i class="bi bi-bar-chart-fill display-4 text-warning mb-3"></i>
+                        <h5 class="card-title">Estadísticas</h5>
+                        <p class="card-text text-muted">Vista general del estado del sistema</p>
+                        <div class="row text-center mt-3">
+                            <div class="col-6">
+                                <div class="fw-bold text-primary">{{ apps|length }}</div>
+                                <small class="text-muted">Apps</small>
+                            </div>
+                            <div class="col-6">
+                                <div class="fw-bold text-success">{{ permissions_count }}</div>
+                                <small class="text-muted">Permisos</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Apps activas -->
+        <div class="row mt-5">
+            <div class="col-12">
+                <div class="section-header">
+                    <h4>Aplicaciones Activas</h4>
+                    <p class="text-muted mb-0">Click en una aplicación para gestionar sus permisos</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            {% for app in apps %}
+            {% if app.is_active %}
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary bg-opacity-10 rounded p-2 me-3">
+                                <i class="bi bi-app text-primary"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1">{{ app.name }}</h6>
+                                <small class="text-muted">{{ app.key }}</small>
+                            </div>
+                            <div>
+                                <a href="{{ url_for('pages_core.pages_config.app_permissions', app_key=app.key) }}" 
+                                   class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-key me-1"></i>Permisos
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+            
+            {% if apps|selectattr('is_active')|list|length == 0 %}
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <i class="bi bi-app-indicator display-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No hay aplicaciones activas</h5>
+                    <p class="text-muted">Crea tu primera aplicación para comenzar</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Toast container -->
+        <div class="toast-container position-fixed bottom-0 end-0 p-3">
+            <div id="successToast" class="toast" role="alert">
+                <div class="toast-header">
+                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                    <strong class="me-auto">Éxito</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">
+                    Operación completada correctamente
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
