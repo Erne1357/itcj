@@ -3,7 +3,7 @@ from datetime import date
 import json
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
 from itcj.apps.agendatec.models import db
 from itcj.apps.agendatec.models.time_slot import TimeSlot
@@ -27,9 +27,9 @@ ENFORCE_SINGLE_HOLD_PER_USER = True
 # --------------------------------------------------------------------
 # POST /slots/hold  -> crea un hold temporal (TTL) sobre un slot libre
 # --------------------------------------------------------------------
-@api_slots_bp.post("/slots/hold")
+@api_slots_bp.post("/hold")
 @api_auth_required
-@api_role_required(["student"])
+@api_app_required(app_key="agendatec", roles=["student"])
 def hold_slot():
     rds = get_redis()
     ttl = get_hold_ttl()
@@ -116,9 +116,9 @@ def hold_slot():
 # --------------------------------------------------------------------
 # POST /slots/release -> libera el hold del usuario sobre un slot
 # --------------------------------------------------------------------
-@api_slots_bp.post("/slots/release")
+@api_slots_bp.post("/release")
 @api_auth_required
-@api_role_required(["student"])
+@api_app_required(app_key="agendatec", roles=["student"])
 def release_slot():
     rds = get_redis()
     uid = int(g.current_user["sub"])
@@ -160,8 +160,9 @@ def release_slot():
 # --------------------------------------------------------------------
 # GET /slots/<slot_id>/status  -> estado puntual de un slot
 # --------------------------------------------------------------------
-@api_slots_bp.get("/slots/<int:slot_id>/status")
+@api_slots_bp.get("/<int:slot_id>/status")
 @api_auth_required
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
 def slot_status(slot_id: int):
     rds = get_redis()
     slot = db.session.query(TimeSlot).get(slot_id)
@@ -190,9 +191,9 @@ def slot_status(slot_id: int):
 # (Opcional admin/coord) listar holds activos actuales
 # GET /slots/holds
 # --------------------------------------------------------------------
-@api_slots_bp.get("/slots/holds")
+@api_slots_bp.get("/holds")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
 def list_holds():
     """
     Devuelve lista de holds actuales (solo claves activas).

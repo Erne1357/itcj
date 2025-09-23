@@ -232,17 +232,19 @@ def _check_app_access_or_abort(app_key: str,
         ok = (direct_ok or via_role_ok) if any_of else (direct_ok and via_role_ok)
         if not ok:
             abort(403)
-
-def app_required(app_key: str,
-                 roles: list[str] | None = None,
-                 perms: list[str] | None = None,
-                 any_of: bool = True,
-                 allow_global_admin: bool = True):
-    """Para rutas específicas (funciona en páginas y APIs)."""
+def api_app_required(app_key: str, roles: list[str] | None = None, perms: list[str] | None = None):
+    """Decorador unificado para proteger APIs, respondiendo con JSON."""
     def deco(view):
         @wraps(view)
         def wrapper(*args, **kwargs):
-            _check_app_access_or_abort(app_key, roles, perms, any_of, allow_global_admin)
+            try:
+                _check_app_access_or_abort(app_key, roles, perms, any_of=True)
+            except Exception as e:
+                code = getattr(e, 'code', 500)
+                if code == 401: return jsonify({"error": "unauthorized"}), 401
+                if code == 403: return jsonify({"error": "forbidden"}), 403
+                if code == 404: return jsonify({"error": "not_found"}), 404
+                raise e
             return view(*args, **kwargs)
         return wrapper
     return deco

@@ -3,7 +3,7 @@ from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify, g,current_app
 from sqlalchemy import and_, or_, func
 from sqlalchemy.exc import IntegrityError
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.apps.agendatec.models import db
 from itcj.core.models.user import User
 from itcj.core.models.coordinator import Coordinator
@@ -99,9 +99,9 @@ def _split_or_delete_windows(coord_id, d, time_ge, time_lt):
 
     return {"windows_deleted": deleted, "windows_created": recreated}
 
-@api_coord_bp.get("/coord/dashboard")
+@api_coord_bp.get("/dashboard")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.coord_dashboard.read"])
 def coord_dashboard_summary():
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -151,9 +151,9 @@ def coord_dashboard_summary():
         "missing_slots": missing
     })
 # ----------------- DAY CONFIG -----------------
-@api_coord_bp.get("/coord/day-config")
+@api_coord_bp.get("/day-config")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
 def get_day_config():
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -178,9 +178,9 @@ def get_day_config():
               "slot_minutes": w.slot_minutes} for w in wins]
     return jsonify({"day": str(d), "items": items})
 
-@api_coord_bp.post("/coord/day-config")
+@api_coord_bp.post("/day-config")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.create"])
 def set_day_config():
     """
     Agrega/actualiza una ventana de disponibilidad para UN día:
@@ -323,9 +323,9 @@ def set_day_config():
         "slots_deleted": slots_deleted,
         "slots_created": created
     })
-@api_coord_bp.delete("/coord/day-config")
+@api_coord_bp.delete("/day-config")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.delete"])
 def delete_day_range():
     """
     Borra el rango [start, end) de un día:
@@ -409,9 +409,9 @@ def delete_day_range():
     })
 
 # ----------------- APPOINTMENTS LIST -----------------
-@api_coord_bp.get("/coord/appointments")
+@api_coord_bp.get("/appointments")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.appointments.read"])
 def coord_appointments():
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -510,9 +510,9 @@ def coord_appointments():
     return jsonify({"day": str(d), "slots": slots})
 
 # ----------------- APPOINTMENT STATUS UPDATE -----------------
-@api_coord_bp.patch("/coord/appointments/<int:ap_id>")
+@api_coord_bp.patch("/appointments/<int:ap_id>")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.appointments.edit"])
 def update_appointment(ap_id: int):
     coord_id = _current_coordinator_id()
     socketio = current_app.extensions.get('socketio')
@@ -560,9 +560,9 @@ def update_appointment(ap_id: int):
     return jsonify({"ok": True})
 
 # ----------------- DROPS -----------------
-@api_coord_bp.get("/coord/drops")
+@api_coord_bp.get("/drops")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.drops.read"])
 def coord_drops():
     # ¿es admin?
     role = (g.current_user or {}).get("role")
@@ -650,9 +650,9 @@ def coord_drops():
 
     return jsonify({"total": total, "items": items})
 
-@api_coord_bp.patch("/coord/requests/<int:req_id>/status")
+@api_coord_bp.patch("/requests/<int:req_id>/status")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.appointments.edit", "agendatec.drops.edit"])
 def update_request_status(req_id: int):
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -741,9 +741,9 @@ def update_request_status(req_id: int):
         current_app.logger.exception("Failed to create/push status-change notification")
     return jsonify({"ok": True})
 
-@api_coord_bp.get("/coord/password-state")
+@api_coord_bp.get("/password-state")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", roles=["coordinator"])
 def coord_password_state():
     u = _current_user()
     if not u:
@@ -751,9 +751,9 @@ def coord_password_state():
     must_change = verify_nip(DEFAULT_NIP, u.nip_hash )
     return jsonify({"must_change": must_change})
 
-@api_coord_bp.post("/coord/change_password")
+@api_coord_bp.post("/change_password")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", roles=["coordinator"])
 def change_password():
     """
     Cambia el NIP (4 dígitos). Se hashea en servidor.

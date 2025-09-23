@@ -49,7 +49,7 @@
       if (user?.role === "student") window.location.href = "/agendatec/student/home";
       else if (user?.role === "coordinator") window.location.href = "/itcj/dashboard";
       else if (user?.role === "social_service") window.location.href = "/itcj/dashboard";
-      else window.location.href = "/";
+      else window.location.href = "/itcj/dashboard";
     } catch {
       showError("No se pudo conectar con el servidor.");
     } finally {

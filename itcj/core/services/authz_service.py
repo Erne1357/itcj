@@ -189,3 +189,40 @@ def has_any_assignment(user_id: int, app_key: str) -> bool:
         .count() > 0
     )
     return has_role or has_perm
+
+def get_user_permissions_for_app(user_id: int, app_key: str) -> set[str]:
+    """
+    Obtiene el conjunto de todos los códigos de permiso efectivos para un usuario en una app específica.
+    Combina permisos directos y permisos heredados de roles.
+    """
+    app = App.query.filter_by(key=app_key).first()
+    if not app:
+        return set()
+
+    # 1. Permisos directos
+    direct_perms_query = (
+        db.session.query(Permission.code)
+        .join(UserAppPerm, UserAppPerm.perm_id == Permission.id)
+        .filter(
+            UserAppPerm.user_id == user_id,
+            UserAppPerm.app_id == app.id,
+            UserAppPerm.allow.is_(True)
+        )
+    )
+    
+    # 2. Permisos vía rol
+    role_perms_query = (
+        db.session.query(Permission.code)
+        .join(RolePermission, RolePermission.perm_id == Permission.id)
+        .join(UserAppRole, UserAppRole.role_id == RolePermission.role_id)
+        .filter(
+            UserAppRole.user_id == user_id,
+            UserAppRole.app_id == app.id
+        )
+    )
+    
+    # Unir resultados y devolver un conjunto único
+    direct_perms = {row[0] for row in direct_perms_query.all()}
+    role_perms = {row[0] for row in role_perms_query.all()}
+    
+    return direct_perms.union(role_perms)

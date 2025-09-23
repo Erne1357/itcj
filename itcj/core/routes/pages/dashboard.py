@@ -7,7 +7,7 @@ pages_dashboard_bp = Blueprint("pages_dashboard", __name__)
 
 @pages_dashboard_bp.get("/dashboard")
 @login_required
-@role_required_page(["coordinator","social_service","admin"])
+@role_required_page(["coordinator","social_service","admin","staff"])
 def dashboard():
     #if g.current_user:
     #    return redirect(role_home(g.current_user.get("role")))

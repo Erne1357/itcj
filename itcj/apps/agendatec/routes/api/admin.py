@@ -21,7 +21,7 @@ from itcj.apps.agendatec.models.notification import Notification
 from itcj.apps.agendatec.models.audit_log import AuditLog
 from itcj.apps.agendatec.models.survey_dispatches import SurveyDispatch
 
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required,api_app_required
 from itcj.core.utils.jwt_tools import encode_jwt
 from itcj.core.utils.security import hash_nip  # si ya tienes util p/ NIP hash (ajusta si difiere)
 from itcj.core.utils.notify import create_notification as notify_user  # si ya tienes un helper (ajusta si difiere)
@@ -166,7 +166,7 @@ def find_recipients(start, end, campaign_code: str, skip_already_sent: bool = Tr
 
 @api_admin_bp.get("/stats/overview")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.admin_dashboard.read"])
 def stats_overview():
     start, end = _range_from_query()
 
@@ -283,7 +283,7 @@ def stats_overview():
 
 @api_admin_bp.get("/requests")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.requests_all.read"])
 def admin_list_requests():
     start, end = _range_from_query()
     status = request.args.get("status")
@@ -342,7 +342,7 @@ def admin_list_requests():
 
 @api_admin_bp.patch("/requests/<int:req_id>/status")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.requests_all.edit"])
 def admin_change_request_status(req_id: int):
     data = request.get_json(silent=True) or {}
     new_status: str = data.get("status")
@@ -355,7 +355,7 @@ def admin_change_request_status(req_id: int):
 
 @api_admin_bp.post("/users/coordinators")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.create"])
 def create_coordinator():
     data = request.get_json(silent=True) or {}
     name: str = data.get("name", "").strip()
@@ -408,7 +408,7 @@ def create_coordinator():
 
 @api_admin_bp.patch("/users/coordinators/<int:coord_id>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.edit"])
 def update_coordinator(coord_id: int):
     data = request.get_json(silent=True) or {}
     name: Optional[str] = data.get("name")
@@ -455,7 +455,7 @@ def update_coordinator(coord_id: int):
 
 @api_admin_bp.get("/users/coordinators")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.read"])
 def list_coordinators():
     """
     Lista coordinadores con sus programas (para usar en Admin · Usuarios y combos).
@@ -510,7 +510,7 @@ def list_coordinators():
 
 @api_admin_bp.post("/reports/requests.xlsx")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.reports.generate"])
 def export_requests_xlsx():
     start, end = _range_from_query()
     status = request.args.get("status")
@@ -576,7 +576,7 @@ def export_requests_xlsx():
 # --- NUEVO: Stats por coordinador (pasteles) ---
 @api_admin_bp.get("/stats/coordinators")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.admin_dashboard.read"])
 def stats_coordinators():
     """
     Estadística por coordinador con TODAS las solicitudes.
@@ -788,7 +788,7 @@ def stats_coordinators():
 #-----------------Email ---------------------
 @api_admin_bp.post("/surveys/send")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.surveys.manage"])
 def send_surveys():
     """
     Envía correos de encuesta:
@@ -854,7 +854,7 @@ def send_surveys():
 
 @api_admin_bp.get("/stats/activity")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.admin_dashboard.read"])
 def stats_activity():
     """
     Histograma por hora (0..23) de UPDATED_AT.

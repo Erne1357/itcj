@@ -6,22 +6,19 @@ class UsersManager {
         this.currentAppKey = null;
         this.apps = [];
         this.permissions = [];
-        this.init();
+        this.ready = this.init();
+        this.newUserModal = null;
     }
 
-    init() {
+    async init() {
         this.bindEvents();
         this.initModals();
-        this.loadUserApps();
-        this.loadAppsData();
+        await this.loadAppsData();
+        await this.loadUserApps();
     }
 
     bindEvents() {
         // Search functionality
-        const searchInput = document.getElementById('searchUsers');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => this.handleSearch(e.target.value));
-        }
 
         // Filter functionality
         const filters = ['roleFilter', 'appFilter', 'statusFilter'];
@@ -66,34 +63,109 @@ class UsersManager {
                 const btn = e.target.closest('.remove-role-btn');
                 this.removeRole(btn.dataset.roleName);
             }
-            
+
             if (e.target.closest('.remove-perm-btn')) {
                 const btn = e.target.closest('.remove-perm-btn');
                 this.removePermission(btn.dataset.permCode);
             }
         });
+        const saveNewUserBtn = document.getElementById('saveNewUserBtn');
+        if (saveNewUserBtn) {
+            saveNewUserBtn.addEventListener('click', () => this.saveNewUser());
+        }
+
+        document.querySelectorAll('input[name="userType"]').forEach(radio => {
+            radio.addEventListener('change', (e) => this.toggleUserTypeFields(e.target.value));
+        });
     }
 
     initModals() {
         this.assignModal = new bootstrap.Modal(document.getElementById('assignUserModal'));
+        const newUserModalEl = document.getElementById('newUserModal');
+        if (newUserModalEl) {
+            this.newUserModal = new bootstrap.Modal(newUserModalEl);
+        }
     }
+    toggleUserTypeFields(userType) {
+        const studentFields = document.getElementById('studentFields');
+        const staffFields = document.getElementById('staffFields');
+        const controlNumberInput = document.getElementById('controlNumber');
+        const usernameInput = document.getElementById('username');
 
-    async loadAppsData() {
-        try {
-            const response = await fetch(`${this.apiBase}/authz/apps`);
-            const result = await response.json();
-            
-            if (response.ok && result.data) {
-                this.apps = result.data;
-            }
-        } catch (error) {
-            console.error('Error loading apps:', error);
+        if (userType === 'student') {
+            studentFields.style.display = 'block';
+            staffFields.style.display = 'none';
+            controlNumberInput.required = true;
+            usernameInput.required = false;
+        } else {
+            studentFields.style.display = 'none';
+            staffFields.style.display = 'block';
+            controlNumberInput.required = false;
+            usernameInput.required = true;
         }
     }
 
+    async saveNewUser() {
+        const form = document.getElementById('newUserForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+
+        const payload = {
+            full_name: document.getElementById('fullName').value,
+            email: document.getElementById('email').value,
+            user_type: document.querySelector('input[name="userType"]:checked').value,
+            control_number: document.getElementById('controlNumber').value,
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value
+        };
+
+        try {
+            const response = await fetch(`${this.apiBase}/authz/users`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                this.showSuccess('Usuario creado exitosamente. Recargando...');
+                this.newUserModal.hide();
+                setTimeout(() => window.location.reload(), 2000); // Recarga para ver el nuevo usuario
+            } else {
+                this.showError(result.error || 'Ocurrió un error al crear el usuario.');
+            }
+        } catch (error) {
+            console.error('Error creating user:', error);
+            this.showError('Error de conexión al crear el usuario.');
+        }
+    }
+    async loadAppsData() {
+        try {
+            const response = await fetch(`${this.apiBase}/authz/apps`);
+            // Maneja 204 ó errores sin body
+            let result = {};
+            try { result = await response.json(); } catch (_) { }
+            if (response.ok && result.data) {
+                this.apps = Array.isArray(result.data) ? result.data : [];
+            } else {
+                this.apps = [];
+                console.warn('No apps loaded:', response.status, result?.error);
+            }
+        } catch (error) {
+            this.apps = [];
+            console.error('Error loading apps:', error);
+        }
+    }
+    async ensureAppsLoaded() {
+        if (this.apps && this.apps.length) return;
+        await this.loadAppsData();
+    }
     async loadUserApps() {
+        await this.ensureAppsLoaded(); // <-- seguridad extra
         const userRows = document.querySelectorAll('[data-user-id]');
-        
         for (const row of userRows) {
             const userId = row.dataset.userId;
             await this.loadUserAppsForRow(userId);
@@ -101,21 +173,18 @@ class UsersManager {
     }
 
     async loadUserAppsForRow(userId) {
+        await this.ensureAppsLoaded(); // <-- seguridad extra
         const container = document.getElementById(`userApps_${userId}`);
         if (!container) return;
 
         try {
-            const userApps = new Set();
-            
-            // Check all apps for this user
-            for (const app of this.apps) {
-                const hasAssignments = await this.checkUserHasAssignments(userId, app.key);
-                if (hasAssignments) {
-                    userApps.add(app.key);
-                }
-            }
-
-            this.renderUserApps(container, Array.from(userApps));
+            // paraleliza por app para ese usuario
+            const checks = (this.apps || []).map(app =>
+                this.checkUserHasAssignments(userId, app.key).then(has => [app.key, has])
+            );
+            const results = await Promise.all(checks);
+            const appKeys = results.filter(([, has]) => has).map(([key]) => key);
+            this.renderUserApps(container, appKeys);
         } catch (error) {
             container.innerHTML = '<span class="badge bg-danger">Error</span>';
             console.error('Error loading user apps:', error);
@@ -124,6 +193,7 @@ class UsersManager {
 
     async checkUserHasAssignments(userId, appKey) {
         try {
+
             // Check roles
             const rolesResponse = await fetch(`${this.apiBase}/authz/apps/${appKey}/users/${userId}/roles`);
             if (rolesResponse.ok) {
@@ -131,6 +201,8 @@ class UsersManager {
                 if (rolesResult.data && rolesResult.data.length > 0) {
                     return true;
                 }
+            } else if (rolesResponse.status !== 404) {
+                console.warn(`Error checking roles for user ${userId} in app ${appKey}:`, rolesResponse.status);
             }
 
             // Check permissions
@@ -140,10 +212,13 @@ class UsersManager {
                 if (permsResult.data && permsResult.data.length > 0) {
                     return true;
                 }
+            } else if (permsResponse.status !== 404) {
+                console.warn(`Error checking perms for user ${userId} in app ${appKey}:`, permsResponse.status);
             }
 
             return false;
         } catch (error) {
+            console.error(`Error checking assignments for user ${userId} in app ${appKey}:`, error);
             return false;
         }
     }
@@ -162,27 +237,16 @@ class UsersManager {
         container.innerHTML = badges;
     }
 
-    handleSearch(query) {
-        const rows = document.querySelectorAll('.user-row');
-        const lowerQuery = query.toLowerCase();
-        
-        rows.forEach(row => {
-            const userText = row.textContent.toLowerCase();
-            const matches = userText.includes(lowerQuery);
-            row.style.display = matches ? '' : 'none';
-        });
-    }
-
     applyFilters() {
         const roleFilter = document.getElementById('roleFilter').value;
         const appFilter = document.getElementById('appFilter').value;
         const statusFilter = document.getElementById('statusFilter').value;
-        
+
         const rows = document.querySelectorAll('.user-row');
-        
+
         rows.forEach(row => {
             let show = true;
-            
+
             // Role filter
             if (roleFilter) {
                 const roleElement = row.querySelector('.badge-role');
@@ -191,7 +255,7 @@ class UsersManager {
                     show = false;
                 }
             }
-            
+
             // Status filter
             if (statusFilter) {
                 const statusElement = row.querySelector('td:nth-child(4) .badge');
@@ -202,10 +266,10 @@ class UsersManager {
                     show = false;
                 }
             }
-            
+
             // App filter (more complex - would need to check actual assignments)
             // For now, we'll skip this filter or implement it based on visible badges
-            
+
             row.style.display = show ? '' : 'none';
         });
     }
@@ -213,10 +277,10 @@ class UsersManager {
     showAssignModal(btn) {
         this.currentUserId = btn.dataset.userId;
         const userName = btn.dataset.userName;
-        
+
         document.getElementById('assignUserName').textContent = userName;
         this.assignModal.show();
-        
+
         // Reset the panel
         document.getElementById('appAssignmentPanel').style.display = 'none';
         document.querySelectorAll('.app-item').forEach(item => {
@@ -230,13 +294,13 @@ class UsersManager {
             item.classList.remove('active');
         });
         btn.classList.add('active');
-        
+
         this.currentAppKey = btn.dataset.appKey;
         const appName = btn.dataset.appName;
-        
+
         document.getElementById('selectedAppName').textContent = appName;
         document.getElementById('appAssignmentPanel').style.display = 'block';
-        
+
         // Load data for this app
         await this.loadUserAssignments();
         await this.loadAppPermissions();
@@ -244,27 +308,27 @@ class UsersManager {
 
     async loadUserAssignments() {
         if (!this.currentUserId || !this.currentAppKey) return;
-        
+
         try {
             // Load roles
             const rolesResponse = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/roles`);
             const rolesResult = await rolesResponse.json();
             const userRoles = rolesResult.data || [];
-            
+
             // Load permissions
             const permsResponse = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/perms`);
             const permsResult = await permsResponse.json();
             const userPerms = permsResult.data || [];
-            
+
             // Load effective permissions
             const effectiveResponse = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/effective-perms`);
             const effectiveResult = await effectiveResponse.json();
             const effectivePerms = effectiveResult.data?.effective || [];
-            
+
             this.renderUserRoles(userRoles);
             this.renderUserPermissions(userPerms);
             this.renderEffectivePermissions(effectivePerms);
-            
+
         } catch (error) {
             this.showError('Error al cargar las asignaciones del usuario');
             console.error('Error loading user assignments:', error);
@@ -273,11 +337,11 @@ class UsersManager {
 
     async loadAppPermissions() {
         if (!this.currentAppKey) return;
-        
+
         try {
             const response = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/perms`);
             const result = await response.json();
-            
+
             if (response.ok && result.data) {
                 this.permissions = result.data;
                 this.populatePermissionSelect();
@@ -290,12 +354,12 @@ class UsersManager {
     populatePermissionSelect() {
         const select = document.getElementById('permToAssign');
         if (!select) return;
-        
+
         // Clear existing options (except first)
         while (select.children.length > 1) {
             select.removeChild(select.lastChild);
         }
-        
+
         this.permissions.forEach(perm => {
             const option = document.createElement('option');
             option.value = perm.code;
@@ -307,79 +371,79 @@ class UsersManager {
     renderUserRoles(roles) {
         const container = document.getElementById('userRolesList');
         if (!container) return;
-        
+
         if (roles.length === 0) {
             container.innerHTML = '<small class="text-muted">Sin roles asignados</small>';
             return;
         }
-        
-        const badges = roles.map(role => 
+
+        const badges = roles.map(role =>
             `<span class="badge bg-primary d-flex align-items-center gap-1">
                 ${role}
                 <button class="btn-close btn-close-white btn-sm remove-role-btn" 
                         data-role-name="${role}" style="font-size: 0.6em;"></button>
             </span>`
         ).join('');
-        
+
         container.innerHTML = badges;
     }
 
     renderUserPermissions(permissions) {
         const container = document.getElementById('userPermsList');
         if (!container) return;
-        
+
         if (permissions.length === 0) {
             container.innerHTML = '<small class="text-muted">Sin permisos directos</small>';
             return;
         }
-        
-        const badges = permissions.map(perm => 
+
+        const badges = permissions.map(perm =>
             `<span class="badge bg-success d-flex align-items-center gap-1">
                 ${perm}
                 <button class="btn-close btn-close-white btn-sm remove-perm-btn" 
                         data-perm-code="${perm}" style="font-size: 0.6em;"></button>
             </span>`
         ).join('');
-        
+
         container.innerHTML = badges;
     }
 
     renderEffectivePermissions(permissions) {
         const container = document.getElementById('effectivePermsList');
         if (!container) return;
-        
+
         if (permissions.length === 0) {
             container.innerHTML = '<small class="text-muted">Sin permisos efectivos</small>';
             return;
         }
-        
-        const badges = permissions.map(perm => 
+
+        const badges = permissions.map(perm =>
             `<span class="badge bg-info">${perm}</span>`
         ).join(' ');
-        
+
         container.innerHTML = badges;
     }
 
     async assignRole() {
         const select = document.getElementById('roleToAssign');
         const roleName = select.value;
-        
+
         if (!roleName) {
             this.showError('Selecciona un rol');
             return;
         }
-        
+
         try {
             const response = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/roles`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({role_name: roleName})
+                body: JSON.stringify({ role_name: roleName })
             });
-            
+
             const result = await response.json();
-            
+
             if (response.ok) {
                 this.showSuccess('Rol asignado correctamente');
                 select.value = '';
@@ -397,23 +461,23 @@ class UsersManager {
     async assignPermission() {
         const select = document.getElementById('permToAssign');
         const permCode = select.value;
-        
+
         if (!permCode) {
             this.showError('Selecciona un permiso');
             return;
         }
-        
+
         try {
             const response = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/perms`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({code: permCode, allow: true})
+                body: JSON.stringify({ code: permCode, allow: true })
             });
-            
+
             const result = await response.json();
-            
+
             if (response.ok) {
                 this.showSuccess('Permiso asignado correctamente');
                 select.value = '';
@@ -433,7 +497,7 @@ class UsersManager {
             const response = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/roles/${roleName}`, {
                 method: 'DELETE'
             });
-            
+
             if (response.ok) {
                 this.showSuccess('Rol removido correctamente');
                 await this.loadUserAssignments();
@@ -453,7 +517,7 @@ class UsersManager {
             const response = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.currentUserId}/perms/${permCode}`, {
                 method: 'DELETE'
             });
-            
+
             if (response.ok) {
                 this.showSuccess('Permiso removido correctamente');
                 await this.loadUserAssignments();
@@ -472,7 +536,7 @@ class UsersManager {
         const toast = document.getElementById('successToast');
         const messageEl = document.getElementById('successMessage');
         messageEl.textContent = message;
-        
+
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
     }
@@ -481,13 +545,14 @@ class UsersManager {
         const toast = document.getElementById('errorToast');
         const messageEl = document.getElementById('errorMessage');
         messageEl.textContent = message;
-        
+
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
     }
 }
 
 // Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new UsersManager();
+document.addEventListener('DOMContentLoaded', async () => {
+    const mgr = new UsersManager();
+    await mgr.ready;
 });

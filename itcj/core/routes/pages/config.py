@@ -6,6 +6,7 @@ from itcj.core.models.permission import Permission
 from itcj.core.models.user import User
 from itcj.core.utils.decorators import login_required
 from itcj.core.extensions import db
+from sqlalchemy import or_
 
 # Blueprint de configuración
 pages_config_bp = Blueprint('pages_config', __name__, template_folder='templates', static_folder='static')
@@ -53,15 +54,51 @@ def app_permissions(app_key):
     permissions = Permission.query.filter_by(app_id=app.id).order_by(Permission.code.asc()).all()
     return render_template("config/permissions.html", app=app, permissions=permissions)
 
-# Gestión de Usuarios
+#
+#  Gestión de Usuarios
 @pages_config_bp.route("/config/users")
 @login_required
 def users_management():
-    """Página de gestión de usuarios y sus asignaciones"""
-    users = User.query.order_by(User.full_name.asc()).all()
+    """Página de gestión de usuarios con paginación Y BÚSQUEDA"""
+    page = request.args.get('page', 1, type=int)
+    # 1. Obtener el término de búsqueda de los argumentos de la URL
+    query_string = request.args.get('q', '', type=str)
+    per_page = 20
+
+    # 2. Construir la consulta base
+    users_query = User.query
+
+    # 3. Si hay un término de búsqueda, aplicar filtros
+    if query_string:
+        search_term = f"%{query_string}%"
+        users_query = users_query.filter(
+            or_(
+                User.full_name.ilike(search_term),
+                User.username.ilike(search_term),
+                User.control_number.ilike(search_term),
+                User.email.ilike(search_term)
+            )
+        )
+
+    # 4. Ordenar y paginar sobre la consulta (ya sea la original o la filtrada)
+    pagination = users_query.order_by(User.full_name.asc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    users = pagination.items
+
     apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
     roles = Role.query.order_by(Role.name.asc()).all()
-    return render_template("config/users.html", users=users, apps=apps, roles=roles)
+    
+    return render_template(
+        "config/users.html", 
+        users=users, 
+        apps=apps, 
+        roles=roles, 
+        pagination=pagination,
+        # 5. Pasar el término de búsqueda de vuelta a la plantilla
+        current_query=query_string
+    )
+
 
 # Detalle de usuario específico
 @pages_config_bp.route("/config/users/<int:user_id>")
