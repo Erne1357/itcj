@@ -65,7 +65,3 @@ build/
 *.code-workspace
 
 addStudents.py
-
-# --- Archivos en producción ---
-compose/docker-compose.prod.yml
-docker/nginx/nginx.prod.conf 

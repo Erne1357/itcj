@@ -170,18 +170,35 @@ def role_perms_replace(app_key, role_name):
     app = svc.get_or_404_app(app_key)
     role = db.session.query(Role).filter_by(name=role_name).first()
     if not role: return _bad("role_not_found", 404)
+    
     payload = request.get_json(silent=True) or {}
     codes = payload.get("codes") or []
-    # borrar los existentes de esta app
-    db.session.query(RolePermission).join(Permission).filter(
-        RolePermission.role_id == role.id, Permission.app_id == app.id
+
+    # --- INICIO DE LA CORRECCIÓN ---
+
+    # 1. Obtener los IDs de los permisos de esta app que están actualmente asignados al rol.
+    perm_ids_to_delete = db.session.query(RolePermission.perm_id)\
+        .join(Permission, Permission.id == RolePermission.perm_id)\
+        .filter(
+            RolePermission.role_id == role.id,
+            Permission.app_id == app.id
+        ).scalar_subquery()
+
+    # 2. Ejecutar el DELETE en la tabla 'role_permissions' usando esos IDs, sin JOIN.
+    db.session.query(RolePermission).filter(
+        RolePermission.role_id == role.id,
+        RolePermission.perm_id.in_(perm_ids_to_delete)
     ).delete(synchronize_session=False)
-    # insertar los nuevos
+
+    # --- FIN DE LA CORRECCIÓN ---
+    
+    # El resto del código para insertar los nuevos permisos es correcto y no necesita cambios.
     if codes:
         perms = db.session.query(Permission).filter(
             Permission.app_id == app.id, Permission.code.in_(codes)
         ).all()
         db.session.bulk_save_objects([RolePermission(role_id=role.id, perm_id=p.id) for p in perms])
+    
     db.session.commit()
     return _ok()
 
