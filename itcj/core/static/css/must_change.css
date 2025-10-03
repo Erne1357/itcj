@@ -1,0 +1,53 @@
+.windows-modal {
+    border: 2px solid #000;
+    box-shadow: 4px 4px 0 #808080;
+    background-color: #c0c0c0;
+    font-family: 'MS Sans Serif', 'Arial';
+}
+
+.windows-header {
+    background-color: #000080;
+    color: #fff;
+    border-bottom: 2px solid #000;
+    padding: 4px 6px;
+}
+
+.windows-title {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.btn-close {
+    filter: invert(100%);
+    border: 1px solid #000;
+    padding: 2px 4px;
+    background-color: #c0c0c0;
+}
+
+.windows-body {
+    padding: 1rem;
+}
+
+.windows-text {
+    font-size: 14px;
+    color: #000;
+}
+
+.windows-input {
+    background-color: #fff;
+    border: 1px inset #808080;
+}
+
+.windows-footer {
+    background-color: #c0c0c0;
+    border-top: 2px solid #000;
+    padding: 6px;
+}
+
+.windows-btn {
+    background-color: #c0c0c0;
+    border: 2px outset #fff;
+    color: #000;
+    font-weight: bold;
+    box-shadow: 2px 2px 0 #000;
+}

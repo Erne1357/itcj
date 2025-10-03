@@ -2,7 +2,7 @@
 from datetime import date
 from flask import Blueprint, request, jsonify, g, current_app
 from sqlalchemy.exc import IntegrityError
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed,api_app_required
 from itcj.apps.agendatec.models import db
 from itcj.core.models.user import User
 from itcj.core.models.program import Program
@@ -26,9 +26,9 @@ def _get_current_student():
     u = db.session.query(User).get(uid)
     return u
 
-@api_req_bp.get("/requests/mine")
+@api_req_bp.get("/mine")
 @api_auth_required
-@api_role_required(["student"])
+@api_app_required(app_key="agendatec", roles=["student"])
 def my_requests():
     u = _get_current_student()
     active = (db.session.query(Request)
@@ -66,10 +66,10 @@ def my_requests():
         "history": [to_dict(x) for x in history]
     })
 
-@api_req_bp.post("/requests")
+@api_req_bp.post("")
 @api_closed
 @api_auth_required
-@api_role_required(["student"])
+@api_app_required(app_key="agendatec", roles=["student"])
 def create_request():
     u = _get_current_student()
     data = request.get_json(silent=True) or {}
@@ -242,10 +242,10 @@ def create_request():
         db.session.rollback()
         return jsonify({"error": "conflict"}), 409
 
-@api_req_bp.patch("/requests/<int:req_id>/cancel")
+@api_req_bp.patch("/<int:req_id>/cancel")
 @api_closed
 @api_auth_required
-@api_role_required(["student"])
+@api_app_required(app_key="agendatec", roles=["student"])
 def cancel_request(req_id: int):
     u = _get_current_student()
     slot_day = 0

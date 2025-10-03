@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, date
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.apps.agendatec.models import db
 from itcj.core.models.program import Program
 from itcj.core.models.user import User
@@ -53,8 +53,9 @@ def _current_coordinator_id(fallback_id: int | None = None):
 # =========================================================
 #            API ALUMNO: LISTAR SLOTS POR DÍA
 # =========================================================
-@api_avail_bp.get("/availability/program/<int:program_id>/slots")
+@api_avail_bp.get("/program/<int:program_id>/slots")
 @api_auth_required
+@api_app_required(app_key="agendatec", roles=["student"])
 def list_slots_for_program_day(program_id: int):
     """
     Une coordinadores asignados al programa y devuelve slots LIBRES (is_booked=false) para un día.
@@ -95,9 +96,9 @@ def list_slots_for_program_day(program_id: int):
 # =========================================================
 #     API COORD/ADMIN: CREAR VENTANA DE DISPONIBILIDAD
 # =========================================================
-@api_avail_bp.post("/availability/windows")
+@api_avail_bp.post("/windows")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.create"])
 def create_availability_window():
     """
     Crea una ventana para UNO de los 3 días permitidos (25,26,27 Ago 2025).
@@ -162,9 +163,9 @@ def create_availability_window():
 # =========================================================
 #     API COORD/ADMIN: GENERAR SLOTS A PARTIR DE VENTANAS
 # =========================================================
-@api_avail_bp.post("/availability/generate-slots")
+@api_avail_bp.post("/generate-slots")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.create"])
 def api_generate_slots():
     """
     Genera 'time_slots' a partir de 'availability_windows' del/los día(s) indicados.
@@ -232,9 +233,9 @@ def api_generate_slots():
 # =========================================================
 #  (Opcional) Listar ventanas del día para el coordinador
 # =========================================================
-@api_avail_bp.get("/availability/windows")
+@api_avail_bp.get("/windows")
 @api_auth_required
-@api_role_required(["coordinator","admin"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
 def list_my_windows():
     """
     Lista las ventanas del día ?day=YYYY-MM-DD para:

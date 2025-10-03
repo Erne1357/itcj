@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Permisos de {{ app.name }} - ITCJ</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12 d-flex justify-content-between align-items-center">
+                <div>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-2">
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('pages_core.pages_config.settings') }}" class="text-decoration-none">
+                                    <i class="bi bi-gear me-1"></i>Configuración
+                                </a>
+                            </li>
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('pages_core.pages_config.apps_management') }}" class="text-decoration-none">
+                                    Aplicaciones
+                                </a>
+                            </li>
+                            <li class="breadcrumb-item active">{{ app.name }}</li>
+                        </ol>
+                    </nav>
+                    <div class="d-flex align-items-center mb-2">
+                        <div class="bg-primary bg-opacity-10 rounded p-2 me-3">
+                            <i class="bi bi-key text-primary"></i>
+                        </div>
+                        <div>
+                            <h2 class="mb-0">Permisos de {{ app.name }}</h2>
+                            <small class="text-muted">Aplicación: <code>{{ app.key }}</code></small>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPermModal">
+                    <i class="bi bi-plus-lg me-1"></i>Nuevo Permiso
+                </button>
+            </div>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <ul class="nav nav-tabs" id="permissionsTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="permissions-tab" data-bs-toggle="tab" 
+                                data-bs-target="#permissions" type="button" role="tab">
+                            <i class="bi bi-key me-1"></i>Permisos ({{ permissions|length }})
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="role-permissions-tab" data-bs-toggle="tab" 
+                                data-bs-target="#role-permissions" type="button" role="tab">
+                            <i class="bi bi-people me-1"></i>Asignaciones por Rol
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="tab-content" id="permissionsTabContent">
+            <!-- Permisos Tab -->
+            <div class="tab-pane fade show active" id="permissions" role="tabpanel">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card shadow-sm">
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-hover mb-0" id="permissionsTable">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th class="px-4 py-3">Código</th>
+                                                <th class="py-3">Nombre</th>
+                                                <th class="py-3">Descripción</th>
+                                                <th class="py-3 text-end">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for perm in permissions %}
+                                            <tr data-perm-code="{{ perm.code }}">
+                                                <td class="px-4 py-3">
+                                                    <code class="bg-light px-2 py-1 rounded">{{ perm.code }}</code>
+                                                </td>
+                                                <td class="py-3">
+                                                    <strong>{{ perm.name }}</strong>
+                                                </td>
+                                                <td class="py-3">
+                                                    <small class="text-muted">{{ perm.description or 'Sin descripción' }}</small>
+                                                </td>
+                                                <td class="py-3 text-end">
+                                                    <button class="btn btn-sm btn-outline-danger delete-perm-btn" 
+                                                            data-perm-code="{{ perm.code }}"
+                                                            data-perm-name="{{ perm.name }}"
+                                                            title="Eliminar">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {% if permissions|length == 0 %}
+                                <div class="text-center py-5" id="emptyPermsState">
+                                    <i class="bi bi-key display-1 text-muted"></i>
+                                    <h5 class="text-muted mt-3">No hay permisos registrados</h5>
+                                    <p class="text-muted">Crea el primer permiso para esta aplicación</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Asignaciones por Rol Tab -->
+            <div class="tab-pane fade" id="role-permissions" role="tabpanel">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5>Asignaciones de Permisos por Rol</h5>
+                            <select class="form-select" id="roleSelect" style="width: auto;">
+                                <option value="">Seleccionar rol...</option>
+                            </select>
+                        </div>
+                        
+                        <div id="rolePermissionsContent" class="d-none">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Permisos asignados al rol: <span id="selectedRoleName"></span></h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="permissionsList" class="row g-2">
+                                        <!-- Se llenará dinámicamente -->
+                                    </div>
+                                    <div class="mt-3">
+                                        <button class="btn btn-success btn-sm" id="saveRolePermissions">
+                                            <i class="bi bi-check-lg me-1"></i>Guardar Cambios
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="noRoleSelected" class="text-center py-5">
+                            <i class="bi bi-people display-1 text-muted"></i>
+                            <h5 class="text-muted mt-3">Selecciona un rol</h5>
+                            <p class="text-muted">Elige un rol para gestionar sus permisos en esta aplicación</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Crear Permiso -->
+    <div class="modal fade" id="createPermModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Nuevo Permiso</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="createPermForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="permCode" class="form-label">Código del Permiso *</label>
+                            <input type="text" class="form-control" id="permCode" name="code" 
+                                   placeholder="ej: users.create" pattern="[a-z0-9._]+" required>
+                            <div class="form-text">Solo letras minúsculas, números, puntos y guiones bajos</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="permName" class="form-label">Nombre del Permiso *</label>
+                            <input type="text" class="form-control" id="permName" name="name" 
+                                   placeholder="ej: Crear Usuarios" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="permDescription" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="permDescription" name="description" rows="3"
+                                      placeholder="Descripción opcional del permiso"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i>Crear Permiso
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirmar Eliminación -->
+    <div class="modal fade" id="deletePermModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title text-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Eliminación
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>¿Estás seguro de que deseas eliminar el permiso <strong id="deletePermName"></strong>?</p>
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        Esta acción eliminará todas las asignaciones de este permiso.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeletePerm">
+                        <i class="bi bi-trash me-1"></i>Eliminar Permiso
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">Éxito</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successMessage">
+                Operación completada correctamente
+            </div>
+        </div>
+        
+        <div id="errorToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorMessage">
+                Ha ocurrido un error
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Pass app key to JavaScript
+        window.appKey = '{{ app.key }}';
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='core/js/config/permissions.js')}}?v={{static_version}}"></script>
+</body>
+</html>

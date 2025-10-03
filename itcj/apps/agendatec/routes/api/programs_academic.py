@@ -17,7 +17,7 @@ def _parse_pagination():
     except Exception:
         return 100, 0
 
-@api_programs_bp.get("/programs")
+@api_programs_bp.get("")
 @api_auth_required
 def list_programs():
     q = (request.args.get("q") or "").strip()
@@ -33,7 +33,7 @@ def list_programs():
         "items": [{"id": p.id, "name": p.name} for p in items]
     })
 
-@api_programs_bp.get("/programs/<int:program_id>/coordinator")
+@api_programs_bp.get("/<int:program_id>/coordinator")
 @api_auth_required
 def program_coordinator(program_id: int):
     rows = (db.session.query(Coordinator, User)

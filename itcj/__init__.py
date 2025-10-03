@@ -1,23 +1,22 @@
 # itcj/__init__.py
-from flask import Flask,request, jsonify, render_template, redirect, url_for,g, current_app
+from flask import Flask, request, jsonify, render_template, redirect, url_for, g, current_app
 from .core.extensions import db, migrate
 from werkzeug.exceptions import HTTPException
 from .core.utils.jwt_tools import encode_jwt, decode_jwt
-from .core.utils.admit_window import is_student_window_open, get_student_window
+from itcj.core.utils.role_home import role_home
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
-
 
 def create_app():
     # Crea la app Flask
     app = Flask(__name__, instance_relative_config=True)
     
     # Configuración de la aplicación
-    app.config.from_object('itcj.config.Config')  # Carga de configuración
-    app.config.from_pyfile('config.py', silent=True)  # Configuración específica del entorno
+    app.config.from_object('itcj.config.Config')
+    app.config.from_pyfile('config.py', silent=True)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-    # Inicializa las extensiones (base de datos, migraciones, websockets)
+    # Inicializa las extensiones
     db.init_app(app)
     migrate.init_app(app, db)
 
@@ -25,8 +24,8 @@ def create_app():
     socketio = init_socketio(app)
     app.extensions['socketio'] = socketio
 
-    #Registrar blueprints de los módulos principales
-    registerBlueprints(app)
+    # Registrar blueprints
+    register_blueprints(app)
     register_error_handlers(app)
 
     @app.before_request
@@ -35,8 +34,7 @@ def create_app():
         token = request.cookies.get("itcj_token")
         data = decode_jwt(token) if token else None
         if data:
-            g.current_user = data  # dict con sub, role, cn, name, iat, exp
-            # bandera para refrescar si expira pronto
+            g.current_user = data
             now = int(time.time())
             if data.get("exp", 0) - now < app.config["JWT_REFRESH_THRESHOLD_SECONDS"]:
                 g._refresh_token = True
@@ -62,13 +60,11 @@ def create_app():
 
     @app.teardown_request
     def cleanup_db(exc=None):
-        # Si hubo excepción durante el request, revierte cualquier transacción pendiente
         if exc is not None:
             try:
                 db.session.rollback()
             except Exception:
                 pass
-        # En todos los casos, limpia la sesión para evitar fugas/conexiones colgadas
         try:
             db.session.remove()
         except Exception:
@@ -82,82 +78,47 @@ def create_app():
     def home():
         if g.current_user:
             return redirect(role_home(g.current_user.get("role")))
-        return redirect(url_for("pages_auth.login_page"))
+        return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor
     def inject_globals():
-        _student_open = is_student_window_open()
-        _win = get_student_window()
-
         def _icon_for(label: str) -> str:
+            """Iconos para navegación global (no específicos de apps)"""
             lbl = (label or "").lower()
             if "dashboard" in lbl: return "bi-grid"
-            if "coordinador" in lbl: return "bi-person-gear"
-            if "cita" in lbl: return "bi-calendar2-check"
-            if "horario" in lbl: return "bi-clock"
-            if "bajas" in lbl: return "bi-arrow-down-circle"
-            if "servicio social" in lbl: return "bi-people"
-            if "inicio" in lbl: return "bi-house"
-            if "mis solicitudes" in lbl: return "bi-file-earmark-text"
-            if "usuarios" in lbl: return "bi-people"
-            if "solicitudes" in lbl: return "bi-journal-text"
-            if "reportes" in lbl: return "bi-bar-chart"
-            if "encuestas" in lbl: return "bi-clipboard2-check"
-            return "bi-grid"
+            if "configuración" in lbl: return "bi-gear-fill"
+            if "perfil" in lbl: return "bi-person"
+            if "logout" in lbl: return "bi-box-arrow-right"
+            return "bi-circle"
 
         def is_active(url: str) -> bool:
-            # activo si coincide exactamente o si la ruta actual cuelga de ese url
             p = request.path
             return p == url or p.startswith(url + "/")
 
         def nav_for(role: str | None):
-            # ----- Definición del árbol de navegación -----
-            social = [
-                {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home",
-                "roles": ["social_service"]}
-            ]
-            student = [
-                {"label": "Inicio", "endpoint": "agendatec_pages.student_pages.student_home", "roles": ["student"]},
-                {"label": "Mis solicitudes", "endpoint": "agendatec_pages.student_pages.student_requests", "roles": ["student"]},
-            ]
-            coord = [
-                {"label": "Dashboard", "endpoint": "agendatec_pages.coord_pages.coord_home_page", "roles": ["coordinator"]},
-                {"label": "Horario ", "endpoint": "agendatec_pages.coord_pages.coord_slots_page", "roles": ["coordinator"]},
-                {"label": "Citas del día", "endpoint": "agendatec_pages.coord_pages.coord_appointments_page", "roles": ["coordinator"]},
-                {"label": "Bajas", "endpoint": "agendatec_pages.coord_pages.coord_drops_page", "roles": ["coordinator"]},
-            ]
-            admin_items = [
-                {"label":"Dashboard","endpoint":"agendatec_pages.admin_pages.admin_home","roles":["admin"]},
-                {"label":"Usuarios","endpoint":"agendatec_pages.admin_pages.admin_users","roles":["admin"]},
-                {"label":"Solicitudes","endpoint":"agendatec_pages.admin_pages.admin_requests","roles":["admin"]},
-                {"label":"Reportes","endpoint":"agendatec_pages.admin_pages.admin_reports","roles":["admin"]},
-                {"label":"Encuestas","endpoint":"agendatec_pages.admin_surveys_pages.admin_surveys","roles":["admin"]},
-            ]
-            all_items = student + coord + social + admin_items
+            """Navegación GLOBAL del sistema (no específica de apps)"""
             if not role:
                 return []
             
-            if role == "student" and not _student_open:
-                return []
-
-            # ----- Filtrar por rol -----
-            filtered = [it for it in all_items if role in it["roles"]]
-
-            # ----- Quitar duplicados y enriquecer con url + icon -----
-            seen: set[tuple[str, str]] = set()
-            dedup_enriched: list[dict] = []
-            for it in filtered:
-                key = (it["label"], it["endpoint"])
-                if key in seen:
-                    continue
-                seen.add(key)
-                dedup_enriched.append({
-                    "label": it["label"],
-                    "endpoint": it["endpoint"],
-                    "url": url_for(it["endpoint"]),
-                    "icon": _icon_for(it["label"]),
-                })
-            return dedup_enriched
+            global_nav = []
+            
+            # Navegación para admins (configuración del sistema)
+            if role == "admin":
+                global_nav.extend([
+                    {"label": "Configuración", "endpoint": "pages_core.pages_config.settings", "roles": ["admin"]},
+                ])
+            
+            # Agregar navegación de apps específicas aquí si es necesario
+            # Por ahora, cada app maneja su propia navegación
+            
+            filtered = [item for item in global_nav if role in item["roles"]]
+            
+            return [{
+                "label": item["label"],
+                "endpoint": item["endpoint"],
+                "url": url_for(item["endpoint"]),
+                "icon": _icon_for(item["label"]),
+            } for item in filtered]
 
         return {
             "current_user": g.current_user,
@@ -168,29 +129,31 @@ def create_app():
 
     return app, socketio
 
-def registerBlueprints(app):
-    #Registro de apis
-    from itcj.core.routes.api.auth import api_auth_bp
-    from .apps.agendatec import agendatec_api_bp
-    from itcj.apps.tickets import tickets_api_bp
-    app.register_blueprint(api_auth_bp, url_prefix="/api/auth/v1/auth")
-    app.register_blueprint(agendatec_api_bp)
+def register_blueprints(app):
+    """Registro centralizado de todos los blueprints"""
+    
+    # Core APIs y páginas
+    from itcj.core import api_core_bp, pages_core_bp
+    app.register_blueprint(api_core_bp, url_prefix="/api/core/v1")
+    app.register_blueprint(pages_core_bp, url_prefix="/itcj")
+    
+    # Apps específicas
+    from itcj.apps.agendatec import agendatec_api_bp, agendatec_pages_bp
+    from itcj.apps.tickets import tickets_api_bp, tickets_pages_bp
+    
+    # APIs de apps
+    app.register_blueprint(agendatec_api_bp, url_prefix="/api/agendatec/v1")
     app.register_blueprint(tickets_api_bp, url_prefix="/api/tickets/v1")
-
-    #Registro de páginas
-    from itcj.core.routes.pages.auth import pages_auth_bp
-    from .apps.agendatec import agendatec_pages_bp
-    from itcj.core.routes.pages.dashboard import pages_dashboard_bp
-    from itcj.apps.tickets import tickets_pages_bp
-    app.register_blueprint(pages_dashboard_bp, url_prefix="/dashboard")
-    app.register_blueprint(pages_auth_bp, url_prefix="/auth")
+    
+    # Páginas de apps
     app.register_blueprint(agendatec_pages_bp, url_prefix="/agendatec")
     app.register_blueprint(tickets_pages_bp, url_prefix="/tickets")
 
 def register_error_handlers(app):
+    """Manejo centralizado de errores"""
     MESSAGES = {
         400: "Solicitud inválida",
-        401: "No autenticado",
+        401: "No autenticado", 
         403: "Acceso prohibido",
         404: "Recurso no encontrado",
         405: "Método no permitido",
@@ -204,33 +167,27 @@ def register_error_handlers(app):
         504: "Tiempo de espera agotado",
     }
 
-    BIG_PAGE_CODES = {404, 405, 500, 502, 503, 504}
-
     def wants_json():
         return request.path.startswith("/api/")
 
     def render_error_page(status_code, message):
-        # Usa una plantilla única con tu animación; recibe code & message
         return render_template("errors/error_page.html",
-                               code=status_code,
-                               message=message), status_code
+                             code=status_code,
+                             message=message), status_code
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(e: HTTPException):
         code = e.code or 500
         msg = MESSAGES.get(code, e.name or "Error")
-        # JSON para API
+        
         if wants_json():
             payload = {"error": getattr(e, "name", "error"), "status": code}
-            # Si hay descripción útil, inclúyela
             if getattr(e, "description", None):
                 payload["detail"] = e.description
             return jsonify(payload), code
 
-        # Páginas: 401 → login; grandes → plantilla; resto → plantilla genérica también
         if code == 401:
-            # puedes agregar ?next=<ruta_actual>
-            return redirect(url_for("pages_auth.login_page"))
+            return redirect(url_for("pages_core.pages_auth.login_page"))
         page_code = code if code in MESSAGES else 500
         return render_error_page(page_code, msg)
 
@@ -241,20 +198,14 @@ def register_error_handlers(app):
             return jsonify({"error": "internal_error", "status": 500}), 500
         return render_error_page(500, MESSAGES[500])
 
-    # Opcional: handlers explícitos (si quieres sobreescribir mensajes)
-    for code in [400,401,403,404,405,409,413,415,429,500,502,503,504]:
+    # Handlers explícitos para códigos comunes
+    for code in [400, 401, 403, 404, 405, 409, 413, 415, 429, 500, 502, 503, 504]:
         def _factory(c):
             def _h(_e):
                 if wants_json():
                     return jsonify({"error": _e.name if isinstance(_e, HTTPException) else "error", "status": c}), c
                 if c == 401:
-                    return redirect(url_for("pages_auth.login_page"))
+                    return redirect(url_for("pages_core.pages_auth.login_page"))
                 return render_error_page(c, MESSAGES.get(c, "Error"))
             return _h
         app.register_error_handler(code, _factory(code))
-
-def role_home(role: str) -> str:
-        return { "student": "/agendatec/student/home",
-                 "coordinator": "/dashboard/dashboard",
-                 "social_service": "/dashboard/dashboard",
-                  "admin":"/dashboard/dashboard" }.get(role, "/")

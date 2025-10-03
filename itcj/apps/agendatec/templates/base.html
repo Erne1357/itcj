@@ -40,7 +40,7 @@
 
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top" >
       <div class="container-fluid">
-        <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('pages_auth.login_page') }}">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="/agendatec/">
           <img src="{{ url_for('static', filename='agendatec/images/Liebre_solida.png') }}" alt="Logo" height="24" width="24"
             style="filter: brightness(0) invert(1);" />
           <span class="fw-semibold">AgendaTec</span>
@@ -52,7 +52,7 @@
         <div class="collapse navbar-collapse" id="mainNav">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             {% if current_user %}
-            {% for it in nav_for(current_user.role) %}
+            {% for it in agendatec_nav_items %}
             <li class="nav-item">
               <a class="nav-link d-flex align-items-center gap-2 {% if is_active(it.url) %}active{% endif %}"
                 href="{{ it.url }}">

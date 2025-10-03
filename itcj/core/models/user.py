@@ -12,6 +12,7 @@ class User(db.Model):
     full_name = db.Column(db.Text, nullable=False)
     email = db.Column(db.Text)
     is_active = db.Column(db.Boolean, nullable=False, server_default=db.text("TRUE"))
+    must_change_password = db.Column(db.Boolean, nullable=False, server_default=db.text("FALSE"))
 
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))

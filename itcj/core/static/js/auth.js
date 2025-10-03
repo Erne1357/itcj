@@ -1,7 +1,7 @@
 // static/js/auth.js
 (async () => {
   try {
-    const r = await fetch("/api/auth/v1/auth/me", { credentials: "include" });
+    const r = await fetch("/api/core/v1/auth/me", { credentials: "include" });
     if (r.ok) {
       const { user } = await r.json();
       if (user?.role === "student") window.location.href = "/student/home";
@@ -33,7 +33,7 @@
     const payload = { control_number: idOrUser, nip };
 
     try {
-      const res = await fetch("/api/auth/v1/auth/login", {
+      const res = await fetch("/api/core/v1/auth/login", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -47,9 +47,9 @@
       }
       const { user } = await res.json();
       if (user?.role === "student") window.location.href = "/agendatec/student/home";
-      else if (user?.role === "coordinator") window.location.href = "/dashboard/dashboard";
-      else if (user?.role === "social_service") window.location.href = "/dashboard/dashboard";
-      else window.location.href = "/";
+      else if (user?.role === "coordinator") window.location.href = "/itcj/dashboard";
+      else if (user?.role === "social_service") window.location.href = "/itcj/dashboard";
+      else window.location.href = "/itcj/dashboard";
     } catch {
       showError("No se pudo conectar con el servidor.");
     } finally {

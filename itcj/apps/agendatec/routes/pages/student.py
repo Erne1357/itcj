@@ -1,6 +1,6 @@
 # routes/templates/student.py
 from flask import Blueprint, render_template,g, current_app,request,url_for,redirect
-from itcj.core.utils.decorators import login_required, role_required_page
+from itcj.core.utils.decorators import login_required, role_required_page,app_required
 from itcj.apps.agendatec.services.student.home import has_request
 from itcj.core.utils.admit_window import is_student_window_open, get_student_window, fmt_spanish
 import os
@@ -21,7 +21,7 @@ def gate_student_period():
 
 @student_pages_bp.get("/home")
 @login_required
-@role_required_page(["student"])
+@app_required("agendatec",roles=["student"])
 def student_home():
     last_time_str = os.getenv('LAST_TIME_STUDENT_ADMIT')    
     last_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')            
@@ -32,19 +32,19 @@ def student_home():
 
 @student_pages_bp.get("/requests")
 @login_required
-@role_required_page(["student"])
+@app_required("agendatec",roles=["student"])
 def student_requests():
     return render_template("student/requests.html", title="Alumno - Mis solicitudes")
 
 @student_pages_bp.get("/request")
 @login_required
-@role_required_page(["student"])
+@app_required("agendatec",roles=["student"])
 def student_new_request():
     return render_template("student/new_request.html", title="Alumno - Nueva solicitud")
 
 @student_pages_bp.get("/close")
 @login_required
-@role_required_page(["student"])
+@app_required("agendatec",roles=["student"])
 def student_close():
     start, end = get_student_window()
     return render_template("student/close.html",

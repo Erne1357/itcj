@@ -2,17 +2,55 @@ class WindowsDesktop {
   constructor() {
     this.openWindows = []
     this.windowZIndex = 1000
+    this.cols = 0
+    this.rows = 0
+    this.desktopItems = [
+      { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
+      { id: 'tickets', name: 'Tickets', icon: 'ticket' },
+      { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
+
+      // anclados:
+      { id: 'recycle', name: 'Papelera de reciclaje', icon: 'trash-2', pin: 'last-col-first-row', readonly: true },
+      { id: 'settings', name: 'Configuración', icon: 'settings', pin: 'bottom-first-col' },
+      { id:  'profile', name: 'Perfil', icon: 'user', readonly: true },
+    ]
     this.init()
   }
 
   init() {
     lucide.createIcons()
-    this.setupDesktopIcons()
-    this.setupPostMessageListener() // Nueva función
+    // Observa el tamaño del contenedor para recalcular C×R
+    const grid = document.getElementById('desktop-grid')
+    const ro = new ResizeObserver(() => {
+      this.computeGridCR()
+      this.renderDesktopGrid()
+    })
+    ro.observe(grid)
+
+    // primer cálculo
+    this.computeGridCR()
+    this.renderDesktopGrid()
+    this.setupPostMessageListener()
     this.updateDateTime()
     setInterval(() => this.updateDateTime(), 1000)
   }
+  computeGridCR() {
+    const grid = document.getElementById('desktop-grid')
+    if (!grid) return
+    const styles = getComputedStyle(grid)
+    const tile = parseInt(styles.getPropertyValue('--tile'), 10) || 100
+    const gap = parseInt(styles.getPropertyValue('--gap'), 10) || 12
+    const W = grid.clientWidth
+    const H = grid.clientHeight
+    const cols = Math.max(1, Math.floor((W + gap) / (tile + gap)))
+    const rows = Math.max(1, Math.floor((H + gap) / (tile + gap)))
 
+    // guarda y fija plantilla explícita (C×R)
+    this.cols = cols
+    this.rows = rows
+    grid.style.gridTemplateColumns = `repeat(${cols}, ${tile}px)`
+    grid.style.gridTemplateRows = `repeat(${rows}, ${tile}px)`
+  }
   // Nueva función para escuchar mensajes de los iframes
   setupPostMessageListener() {
     window.addEventListener('message', (event) => {
@@ -42,18 +80,18 @@ class WindowsDesktop {
   handleLogout() {
     // Mostrar mensaje de logout si es necesario
     console.log('Cerrando sesión en dashboard principal...')
-    
+
     // Cerrar todas las ventanas
     this.closeAllWindows()
-    
+
     // Recargar la página principal para limpiar el estado
-    window.location.href = '/auth/login'
+    window.location.href = '/itcj/login'
   }
 
   handleSessionExpired() {
     console.log('Sesión expirada, redirigiendo...')
     this.closeAllWindows()
-    window.location.href = '/auth/login?session_expired=true'
+    window.location.href = '/itcj/login?session_expired=true'
   }
 
   closeAllWindows() {
@@ -81,7 +119,61 @@ class WindowsDesktop {
       }
     })
   }
+  renderDesktopGrid() {
+    const grid = document.getElementById('desktop-grid')
+    if (!grid) return
+    grid.innerHTML = ''
 
+    const buildTile = (item) => {
+      const el = document.createElement('div')
+      el.className = 'desktop-icon'
+      el.dataset.app = item.id
+      el.innerHTML = `
+                <div class="icon-container">
+                    ${item.id === 'agendatec'
+          ? `<img src="/static/agendatec/icon/agendatec.ico" alt="AgendaTec" style="width:45px;height:45px;">`
+          : `<i data-lucide="${item.icon || 'square'}"></i>`}
+                </div>
+                <span class="icon-label">${item.name}</span>`
+      if (item.readonly) el.addEventListener('click', e => e.preventDefault())
+      return el
+    }
+
+    const items = [...this.desktopItems]
+    const recycle = items.find(i => i.pin === 'last-col-first-row')
+    const settings = items.find(i => i.pin === 'bottom-first-col')
+    const profile = items.find(i => i.id === 'profile')
+
+    // 1) Papelera: última columna (C), última fila
+    if (recycle) {
+      const t = buildTile(recycle)
+      t.style.gridColumn = String(this.cols)
+      t.style.gridRow = String(this.rows)
+      grid.appendChild(t)
+    }
+
+    // 2) Normales (sin posición → el auto-placement los coloca de izq->der, arr->abajo)
+    items.filter(i => i !== recycle && i !== settings && i !== profile)
+      .forEach(i => grid.appendChild(buildTile(i)))
+
+    // 3) Configuración: primera columna, última fila (R)
+    if (settings) {
+      const t = buildTile(settings)
+      t.style.gridColumn = '1'
+      t.style.gridRow = String(this.rows)
+      grid.appendChild(t)
+    }
+    // 4) Perfil: Primera columna, última fila (R)
+    if (profile) {
+      const t = buildTile(profile)
+      t.style.gridColumn = String(this.cols)
+      t.style.gridRow = '1'
+      grid.appendChild(t)
+    }
+    lucide.createIcons()
+    // ¡La solución está aquí!
+    this.setupDesktopIcons()
+  }
   createWindow(appId, config) {
     const window = document.createElement("div")
     window.className = "app-window"
@@ -144,9 +236,9 @@ class WindowsDesktop {
           lastUrl = currentUrl
           const pathname = new URL(currentUrl).pathname
           urlSpan.textContent = pathname
-          
+
           // Verificar si es logout
-          if (pathname.endsWith('/logout') || pathname === '/auth/login') {
+          if (pathname.endsWith('/logout') || pathname === '/itcj/login') {
             console.log('Logout detectado via URL monitoring:', pathname)
             this.handleLogout()
             return
@@ -178,7 +270,6 @@ class WindowsDesktop {
   // Resto de tu código existente...
   setupDesktopIcons() {
     const desktopIcons = document.querySelectorAll(".desktop-icon[data-app]")
-
     desktopIcons.forEach((icon) => {
       let clickCount = 0
       let clickTimer = null
@@ -221,30 +312,36 @@ class WindowsDesktop {
         icon: "calendar",
       },
       compras: {
-        name: "Compras", 
+        name: "Compras",
         url: "/compras/dashboard",
         iframeSrc: "/compras/",
         icon: "shopping-cart",
       },
       tickets: {
         name: "Tickets",
-        url: "/tickets/", 
+        url: "/tickets/",
         iframeSrc: "/tickets/",
         icon: "ticket",
       },
       papelera: {
         name: "Papelera",
-        url: "/api/auth/v1/auth/logout",
-        iframeSrc: "/api/auth/v1/auth/logout",
+        url: "/api/core/v1/auth/logout",
+        iframeSrc: "/api/core/v1/auth/logout",
         icon: "trash-2",
-      }
+      },
+      settings: {
+        name: "Configuración",
+        url: "/itcj/config",
+        iframeSrc: "/itcj/config",
+        icon: "settings",
+      },
     }
 
-    return configs[appId] || { 
-      name: "App", 
-      url: "/app/home", 
-      iframeSrc: "/app/home", 
-      icon: "square" 
+    return configs[appId] || {
+      name: "App",
+      url: "/app/home",
+      iframeSrc: "/app/home",
+      icon: "square"
     }
   }
 
@@ -361,12 +458,12 @@ document.addEventListener("DOMContentLoaded", () => {
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       try {
-        await fetch("/api/auth/v1/auth/logout", { method: "POST", credentials: "include" })
+        await fetch("/api/core/v1/auth/logout", { method: "POST", credentials: "include" })
       } catch (e) {
         // ignoramos errores de red; forzamos logout del lado cliente
       }
       desktop.closeAllWindows()
-      window.location.href = "/auth/login"
+      window.location.href = "/itcj/login"
     })
   }
 })

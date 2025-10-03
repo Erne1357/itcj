@@ -10,7 +10,7 @@ api_notifications_bp = Blueprint("api_notifications", __name__)
 def _current_uid() -> int:
     return int(g.current_user["sub"])
 
-@api_notifications_bp.get("/notifications")
+@api_notifications_bp.get("/")
 @api_auth_required
 def list_notifications():
     """
@@ -38,7 +38,7 @@ def list_notifications():
                .limit(limit).all())
     return jsonify({"items": [n.to_dict() for n in items]})
 
-@api_notifications_bp.patch("/notifications/<int:notif_id>/read")
+@api_notifications_bp.patch("/<int:notif_id>/read")
 @api_auth_required
 def mark_read(notif_id: int):
     uid = _current_uid()
@@ -51,7 +51,7 @@ def mark_read(notif_id: int):
         db.session.commit()
     return jsonify({"ok": True})
 
-@api_notifications_bp.patch("/notifications/read-all")
+@api_notifications_bp.patch("/read-all")
 @api_auth_required
 def mark_all_read():
     uid = _current_uid()

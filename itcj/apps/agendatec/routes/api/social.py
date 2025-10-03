@@ -2,7 +2,7 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.apps.agendatec.models import db
 from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.apps.agendatec.models.appointment import Appointment
@@ -12,9 +12,9 @@ from itcj.core.models.user import User
 
 api_social_bp = Blueprint("api_social", __name__)
 
-@api_social_bp.get("/social/appointments")
+@api_social_bp.get("/appointments")
 @api_auth_required
-@api_role_required(["social_service"])  # restringido a Servicio Social
+@api_app_required(app_key="agendatec", perms=["agendatec.social_home.read"])
 def social_appointments():
     """
     Lista citas por día (obligatorio) y carrera opcional (program_id).

@@ -63,31 +63,6 @@
 </div>
 
 
-<!-- Modal: Cambio obligatorio de contraseña -->
-<div class="modal fade" id="forcePwModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static"
-  data-bs-keyboard="false">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Cambiar NIP</h5>
-      </div>
-      <div class="modal-body">
-        <p class="mb-2">Por seguridad, debes cambiar tu NIP antes de continuar.</p>
-        <div class="mb-3">
-          <label class="form-label">Nuevo NIP (4 dígitos)</label>
-          <input type="password" maxlength="4" class="form-control" id="newPw" inputmode="numeric" pattern="\\d{4}">
-          <div class="form-text">Solo números, 4 dígitos.</div>
-        </div>
-        <div id="pwErr" class="text-danger small d-none">El NIP debe ser 4 dígitos numéricos.</div>
-      </div>
-      <div class="modal-footer">
-        <button id="btnSavePw" class="btn btn-primary">Guardar</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-
 {% endblock %}
 
 {% block extra_js %}
