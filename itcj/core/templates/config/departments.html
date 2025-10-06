@@ -1,0 +1,104 @@
+<!-- itcj/core/templates/config/departments.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Departamentos - ITCJ</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12 d-flex justify-content-between align-items-center">
+                <div>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-2">
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('pages_core.pages_config.settings') }}" class="text-decoration-none">
+                                    <i class="bi bi-gear me-1"></i>Configuración
+                                </a>
+                            </li>
+                            <li class="breadcrumb-item active">Departamentos y Puestos</li>
+                        </ol>
+                    </nav>
+                    <h2><i class="bi bi-diagram-3 me-2"></i>Gestión de Departamentos</h2>
+                    <p class="text-muted">Administra departamentos organizacionales y sus puestos</p>
+                </div>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
+                    <i class="bi bi-plus-lg me-1"></i>Nuevo Departamento
+                </button>
+            </div>
+        </div>
+
+        <!-- Departments Cards -->
+        <div class="row g-4" id="departmentsContainer">
+            <!-- Se llenarán dinámicamente -->
+        </div>
+    </div>
+
+    <!-- Modal: Crear Departamento -->
+    <div class="modal fade" id="createDepartmentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Nuevo Departamento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="createDepartmentForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="deptCode" class="form-label">Código del Departamento *</label>
+                            <input type="text" class="form-control" id="deptCode" name="code" 
+                                   placeholder="ej: sistemas" pattern="[a-z0-9_]+" required>
+                            <div class="form-text">Solo letras minúsculas, números y guiones bajos</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deptName" class="form-label">Nombre del Departamento *</label>
+                            <input type="text" class="form-control" id="deptName" name="name" 
+                                   placeholder="ej: Sistemas y Computación" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deptDescription" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="deptDescription" name="description" rows="3"
+                                      placeholder="Descripción del departamento"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i>Crear Departamento
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">Éxito</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successMessage"></div>
+        </div>
+        
+        <div id="errorToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorMessage"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='core/js/config/departments.js') }}"></script>
+</body>
+</html>

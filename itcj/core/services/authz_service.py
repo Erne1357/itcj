@@ -134,18 +134,27 @@ def user_direct_perms_in_app(user_id: int, app_key: str) -> Set[str]:
             UserAppPerm.user_id == user_id,
             UserAppPerm.app_id == app.id,
             UserAppPerm.allow.is_(True),
+            Permission.app_id == app.id  # ← AGREGADO: Filtro explícito por app
         )
         .all()
     )
     return {r[0] for r in rows}
 
 def perms_via_roles(user_id: int, app_key: str) -> Set[str]:
+    """
+    CORREGIDO: Ahora filtra correctamente por app_id para obtener solo
+    los permisos de la aplicación específica.
+    """
     app = get_or_404_app(app_key)
     rows = (
         db.session.query(Permission.code)
         .join(RolePermission, RolePermission.perm_id == Permission.id)
         .join(UserAppRole, UserAppRole.role_id == RolePermission.role_id)
-        .filter(UserAppRole.user_id == user_id, UserAppRole.app_id == app.id)
+        .filter(
+            UserAppRole.user_id == user_id,
+            UserAppRole.app_id == app.id,
+            Permission.app_id == app.id  # ← CRÍTICO: Filtro faltante agregado
+        )
         .all()
     )
     return {r[0] for r in rows}
@@ -192,32 +201,35 @@ def has_any_assignment(user_id: int, app_key: str) -> bool:
 
 def get_user_permissions_for_app(user_id: int, app_key: str) -> set[str]:
     """
-    Obtiene el conjunto de todos los códigos de permiso efectivos para un usuario en una app específica.
+    CORREGIDO: Obtiene el conjunto de todos los códigos de permiso efectivos 
+    para un usuario en una app específica.
     Combina permisos directos y permisos heredados de roles.
     """
     app = App.query.filter_by(key=app_key).first()
     if not app:
         return set()
 
-    # 1. Permisos directos
+    # 1. Permisos directos (con filtro por app)
     direct_perms_query = (
         db.session.query(Permission.code)
         .join(UserAppPerm, UserAppPerm.perm_id == Permission.id)
         .filter(
             UserAppPerm.user_id == user_id,
             UserAppPerm.app_id == app.id,
-            UserAppPerm.allow.is_(True)
+            UserAppPerm.allow.is_(True),
+            Permission.app_id == app.id  # ← AGREGADO: Filtro por app
         )
     )
     
-    # 2. Permisos vía rol
+    # 2. Permisos vía rol (con filtro por app)
     role_perms_query = (
         db.session.query(Permission.code)
         .join(RolePermission, RolePermission.perm_id == Permission.id)
         .join(UserAppRole, UserAppRole.role_id == RolePermission.role_id)
         .filter(
             UserAppRole.user_id == user_id,
-            UserAppRole.app_id == app.id
+            UserAppRole.app_id == app.id,
+            Permission.app_id == app.id  # ← CRÍTICO: Filtro faltante agregado
         )
     )
     
