@@ -13,6 +13,7 @@ __pycache__/
 
 # Virtualenv / entornos
 .env
+.env.prod
 .venv/
 venv/
 ENV/

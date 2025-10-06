@@ -1,6 +1,8 @@
 # itcj/core/routes/pages/config.py
 from flask import Blueprint, render_template, request, redirect, url_for, g
 from itcj.core.models.app import App
+from itcj.core.models.department import Department
+from itcj.core.models.position import Position
 from itcj.core.models.role import Role
 from itcj.core.models.permission import Permission
 from itcj.core.models.user import User
@@ -22,12 +24,13 @@ def settings():
     roles = Role.query.order_by(Role.name.asc()).all()
     users_count = User.query.count()
     permissions_count = Permission.query.count()
-    
+    department_count = Department.query.filter_by(is_active=True).count()
     return render_template("config/index.html", 
                          apps=apps, 
                          roles=roles,
                          users_count=users_count,
-                         permissions_count=permissions_count)
+                         permissions_count=permissions_count,
+                         department_count=department_count)
 
 # Gestión de Apps
 @pages_config_bp.route("/config/apps")
@@ -109,3 +112,17 @@ def user_detail(user_id):
     apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
     roles = Role.query.order_by(Role.name.asc()).all()
     return render_template("config/user_detail.html", user=user, apps=apps, roles=roles)
+
+
+@pages_config_bp.get("/config/departments")
+@login_required
+def positions_management():  # Mantener el nombre para no romper URLs existentes
+    """Vista principal de departamentos (era positions_management)"""
+    return render_template("config/departments.html")
+
+@pages_config_bp.get("/config/departments/<int:department_id>")
+@login_required
+def department_detail(department_id):
+    """Vista de detalle de un departamento con sus puestos"""
+    dept = Department.query.get_or_404(department_id)
+    return render_template("config/department_detail.html", department_id=department_id, department=dept)
