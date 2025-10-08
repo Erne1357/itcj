@@ -1,16 +1,28 @@
 from flask import Blueprint,redirect, url_for, g, current_app,render_template
 from itcj.core.utils.decorators import login_required
 from itcj.core.utils.decorators import guard_blueprint
-from . import models  # Asegura que los modelos se importen
+from itcj.apps.helpdesk import models  # Asegura que los modelos se importen
 import logging
 
-# Blueprint de AgendaTec
-helpdesk_api_bp = Blueprint('tickets_api', __name__, )
-helpdesk_pages_bp = Blueprint('tickets_pages', __name__, template_folder='templates', static_folder='/static')
+# Blueprint de helpdesk
+helpdesk_api_bp = Blueprint('helpdesk_api', __name__, )
+helpdesk_pages_bp = Blueprint('helpdesk_pages', __name__, template_folder='templates', static_folder='/static')
 
-guard_blueprint(helpdesk_api_bp, "tickets")
-guard_blueprint(helpdesk_pages_bp, "tickets")
+guard_blueprint(helpdesk_api_bp, "helpdesk")
+guard_blueprint(helpdesk_pages_bp, "helpdesk")
 
+#Registro de blueprints de API
+from itcj.apps.helpdesk.routes.api import tickets_api_bp
+from itcj.apps.helpdesk.routes.api import assignments_api_bp
+from itcj.apps.helpdesk.routes.api import comments_api_bp
+from itcj.apps.helpdesk.routes.api import attachments_api_bp
+from itcj.apps.helpdesk.routes.api import categories_api_bp
+
+helpdesk_api_bp.register_blueprint(tickets_api_bp, url_prefix='/tickets')
+helpdesk_api_bp.register_blueprint(assignments_api_bp, url_prefix='/assignments')
+helpdesk_api_bp.register_blueprint(comments_api_bp, url_prefix='/comments')
+helpdesk_api_bp.register_blueprint(attachments_api_bp, url_prefix='/attachments')
+helpdesk_api_bp.register_blueprint(categories_api_bp, url_prefix='/categories')
 
 @helpdesk_pages_bp.get("/")
 @login_required
