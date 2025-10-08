@@ -1,6 +1,5 @@
 # itcj/core/models/department.py
 from itcj.core.extensions import db
-from datetime import datetime
 
 class Department(db.Model):
     __tablename__ = 'departments'
@@ -10,7 +9,7 @@ class Department(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.text("NOW()"), nullable=False)
     
     # Relaciones
     positions = db.relationship('Position', back_populates='department', lazy='dynamic')

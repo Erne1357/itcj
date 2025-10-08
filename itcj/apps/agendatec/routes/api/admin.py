@@ -50,12 +50,12 @@ def _parse_dt(s: Optional[str], default: Optional[datetime] = None) -> datetime:
             return datetime.fromisoformat(s)
         except ValueError:
             pass
-    return default or datetime.utcnow()
+    return default or datetime.now()
 
 def _range_from_query() -> tuple[datetime, datetime]:
     qf = request.args.get("from")
     qt = request.args.get("to")
-    end = _parse_dt(qt, datetime.utcnow())
+    end = _parse_dt(qt, datetime.now())
     start = _parse_dt(qf, end - timedelta(days=7))
     # normaliza para incluir el día 'to' completo si vino solo fecha
     if qf and len(qf) == 10:
@@ -565,7 +565,7 @@ def export_requests_xlsx():
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Solicitudes")
     buf.seek(0)
-    filename = f"solicitudes_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"solicitudes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return send_file(
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

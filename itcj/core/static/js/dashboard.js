@@ -6,7 +6,7 @@ class WindowsDesktop {
     this.rows = 0
     this.desktopItems = [
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
-      { id: 'tickets', name: 'Tickets', icon: 'ticket' },
+      { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket' },
       { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
@@ -317,10 +317,10 @@ class WindowsDesktop {
         iframeSrc: "/compras/",
         icon: "shopping-cart",
       },
-      tickets: {
-        name: "Tickets",
-        url: "/tickets/",
-        iframeSrc: "/tickets/",
+      helpdesk: {
+        name: "Help-Desk",
+        url: "/help-desk/",
+        iframeSrc: "/help-desk/",
         icon: "ticket",
       },
       papelera: {

@@ -55,7 +55,7 @@ services:
       # Montamos solo los static (read-only)
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
-      - ../../itcj/apps/tickets/static:/www/static/tickets:ro
+      - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
     depends_on:
       - backend
     ports:

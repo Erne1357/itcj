@@ -2,6 +2,8 @@
 from flask import Blueprint, redirect, url_for, g, current_app
 from itcj.core.utils.decorators import login_required, guard_blueprint
 from itcj.core.services.authz_service import get_user_permissions_for_app, user_roles_in_app
+from itcj.apps.agendatec.utils.utils import get_role_agenda, get_permissions_agenda
+import logging
 
 # Blueprints de AgendaTec
 agendatec_api_bp = Blueprint('agendatec_api', __name__)
@@ -110,8 +112,8 @@ def inject_agendatec_nav():
 @agendatec_pages_bp.get("/")
 @login_required  
 def home():
-    current_app.logger.info(f"Redirigiendo a home de {g.current_user.get('role') if g.current_user else 'anónimo'}")
     if g.current_user:
-        role = g.current_user.get("role")
+        role = get_role_agenda(g.current_user["sub"])
+        current_app.logger.warning(f"Redirigiendo a home de {role if role else 'sin rol'} en AgendaTec")
         return redirect(agendatec_role_home(role))
     return redirect(url_for("pages_core.pages_auth.login_page"))

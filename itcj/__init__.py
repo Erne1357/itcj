@@ -139,15 +139,15 @@ def register_blueprints(app):
     
     # Apps específicas
     from itcj.apps.agendatec import agendatec_api_bp, agendatec_pages_bp
-    from itcj.apps.tickets import tickets_api_bp, tickets_pages_bp
+    from itcj.apps.helpdesk import helpdesk_api_bp, helpdesk_pages_bp
     
     # APIs de apps
     app.register_blueprint(agendatec_api_bp, url_prefix="/api/agendatec/v1")
-    app.register_blueprint(tickets_api_bp, url_prefix="/api/tickets/v1")
+    app.register_blueprint(helpdesk_api_bp, url_prefix="/api/help-desk/v1")
     
     # Páginas de apps
     app.register_blueprint(agendatec_pages_bp, url_prefix="/agendatec")
-    app.register_blueprint(tickets_pages_bp, url_prefix="/tickets")
+    app.register_blueprint(helpdesk_pages_bp, url_prefix="/help-desk")
 
 def register_error_handlers(app):
     """Manejo centralizado de errores"""
