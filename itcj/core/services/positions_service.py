@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Dict, Optional, Set
 from datetime import date, datetime
+from flask import current_app
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_
 from itcj.core.extensions import db
@@ -10,22 +11,31 @@ from itcj.core.models.app import App
 from itcj.core.models.role import Role
 from itcj.core.models.permission import Permission
 from itcj.core.models.user import User
+import logging
 
 # ---------------------------
 # CRUD de Puestos
 # ---------------------------
 
-def create_position(code: str, title: str, description: str = None, department_id: int = None) -> Position:
+def create_position(code: str, title: str, description: str = None, department_id: int = None, allows_multiple: bool = False, is_active: bool = True, email: str = None) -> Position:
     """Crea un nuevo puesto organizacional"""
     if db.session.query(Position).filter_by(code=code).first():
         raise ValueError(f"Position code '{code}' already exists")
+    
+    # Verificar email único si se proporciona
+    if email and db.session.query(Position).filter_by(email=email).first():
+        raise ValueError(f"Position email '{email}' already exists")
     
     position = Position(
         code=code,
         title=title,
         description=description,
-        department_id=department_id 
+        email=email,
+        department_id=department_id,
+        allows_multiple=allows_multiple,
+        is_active=is_active
     )
+    current_app.logger.info(f"Creating position: {position}")
     db.session.add(position)
     db.session.commit()
     return position
@@ -34,11 +44,22 @@ def get_position_by_code(code: str) -> Optional[Position]:
     """Obtiene un puesto por su código"""
     return db.session.query(Position).filter_by(code=code, is_active=True).first()
 
-def list_positions(department: str = None) -> List[Position]:
+def list_positions(department=None) -> List[Position]:
     """Lista todos los puestos activos, opcionalmente filtrados por departamento"""
     query = db.session.query(Position).filter_by(is_active=True)
     if department:
-        query = query.filter_by(department=department)
+        # department puede ser un ID (int) o un objeto Department
+        if hasattr(department, 'id'):
+            query = query.filter_by(department_id=department.id)
+        elif isinstance(department, int):
+            query = query.filter_by(department_id=department)
+        else:
+            # Si es string, asumir que es department_id como int
+            try:
+                dept_id = int(department)
+                query = query.filter_by(department_id=dept_id)
+            except (ValueError, TypeError):
+                pass
     return query.order_by(Position.title.asc()).all()
 
 def update_position(position_id: int, **kwargs) -> Position:
@@ -343,16 +364,34 @@ def get_position_assignments(position_id: int) -> Dict:
     
     apps_data = {}
     
-    # Obtener todas las apps donde el puesto tiene asignaciones
+    # Método más simple: obtener IDs de apps por separado y luego hacer query
+    # Obtener app_ids únicos de roles
+    role_app_ids = set(
+        row[0] for row in db.session.query(PositionAppRole.app_id)
+        .filter_by(position_id=position_id)
+        .distinct()
+        .all()
+    )
+    
+    # Obtener app_ids únicos de permisos
+    perm_app_ids = set(
+        row[0] for row in db.session.query(PositionAppPerm.app_id)
+        .filter_by(position_id=position_id)
+        .distinct()
+        .all()
+    )
+    
+    # Combinar IDs únicos
+    all_app_ids = role_app_ids.union(perm_app_ids)
+    
+    # Si no hay asignaciones, devolver diccionario vacío
+    if not all_app_ids:
+        return {}
+    
+    # Obtener las aplicaciones
     apps_with_assignments = (
         db.session.query(App)
-        .join(
-            db.union(
-                db.session.query(PositionAppRole.app_id).filter_by(position_id=position_id),
-                db.session.query(PositionAppPerm.app_id).filter_by(position_id=position_id)
-            ).alias('app_assignments'),
-            App.id == db.text('app_assignments.app_id')
-        )
+        .filter(App.id.in_(all_app_ids))
         .all()
     )
     

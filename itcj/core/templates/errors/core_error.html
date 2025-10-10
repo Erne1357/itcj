@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {{ error_code }} - ITCJ</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/error.css') }}?v={{ static_version }}">
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-content">
+            <div class="error-header">
+                <div class="error-code">{{ error_code }}</div>
+                <div class="divider"></div>
+                <div class="error-info">
+                    <h1 class="error-title">{{ error_title }}</h1>
+                    <p class="error-description">{{ error_message }}</p>
+                </div>
+            </div>
+
+            <div class="error-details">
+                <div class="alert-section">
+                    <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <div class="alert-content">
+                        <p class="alert-text">
+                            Si el problema persiste, contacta al administrador del sistema con el siguiente código de error:
+                        </p>
+                        <p class="error-reference">
+                            HTTP {{ error_code }} - {{ error_title|upper|replace(' ', '_') }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p class="footer-text">ITCJ - Instituto Tecnológico de Ciudad Juárez</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

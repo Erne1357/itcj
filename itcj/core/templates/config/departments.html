@@ -4,39 +4,118 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión de Departamentos - ITCJ</title>
+    <title>Departamentos - ITCJ</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .subdirection-card {
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+        
+        .subdirection-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            border-color: var(--bs-primary);
+        }
+        
+        .subdirection-icon {
+            font-size: 4rem;
+            color: var(--bs-primary);
+        }
+        
+        .department-card {
+            transition: all 0.2s ease;
+        }
+        
+        .department-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .department-icon {
+            font-size: 2.5rem;
+        }
+        
+        /* Animaciones */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.4s ease;
+        }
+        
+        @keyframes expandCard {
+            from {
+                transform: scale(1);
+                opacity: 1;
+            }
+            to {
+                transform: scale(1.05);
+                opacity: 0;
+            }
+        }
+        
+        .expand-out {
+            animation: expandCard 0.3s ease forwards;
+        }
+        
+        .back-btn {
+            transition: all 0.2s ease;
+        }
+        
+        .back-btn:hover {
+            transform: translateX(-5px);
+        }
+    </style>
 </head>
 <body class="bg-light">
     <div class="container-fluid py-4">
         <!-- Header -->
         <div class="row mb-4">
-            <div class="col-12 d-flex justify-content-between align-items-center">
-                <div>
-                    <nav aria-label="breadcrumb">
-                        <ol class="breadcrumb mb-2">
-                            <li class="breadcrumb-item">
-                                <a href="{{ url_for('pages_core.pages_config.settings') }}" class="text-decoration-none">
-                                    <i class="bi bi-gear me-1"></i>Configuración
-                                </a>
-                            </li>
-                            <li class="breadcrumb-item active">Departamentos y Puestos</li>
-                        </ol>
-                    </nav>
-                    <h2><i class="bi bi-diagram-3 me-2"></i>Gestión de Departamentos</h2>
-                    <p class="text-muted">Administra departamentos organizacionales y sus puestos</p>
+            <div class="col-12">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb mb-2">
+                        <li class="breadcrumb-item">
+                            <a href="{{ url_for('pages_core.pages_config.settings') }}" class="text-decoration-none">
+                                <i class="bi bi-gear me-1"></i>Configuración
+                            </a>
+                        </li>
+                        <li class="breadcrumb-item active" id="currentBreadcrumb">Subdirecciones</li>
+                    </ol>
+                </nav>
+                
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2 id="pageTitle">
+                            <i class="bi bi-diagram-3 me-2"></i>Subdirecciones
+                        </h2>
+                        <p class="text-muted" id="pageSubtitle">Selecciona una subdirección para ver sus departamentos</p>
+                    </div>
+                    
+                    <!-- Botón para regresar (oculto inicialmente) -->
+                    <button class="btn btn-outline-secondary back-btn" id="backBtn" style="display: none;">
+                        <i class="bi bi-arrow-left me-2"></i>Volver a Subdirecciones
+                    </button>
+                    
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
+                        <i class="bi bi-plus-lg me-1"></i>Nuevo Departamento
+                    </button>
                 </div>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
-                    <i class="bi bi-plus-lg me-1"></i>Nuevo Departamento
-                </button>
             </div>
         </div>
 
-        <!-- Departments Cards -->
-        <div class="row g-4" id="departmentsContainer">
-            <!-- Se llenarán dinámicamente -->
-        </div>
+        <!-- Contenedor Principal -->
+        <div id="mainContainer"></div>
     </div>
 
     <!-- Modal: Crear Departamento -->
@@ -50,26 +129,38 @@
                 <form id="createDepartmentForm">
                     <div class="modal-body">
                         <div class="mb-3">
-                            <label for="deptCode" class="form-label">Código del Departamento *</label>
+                            <label for="deptCode" class="form-label">Código *</label>
                             <input type="text" class="form-control" id="deptCode" name="code" 
-                                   placeholder="ej: sistemas" pattern="[a-z0-9_]+" required>
-                            <div class="form-text">Solo letras minúsculas, números y guiones bajos</div>
+                                   placeholder="ej: sistemas_computacion" pattern="[a-z0-9_]+" required>
                         </div>
                         <div class="mb-3">
-                            <label for="deptName" class="form-label">Nombre del Departamento *</label>
+                            <label for="deptName" class="form-label">Nombre *</label>
                             <input type="text" class="form-control" id="deptName" name="name" 
                                    placeholder="ej: Sistemas y Computación" required>
                         </div>
                         <div class="mb-3">
                             <label for="deptDescription" class="form-label">Descripción</label>
-                            <textarea class="form-control" id="deptDescription" name="description" rows="3"
-                                      placeholder="Descripción del departamento"></textarea>
+                            <textarea class="form-control" id="deptDescription" name="description" rows="3"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deptParent" class="form-label">Subdirección</label>
+                            <select class="form-select" id="deptParent" name="parent_id">
+                                <option value="">-- Es una subdirección --</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="deptIcon" class="form-label">Icono (Bootstrap Icons)</label>
+                            <input type="text" class="form-control" id="deptIcon" name="icon_class" 
+                                   placeholder="ej: bi-code-slash">
+                            <small class="form-text text-muted">
+                                Ver iconos en: <a href="https://icons.getbootstrap.com" target="_blank">icons.getbootstrap.com</a>
+                            </small>
                         </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-lg me-1"></i>Crear Departamento
+                            <i class="bi bi-check-lg me-1"></i>Crear
                         </button>
                     </div>
                 </form>
@@ -77,28 +168,23 @@
         </div>
     </div>
 
-    <!-- Toast Container -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
-        <div id="successToast" class="toast" role="alert">
-            <div class="toast-header">
-                <i class="bi bi-check-circle-fill text-success me-2"></i>
-                <strong class="me-auto">Éxito</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+    <!-- Toasts -->
+    <div class="toast-container position-fixed top-0 end-0 p-3">
+        <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body" id="successMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
-            <div class="toast-body" id="successMessage"></div>
         </div>
-        
-        <div id="errorToast" class="toast" role="alert">
-            <div class="toast-header">
-                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
-                <strong class="me-auto">Error</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+        <div id="errorToast" class="toast align-items-center text-white bg-danger border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body" id="errorMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
-            <div class="toast-body" id="errorMessage"></div>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='core/js/config/departments.js') }}"></script>
+    <script src="{{ url_for('static', filename='core/js/config/departments.js') }}?v={{ static_version }}"></script>
 </body>
 </html>

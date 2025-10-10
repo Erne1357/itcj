@@ -21,7 +21,7 @@ body {
 .desktop-background {
   position: absolute;
   inset: 0;
-  background-image: url("../images/windows.jpg");
+  background-image: url("../../images/windows.jpg");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -357,34 +357,6 @@ body {
   line-height: 1.2;
   padding: 0 8px;
   color: #374151;
-}
-
-/* --- Logout Floating Action Button --- */
-.logout-fab {
-  position: fixed;
-  right: 16px;
-  bottom: 64px; /* por encima de la taskbar (48px) */
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border: none;
-  border-radius: 9999px;
-  background: #ef4444; /* rojo */
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 10px 15px -3px rgba(0,0,0,.2), 0 4px 6px -4px rgba(0,0,0,.2);
-  transition: background-color .2s ease, transform .08s ease;
-}
-
-.logout-fab:hover { background: #dc2626; }
-.logout-fab:active { transform: translateY(1px); }
-
-.logout-fab i { width: 18px; height: 18px; }
-
-@media (max-width: 640px) {
-  .logout-fab { right: 12px; bottom: 56px; padding: 8px 12px; }
-  .logout-fab span { display: none; } /* solo el icono en pantallas chicas */
 }
 
 @media (max-width: 1200px) { .desktop-grid { --tile: 96px; } }

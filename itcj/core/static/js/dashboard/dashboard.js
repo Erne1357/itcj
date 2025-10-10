@@ -10,9 +10,7 @@ class WindowsDesktop {
       { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
-      { id: 'recycle', name: 'Papelera de reciclaje', icon: 'trash-2', pin: 'last-col-first-row', readonly: true },
-      { id: 'settings', name: 'Configuración', icon: 'settings', pin: 'bottom-first-col' },
-      { id:  'profile', name: 'Perfil', icon: 'user', readonly: true },
+      { id: 'papelera', name: 'Papelera de reciclaje', icon: 'trash-2', pin: 'last-col-first-row', readonly: true },
     ]
     this.init()
   }
@@ -141,35 +139,19 @@ class WindowsDesktop {
 
     const items = [...this.desktopItems]
     const recycle = items.find(i => i.pin === 'last-col-first-row')
-    const settings = items.find(i => i.pin === 'bottom-first-col')
-    const profile = items.find(i => i.id === 'profile')
 
     // 1) Papelera: última columna (C), última fila
     if (recycle) {
       const t = buildTile(recycle)
-      t.style.gridColumn = String(this.cols)
-      t.style.gridRow = String(this.rows)
+      t.style.gridColumn = 1
+      t.style.gridRow = 1
       grid.appendChild(t)
     }
 
     // 2) Normales (sin posición → el auto-placement los coloca de izq->der, arr->abajo)
-    items.filter(i => i !== recycle && i !== settings && i !== profile)
+    items.filter(i => i !== recycle )
       .forEach(i => grid.appendChild(buildTile(i)))
 
-    // 3) Configuración: primera columna, última fila (R)
-    if (settings) {
-      const t = buildTile(settings)
-      t.style.gridColumn = '1'
-      t.style.gridRow = String(this.rows)
-      grid.appendChild(t)
-    }
-    // 4) Perfil: Primera columna, última fila (R)
-    if (profile) {
-      const t = buildTile(profile)
-      t.style.gridColumn = String(this.cols)
-      t.style.gridRow = '1'
-      grid.appendChild(t)
-    }
     lucide.createIcons()
     // ¡La solución está aquí!
     this.setupDesktopIcons()
@@ -325,8 +307,8 @@ class WindowsDesktop {
       },
       papelera: {
         name: "Papelera",
-        url: "/api/core/v1/auth/logout",
-        iframeSrc: "/api/core/v1/auth/logout",
+        url: "",
+        iframeSrc: "",
         icon: "trash-2",
       },
       settings: {
@@ -334,6 +316,12 @@ class WindowsDesktop {
         url: "/itcj/config",
         iframeSrc: "/itcj/config",
         icon: "settings",
+      },
+      profile: {
+        name: "Mi Perfil",
+        url: "/itcj/profile",
+        iframeSrc: "/itcj/profile",
+        icon: "user",
       },
     }
 
@@ -453,17 +441,8 @@ class WindowsDesktop {
 
 document.addEventListener("DOMContentLoaded", () => {
   const desktop = new WindowsDesktop()
-
-  const logoutBtn = document.getElementById("logout-fab")
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", async () => {
-      try {
-        await fetch("/api/core/v1/auth/logout", { method: "POST", credentials: "include" })
-      } catch (e) {
-        // ignoramos errores de red; forzamos logout del lado cliente
-      }
-      desktop.closeAllWindows()
-      window.location.href = "/itcj/login"
-    })
+  if (typeof ProfileMenu !== 'undefined') {
+    const profileMenu = new ProfileMenu(desktop);
   }
+
 })

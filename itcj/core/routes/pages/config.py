@@ -24,14 +24,16 @@ def settings():
     roles = Role.query.order_by(Role.name.asc()).all()
     users_count = User.query.count()
     permissions_count = Permission.query.count()
-    department_count = Department.query.filter_by(is_active=True).count()
-    return render_template("config/index.html", 
-                         apps=apps, 
-                         roles=roles,
-                         users_count=users_count,
-                         permissions_count=permissions_count,
-                         department_count=department_count)
+    departments_count = Department.query.filter_by(is_active=True).count()
 
+    context = {
+        "apps": apps,
+        "roles": roles,
+        "users_count": users_count,
+        "permissions_count": permissions_count,
+        "departments_count": departments_count
+    }
+    return render_template("config/index.html", **context)
 # Gestión de Apps
 @pages_config_bp.route("/config/apps")
 @login_required

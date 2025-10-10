@@ -58,3 +58,43 @@ def change_password():
     except Exception as e:
         current_app.logger.error(f"Error changing password: {e}")
         return jsonify({"error": "internal_server_error"}), 500
+    
+
+@api_user_bp.get("/me")
+@api_auth_required
+def get_current_user():
+    """Obtiene información del usuario actual"""
+    u = _current_user()
+    if not u:
+        return jsonify({"error": "user_not_found"}), 404
+    
+    # Obtener rol global (puedes ajustar según tu lógica)
+    global_role = u.role.name if hasattr(u, 'role') and u.role else "Usuario"
+    
+    # Obtener posiciones activas del usuario (si aplica)
+    positions = []
+    if hasattr(u, 'position_assignments'):
+        from itcj.core.models.position import UserPosition
+        active_positions = UserPosition.query.filter_by(
+            user_id=u.id,
+            is_active=True
+        ).all()
+        positions = [
+            {
+                'title': p.position.title,
+                'department': p.position.department.name if p.position.department else None
+            }
+            for p in active_positions
+        ]
+    
+    return jsonify({
+        "status": "ok",
+        "data": {
+            "id": u.id,
+            "username": u.username,
+            "full_name": u.full_name,
+            "email": u.email,
+            "role": global_role,
+            "positions": positions
+        }
+    })

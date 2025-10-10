@@ -10,6 +10,7 @@ class Position(db.Model):
     code = db.Column(db.String(50), unique=True, nullable=False, index=True)  # ej: 'coord_sistemas'
     title = db.Column(db.String(120), nullable=False)  # ej: 'Coordinador de Sistemas'
     description = db.Column(db.Text)
+    email = db.Column(db.String(150), nullable=True, unique=True, index=True)  # Email oficial del puesto (si aplica)
     department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now(), nullable=False)

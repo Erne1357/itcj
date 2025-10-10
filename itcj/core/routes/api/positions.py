@@ -1,5 +1,5 @@
 # itcj/core/routes/api/positions.py
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, current_app
 from itcj.core.utils.decorators import api_auth_required, api_role_required
 from itcj.core.services import positions_service as svc
 from itcj.core.extensions import db
@@ -30,8 +30,10 @@ def list_positions():
         "code": p.code,
         "title": p.title,
         "description": p.description,
-        "department": p.department,
+        "email": p.email,
+        "department_id": p.department_id,
         "is_active": p.is_active,
+        "allows_multiple": p.allows_multiple,
         "current_user": svc.get_position_current_user(p.id)
     } for p in positions]
     
@@ -46,19 +48,33 @@ def create_position():
     code = (payload.get("code") or "").strip()
     title = (payload.get("title") or "").strip()
     description = (payload.get("description") or "").strip() or None
-    department_id = payload.get("department_id")  # NUEVO: usar ID en vez de string
-    
+    email = (payload.get("email") or "").strip() or None
+    department_id = payload.get("department_id")  
+    allows_multiple = bool(payload.get("allows_multiple", False))
+    is_active = bool(payload.get("is_active", True))
+
     if not code or not title:
         return _bad("code_and_title_required")
     
     try:
-        position = svc.create_position(code, title, description, department_id=department_id)
+        position = svc.create_position(
+            code=code, 
+            title=title, 
+            description=description, 
+            email=email,
+            department_id=department_id, 
+            allows_multiple=allows_multiple, 
+            is_active=is_active
+        )
         return _ok({
             "id": position.id,
             "code": position.code,
             "title": position.title,
             "description": position.description,
-            "department_id": position.department_id
+            "email": position.email,
+            "department_id": position.department_id,
+            "is_active": position.is_active,
+            "allows_multiple": position.allows_multiple
         }, 201)
     except ValueError as e:
         return _bad(str(e), 409)
@@ -223,6 +239,9 @@ def get_position_assignments(position_id):
         return _ok(assignments)
     except ValueError as e:
         return _bad(str(e), 404)
+    except Exception as e:
+        current_app.logger.error(f"Error getting position assignments: {e}")
+        return _bad("internal_server_error", 500)
 
 @api_positions_bp.post("/<int:position_id>/apps/<string:app_key>/roles")
 @api_auth_required
@@ -314,5 +333,110 @@ def get_user_position_permissions(user_id, app_key):
     try:
         perms = svc.get_position_effective_permissions(user_id, app_key)
         return _ok(sorted(list(perms)))
+    except Exception as e:
+        return _bad(str(e), 400)
+
+# ---------------------------
+# APIs para Gestión de Apps en Posiciones (nuevas)
+# ---------------------------
+
+@api_positions_bp.get("/<int:position_id>/apps/<string:app_key>/roles")
+@api_auth_required
+@api_role_required(["admin"])
+def get_position_app_roles(position_id, app_key):
+    """Obtiene los roles asignados a una posición en una app específica"""
+    try:
+        from itcj.core.services.authz_service import get_or_404_app
+        from itcj.core.models.position import PositionAppRole
+        from itcj.core.models.role import Role
+        
+        app = get_or_404_app(app_key)
+        
+        roles = (
+            db.session.query(Role.name)
+            .join(PositionAppRole, PositionAppRole.role_id == Role.id)
+            .filter(
+                PositionAppRole.position_id == position_id,
+                PositionAppRole.app_id == app.id
+            )
+            .all()
+        )
+        
+        return _ok([role[0] for role in roles])
+    except Exception as e:
+        return _bad(str(e), 400)
+
+@api_positions_bp.get("/<int:position_id>/apps/<string:app_key>/perms")
+@api_auth_required
+@api_role_required(["admin"])
+def get_position_app_perms(position_id, app_key):
+    """Obtiene los permisos directos asignados a una posición en una app específica"""
+    try:
+        from itcj.core.services.authz_service import get_or_404_app
+        from itcj.core.models.position import PositionAppPerm
+        from itcj.core.models.permission import Permission
+        
+        app = get_or_404_app(app_key)
+        
+        perms = (
+            db.session.query(Permission.code)
+            .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
+            .filter(
+                PositionAppPerm.position_id == position_id,
+                PositionAppPerm.app_id == app.id,
+                PositionAppPerm.allow == True
+            )
+            .all()
+        )
+        
+        return _ok([perm[0] for perm in perms])
+    except Exception as e:
+        return _bad(str(e), 400)
+
+@api_positions_bp.get("/<int:position_id>/effective-perms/<string:app_key>")
+@api_auth_required
+@api_role_required(["admin"])
+def get_position_effective_perms(position_id, app_key):
+    """Obtiene los permisos efectivos de una posición en una app (roles + permisos directos)"""
+    try:
+        from itcj.core.services.authz_service import get_or_404_app
+        from itcj.core.models.position import PositionAppRole, PositionAppPerm
+        from itcj.core.models.role import Role
+        from itcj.core.models.permission import Permission
+        from itcj.core.models.role_permission import RolePermission
+        
+        app = get_or_404_app(app_key)
+        
+        # Permisos via roles
+        perms_via_roles = (
+            db.session.query(Permission.code)
+            .join(RolePermission, RolePermission.perm_id == Permission.id)
+            .join(PositionAppRole, PositionAppRole.role_id == RolePermission.role_id)
+            .filter(
+                PositionAppRole.position_id == position_id,
+                PositionAppRole.app_id == app.id,
+                Permission.app_id == app.id
+            )
+            .all()
+        )
+        
+        # Permisos directos
+        direct_perms = (
+            db.session.query(Permission.code)
+            .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
+            .filter(
+                PositionAppPerm.position_id == position_id,
+                PositionAppPerm.app_id == app.id,
+                PositionAppPerm.allow == True,
+                Permission.app_id == app.id
+            )
+            .all()
+        )
+        
+        all_perms = set()
+        all_perms.update(p[0] for p in perms_via_roles)
+        all_perms.update(p[0] for p in direct_perms)
+        
+        return _ok(sorted(list(all_perms)))
     except Exception as e:
         return _bad(str(e), 400)
