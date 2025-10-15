@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 def calculate_business_hours(start: datetime, end: datetime) -> float:
     """
@@ -11,6 +12,19 @@ def calculate_business_hours(start: datetime, end: datetime) -> float:
     Returns:
         Horas en horario laboral
     """
+    if not start or not end:
+        return 0.0
+    
+    # Asegurar que ambas fechas tengan el mismo tipo de timezone ANTES de comparar
+    if start.tzinfo is None and end.tzinfo is not None:
+        start = start.replace(tzinfo=timezone.utc)
+    elif start.tzinfo is not None and end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    elif start.tzinfo is None and end.tzinfo is None:
+        # Si ambas son naive, dejarlas así
+        pass
+    
+    # Ahora ya podemos comparar de forma segura
     if start >= end:
         return 0.0
     
@@ -58,6 +72,47 @@ def calculate_business_hours(start: datetime, end: datetime) -> float:
             current = current.replace(hour=WORK_START, minute=0, second=0, microsecond=0)
     
     return round(total_hours, 2)
+
+
+def calculate_sla_deadline(created_at: datetime, priority: str) -> datetime:
+    """
+    Calcula la fecha límite de SLA basada en la prioridad del ticket.
+    
+    Args:
+        created_at: Fecha de creación del ticket
+        priority: Prioridad del ticket (URGENTE, ALTA, MEDIA, BAJA)
+        
+    Returns:
+        datetime: Fecha límite de resolución
+    """
+    sla_hours = {
+        'URGENTE': 4,    # 4 horas
+        'ALTA': 24,      # 24 horas  
+        'MEDIA': 72,     # 72 horas (3 días)
+        'BAJA': 168      # 168 horas (7 días)
+    }
+    
+    hours_to_add = sla_hours.get(priority, 72)  # Default: 72 horas
+    
+    return created_at + timedelta(hours=hours_to_add)
+
+
+def is_within_sla(created_at: datetime, resolved_at: Optional[datetime], priority: str) -> bool:
+    """
+    Verifica si un ticket fue resuelto dentro del SLA.
+    
+    Args:
+        created_at: Fecha de creación
+        resolved_at: Fecha de resolución (None si aún no está resuelto)
+        priority: Prioridad del ticket
+        
+    Returns:
+        bool: True si está dentro del SLA
+    """
+    deadline = calculate_sla_deadline(created_at, priority)
+    current_time = resolved_at or datetime.now(timezone.utc)
+    
+    return current_time <= deadline
 
 
 # Ejemplo de uso:

@@ -95,7 +95,7 @@ def list_tickets():
     Lista tickets según filtros y permisos del usuario.
     
     Query params:
-        - status: Filtrar por estado
+        - status: Filtrar por estado (puede ser uno o varios separados por comas, ej: 'PENDING' o 'ASSIGNED,IN_PROGRESS')
         - area: Filtrar por área (DESARROLLO/SOPORTE)
         - priority: Filtrar por prioridad
         - assigned_to_me: true/false - Solo asignados a mí
@@ -112,6 +112,11 @@ def list_tickets():
     
     # Obtener parámetros de query
     status = request.args.get('status')
+    # Procesar múltiples estados separados por comas
+    if status:
+        status_list = [s.strip().upper() for s in status.split(',') if s.strip()]
+        status = status_list if status_list else None
+    
     area = request.args.get('area')
     priority = request.args.get('priority')
     assigned_to_me = request.args.get('assigned_to_me', 'false').lower() == 'true'

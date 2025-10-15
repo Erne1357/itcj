@@ -25,6 +25,7 @@ class Ticket(db.Model):
     # ==================== CONTENIDO ====================
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=False)
+    location = db.Column(db.String(200), nullable=True)  # Ubicación física (opcional)
     office_document_folio = db.Column(db.String(50), nullable=True)  # Folio de oficio (opcional)
     
     # ==================== ESTADO Y ASIGNACIÓN ====================
@@ -137,14 +138,26 @@ class Ticket(db.Model):
             return None
         
         from itcj.apps.helpdesk.utils.time_calculator import calculate_business_hours
-        return calculate_business_hours(self.created_at, self.resolved_at)
+        from datetime import timezone
+        
+        # Asegurar que las fechas tengan timezone
+        created_at = self.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+            
+        resolved_at = self.resolved_at
+        if resolved_at.tzinfo is None:
+            resolved_at = resolved_at.replace(tzinfo=timezone.utc)
+        
+        return calculate_business_hours(created_at, resolved_at)
 
-    def to_dict(self, include_relations=False):
+    def to_dict(self, include_relations=False, include_metrics=False):
         data = {
             'id': self.id,
             'ticket_number': self.ticket_number,
             'title': self.title,
             'description': self.description,
+            'location': self.location,
             'area': self.area,
             'priority': self.priority,
             'status': self.status,
@@ -157,20 +170,21 @@ class Ticket(db.Model):
             'rating': self.rating,
             'rating_comment': self.rating_comment,
             'resolution_notes': self.resolution_notes,
+            'time_invested_minutes': self.time_invested_minutes,
         }
         
         if include_relations:
             data.update({
                 'requester': {
                     'id': self.requester.id,
-                    'name': self.requester.name,
-                    'username': self.requester.username
+                    'name': self.requester.full_name,
+                    'username': self.requester.username or self.requester.employee_number
                 } if self.requester else None,
                 'category': self.category.to_dict() if self.category else None,
                 'assigned_to': {
                     'id': self.assigned_to.id,
-                    'name': self.assigned_to.name,
-                    'username': self.assigned_to.username
+                    'name': self.assigned_to.full_name,
+                    'username': self.assigned_to.username or self.assigned_to.employee_number
                 } if self.assigned_to else None,
                 'assigned_to_team': self.assigned_to_team,
                 'department': {
@@ -179,4 +193,118 @@ class Ticket(db.Model):
                 } if self.requester_department else None,
             })
         
+        if include_metrics:
+            # Calcular métricas temporales
+            from datetime import datetime, timezone
+            
+            # Asegurar que las fechas tengan timezone
+            created_at = self.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            
+            # Tiempo transcurrido desde creación hasta ahora (si no está resuelto) o hasta resolución
+            if self.resolved_at:
+                end_time = self.resolved_at
+                if end_time.tzinfo is None:
+                    end_time = end_time.replace(tzinfo=timezone.utc)
+            else:
+                end_time = datetime.now(timezone.utc)
+            
+            total_elapsed_hours = (end_time - created_at).total_seconds() / 3600
+            
+            # SLA targets (Service Level Agreement) - pueden ser configurables
+            sla_targets = {
+                'URGENTE': 4,    # 4 horas
+                'ALTA': 24,      # 24 horas  
+                'MEDIA': 72,     # 72 horas
+                'BAJA': 168      # 1 semana
+            }
+            
+            sla_target_hours = sla_targets.get(self.priority, 72)
+            sla_percentage = min((total_elapsed_hours / sla_target_hours) * 100, 100) if sla_target_hours > 0 else 0
+            sla_status = 'on_time' if total_elapsed_hours <= sla_target_hours else 'overdue'
+            
+            # Estado de progreso
+            progress_stages = {
+                'PENDING': {'stage': 'created', 'progress': 10, 'description': 'Ticket creado'},
+                'ASSIGNED': {'stage': 'assigned', 'progress': 30, 'description': 'Asignado a técnico'},
+                'IN_PROGRESS': {'stage': 'working', 'progress': 60, 'description': 'En proceso de resolución'},
+                'RESOLVED_SUCCESS': {'stage': 'resolved', 'progress': 90, 'description': 'Resuelto exitosamente'},
+                'RESOLVED_FAILED': {'stage': 'resolved', 'progress': 85, 'description': 'Atendido pero no resuelto'},
+                'CLOSED': {'stage': 'closed', 'progress': 100, 'description': 'Cerrado'},
+                'CANCELED': {'stage': 'canceled', 'progress': 0, 'description': 'Cancelado'}
+            }
+            
+            current_progress = progress_stages.get(self.status, {'stage': 'unknown', 'progress': 0, 'description': 'Estado desconocido'})
+            
+            data.update({
+                'metrics': {
+                    # Métricas de tiempo
+                    'total_elapsed_hours': round(total_elapsed_hours, 2),
+                    'resolution_time_hours': self.resolution_time_hours,
+                    'time_invested_hours': self.time_invested_hours,
+                    'business_hours_elapsed': self.business_hours_elapsed,
+                    
+                    # SLA (Service Level Agreement)
+                    'sla': {
+                        'target_hours': sla_target_hours,
+                        'elapsed_hours': round(total_elapsed_hours, 2),
+                        'percentage': round(sla_percentage, 1),
+                        'status': sla_status,
+                        'remaining_hours': max(0, sla_target_hours - total_elapsed_hours) if sla_status == 'on_time' else 0
+                    },
+                    
+                    # Progreso del ticket
+                    'progress': {
+                        'current_stage': current_progress['stage'],
+                        'percentage': current_progress['progress'],
+                        'description': current_progress['description'],
+                        'is_open': self.is_open,
+                        'is_resolved': self.is_resolved,
+                        'can_be_rated': self.can_be_rated
+                    },
+                    
+                    # Métricas de calidad
+                    'quality': {
+                        'has_rating': self.rating is not None,
+                        'rating_value': self.rating,
+                        'rating_category': self._get_rating_category(self.rating) if self.rating else None,
+                        'has_comments': self.comments.count() > 0 if hasattr(self, 'comments') else False,
+                        'resolution_quality': self._get_resolution_quality()
+                    }
+                }
+            })
+        
         return data
+    
+    def _get_rating_category(self, rating):
+        """Convierte rating numérico a categoría descriptiva"""
+        if rating is None:
+            return None
+        elif rating >= 5:
+            return 'excelente'
+        elif rating >= 4:
+            return 'bueno'
+        elif rating >= 3:
+            return 'regular'
+        elif rating >= 2:
+            return 'malo'
+        else:
+            return 'muy_malo'
+    
+    def _get_resolution_quality(self):
+        """Determina la calidad de resolución basada en el estado y tiempo"""
+        if not self.is_resolved:
+            return None
+        
+        if self.status == 'RESOLVED_SUCCESS':
+            if self.time_invested_hours and self.time_invested_hours <= 2:
+                return 'rapida'
+            elif self.time_invested_hours and self.time_invested_hours <= 8:
+                return 'normal'
+            else:
+                return 'lenta'
+        elif self.status == 'RESOLVED_FAILED':
+            return 'no_resuelto'
+        else:
+            return 'cerrado'

@@ -361,3 +361,49 @@ body {
     background-position: calc(200px + 100%) 0;
   }
 }
+
+
+/* ==================== HEADER NAV ==================== */
+.sitec-header-nav {
+    background: linear-gradient(135deg, var(--sitec-primary) 0%, var(--sitec-secondary) 100%);
+    border-bottom: 3px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.sitec-logo-small {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ==================== PRIORITY PULSE ==================== */
+.priority-pulse {
+    animation: pulse-priority 1.5s infinite;
+}
+
+@keyframes pulse-priority {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+/* ==================== TOAST CUSTOM ==================== */
+.toast-body {
+    padding: 12px 16px;
+    font-weight: 500;
+}
+
+/* ==================== LOADING SHIMMER ==================== */
+.shimmer {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}

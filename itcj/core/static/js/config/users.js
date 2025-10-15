@@ -231,7 +231,7 @@ class UsersManager {
 
         const badges = appKeys.map(appKey => {
             const app = this.apps.find(a => a.key === appKey);
-            return `<span class="badge bg-primary" title="${app ? app.name : appKey}">${appKey}</span>`;
+            return `<span class="badge bg-${app ? app.key : 'primary'}" title="${app ? app.name : appKey}">${appKey}</span>`;
         }).join(' ');
 
         container.innerHTML = badges;

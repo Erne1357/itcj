@@ -1,0 +1,521 @@
+<!-- itcj/apps/helpdesk/templates/secretary/dashboard.html -->
+{% extends "base_helpdesk.html" %}
+
+{% block title %}Secretaría - Dashboard{% endblock %}
+
+{% block header_title %}Panel de Secretaría{% endblock %}
+{% block header_subtitle %}Centro de Cómputo - Gestión de Tickets{% endblock %}
+
+{% block header_actions %}
+<div class="d-flex align-items-center gap-2">
+    <button class="btn btn-outline-light btn-sm" onclick="refreshDashboard()">
+        <i class="fas fa-sync me-2"></i>Actualizar
+    </button>
+    <span class="badge bg-danger" id="urgentBadge" style="display: none;">
+        <i class="fas fa-exclamation-triangle me-1"></i>
+        <span id="urgentCount">0</span> Urgentes
+    </span>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Dashboard Overview Cards -->
+<div class="row mb-4">
+    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+        <div class="card border-0 shadow-sm border-start border-danger border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Pendientes</small>
+                        <h2 class="text-danger mb-0 fw-bold" id="pendingCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-clock fa-2x text-danger opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+        <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Sin Asignar</small>
+                        <h2 class="text-warning mb-0 fw-bold" id="unassignedCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-user-slash fa-2x text-warning opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+        <div class="card border-0 shadow-sm border-start border-primary border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">En Progreso</small>
+                        <h2 class="text-primary mb-0 fw-bold" id="inProgressCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-cog fa-2x text-primary opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Hoy</small>
+                        <h2 class="text-success mb-0 fw-bold" id="todayCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-calendar-day fa-2x text-success opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Urgent Tickets Alert -->
+<div class="alert alert-danger border-0 shadow-sm d-none" id="urgentAlert">
+    <div class="d-flex align-items-start">
+        <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
+        <div class="flex-grow-1">
+            <h5 class="alert-heading mb-2">
+                <i class="fas fa-fire me-2"></i>Tickets Urgentes - Atención Inmediata
+            </h5>
+            <p class="mb-3">Los siguientes tickets requieren asignación inmediata</p>
+            <div id="urgentTicketsList"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Tabs -->
+<ul class="nav nav-tabs nav-fill mb-4" id="secretaryTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button">
+            <i class="fas fa-inbox me-2"></i>Cola de Tickets
+            <span class="badge bg-danger ms-2" id="queueBadge">0</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="active-tab" data-bs-toggle="tab" data-bs-target="#active" type="button">
+            <i class="fas fa-tasks me-2"></i>En Proceso
+            <span class="badge bg-primary ms-2" id="activeBadge">0</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="technicians-tab" data-bs-toggle="tab" data-bs-target="#technicians" type="button">
+            <i class="fas fa-users me-2"></i>Técnicos
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button">
+            <i class="fas fa-chart-bar me-2"></i>Estadísticas
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="secretaryTabContent">
+    
+    <!-- Queue Tab (Pending Tickets) -->
+    <div class="tab-pane fade show active" id="queue" role="tabpanel">
+        
+        <!-- Filters -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Área</label>
+                        <select class="form-select form-select-sm" id="filterArea">
+                            <option value="">Todas</option>
+                            <option value="DESARROLLO">Desarrollo</option>
+                            <option value="SOPORTE">Soporte</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Prioridad</label>
+                        <select class="form-select form-select-sm" id="filterPriority">
+                            <option value="">Todas</option>
+                            <option value="URGENTE">Urgente</option>
+                            <option value="ALTA">Alta</option>
+                            <option value="MEDIA">Media</option>
+                            <option value="BAJA">Baja</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Buscar</label>
+                        <input type="text" class="form-control form-control-sm" id="searchQueue" 
+                               placeholder="Buscar por título, usuario o ubicación...">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tickets Queue -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>Tickets Pendientes de Asignación
+                    </h5>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadPendingTickets()">
+                        <i class="fas fa-sync me-2"></i>Actualizar
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="queueList">
+                    <!-- Loading state -->
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-3">Cargando cola de tickets...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Active Tickets Tab -->
+    <div class="tab-pane fade" id="active" role="tabpanel">
+        
+        <!-- Sub-tabs for areas -->
+        <ul class="nav nav-pills mb-3" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#active-all">
+                    Todos
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="pill" data-bs-target="#active-desarrollo">
+                    Desarrollo
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="pill" data-bs-target="#active-soporte">
+                    Soporte
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="active-all">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body p-0">
+                        <div id="activeList">
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status"></div>
+                                <p class="text-muted mt-3">Cargando tickets activos...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="active-desarrollo">
+                <div id="activeDesarrolloList"></div>
+            </div>
+            <div class="tab-pane fade" id="active-soporte">
+                <div id="activeSoporteList"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Technicians Tab -->
+    <div class="tab-pane fade" id="technicians" role="tabpanel">
+        <div class="row">
+            <!-- Desarrollo Team -->
+            <div class="col-md-6 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-laptop-code me-2"></i>Equipo Desarrollo
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="techDesarrolloList">
+                            <div class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-primary"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Soporte Team -->
+            <div class="col-md-6 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-wrench me-2"></i>Equipo Soporte
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="techSoporteList">
+                            <div class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm text-info"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Stats Tab -->
+    <div class="tab-pane fade" id="stats" role="tabpanel">
+        <div class="row">
+            <div class="col-md-4 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold">Resumen del Día</h6>
+                    </div>
+                    <div class="card-body" id="todayStats">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold">Por Departamento</h6>
+                    </div>
+                    <div class="card-body" id="deptStats">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold">Tiempos Promedio</h6>
+                    </div>
+                    <div class="card-body" id="timeStats">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+
+<!-- Assignment Modal -->
+<div class="modal fade" id="assignmentModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-plus me-2"></i>Asignar Ticket
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Ticket Info -->
+                <div id="assignTicketInfo" class="p-3 bg-light rounded mb-3">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+                
+                <!-- Assignment Type -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Tipo de Asignación</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="assignType" id="assignUser" value="user" checked>
+                        <label class="btn btn-outline-primary" for="assignUser">
+                            <i class="fas fa-user me-2"></i>Técnico Individual
+                        </label>
+                        
+                        <input type="radio" class="btn-check" name="assignType" id="assignTeam" value="team">
+                        <label class="btn btn-outline-primary" for="assignTeam">
+                            <i class="fas fa-users me-2"></i>Equipo Completo
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Select Technician -->
+                <div class="mb-3" id="selectTechnicianContainer">
+                    <label for="technicianSelect" class="form-label fw-bold">
+                        Seleccionar Técnico
+                    </label>
+                    <select class="form-select" id="technicianSelect">
+                        <option value="">Cargando técnicos...</option>
+                    </select>
+                    <small class="form-text text-muted" id="technicianLoad">
+                        <!-- Se mostrará la carga de trabajo -->
+                    </small>
+                </div>
+                
+                <!-- Select Team -->
+                <div class="mb-3 d-none" id="selectTeamContainer">
+                    <label for="teamSelect" class="form-label fw-bold">
+                        Seleccionar Equipo
+                    </label>
+                    <select class="form-select" id="teamSelect">
+                        <option value="">Selecciona un equipo...</option>
+                        <option value="desarrollo">Equipo Desarrollo</option>
+                        <option value="soporte">Equipo Soporte</option>
+                    </select>
+                </div>
+                
+                <!-- Reason (optional) -->
+                <div class="mb-3">
+                    <label for="assignmentReason" class="form-label">
+                        Notas (opcional)
+                    </label>
+                    <textarea class="form-control" id="assignmentReason" rows="2"
+                              placeholder="Instrucciones especiales o contexto adicional..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary" id="btnConfirmAssign">
+                    <i class="fas fa-paper-plane me-2"></i>Asignar Ticket
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reassignment Modal -->
+<div class="modal fade" id="reassignmentModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">
+                    <i class="fas fa-exchange-alt me-2"></i>Reasignar Ticket
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="reassignTicketInfo" class="p-3 bg-light rounded mb-3"></div>
+                
+                <div class="alert alert-warning">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Este ticket ya está asignado. Al reasignarlo se notificará al técnico actual.
+                </div>
+                
+                <div class="mb-3">
+                    <label for="newTechnicianSelect" class="form-label fw-bold">
+                        Nuevo Técnico/Equipo
+                    </label>
+                    <select class="form-select" id="newTechnicianSelect">
+                        <option value="">Selecciona...</option>
+                    </select>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="reassignReason" class="form-label fw-bold">
+                        Razón de Reasignación
+                    </label>
+                    <textarea class="form-control" id="reassignReason" rows="3" 
+                              placeholder="¿Por qué se reasigna este ticket?" required></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-warning" id="btnConfirmReassign">
+                    <i class="fas fa-exchange-alt me-2"></i>Reasignar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Ticket cards hover effect */
+.ticket-queue-card {
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border-left: 4px solid transparent;
+}
+
+.ticket-queue-card:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.ticket-queue-card.priority-URGENTE {
+    border-left-color: #dc3545;
+    background: rgba(220, 53, 69, 0.03);
+}
+
+.ticket-queue-card.priority-ALTA {
+    border-left-color: #fd7e14;
+}
+
+/* Technician cards */
+.technician-card {
+    transition: all 0.2s ease;
+}
+
+.technician-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+}
+
+.technician-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+/* Load indicator */
+.load-indicator {
+    height: 4px;
+    background: #e9ecef;
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.load-indicator-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.load-low { background: #28a745; width: 30%; }
+.load-medium { background: #ffc107; width: 60%; }
+.load-high { background: #dc3545; width: 90%; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/secretary/dashboard.js') }}?v={{ static_version }}"></script>
+{% endblock %}

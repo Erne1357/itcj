@@ -9,10 +9,10 @@ import os
 # Configuración de CORS basada en entorno
 CORS_ORIGINS = [
     "http://localhost:8080",
-    "http://127.0.0.1:8080",
+    "http://127.0.0.1:8080", 
     "http://localhost:8000",
     "http://127.0.0.1:8000"
-] if os.getenv("FLASK_ENV") == "development" else os.getenv("DOMAIN").split(",")
+] if os.getenv("FLASK_ENV") == "development" else (os.getenv("DOMAIN", "localhost:8080").split(","))
 
 def init_socketio(app):
     """Inicializa SocketIO y registra todos los eventos."""

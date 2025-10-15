@@ -233,7 +233,7 @@ def get_team_tickets(team_name):
                     'created_at': ticket.created_at.isoformat() if ticket.created_at else None,
                     'requester': {
                         'id': ticket.requester.id,
-                        'name': ticket.requester.name
+                        'name': ticket.requester.full_name
                     } if ticket.requester else None
                 })
         
@@ -286,7 +286,7 @@ def get_available_technicians(area):
             
             technicians_data.append({
                 'id': tech.id,
-                'name': tech.name,
+                'name': tech.full_name,
                 'username': tech.username,
                 'active_tickets': active_tickets_count
             })

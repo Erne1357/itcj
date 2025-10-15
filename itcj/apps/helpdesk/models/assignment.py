@@ -39,12 +39,12 @@ class Assignment(db.Model):
             'ticket_id': self.ticket_id,
             'assigned_by': {
                 'id': self.assigned_by.id,
-                'name': self.assigned_by.name,
+                'name': self.assigned_by.full_name,
                 'username': self.assigned_by.username
             } if self.assigned_by else None,
             'assigned_to': {
                 'id': self.assigned_to.id,
-                'name': self.assigned_to.name,
+                'name': self.assigned_to.full_name,
                 'username': self.assigned_to.username
             } if self.assigned_to else None,
             'assigned_to_team': self.assigned_to_team,

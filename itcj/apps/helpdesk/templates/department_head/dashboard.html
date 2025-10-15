@@ -1,0 +1,451 @@
+<!-- itcj/apps/helpdesk/templates/department_head/dashboard.html -->
+{% extends "base_helpdesk.html" %}
+
+{% block title %}Jefe de Departamento - Dashboard{% endblock %}
+
+{% block header_title %}Panel de Jefe de Departamento{% endblock %}
+{% block header_subtitle %}{{ department_name }}{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline-light btn-sm" onclick="refreshDashboard()">
+    <i class="fas fa-sync me-2"></i>Actualizar
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stats Overview -->
+<div class="row mb-4">
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                <h3 class="mb-0" id="usersCount">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h3>
+                <small class="text-muted">Usuarios</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-ticket-alt fa-2x text-secondary mb-2"></i>
+                <h3 class="mb-0" id="activeTicketsCount">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h3>
+                <small class="text-muted">Tickets Activos</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-sm-6 mb-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                <h3 class="mb-0" id="resolvedCount">
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                </h3>
+                <small class="text-muted">Resueltos</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-clock fa-2x text-warning mb-2"></i>
+                <h3 class="mb-0" id="avgTime">-</h3>
+                <small class="text-muted">Tiempo Promedio</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="fas fa-star fa-2x text-info mb-2"></i>
+                <h3 class="mb-0" id="satisfaction">-</h3>
+                <small class="text-muted">Satisfacción</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Tabs -->
+<ul class="nav nav-tabs nav-fill mb-4" id="departmentTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button">
+            <i class="fas fa-tachometer-alt me-2"></i>Resumen
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tickets-tab" data-bs-toggle="tab" data-bs-target="#tickets" type="button">
+            <i class="fas fa-ticket-alt me-2"></i>Tickets
+            <span class="badge bg-secondary ms-2" id="ticketsBadge">0</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button">
+            <i class="fas fa-users me-2"></i>Usuarios
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button">
+            <i class="fas fa-chart-bar me-2"></i>Estadísticas
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="departmentTabContent">
+    
+    <!-- Overview Tab -->
+    <div class="tab-pane fade show active" id="overview" role="tabpanel">
+        <div class="row">
+            <div class="col-lg-6 mb-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-bottom">
+                        <h5 class="mb-0">
+                            <i class="fas fa-bolt me-2"></i>Acciones Rápidas
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-3">
+                            <button class="btn btn-primary btn-lg" onclick="openCreateTicketModal()">
+                                <i class="fas fa-ticket-alt me-2"></i>Crear Ticket de Soporte
+                            </button>
+                            <button class="btn btn-outline-primary btn-lg" onclick="openCreateUserModal()">
+                                <i class="fas fa-user-plus me-2"></i>Crear Usuario del Departamento
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-6 mb-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-bottom">
+                        <h5 class="mb-0">
+                            <i class="fas fa-history me-2"></i>Actividad Reciente
+                        </h5>
+                    </div>
+                    <div class="card-body" id="recentActivity">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm text-muted"></div>
+                            <p class="text-muted mt-2 mb-0 small">Cargando...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tickets Tab -->
+    <div class="tab-pane fade" id="tickets" role="tabpanel">
+        <!-- Filters -->
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Estado</label>
+                        <select class="form-select form-select-sm" id="filterStatus">
+                            <option value="">Todos</option>
+                            <option value="PENDING">Pendiente</option>
+                            <option value="ASSIGNED">Asignado</option>
+                            <option value="IN_PROGRESS">En Progreso</option>
+                            <option value="RESOLVED_SUCCESS">Resuelto</option>
+                            <option value="CLOSED">Cerrado</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Área</label>
+                        <select class="form-select form-select-sm" id="filterArea">
+                            <option value="">Todas</option>
+                            <option value="DESARROLLO">Desarrollo</option>
+                            <option value="SOPORTE">Soporte</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-semibold">Buscar</label>
+                        <input type="text" class="form-control form-control-sm" id="searchTickets" 
+                               placeholder="Buscar por título o usuario...">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>Tickets del Departamento
+                    </h5>
+                    <button class="btn btn-sm btn-primary" onclick="openCreateTicketModal()">
+                        <i class="fas fa-plus me-1"></i>Nuevo
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="ticketsList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-3">Cargando tickets...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Users Tab -->
+    <div class="tab-pane fade" id="users" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-0">
+                            <i class="fas fa-users me-2"></i>Usuarios del Departamento
+                        </h5>
+                        <small class="text-muted">Gestiona los usuarios con acceso al sistema de tickets</small>
+                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()">
+                        <i class="fas fa-plus me-1"></i>Nuevo Usuario
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="usersList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-3">Cargando usuarios...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Stats Tab -->
+    <div class="tab-pane fade" id="stats" role="tabpanel">
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold">Estadísticas del Mes</h6>
+                    </div>
+                    <div class="card-body" id="monthStats">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold">Por Categoría</h6>
+                    </div>
+                    <div class="card-body" id="categoryStats">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+
+<!-- Create Ticket Modal -->
+<div class="modal fade" id="createTicketModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-ticket-alt me-2"></i>Crear Ticket de Soporte
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createTicketForm">
+                    <!-- Area -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Tipo de Problema</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <input type="radio" class="btn-check" name="ticketArea" id="areaDesarrollo" value="DESARROLLO">
+                                <label class="btn btn-outline-success w-100" for="areaDesarrollo">
+                                    <i class="fas fa-laptop-code me-2"></i>Desarrollo (Software)
+                                </label>
+                            </div>
+                            <div class="col-6">
+                                <input type="radio" class="btn-check" name="ticketArea" id="areaSoporte" value="SOPORTE" checked>
+                                <label class="btn btn-outline-primary w-100" for="areaSoporte">
+                                    <i class="fas fa-wrench me-2"></i>Soporte (Hardware)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Category -->
+                    <div class="mb-3">
+                        <label for="ticketCategory" class="form-label fw-bold">Categoría</label>
+                        <select class="form-select" id="ticketCategory" required>
+                            <option value="">Cargando categorías...</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Title -->
+                    <div class="mb-3">
+                        <label for="ticketTitle" class="form-label fw-bold">Título</label>
+                        <input type="text" class="form-control" id="ticketTitle" 
+                               placeholder="Ej: Computadora no enciende en Aula 201" required>
+                    </div>
+                    
+                    <!-- Description -->
+                    <div class="mb-3">
+                        <label for="ticketDescription" class="form-label fw-bold">Descripción</label>
+                        <textarea class="form-control" id="ticketDescription" rows="4" 
+                                  placeholder="Describe el problema con detalle..." required></textarea>
+                    </div>
+                    
+                    <!-- Row: Priority + Location -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="ticketPriority" class="form-label">Prioridad</label>
+                                <select class="form-select" id="ticketPriority">
+                                    <option value="BAJA">Baja</option>
+                                    <option value="MEDIA" selected>Media</option>
+                                    <option value="ALTA">Alta</option>
+                                    <option value="URGENTE">Urgente</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="ticketLocation" class="form-label">Ubicación</label>
+                                <input type="text" class="form-control" id="ticketLocation" 
+                                       placeholder="Ej: Aula 201">
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary" id="btnSubmitTicket">
+                    <i class="fas fa-paper-plane me-2"></i>Crear Ticket
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal fade" id="createUserModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-plus me-2"></i>Crear Usuario del Departamento
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <small>Este usuario tendrá acceso <strong>solo</strong> al sistema de tickets.</small>
+                </div>
+                
+                <form id="createUserForm">
+                    <div class="mb-3">
+                        <label for="userName" class="form-label fw-bold">Nombre Completo</label>
+                        <input type="text" class="form-control" id="userName" 
+                               placeholder="Ej: Juan Pérez García" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="userUsername" class="form-label fw-bold">Usuario (Username)</label>
+                        <input type="text" class="form-control" id="userUsername" 
+                               placeholder="ej: juan.perez" required>
+                        <small class="form-text text-muted">Sin espacios ni caracteres especiales</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="userEmail" class="form-label fw-bold">Correo Electrónico</label>
+                        <input type="email" class="form-control" id="userEmail" 
+                               placeholder="juan.perez@itcj.edu.mx" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="userNIP" class="form-label fw-bold">NIP Temporal (4 dígitos)</label>
+                        <input type="text" class="form-control" id="userNIP" 
+                               placeholder="1234" maxlength="4" pattern="\d{4}" required>
+                        <small class="form-text text-muted">El usuario deberá cambiarlo en su primer acceso</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary" id="btnSubmitUser">
+                    <i class="fas fa-user-plus me-2"></i>Crear Usuario
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.activity-item {
+    padding: 12px;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.activity-item:hover {
+    background: rgba(0,0,0,0.02);
+    border-left-color: var(--sitec-primary);
+}
+
+.activity-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ticket-dept-card {
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.ticket-dept-card:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Pass department info from Flask
+const DEPARTMENT_ID = {{ department_id }};
+const DEPARTMENT_NAME = "{{ department_name }}";
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/department_head/dashboard.js') }}?v={{ static_version }}"></script>
+{% endblock %}

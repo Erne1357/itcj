@@ -153,7 +153,7 @@ def get_ticket_by_id(ticket_id: int, user_id: int = None, check_permissions: boo
 def list_tickets(
     user_id: int,
     user_roles: list[str],
-    status: str = None,
+    status = None,  # str o list[str]
     area: str = None,
     priority: str = None,
     assigned_to_me: bool = False,
@@ -168,7 +168,7 @@ def list_tickets(
     Args:
         user_id: ID del usuario que consulta
         user_roles: Lista de roles del usuario en la app helpdesk
-        status: Filtrar por estado
+        status: Filtrar por estado (str) o múltiples estados (list[str])
         area: Filtrar por área (DESARROLLO/SOPORTE)
         priority: Filtrar por prioridad
         assigned_to_me: Solo tickets asignados a mí
@@ -215,7 +215,15 @@ def list_tickets(
     
     # FILTROS ADICIONALES
     if status:
-        query = query.filter(Ticket.status == status)
+        # Manejar múltiples estados
+        if isinstance(status, list):
+            if len(status) == 1:
+                query = query.filter(Ticket.status == status[0])
+            else:
+                query = query.filter(Ticket.status.in_(status))
+        else:
+            # Status individual (string)
+            query = query.filter(Ticket.status == status)
     
     if area:
         query = query.filter(Ticket.area == area)

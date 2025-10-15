@@ -45,7 +45,7 @@ class Comment(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'author': {
                 'id': self.author.id,
-                'name': self.author.name,
+                'name': self.author.full_name,
                 'username': self.author.username
             } if self.author else None
         }

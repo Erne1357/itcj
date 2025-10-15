@@ -45,7 +45,7 @@ class StatusLog(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'changed_by': {
                 'id': self.changed_by.id,
-                'name': self.changed_by.name,
+                'name': self.changed_by.full_name,
                 'username': self.changed_by.username
             } if self.changed_by else None
         }

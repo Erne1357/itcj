@@ -106,14 +106,14 @@ def assign_ticket(
         from_status=old_status,
         to_status='ASSIGNED',
         changed_by_id=assigned_by_id,
-        notes=f'Asignado a {assigned_user.name if assigned_to_user_id else assigned_to_team}'
+        notes=f'Asignado a {assigned_user.full_name if assigned_to_user_id else assigned_to_team}'
     )
     db.session.add(status_log)
     
     try:
         db.session.commit()
-        
-        target = assigned_user.name if assigned_to_user_id else f"equipo {assigned_to_team}"
+
+        target = assigned_user.full_name if assigned_to_user_id else f"equipo {assigned_to_team}"
         logger.info(f"Ticket {ticket.ticket_number} asignado a {target}")
         
         return assignment
@@ -237,7 +237,7 @@ def self_assign_ticket(ticket_id: int, technician_id: int) -> Assignment:
         from_status=ticket.status,
         to_status='ASSIGNED',
         changed_by_id=technician_id,
-        notes=f'{technician.name} se auto-asignó el ticket'
+        notes=f'{technician.full_name} se auto-asignó el ticket'
     )
     db.session.add(status_log)
     

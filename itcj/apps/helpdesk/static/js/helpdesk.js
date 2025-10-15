@@ -1,22 +1,33 @@
 // SITEC - Sistema Integral de Tickets del Centro de Cómputo ITCJ
 
 // Función principal para pedir ayuda
-function pedirAyuda() {
-  // Esta función será manejada por Flask para redirigir según el rol del usuario
-  // Por ejemplo: window.location.href = '/SITEC/user/crear-ticket';
-
-  // Animación del botón
-  const btn = event.target
-  btn.classList.add("loading")
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Cargando...'
-
-  // Simular redirección (esto lo manejarás con Flask)
-  setTimeout(() => {
-    // window.location.href = '/SITEC/user/crear-ticket';
-    console.log("Redirigiendo a crear ticket...")
-    btn.classList.remove("loading")
-    btn.innerHTML = '<i class="fas fa-plus me-2"></i>Pedir Ayuda'
-  }, 1000)
+async function pedirAyuda() {
+    const btn = event.target;
+    btn.classList.add('loading');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Cargando...';
+    
+    try {
+        const response = await fetch('/help-desk/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            window.location.href = data.redirect;
+        } else {
+            throw new Error('Error en la redirección');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        mostrarNotificacion('Hubo un error al procesar tu solicitud', 'danger');
+        btn.classList.remove('loading');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus me-2"></i>Pedir Ayuda';
+    }
 }
 
 // Datos de ejemplo para tickets (para usar con Jinja2)
@@ -300,36 +311,28 @@ function animarEnvioTicket(elemento) {
   }, 1200)
 }
 
-function mostrarNotificacion(mensaje, tipo = "success") {
-  // Crear elemento de notificación
-  const notificacion = document.createElement("div")
-  notificacion.className = `alert alert-${tipo} alert-dismissible fade show position-fixed`
-  notificacion.style.cssText = "top: 20px; right: 20px; z-index: 9999; min-width: 300px;"
-  notificacion.innerHTML = `
+function mostrarNotificacion(mensaje, tipo = 'success') {
+    const notif = document.createElement('div');
+    notif.className = `alert alert-${tipo} alert-dismissible fade show position-fixed`;
+    notif.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notif.innerHTML = `
         ${mensaje}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `
-
-  document.body.appendChild(notificacion)
-
-  // Auto-remover después de 5 segundos
-  setTimeout(() => {
-    if (notificacion.parentNode) {
-      notificacion.remove()
-    }
-  }, 5000)
+    `;
+    document.body.appendChild(notif);
+    
+    setTimeout(() => {
+        if (notif.parentNode) notif.remove();
+    }, 5000);
 }
 
 // Inicialización
-document.addEventListener("DOMContentLoaded", () => {
-  // Agregar animaciones de entrada
-  const elementos = document.querySelectorAll(".sitec-help-card, .sitec-service-card")
-  elementos.forEach((elemento, index) => {
-    setTimeout(() => {
-      elemento.classList.add("slide-in-up")
-    }, index * 200)
-  })
-})
+document.addEventListener('DOMContentLoaded', () => {
+    const elementos = document.querySelectorAll('.sitec-help-card, .sitec-service-card');
+    elementos.forEach((el, i) => {
+        setTimeout(() => el.classList.add('slide-in-up'), i * 200);
+    });
+});
 
 // Exportar datos para uso con Jinja2
 window.SITEC_DATA = {

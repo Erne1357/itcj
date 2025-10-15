@@ -1,0 +1,367 @@
+<!-- itcj/apps/helpdesk/templates/user/create_ticket.html -->
+{% extends "base_helpdesk.html" %}
+
+{% block title %}Crear Ticket{% endblock %}
+
+{% block header_title %}Crear Ticket{% endblock %}
+{% block header_subtitle %}Nueva Solicitud de Soporte{% endblock %}
+
+{% block header_back %}
+<a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" class="btn btn-outline-light btn-sm">
+    <i class="fas fa-list me-2"></i>Mis Tickets
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-7">
+        
+        <!-- Progress Steps -->
+        <div class="card mb-4 border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="row text-center mb-4">
+                    <div class="col-4">
+                        <div class="step-indicator active" id="step-indicator-1">
+                            <div class="step-number">1</div>
+                            <small class="step-text">Tipo de Problema</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="step-indicator" id="step-indicator-2">
+                            <div class="step-number">2</div>
+                            <small class="step-text">Detalles</small>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="step-indicator" id="step-indicator-3">
+                            <div class="step-number">3</div>
+                            <small class="step-text">Confirmar</small>
+                        </div>
+                    </div>
+                </div>
+
+                <form id="ticketForm">
+                    
+                    <!-- STEP 1: Tipo de Problema -->
+                    <div id="step1" class="step-content">
+                        <h4 class="mb-4 text-center">¿Qué tipo de problema tienes?</h4>
+                        
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="area-card" data-area="SOPORTE">
+                                    <div class="card h-100 border-2">
+                                        <div class="card-body text-center p-4">
+                                            <div class="area-icon mb-3">
+                                                <i class="fas fa-wrench fa-3x text-primary"></i>
+                                            </div>
+                                            <h5 class="card-title">Soporte Técnico</h5>
+                                            <p class="card-text">Problemas con equipos y hardware</p>
+                                            <div class="area-examples">
+                                                <small class="text-muted">
+                                                    • Computadoras<br>
+                                                    • Proyectores<br>
+                                                    • Internet/Red<br>
+                                                    • Impresoras
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="area-card" data-area="DESARROLLO">
+                                    <div class="card h-100 border-2">
+                                        <div class="card-body text-center p-4">
+                                            <div class="area-icon mb-3">
+                                                <i class="fas fa-laptop-code fa-3x text-success"></i>
+                                            </div>
+                                            <h5 class="card-title">Desarrollo</h5>
+                                            <p class="card-text">Problemas con software y sistemas</p>
+                                            <div class="area-examples">
+                                                <small class="text-muted">
+                                                    • SII, SIISAE, SIILE<br>
+                                                    • Moodle, AgendaTec<br>
+                                                    • Correo Institucional<br>
+                                                    • Otros sistemas
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <input type="hidden" id="area" name="area" required>
+                    </div>
+
+                    <!-- STEP 2: Detalles -->
+                    <div id="step2" class="step-content d-none">
+                        <h4 class="mb-4 text-center">Cuéntanos los detalles</h4>
+                        
+                        <!-- Categoría -->
+                        <div class="mb-4">
+                            <label for="category_id" class="sitec-form-label required">
+                                <i class="fas fa-tag me-2"></i>¿Qué específicamente?
+                            </label>
+                            <select class="form-select sitec-form-control" id="category_id" name="category_id" required>
+                                <option value="">Selecciona una categoría...</option>
+                            </select>
+                            <div class="invalid-feedback">Por favor selecciona una categoría</div>
+                        </div>
+
+                        <!-- Título -->
+                        <div class="mb-4">
+                            <label for="title" class="sitec-form-label required">
+                                <i class="fas fa-heading me-2"></i>Título del problema
+                            </label>
+                            <input type="text" 
+                                   class="form-control sitec-form-control" 
+                                   id="title" 
+                                   name="title" 
+                                   placeholder="Ej: Computadora no enciende en Aula 201"
+                                   minlength="5"
+                                   maxlength="200"
+                                   required>
+                            <div class="form-text">Mínimo 5 caracteres</div>
+                            <div class="invalid-feedback">El título debe tener entre 5 y 200 caracteres</div>
+                        </div>
+
+                        <!-- Descripción -->
+                        <div class="mb-4">
+                            <label for="description" class="sitec-form-label required">
+                                <i class="fas fa-align-left me-2"></i>Describe el problema
+                            </label>
+                            <textarea class="form-control sitec-form-control" 
+                                      id="description" 
+                                      name="description" 
+                                      rows="5"
+                                      placeholder="Explica qué está pasando, cuándo ocurre, qué has intentado hacer..."
+                                      minlength="20"
+                                      required></textarea>
+                            <div class="form-text" id="descCharCount">0 / 20 caracteres mínimo</div>
+                            <div class="invalid-feedback">La descripción debe tener al menos 20 caracteres</div>
+                        </div>
+
+                        <!-- Prioridad -->
+                        <div class="mb-4">
+                            <label class="sitec-form-label">
+                                <i class="fas fa-exclamation-circle me-2"></i>¿Qué tan urgente es?
+                            </label>
+                            <div class="row g-2">
+                                <div class="col-6 col-md-3">
+                                    <input type="radio" class="btn-check" name="priority" id="priority-baja" value="BAJA">
+                                    <label class="btn btn-outline-success w-100" for="priority-baja">
+                                        <i class="fas fa-arrow-down me-1"></i>Baja
+                                    </label>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <input type="radio" class="btn-check" name="priority" id="priority-media" value="MEDIA" checked>
+                                    <label class="btn btn-outline-warning w-100" for="priority-media">
+                                        <i class="fas fa-minus me-1"></i>Media
+                                    </label>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <input type="radio" class="btn-check" name="priority" id="priority-alta" value="ALTA">
+                                    <label class="btn btn-outline-danger w-100" for="priority-alta">
+                                        <i class="fas fa-arrow-up me-1"></i>Alta
+                                    </label>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <input type="radio" class="btn-check" name="priority" id="priority-urgente" value="URGENTE">
+                                    <label class="btn btn-outline-dark w-100" for="priority-urgente">
+                                        <i class="fas fa-fire me-1"></i>Urgente
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ubicación (Opcional) -->
+                        <div class="mb-4">
+                            <label for="location" class="sitec-form-label">
+                                <i class="fas fa-map-marker-alt me-2"></i>Ubicación (Opcional)
+                            </label>
+                            <input type="text" 
+                                   class="form-control sitec-form-control" 
+                                   id="location" 
+                                   name="location" 
+                                   placeholder="Ej: Aula 201, Laboratorio B, Oficina de Dirección">
+                        </div>
+
+                        <!-- Folio de Oficio (Opcional) -->
+                        <div class="mb-4">
+                            <label for="office_folio" class="sitec-form-label">
+                                <i class="fas fa-file-alt me-2"></i>Folio de Oficio (Opcional)
+                            </label>
+                            <input type="text" 
+                                   class="form-control sitec-form-control" 
+                                   id="office_folio" 
+                                   name="office_folio" 
+                                   placeholder="Si existe un oficio relacionado">
+                        </div>
+                    </div>
+
+                    <!-- STEP 3: Confirmación -->
+                    <div id="step3" class="step-content d-none">
+                        <h4 class="mb-4 text-center">Revisa tu solicitud</h4>
+                        
+                        <div class="card bg-light border-0">
+                            <div class="card-body">
+                                <div id="ticketSummary">
+                                    <!-- Se llenará dinámicamente -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-center mt-4">
+                            <div class="ticket-preview-animation" id="ticketPreview">
+                                <i class="fas fa-ticket-alt fa-4x text-primary mb-3"></i>
+                                <p class="text-muted">Tu ticket será enviado al Centro de Cómputo</p>
+                                <small class="text-muted">Recibirás una notificación cuando sea asignado</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Navigation Buttons -->
+                    <div class="d-flex justify-content-between mt-4 pt-3 border-top">
+                        <button type="button" class="btn btn-outline-secondary" id="btnPrevious" style="display: none;">
+                            <i class="fas fa-arrow-left me-2"></i>Anterior
+                        </button>
+                        <div class="ms-auto">
+                            <button type="button" class="btn btn-primary" id="btnNext">
+                                Siguiente<i class="fas fa-arrow-right ms-2"></i>
+                            </button>
+                            <button type="submit" class="btn btn-success" id="btnSubmit" style="display: none;">
+                                <i class="fas fa-paper-plane me-2"></i>Enviar Ticket
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Helper Info -->
+        <div class="alert alert-info border-0 shadow-sm">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Nota:</strong> Recibirás notificaciones sobre el progreso de tu ticket. 
+            Asegúrate de proporcionar todos los detalles posibles para una atención más rápida.
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Step Indicator Styles */
+.step-indicator {
+    position: relative;
+}
+
+.step-number {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: #e9ecef;
+    color: #6c757d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2rem;
+    margin: 0 auto 8px;
+    transition: all 0.3s ease;
+}
+
+.step-indicator.active .step-number {
+    background: var(--sitec-primary);
+    color: white;
+    box-shadow: 0 4px 15px rgba(5, 150, 105, 0.3);
+}
+
+.step-text {
+    color: #6c757d;
+    font-weight: 500;
+    font-size: 0.85rem;
+}
+
+.step-indicator.active .step-text {
+    color: var(--sitec-primary);
+    font-weight: 600;
+}
+
+/* Area Cards */
+.area-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.area-card .card {
+    transition: all 0.3s ease;
+}
+
+.area-card:hover .card {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+
+.area-card .card.selected {
+    border-color: var(--sitec-primary) !important;
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.05), rgba(16, 185, 129, 0.05));
+    box-shadow: 0 8px 25px rgba(5, 150, 105, 0.2);
+}
+
+.area-icon {
+    transition: transform 0.3s ease;
+}
+
+.area-card:hover .area-icon {
+    transform: scale(1.1);
+}
+
+.area-examples {
+    background: rgba(0,0,0,0.03);
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+/* Form Styles */
+.required::after {
+    content: " *";
+    color: #dc3545;
+}
+
+.form-control:focus {
+    border-color: var(--sitec-primary);
+    box-shadow: 0 0 0 0.25rem rgba(5, 150, 105, 0.15);
+}
+
+/* Ticket Preview Animation */
+.ticket-preview-animation {
+    transition: all 0.3s ease;
+}
+
+.ticket-preview-animation:hover {
+    transform: scale(1.05);
+}
+
+/* Slide Animations */
+.step-content {
+    animation: slideIn 0.5s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/user/create_ticket.js') }}?v={{ static_version }}"></script>
+{% endblock %}
