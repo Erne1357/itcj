@@ -3,6 +3,7 @@ from flask import abort
 from itcj.core.extensions import db
 from itcj.apps.helpdesk.models import Ticket, Category, Comment, StatusLog
 from itcj.apps.helpdesk.utils.ticket_number_generator import generate_ticket_number
+from itcj.apps.helpdesk.utils.timezone_utils import now_local
 from itcj.core.models.user import User
 from itcj.core.models.department import Department
 from sqlalchemy import and_, or_
@@ -305,11 +306,11 @@ def change_status(
     
     # Cambiar estado
     ticket.status = new_status
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = now_local()
     
     # Si se cierra, guardar fecha
     if new_status == 'CLOSED':
-        ticket.closed_at = datetime.utcnow()
+        ticket.closed_at = now_local()
     
     # Registrar en log
     status_log = StatusLog(
@@ -372,9 +373,9 @@ def resolve_ticket(
     new_status = 'RESOLVED_SUCCESS' if success else 'RESOLVED_FAILED'
     ticket.status = new_status
     ticket.resolution_notes = resolution_notes
-    ticket.resolved_at = datetime.utcnow()
+    ticket.resolved_at = now_local()
     ticket.resolved_by_id = resolved_by_id
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = now_local()
     
     # Guardar tiempo invertido si se proporcionó
     if time_invested_minutes is not None:
@@ -457,10 +458,10 @@ def rate_ticket(
     # Actualizar ticket
     ticket.rating = rating
     ticket.rating_comment = comment
-    ticket.rated_at = datetime.utcnow()
+    ticket.rated_at = now_local()
     ticket.status = 'CLOSED'
-    ticket.closed_at = datetime.utcnow()
-    ticket.updated_at = datetime.utcnow()
+    ticket.closed_at = now_local()
+    ticket.updated_at = now_local()
     
     # Registrar en log
     status_log = StatusLog(
@@ -515,8 +516,8 @@ def cancel_ticket(ticket_id: int, user_id: int, reason: str = None) -> Ticket:
     # Cancelar ticket
     old_status = ticket.status
     ticket.status = 'CANCELED'
-    ticket.closed_at = datetime.utcnow()
-    ticket.updated_at = datetime.utcnow()
+    ticket.closed_at = now_local()
+    ticket.updated_at = now_local()
     
     # Registrar en log
     status_log = StatusLog(
@@ -578,7 +579,7 @@ def add_comment(
     )
     
     db.session.add(comment)
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = now_local()
     
     try:
         db.session.commit()

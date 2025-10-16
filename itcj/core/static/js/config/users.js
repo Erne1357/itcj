@@ -81,9 +81,9 @@ class UsersManager {
 
     initModals() {
         this.assignModal = new bootstrap.Modal(document.getElementById('assignUserModal'));
-        const newUserModalEl = document.getElementById('newUserModal');
-        if (newUserModalEl) {
-            this.newUserModal = new bootstrap.Modal(newUserModalEl);
+        const newUserModalElement = document.getElementById('newUserModal');
+        if (newUserModalElement) {
+            this.newUserModal = new bootstrap.Modal(newUserModalElement);
         }
     }
     toggleUserTypeFields(userType) {
@@ -112,17 +112,21 @@ class UsersManager {
             return;
         }
 
+        // Obtener referencia al modal directamente
+        const modalElement = document.getElementById('newUserModal');
+        const modal = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
+
         const payload = {
             full_name: document.getElementById('fullName').value,
             email: document.getElementById('email').value,
             user_type: document.querySelector('input[name="userType"]:checked').value,
-            control_number: document.getElementById('controlNumber').value,
-            username: document.getElementById('username').value,
+            control_number: document.getElementById('controlNumber').value || null,
+            username: document.getElementById('username').value || null,
             password: document.getElementById('password').value
         };
 
         try {
-            const response = await fetch(`${this.apiBase}/authz/users`, {
+            const response = await fetch(`${this.apiBase}/users`, {  // Cambiar de /authz/users a /users
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -131,15 +135,37 @@ class UsersManager {
             const result = await response.json();
 
             if (response.ok) {
-                this.showSuccess('Usuario creado exitosamente. Recargando...');
-                this.newUserModal.hide();
-                setTimeout(() => window.location.reload(), 2000); // Recarga para ver el nuevo usuario
+                this.showSuccess('Usuario creado exitosamente');
+
+                // Limpiar el formulario
+                form.reset();
+
+                // Ocultar modal
+                modal.hide();
+
+                // Recargar solo la tabla de usuarios sin recargar toda la página
+                await this.refreshUsersTable();
+
             } else {
                 this.showError(result.error || 'Ocurrió un error al crear el usuario.');
             }
         } catch (error) {
             console.error('Error creating user:', error);
             this.showError('Error de conexión al crear el usuario.');
+        }
+    }
+    async refreshUsersTable() {
+        try {
+            // Recargar solo los datos de usuarios sin recargar toda la página
+            await this.loadUserApps();
+
+            // Si tienes paginación, podrías recargar la página actual
+            // o simplemente mantener al usuario en la página donde está
+            this.showSuccess('Lista de usuarios actualizada');
+
+        } catch (error) {
+            console.error('Error refreshing users table:', error);
+            this.showError('Error al actualizar la lista de usuarios');
         }
     }
     async loadAppsData() {

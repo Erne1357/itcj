@@ -5,6 +5,7 @@ from itcj.apps.helpdesk.services import ticket_service
 from itcj.apps.helpdesk.models import Attachment
 from itcj.core.extensions import db
 from datetime import datetime, timedelta
+from ...utils.timezone_utils import now_local
 from . import attachments_api_bp
 import os
 import uuid
@@ -128,7 +129,7 @@ def upload_attachment(ticket_id):
         # Generar nombre único
         original_filename = secure_filename(file.filename)
         file_ext = original_filename.rsplit('.', 1)[1].lower()
-        unique_filename = f"{ticket_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}.{file_ext}"
+        unique_filename = f"{ticket_id}_{now_local().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}.{file_ext}"
         
         # Crear directorio si no existe
         ticket_folder = os.path.join(UPLOAD_FOLDER, str(ticket_id))

@@ -2,7 +2,9 @@
 
 /**
  * Department Head Dashboard - Sistema de Tickets ITCJ
- * Gestión de tickets y usuarios del departamento
+ * Gestión de tickets y         container.innerHTML = tickets.map(ticket => `
+        <div class="ticket-dept-card border-bottom p-3" 
+             onclick="HelpdeskUtils.goToTicketDetailNewTab(${ticket.id}, 'department')"arios del departamento
  */
 
 // ==================== GLOBAL STATE ====================
@@ -12,6 +14,12 @@ let categories = [];
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
+    // Guardar la página actual para navegación inteligente
+    sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
+        url: window.location.href,
+        text: 'Departamento'
+    }));
+    
     initializeDashboard();
     setupModals();
     setupFilters();
@@ -145,7 +153,7 @@ function renderTickets(tickets) {
     
     container.innerHTML = tickets.map(ticket => `
         <div class="ticket-dept-card border-bottom p-3" 
-             onclick="window.open('/helpdesk/user/tickets/${ticket.id}', '_blank')">
+             onclick="HelpdeskUtils.goToTicketDetailNewTab(${ticket.id}, 'department')"
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -185,8 +193,26 @@ async function loadDepartmentUsers() {
     HelpdeskUtils.showLoading('usersList');
     
     try {
-        const response = await HelpdeskUtils.api.request(`/department/${DEPARTMENT_ID}/users`);
-        departmentUsers = response.users || [];
+        // Usar la nueva API del core para obtener usuarios del departamento
+        const response = await fetch(`/api/core/v1/departments/${DEPARTMENT_ID}/users`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.status !== 'ok') {
+            throw new Error(result.error || 'Error en la respuesta del servidor');
+        }
+        
+        departmentUsers = result.data.users || [];
         
         document.getElementById('usersCount').textContent = departmentUsers.length;
         
@@ -197,7 +223,8 @@ async function loadDepartmentUsers() {
         container.innerHTML = `
             <div class="text-center py-5">
                 <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
-                <p class="text-danger">Error al cargar usuarios</p>
+                <p class="text-danger">Error al cargar usuarios del departamento</p>
+                <small class="text-muted">${error.message}</small>
             </div>
         `;
     }
@@ -210,10 +237,8 @@ function renderUsers(users) {
         container.innerHTML = `
             <div class="text-center py-5">
                 <i class="fas fa-users-slash fa-3x text-muted mb-3"></i>
-                <p class="text-muted">No hay usuarios registrados</p>
-                <button class="btn btn-primary mt-3" onclick="openCreateUserModal()">
-                    <i class="fas fa-plus me-2"></i>Crear Primer Usuario
-                </button>
+                <p class="text-muted">No hay usuarios asignados al departamento</p>
+                <small class="text-muted">Los usuarios deben tener puestos activos en este departamento</small>
             </div>
         `;
         return;
@@ -221,25 +246,38 @@ function renderUsers(users) {
     
     container.innerHTML = users.map(user => `
         <div class="border-bottom p-3">
-            <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex justify-content-between align-items-start">
                 <div class="d-flex align-items-center gap-3">
                     <div class="activity-icon bg-primary bg-opacity-10 text-primary">
                         <i class="fas fa-user"></i>
                     </div>
                     <div>
                         <div class="fw-bold">${user.name}</div>
-                        <small class="text-muted">
+                        <small class="text-muted d-block">
                             <i class="fas fa-envelope me-1"></i>${user.email || user.username}
                         </small>
+                        <small class="text-muted d-block">
+                            <i class="fas fa-briefcase me-1"></i>${user.position.title}
+                        </small>
+                        ${user.assignment.start_date ? `
+                            <small class="text-muted d-block">
+                                <i class="fas fa-calendar me-1"></i>Desde: ${new Date(user.assignment.start_date).toLocaleDateString('es-ES')}
+                            </small>
+                        ` : ''}
                     </div>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex flex-column gap-1 align-items-end">
                     <span class="badge ${user.is_active ? 'bg-success' : 'bg-secondary'}">
                         ${user.is_active ? 'Activo' : 'Inactivo'}
                     </span>
                     <span class="badge bg-info">
                         ${user.ticket_count || 0} tickets
                     </span>
+                    ${user.role ? `
+                        <span class="badge bg-secondary">
+                            ${user.role}
+                        </span>
+                    ` : ''}
                 </div>
             </div>
         </div>

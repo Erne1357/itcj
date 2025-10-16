@@ -766,6 +766,6 @@ function truncateText(text, maxLength) {
 }
 
 function showTicketDetail(ticketId) {
-    window.open(`/help-desk/user/tickets/${ticketId}`, '_blank');
+    HelpdeskUtils.goToTicketDetail(ticketId, 'secretary');
 }
 window.showTicketDetail = showTicketDetail;

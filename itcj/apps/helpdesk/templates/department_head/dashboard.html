@@ -444,8 +444,8 @@
 {% block extra_js %}
 <script>
 // Pass department info from Flask
-const DEPARTMENT_ID = {{ department_id }};
-const DEPARTMENT_NAME = "{{ department_name }}";
+const DEPARTMENT_ID = {{ department.id }};
+const DEPARTMENT_NAME = "{{ department.name }}";
 </script>
 <script src="{{ url_for('static', filename='helpdesk/js/department_head/dashboard.js') }}?v={{ static_version }}"></script>
 {% endblock %}

@@ -4,12 +4,14 @@ from functools import wraps
 from itcj.core.models.user import User
 from itcj.core.utils.decorators import api_auth_required
 from itcj.core.utils.security import verify_nip, hash_nip
+from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.models.app import App
 from itcj.core.models import db
 import logging
 
 api_user_bp = Blueprint("api_user_bp", __name__)
 
-DEFAULT_PASSWORD = "1234" # Cambia esto a DEFAULT_NIP si es lo que usas
+DEFAULT_PASSWORD = "1234"  
 def _current_user():
     try:
         uid = int(g.current_user["sub"])
@@ -71,6 +73,16 @@ def get_current_user():
     # Obtener rol global (puedes ajustar según tu lógica)
     global_role = u.role.name if hasattr(u, 'role') and u.role else "Usuario"
     
+    apps_keys = App.query.with_entities(App.key).all()
+    apps_keys = [app.key for app in apps_keys]
+
+    roles = {}
+    for app_key in apps_keys:
+        app_roles = user_roles_in_app(u.id, app_key)
+        # Convertir set a lista para serialización JSON
+        roles[app_key] = list(app_roles) if isinstance(app_roles, set) else app_roles
+    
+
     # Obtener posiciones activas del usuario (si aplica)
     positions = []
     if hasattr(u, 'position_assignments'):
@@ -95,6 +107,7 @@ def get_current_user():
             "full_name": u.full_name,
             "email": u.email,
             "role": global_role,
+            "roles" : roles,
             "positions": positions
         }
     })

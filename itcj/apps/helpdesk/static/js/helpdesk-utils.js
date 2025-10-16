@@ -323,6 +323,46 @@ async function confirmDialog(title, message, confirmText = 'Confirmar', cancelTe
 }
 
 
+// ==================== SMART NAVIGATION ====================
+function goToTicketDetail(ticketId, fromPage = null) {
+    // Determinar fromPage automáticamente si no se proporciona
+    if (!fromPage) {
+        const currentPath = window.location.pathname;
+        if (currentPath.includes('/user/tickets')) {
+            fromPage = 'my_tickets';
+        } else if (currentPath.includes('/department')) {
+            fromPage = 'department';
+        } else if (currentPath.includes('/admin') || currentPath.includes('/technician')) {
+            fromPage = 'admin';
+        } else if (currentPath.includes('/user')) {
+            fromPage = 'dashboard';
+        }
+    }
+    
+    const url = fromPage ? 
+        `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
+        `/help-desk/user/tickets/${ticketId}`;
+    
+    window.location.href = url;
+}
+
+function goToTicketDetailNewTab(ticketId, fromPage = null) {
+    const currentPath = window.location.pathname;
+    if (!fromPage) {
+        if (currentPath.includes('/department')) {
+            fromPage = 'department';
+        } else if (currentPath.includes('/admin') || currentPath.includes('/technician')) {
+            fromPage = 'admin';
+        }
+    }
+    
+    const url = fromPage ? 
+        `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
+        `/help-desk/user/tickets/${ticketId}`;
+    
+    window.open(url, '_blank');
+}
+
 // ==================== EXPORT ====================
 window.HelpdeskUtils = {
     api,
@@ -335,5 +375,7 @@ window.HelpdeskUtils = {
     renderStarRating,
     showLoading,
     showEmpty,
-    confirmDialog
+    confirmDialog,
+    goToTicketDetail,
+    goToTicketDetailNewTab
 };
