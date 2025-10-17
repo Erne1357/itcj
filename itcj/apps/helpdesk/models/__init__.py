@@ -20,7 +20,6 @@ __all__ = [
     'Comment',
     'Attachment',
     'StatusLog',
-    # Inventario
     'InventoryCategory',
     'InventoryItem',
     'InventoryHistory',
