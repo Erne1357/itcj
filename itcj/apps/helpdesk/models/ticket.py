@@ -27,7 +27,7 @@ class Ticket(db.Model):
     description = db.Column(db.Text, nullable=False)
     location = db.Column(db.String(200), nullable=True)  # Ubicación física (opcional)
     office_document_folio = db.Column(db.String(50), nullable=True)  # Folio de oficio (opcional)
-    
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey('helpdesk_inventory_items.id'), nullable=True, index=True)  # Ítem de inventario relacionado (opcional)
     # ==================== ESTADO Y ASIGNACIÓN ====================
     status = db.Column(db.String(30), nullable=False, default='PENDING', index=True)
     # Estados posibles:
@@ -79,6 +79,9 @@ class Ticket(db.Model):
     attachments = db.relationship('Attachment', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     status_logs = db.relationship('StatusLog', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     
+    #Inventario relacionado
+    inventory_item = db.relationship('InventoryItem', back_populates='tickets', lazy='joined')
+
     # ==================== TIEMPOS ====================
     # AUTOMÁTICO: Para métricas de servicio al usuario
     # (Ya definido arriba en TIMESTAMPS)
@@ -186,6 +189,14 @@ class Ticket(db.Model):
                     'id': self.requester_department.id,
                     'name': self.requester_department.name
                 } if self.requester_department else None,
+                'inventory_item': {
+                    'id': self.inventory_item.id,
+                    'inventory_number': self.inventory_item.inventory_number,
+                    'display_name': self.inventory_item.display_name,
+                    'brand': self.inventory_item.brand,
+                    'model': self.inventory_item.model,
+                    'location_detail': self.inventory_item.location_detail,
+                } if self.inventory_item else None,
             })
         
         if include_metrics:
