@@ -97,13 +97,15 @@ async function loadTeamTickets() {
     
     try {
         // Get current user's team
-        const userResponse = await HelpdeskUtils.api.request('/user/me');
-        const userRoles = userResponse.roles || [];
+        const userResponse = await fetch('/api/core/v1/user/me');
+        const user = await userResponse.json();
+        const userRoles = user.data.roles.helpdesk || [];
+
         
         let team = null;
-        if (userRoles.includes('tickets_tech_desarrollo')) {
+        if (userRoles.includes('tech_desarrollo')) {
             team = 'desarrollo';
-        } else if (userRoles.includes('tickets_tech_soporte')) {
+        } else if (userRoles.includes('tech_soporte')) {
             team = 'soporte';
         }
         
@@ -255,7 +257,7 @@ function getActionButtons(ticket, type) {
     
     buttons += `
         <button class="btn btn-outline-secondary btn-sm d-block w-100" 
-                onclick="window.open('/help-desk/user/tickets/${ticket.id}', '_self')">
+                onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'admin')">
             <i class="fas fa-eye me-1"></i>Ver Detalle
         </button>
     `;

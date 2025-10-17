@@ -111,3 +111,90 @@ def update_department(dept_id):
         return jsonify({"status": "ok", "data": dept.to_dict()})
     except ValueError as e:
         return jsonify({"status": "error", "error": str(e)}), 404
+
+@api_departments_bp.get("/<int:dept_id>/users")
+@api_auth_required
+def get_department_users(dept_id):
+    """Obtiene todos los usuarios asignados a un departamento como jefes o personal"""
+    try:
+        # Verificar que el departamento existe
+        dept = dept_svc.get_department(dept_id)
+        if not dept:
+            return jsonify({"status": "error", "error": "Department not found"}), 404
+        
+        # Obtener usuarios que tienen puestos en este departamento
+        from itcj.core.models.position import Position, UserPosition
+        from itcj.core.models.user import User
+        from itcj.core.extensions import db
+        
+        # Query para obtener usuarios con puestos activos en el departamento
+        users_data = (
+            db.session.query(User, Position, UserPosition)
+            .join(UserPosition, User.id == UserPosition.user_id)
+            .join(Position, UserPosition.position_id == Position.id)
+            .filter(
+                Position.department_id == dept_id,
+                Position.is_active == True,
+                UserPosition.is_active == True,
+                User.is_active == True
+            )
+            .distinct(User.id)
+            .all()
+        )
+        
+        # Formatear respuesta con estadísticas de tickets (si aplica)
+        users_list = []
+        seen_users = set()
+        
+        for user, position, assignment in users_data:
+            if user.id in seen_users:
+                continue
+            seen_users.add(user.id)
+            
+            # Contar tickets del usuario (si existe la tabla de tickets de helpdesk)
+            ticket_count = 0
+            try:
+                # Esto solo funcionará si helpdesk está disponible
+                from itcj.apps.helpdesk.models.ticket import Ticket
+                ticket_count = Ticket.query.filter_by(
+                    requester_id=user.id,
+                    requester_department_id=dept_id
+                ).count()
+            except (ImportError, AttributeError):
+                # Si helpdesk no está disponible, continuar sin contar tickets
+                pass
+            
+            users_list.append({
+                "id": user.id,
+                "name": user.full_name,
+                "full_name": user.full_name,
+                "email": user.email,
+                "username": user.username,
+                "control_number": user.control_number,
+                "is_active": user.is_active,
+                "role": user.role.name if user.role else None,
+                "position": {
+                    "id": position.id,
+                    "code": position.code,
+                    "title": position.title
+                },
+                "assignment": {
+                    "start_date": assignment.start_date.isoformat() if assignment.start_date else None,
+                    "notes": assignment.notes
+                },
+                "ticket_count": ticket_count
+            })
+        
+        return jsonify({
+            "status": "ok", 
+            "data": {
+                "department": dept.to_dict(),
+                "users": users_list,
+                "total": len(users_list)
+            }
+        })
+        
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(f"Error getting department users: {e}")
+        return jsonify({"status": "error", "error": "Internal server error"}), 500

@@ -28,7 +28,7 @@ class Department(db.Model):
     def get_head_position(self):
         """Obtiene el puesto de jefe del departamento"""
         return self.positions.filter_by(
-            code=f'jefe_{self.code}',
+            code=f'head_{self.code}',
             is_active=True
         ).first()
     

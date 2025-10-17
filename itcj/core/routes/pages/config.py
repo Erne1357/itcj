@@ -128,3 +128,13 @@ def department_detail(department_id):
     """Vista de detalle de un departamento con sus puestos"""
     dept = Department.query.get_or_404(department_id)
     return render_template("config/department_detail.html", department_id=department_id, department=dept)
+
+@pages_config_bp.get("/config/positions/<int:position_id>")
+@login_required
+def position_detail(position_id):
+    """Vista de detalle/edición de un puesto"""
+    from itcj.core.models.position import Position
+    from itcj.core.models.role import Role
+    position = Position.query.get_or_404(position_id)
+    roles = Role.query.order_by(Role.name.asc()).all()
+    return render_template("config/position_detail.html", position_id=position_id, position=position, roles=roles)

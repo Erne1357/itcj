@@ -50,23 +50,23 @@ class DepartmentDetailManager {
                 const btn = e.target.closest('.app-item-position');
                 this.selectAppForPosition(btn);
             }
-            
+
             // Asignar rol
             if (e.target.id === 'assignRoleBtnPosition') {
                 this.assignRoleToPosition();
             }
-            
+
             // Asignar permiso
             if (e.target.id === 'assignPermBtnPosition') {
                 this.assignPermissionToPosition();
             }
-            
+
             // Remover rol
             if (e.target.closest('.remove-role-btn-position')) {
                 const btn = e.target.closest('.remove-role-btn-position');
                 this.removeRoleFromPosition(btn.dataset.roleName);
             }
-            
+
             // Remover permiso
             if (e.target.closest('.remove-perm-btn-position')) {
                 const btn = e.target.closest('.remove-perm-btn-position');
@@ -93,7 +93,7 @@ class DepartmentDetailManager {
                     parentDiv.style.display = 'block';
                 }
             };
-            
+
             allowsMultipleCheckbox.addEventListener('change', toggleEmailField);
             // Inicializar estado
             toggleEmailField();
@@ -165,10 +165,10 @@ class DepartmentDetailManager {
 
         container.innerHTML = this.positions.map(pos => this.createPositionCard(pos)).join('');
 
-        document.querySelectorAll('.manage-position-btn').forEach(btn => {
+        document.querySelectorAll('.view-position-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const positionId = parseInt(btn.dataset.positionId);
-                this.showManageModal(positionId);
+                window.location.href = `/itcj/config/positions/${positionId}`;
             });
         });
     }
@@ -234,9 +234,9 @@ class DepartmentDetailManager {
                     </div>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <button class="btn btn-sm btn-outline-primary w-100 manage-position-btn" 
+                    <button class="btn btn-sm btn-outline-primary w-100 view-position-btn" 
                             data-position-id="${position.id}">
-                        <i class="bi bi-gear me-1"></i>Gestionar
+                        <i class="bi bi-pencil me-1"></i>Editar Puesto
                     </button>
                 </div>
             </div>
@@ -248,22 +248,22 @@ class DepartmentDetailManager {
         e.preventDefault();
 
         const formData = new FormData(e.target);
-        
+
         // Depuración: ver todos los valores del formulario
         console.log('=== FORM DATA DEBUG ===');
         for (let [key, value] of formData.entries()) {
             console.log(`${key}:`, value);
         }
-        
+
         const data = {
             code: formData.get('code'),
             title: formData.get('title'),
-            department_id: this.departmentId, 
+            department_id: this.departmentId,
             description: formData.get('description') || null,
             allows_multiple: formData.get('allows_multiple') === 'on',  // CORREGIDO: era 'allowsMultiple'
             is_active: formData.get('is_active') === 'on'  // Ahora lee del checkbox
         };
-        
+
         console.log('=== FINAL DATA OBJECT ===');
         console.log('Creating position with data:', data);
         console.log('allows_multiple específicamente:', data.allows_multiple);
@@ -439,15 +439,15 @@ class DepartmentDetailManager {
         try {
             // Load available apps
             const appsResponse = await fetch(`${this.apiBase}/authz/apps`);
-            
+
             if (!appsResponse.ok) {
                 container.innerHTML = '<p class="text-muted">Error al cargar aplicaciones</p>';
                 return;
             }
-            
+
             const appsResult = await appsResponse.json();
             console.log('Apps response:', appsResult);
-            
+
             if (appsResult.status !== 'ok' || !appsResult.data) {
                 container.innerHTML = '<p class="text-muted">Error al cargar aplicaciones</p>';
                 return;
@@ -456,7 +456,7 @@ class DepartmentDetailManager {
             // Load position assignments
             const assignmentsResponse = await fetch(`${this.apiBase}/positions/${positionId}/assignments`);
             let positionApps = {};
-            
+
             if (assignmentsResponse.ok) {
                 const assignmentsResult = await assignmentsResponse.json();
                 console.log('Assignments response:', assignmentsResult);
@@ -466,7 +466,7 @@ class DepartmentDetailManager {
             }
 
             const apps = appsResult.data;
-            
+
             if (apps.length === 0) {
                 container.innerHTML = '<div class="alert alert-info">No hay aplicaciones disponibles</div>';
                 return;
@@ -483,11 +483,11 @@ class DepartmentDetailManager {
 
     renderAppsInterface(apps, positionApps) {
         const container = document.getElementById('positionAppsList');
-        
+
         container.innerHTML = apps.map(app => {
             const appAssignments = positionApps[app.key] || { roles: [], direct_permissions: [] };
             const hasAssignments = appAssignments.roles.length > 0 || appAssignments.direct_permissions.length > 0;
-            
+
             return `
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -548,13 +548,13 @@ class DepartmentDetailManager {
         try {
             // Load global roles (roles are not app-specific)
             const rolesResponse = await fetch(`${this.apiBase}/authz/roles`);
-            
+
             // Load permissions for this app
             const permsResponse = await fetch(`${this.apiBase}/authz/apps/${appKey}/perms`);
-            
+
             // Load current position roles for this app
             const positionRolesResponse = await fetch(`${this.apiBase}/positions/${this.currentPositionId}/apps/${appKey}/roles`);
-            
+
             // Load current position permissions for this app
             const positionPermsResponse = await fetch(`${this.apiBase}/positions/${this.currentPositionId}/apps/${appKey}/perms`);
 
@@ -614,7 +614,7 @@ class DepartmentDetailManager {
 
     renderAppRoles(appId, roles, assignedRoles) {
         const container = document.getElementById(`appRoles${appId}`);
-        
+
         if (roles.length === 0) {
             container.innerHTML = '<p class="text-muted small">No hay roles disponibles</p>';
             return;
@@ -637,7 +637,7 @@ class DepartmentDetailManager {
                 </div>
             `;
         }).join('');
-        
+
         // Add event listeners to role checkboxes
         container.querySelectorAll('.role-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
@@ -650,7 +650,7 @@ class DepartmentDetailManager {
 
     renderAppPermissions(appId, permissions, assignedPerms) {
         const container = document.getElementById(`appPerms${appId}`);
-        
+
         if (permissions.length === 0) {
             container.innerHTML = '<p class="text-muted small">No hay permisos disponibles</p>';
             return;
@@ -674,7 +674,7 @@ class DepartmentDetailManager {
                 </div>
             `;
         }).join('');
-        
+
         // Add event listeners to permission checkboxes
         container.querySelectorAll('.perm-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
@@ -687,7 +687,7 @@ class DepartmentDetailManager {
 
     async togglePositionRole(roleName, assign) {
         console.log('togglePositionRole called:', { roleName, assign, currentAppKey: this.currentAppKey, currentPositionId: this.currentPositionId });
-        
+
         if (!this.currentAppKey) {
             this.showError('No hay aplicación seleccionada');
             return;
@@ -712,7 +712,7 @@ class DepartmentDetailManager {
 
     async togglePositionPermission(permCode, assign) {
         console.log('togglePositionPermission called:', { permCode, assign, currentAppKey: this.currentAppKey, currentPositionId: this.currentPositionId });
-        
+
         if (!this.currentAppKey) {
             this.showError('No hay aplicación seleccionada');
             return;
@@ -740,12 +740,12 @@ class DepartmentDetailManager {
         if (positionId) {
             this.currentPositionId = positionId;
         }
-        
+
         if (!this.currentPositionId) {
             this.showError('No se ha seleccionado una posición válida');
             return;
         }
-        
+
         await this.loadAvailableUsers();
         this.setupUserSearch();
         this.assignUserModal.show();
@@ -979,13 +979,13 @@ class DepartmentDetailManager {
         try {
             const response = await fetch(`${this.apiBase}/authz/apps`);
             let result = {};
-            
+
             if (response.status === 204) {
                 result = { data: [] };
             } else {
                 result = await response.json();
             }
-            
+
             if (response.ok && result.data) {
                 this.apps = result.data;
                 this.renderAppsList();
@@ -1142,7 +1142,7 @@ class DepartmentDetailManager {
             return;
         }
 
-        const badges = roles.map(role => 
+        const badges = roles.map(role =>
             `<span class="badge bg-primary d-flex align-items-center gap-1">
                 ${role}
                 <button class="btn-close btn-close-white btn-sm remove-role-btn-position" 
@@ -1162,7 +1162,7 @@ class DepartmentDetailManager {
             return;
         }
 
-        const badges = permissions.map(perm => 
+        const badges = permissions.map(perm =>
             `<span class="badge bg-success d-flex align-items-center gap-1">
                 ${perm}
                 <button class="btn-close btn-close-white btn-sm remove-perm-btn-position" 
@@ -1182,7 +1182,7 @@ class DepartmentDetailManager {
             return;
         }
 
-        const badges = permissions.map(perm => 
+        const badges = permissions.map(perm =>
             `<span class="badge bg-info">${perm}</span>`
         ).join(' ');
 

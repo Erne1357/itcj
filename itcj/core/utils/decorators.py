@@ -273,19 +273,26 @@ def _check_app_access_enhanced(app_key: str,
                                allow_global_admin: bool = True) -> None:
     """
     Verificación mejorada que incluye puestos organizacionales.
-    
-    Args:
-        positions: Lista de códigos de puesto (ej: ['coord_sistemas', 'jefe_depto'])
+    Usa las funciones de authz_service que YA incluyen verificación de puestos.
     """
     cu = g.get("current_user")
     if not cu:
         abort(401)
 
-    app = db.session.query(App).filter_by(key=app_key, is_active=True).first()
+    # Importar aquí para evitar circular imports
+    from itcj.core.services.authz_service import (
+        get_app_by_key,
+        has_any_assignment,
+        user_roles_in_app,
+        user_has_position,
+        get_user_permissions_for_app
+    )
+
+    app = get_app_by_key(app_key)
     if not app:
         abort(404)
 
-    # Admin global por rol del JWT (legacy)
+    # Admin global por rol del JWT
     if allow_global_admin and cu.get("role") == "admin":
         return
 
@@ -294,146 +301,29 @@ def _check_app_access_enhanced(app_key: str,
     perms = set(perms or [])
     positions = set(positions or [])
 
-    # Verificar acceso por PUESTOS ORGANIZACIONALES
+    # PRIORIDAD 1: Verificar por puestos organizacionales específicos
     if positions:
-        has_position = (
-            db.session.query(UserPosition)
-            .join(Position, Position.id == UserPosition.position_id)
-            .filter(
-                UserPosition.user_id == uid,
-                UserPosition.is_active == True,
-                Position.code.in_(positions),
-                Position.is_active == True
-            )
-            .count() > 0
-        )
-        
-        if has_position:
+        if user_has_position(uid, list(positions)):
             return  # Acceso concedido por puesto
 
-    # Verificar si tiene ALGUNA asignación directa (usuario-app)
-    has_user_assignment = (
-        db.session.query(UserAppRole).filter_by(user_id=uid, app_id=app.id).count() > 0
-        or
-        db.session.query(UserAppPerm).filter_by(user_id=uid, app_id=app.id, allow=True).count() > 0
-    )
-
-    # Verificar si tiene asignaciones VIA PUESTOS
-    has_position_assignment = (
-        db.session.query(UserPosition)
-        .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
-        .filter(
-            UserPosition.user_id == uid,
-            UserPosition.is_active == True,
-            PositionAppRole.app_id == app.id
-        )
-        .union(
-            db.session.query(UserPosition)
-            .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
-            .filter(
-                UserPosition.user_id == uid,
-                UserPosition.is_active == True,
-                PositionAppPerm.app_id == app.id,
-                PositionAppPerm.allow == True
-            )
-        )
-        .count() > 0
-    )
-
-    if not (has_user_assignment or has_position_assignment):
+    # PRIORIDAD 2: Verificar que tenga ALGUNA asignación (incluye puestos)
+    if not has_any_assignment(uid, app_key, include_positions=True):
         abort(403)
 
-    # Si especificó roles, verificar roles (directos + vía puestos)
+    # PRIORIDAD 3: Verificar roles específicos (incluye roles de puestos)
     if roles:
-        has_direct_role = (
-            db.session.query(UserAppRole)
-            .join(Role, Role.id == UserAppRole.role_id)
-            .filter(
-                UserAppRole.user_id == uid,
-                UserAppRole.app_id == app.id,
-                Role.name.in_(roles)
-            )
-            .count() > 0
-        )
+        user_role_set = user_roles_in_app(uid, app_key, include_positions=True)
+        has_required_role = bool(roles & user_role_set)
         
-        has_position_role = (
-            db.session.query(UserPosition)
-            .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
-            .join(Role, Role.id == PositionAppRole.role_id)
-            .filter(
-                UserPosition.user_id == uid,
-                UserPosition.is_active == True,
-                PositionAppRole.app_id == app.id,
-                Role.name.in_(roles)
-            )
-            .count() > 0
-        )
-        
-        if not (has_direct_role or has_position_role) and (not perms or not any_of):
+        if not has_required_role and (not perms or not any_of):
             abort(403)
 
-    # Si especificó permisos, verificar permisos (directos + vía roles + vía puestos)
+    # PRIORIDAD 4: Verificar permisos específicos (incluye permisos de puestos)
     if perms:
-        # Permisos directos del usuario
-        direct_user_perms = (
-            db.session.query(UserAppPerm)
-            .join(Permission, Permission.id == UserAppPerm.perm_id)
-            .filter(
-                UserAppPerm.user_id == uid,
-                UserAppPerm.app_id == app.id,
-                UserAppPerm.allow == True,
-                Permission.code.in_(perms)
-            )
-            .count() > 0
-        )
+        user_perm_set = get_user_permissions_for_app(uid, app_key, include_positions=True)
+        has_required_perm = bool(perms & user_perm_set)
         
-        # Permisos vía roles del usuario
-        via_user_roles = (
-            db.session.query(RolePermission)
-            .join(Permission, Permission.id == RolePermission.perm_id)
-            .join(UserAppRole, UserAppRole.role_id == RolePermission.role_id)
-            .filter(
-                UserAppRole.user_id == uid,
-                UserAppRole.app_id == app.id,
-                Permission.code.in_(perms)
-            )
-            .count() > 0
-        )
-        
-        # Permisos directos vía puestos
-        direct_position_perms = (
-            db.session.query(UserPosition)
-            .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
-            .join(Permission, Permission.id == PositionAppPerm.perm_id)
-            .filter(
-                UserPosition.user_id == uid,
-                UserPosition.is_active == True,
-                PositionAppPerm.app_id == app.id,
-                PositionAppPerm.allow == True,
-                Permission.code.in_(perms)
-            )
-            .count() > 0
-        )
-        
-        # Permisos vía roles de puestos
-        via_position_roles = (
-            db.session.query(UserPosition)
-            .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
-            .join(RolePermission, RolePermission.role_id == PositionAppRole.role_id)
-            .join(Permission, Permission.id == RolePermission.perm_id)
-            .filter(
-                UserPosition.user_id == uid,
-                UserPosition.is_active == True,
-                PositionAppRole.app_id == app.id,
-                Permission.code.in_(perms)
-            )
-            .count() > 0
-        )
-        
-        has_any_perm = (direct_user_perms or via_user_roles or 
-                       direct_position_perms or via_position_roles)
-        
-        if not has_any_perm:
+        if not has_required_perm:
             abort(403)
 
 def app_required_enhanced(app_key: str,
@@ -445,30 +335,35 @@ def app_required_enhanced(app_key: str,
     """
     Decorador mejorado que soporta verificación por puestos organizacionales.
     
-    Args:
-        app_key: Clave de la aplicación
-        roles: Roles globales requeridos
-        perms: Permisos específicos requeridos  
-        positions: Códigos de puestos organizacionales (ej: ['coord_sistemas'])
-        any_of: Si True, cualquier condición cumplida da acceso
-        allow_global_admin: Si True, admin global siempre tiene acceso
-    
     Ejemplo:
-        @app_required_enhanced("agendatec", positions=["coord_sistemas", "coord_industrial"])
-        def coordinator_only_view():
-            pass
-            
-        @app_required_enhanced("agendatec", 
-                              roles=["coordinator"], 
-                              positions=["jefe_depto"],
-                              any_of=True)
-        def coord_or_boss_view():
+        @app_required_enhanced("helpdesk", positions=["jefe_depto"])
+        def department_head_only_view():
             pass
     """
     def deco(view):
         @wraps(view)
         def wrapper(*args, **kwargs):
             _check_app_access_enhanced(app_key, roles, perms, positions, any_of, allow_global_admin)
+            return view(*args, **kwargs)
+        return wrapper
+    return deco
+
+def api_app_required(app_key: str, 
+                    roles: list[str] | None = None, 
+                    perms: list[str] | None = None,
+                    positions: list[str] | None = None):
+    """Decorador unificado para APIs, respondiendo con JSON."""
+    def deco(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            try:
+                _check_app_access_enhanced(app_key, roles, perms, positions, any_of=True)
+            except Exception as e:
+                code = getattr(e, 'code', 500)
+                if code == 401: return jsonify({"error": "unauthorized"}), 401
+                if code == 403: return jsonify({"error": "forbidden"}), 403
+                if code == 404: return jsonify({"error": "not_found"}), 404
+                raise e
             return view(*args, **kwargs)
         return wrapper
     return deco
@@ -486,26 +381,16 @@ def guard_blueprint_enhanced(bp,
     def _guard():
         _check_app_access_enhanced(app_key, roles, perms, positions, any_of, allow_global_admin)
 
-# Funciones de utilidad para obtener permisos del usuario actual
+# Funciones de utilidad
 def get_current_user_permissions(app_key: str) -> set[str]:
-    """Obtiene todos los permisos efectivos del usuario actual en una app"""
+    """Obtiene todos los permisos efectivos del usuario actual (incluye puestos)"""
     cu = g.get("current_user")
     if not cu:
         return set()
     
     uid = int(cu["sub"])
-    
-    # Importar aquí para evitar circular imports
-    from itcj.core.services.authz_service import effective_perms
-    from itcj.core.services.positions_service import get_position_effective_permissions
-    
-    # Permisos directos del usuario
-    user_perms = effective_perms(uid, app_key).get('effective', [])
-    
-    # Permisos vía puestos
-    position_perms = get_position_effective_permissions(uid, app_key)
-    
-    return set(user_perms) | position_perms
+    from itcj.core.services.authz_service import get_user_permissions_for_app
+    return get_user_permissions_for_app(uid, app_key, include_positions=True)
 
 def get_current_user_positions() -> list[dict]:
     """Obtiene los puestos activos del usuario actual"""
@@ -514,16 +399,19 @@ def get_current_user_positions() -> list[dict]:
         return []
     
     uid = int(cu["sub"])
-    
-    from itcj.core.services.positions_service import get_user_active_positions
+    from itcj.core.services.authz_service import get_user_active_positions
     return get_user_active_positions(uid)
 
 def has_position(position_codes: list[str]) -> bool:
     """Verifica si el usuario actual tiene alguno de los puestos especificados"""
-    user_positions = get_current_user_positions()
-    user_position_codes = {pos['code'] for pos in user_positions}
-    return bool(set(position_codes) & user_position_codes)
+    cu = g.get("current_user")
+    if not cu:
+        return False
+    
+    uid = int(cu["sub"])
+    from itcj.core.services.authz_service import user_has_position
+    return user_has_position(uid, position_codes)
 
-# Mantener compatibilidad con decoradores anteriores
+# Alias para mantener compatibilidad
 app_required = app_required_enhanced
 guard_blueprint = guard_blueprint_enhanced

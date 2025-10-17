@@ -11,6 +11,12 @@ let ticketToCancel = null;
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
+    // Guardar la página actual para navegación inteligente
+    sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
+        url: window.location.href,
+        text: 'Mis Tickets'
+    }));
+    
     loadMyTickets();
     setupFilters();
     setupRatingModal();
@@ -186,9 +192,14 @@ function createTicketCard(ticket) {
                             </button>
                         ` : ''}
                         
-                        <button class="btn btn-outline-primary btn-sm" onclick="showTicketDetail(${ticket.id})">
-                            <i class="fas fa-eye me-1"></i>Ver Detalle
-                        </button>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-outline-primary btn-sm" onclick="showTicketDetail(${ticket.id})">
+                                <i class="fas fa-eye me-1"></i>Vista Rápida
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="goToTicketDetail(${ticket.id})">
+                                <i class="fas fa-external-link-alt me-1"></i>Abrir
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -597,6 +608,13 @@ function showErrorState() {
 
 // ==================== EXPORT FOR INLINE CALLS ====================
 window.showTicketDetail = showTicketDetail;
+// ==================== NAVIGATION ====================
+function goToTicketDetail(ticketId) {
+    HelpdeskUtils.goToTicketDetail(ticketId, 'my_tickets');
+}
+
+// Global functions
 window.openRatingModal = openRatingModal;
 window.openCancelModal = openCancelModal;
+window.goToTicketDetail = goToTicketDetail;
 window.changePage = changePage;

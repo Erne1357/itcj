@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
+from .timezone_utils import now_local, ensure_local_timezone
 
 def calculate_business_hours(start: datetime, end: datetime) -> float:
     """
@@ -15,14 +16,9 @@ def calculate_business_hours(start: datetime, end: datetime) -> float:
     if not start or not end:
         return 0.0
     
-    # Asegurar que ambas fechas tengan el mismo tipo de timezone ANTES de comparar
-    if start.tzinfo is None and end.tzinfo is not None:
-        start = start.replace(tzinfo=timezone.utc)
-    elif start.tzinfo is not None and end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    elif start.tzinfo is None and end.tzinfo is None:
-        # Si ambas son naive, dejarlas así
-        pass
+    # Asegurar que ambas fechas estén en timezone local
+    start = ensure_local_timezone(start)
+    end = ensure_local_timezone(end)
     
     # Ahora ya podemos comparar de forma segura
     if start >= end:
@@ -110,7 +106,7 @@ def is_within_sla(created_at: datetime, resolved_at: Optional[datetime], priorit
         bool: True si está dentro del SLA
     """
     deadline = calculate_sla_deadline(created_at, priority)
-    current_time = resolved_at or datetime.now(timezone.utc)
+    current_time = resolved_at or now_local()
     
     return current_time <= deadline
 

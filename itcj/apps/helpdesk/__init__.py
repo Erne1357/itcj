@@ -1,5 +1,5 @@
 # itcj/apps/helpdesk/__init__.py
-from flask import Blueprint, redirect, url_for, g, render_template, request, jsonify
+from flask import Blueprint, redirect, url_for, g, render_template, request, jsonify,current_app
 from itcj.core.utils.decorators import login_required, guard_blueprint
 from itcj.core.services.authz_service import user_roles_in_app
 from itcj.apps.helpdesk import models
@@ -64,24 +64,26 @@ def redirect_by_role():
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
-    logger.info(f"Usuario {user_id} solicitando redirección. Roles: {user_roles}")
+    current_app.logger.warning(f"Usuario {user_id} solicitando redirección. Roles: {user_roles}")
     
     # Prioridad de roles (de más específico a más general)
     if 'admin' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
-    
+
     elif 'secretary' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
-    
+
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.technician_pages.dashboard')}), 200
     
     elif 'department_head' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.department_pages.tickets')}), 200
     
-    else:
+    elif 'staff' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.user_pages.create_ticket')}), 200
-
+    else:
+        current_app.logger.error(f"Usuario {user_id} no tiene roles asignados en Help-Desk.")
+        return jsonify({'error': 'no_roles'}), 403
 
 # ==================== FUNCIÓN DE ROL HOME ====================
 def role_home(role: str) -> str:

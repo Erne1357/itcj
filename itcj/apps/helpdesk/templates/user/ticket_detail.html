@@ -7,9 +7,95 @@
 {% block header_subtitle %}Información Completa{% endblock %}
 
 {% block header_back %}
-<a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" class="btn btn-outline-light btn-sm">
-    <i class="fas fa-arrow-left me-2"></i>Mis Tickets
+<a href="#" id="backButton" class="btn btn-outline-light btn-sm">
+    <i class="fas fa-arrow-left me-2"></i><span id="backButtonText">Volver</span>
 </a>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const backButton = document.getElementById('backButton');
+    const backButtonText = document.getElementById('backButtonText');
+    
+    // Obtener el referrer o parámetro de URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromParam = urlParams.get('from');
+    const referrer = document.referrer;
+    
+    let backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}"; // Default fallback
+    let backText = "Mis Tickets";
+    
+    // Determinar la URL y texto basado en el parámetro 'from'
+    if (fromParam) {
+        switch(fromParam) {
+            case 'dashboard':
+                backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
+                backText = "Dashboard";
+                break;
+            case 'my_tickets':
+                backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
+                backText = "Mis Tickets";
+                break;
+            case 'department':
+                backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
+                backText = "Departamento";
+                break;
+            case 'admin':
+                backUrl = "/help-desk/admin/tickets";
+                backText = "Administración";
+                break;
+            case 'secretary':
+                backUrl = "{{ url_for('helpdesk_pages.secretary_pages.dashboard') }}";
+                backText = "Secretaría";
+            default:
+                // Mantener valores por defecto
+                break;
+        }
+    } 
+    // Si no hay parámetro, intentar determinar por referrer
+    else if (referrer) {
+        if (referrer.includes('/help-desk/user/dashboard')) {
+            backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
+            backText = "Dashboard";
+        } else if (referrer.includes('/help-desk/user/tickets')) {
+            backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
+            backText = "Mis Tickets";
+        } else if (referrer.includes('/help-desk/department')) {
+            backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
+            backText = "Departamento";
+        } else if (referrer.includes('/help-desk/admin')) {
+            backUrl = "/help-desk/admin/tickets";
+            backText = "Administración";
+        } else if (referrer.includes('/help-desk')) {
+            // Si viene de alguna página de helpdesk pero no coincide con las anteriores
+            backText = "Volver";
+            backUrl = referrer;
+        }
+    }
+    
+    // Fallback: usar sessionStorage si no se pudo determinar
+    if (!fromParam && !referrer) {
+        try {
+            const lastPage = JSON.parse(sessionStorage.getItem('helpdesk_last_page') || '{}');
+            if (lastPage.url && lastPage.text) {
+                backUrl = lastPage.url;
+                backText = lastPage.text;
+            }
+        } catch (e) {
+            // Ignorar errores de JSON parsing
+        }
+    }
+    
+    // Aplicar la URL y texto determinados
+    backButton.href = backUrl;
+    backButtonText.textContent = backText;
+    
+    // Guardar en sessionStorage para futuras navegaciones
+    sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
+        url: backUrl,
+        text: backText
+    }));
+});
+</script>
 {% endblock %}
 
 {% block content %}

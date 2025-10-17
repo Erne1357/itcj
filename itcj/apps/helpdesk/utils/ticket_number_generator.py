@@ -1,6 +1,7 @@
 from datetime import datetime
 from itcj.core.extensions import db
 from itcj.apps.helpdesk.models import Ticket
+from .timezone_utils import now_local
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ def generate_ticket_number() -> str:
     Raises:
         Exception si no se puede generar después de varios intentos
     """
-    current_year = datetime.utcnow().year
+    current_year = now_local().year
     
     # Obtener el último ticket del año actual
     last_ticket = (

@@ -23,6 +23,20 @@
         .permission-badge {
             font-size: 0.75em;
         }
+        .nav-tabs .nav-link {
+            color: #6c757d;
+            border: 1px solid transparent;
+        }
+        .nav-tabs .nav-link.active {
+            color: #0d6efd;
+            border-color: #dee2e6 #dee2e6 #fff;
+        }
+        .position-card {
+            transition: transform 0.2s;
+        }
+        .position-card:hover {
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -93,74 +107,149 @@
             </div>
         </div>
 
-        <!-- Apps Assignments -->
+        <!-- Tabs Navigation -->
         <div class="row mb-4">
             <div class="col-12">
-                <h4><i class="bi bi-apps me-2"></i>Asignaciones por Aplicación</h4>
-                <p class="text-muted">Roles y permisos específicos que tiene este usuario en cada aplicación</p>
+                <ul class="nav nav-tabs" id="userDetailTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="positions-tab" data-bs-toggle="tab" 
+                                data-bs-target="#positions-pane" type="button" role="tab">
+                            <i class="bi bi-briefcase me-1"></i>Puestos Organizacionales
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="apps-tab" data-bs-toggle="tab" 
+                                data-bs-target="#apps-pane" type="button" role="tab">
+                            <i class="bi bi-apps me-1"></i>Asignaciones por App
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="activity-tab" data-bs-toggle="tab" 
+                                data-bs-target="#activity-pane" type="button" role="tab">
+                            <i class="bi bi-clock-history me-1"></i>Actividad Reciente
+                        </button>
+                    </li>
+                </ul>
             </div>
         </div>
 
-        <div class="row g-4" id="userAppsContainer">
-            {% for app in apps %}
-            <div class="col-12 col-lg-6">
-                <div class="card app-card h-100 shadow-sm" data-app-key="{{ app.key }}">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-app me-2 text-primary"></i>
-                            <div>
-                                <h6 class="mb-0">{{ app.name }}</h6>
-                                <small class="text-muted">{{ app.key }}</small>
-                            </div>
-                        </div>
-                        <button class="btn btn-sm btn-outline-primary manage-app-btn" 
-                                data-app-key="{{ app.key }}" data-app-name="{{ app.name }}">
-                            <i class="bi bi-gear me-1"></i>Gestionar
-                        </button>
+        <!-- Tab Content -->
+        <div class="tab-content" id="userDetailTabContent">
+            <!-- Puestos Tab -->
+            <div class="tab-pane fade show active" id="positions-pane" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4><i class="bi bi-briefcase me-2"></i>Puestos Organizacionales</h4>
+                        <p class="text-muted">Puestos que ocupa actualmente este usuario en la organización</p>
                     </div>
-                    <div class="card-body">
-                        <!-- Roles en esta app -->
-                        <div class="mb-3">
-                            <h6 class="text-primary mb-2">
-                                <i class="bi bi-people me-1"></i>Roles Asignados
-                            </h6>
-                            <div id="roles_{{ app.key }}" class="d-flex flex-wrap gap-1">
-                                <span class="badge bg-light text-muted">Cargando...</span>
+                </div>
+
+                <div class="row g-4" id="userPositionsContainer">
+                    <!-- Se carga dinámicamente -->
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Cargando puestos...</span>
                             </div>
-                        </div>
-                        
-                        <!-- Permisos directos -->
-                        <div class="mb-3">
-                            <h6 class="text-success mb-2">
-                                <i class="bi bi-key me-1"></i>Permisos Directos
-                            </h6>
-                            <div id="perms_{{ app.key }}" class="d-flex flex-wrap gap-1">
-                                <span class="badge bg-light text-muted">Cargando...</span>
-                            </div>
-                        </div>
-                        
-                        <!-- Permisos efectivos -->
-                        <div>
-                            <h6 class="text-info mb-2">
-                                <i class="bi bi-shield-check me-1"></i>Permisos Efectivos
-                            </h6>
-                            <div id="effective_{{ app.key }}" class="d-flex flex-wrap gap-1">
-                                <span class="badge bg-light text-muted">Cargando...</span>
-                            </div>
+                            <p class="text-muted mt-2">Cargando puestos organizacionales...</p>
                         </div>
                     </div>
                 </div>
             </div>
-            {% endfor %}
-        </div>
 
-        {% if apps|length == 0 %}
-        <div class="text-center py-5">
-            <i class="bi bi-apps display-1 text-muted"></i>
-            <h5 class="text-muted mt-3">No hay aplicaciones disponibles</h5>
-            <p class="text-muted">Crea aplicaciones desde la configuración del sistema</p>
+            <!-- Apps Tab -->
+            <div class="tab-pane fade" id="apps-pane" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4><i class="bi bi-apps me-2"></i>Asignaciones por Aplicación</h4>
+                        <p class="text-muted">Roles y permisos específicos que tiene este usuario en cada aplicación</p>
+                    </div>
+                </div>
+
+                <div class="row g-4" id="userAppsContainer">
+                    {% for app in apps %}
+                    <div class="col-12 col-lg-6">
+                        <div class="card app-card h-100 shadow-sm" data-app-key="{{ app.key }}">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-app me-2 text-primary"></i>
+                                    <div>
+                                        <h6 class="mb-0">{{ app.name }}</h6>
+                                        <small class="text-muted">{{ app.key }}</small>
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary manage-app-btn" 
+                                        data-app-key="{{ app.key }}" data-app-name="{{ app.name }}">
+                                    <i class="bi bi-gear me-1"></i>Gestionar
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <!-- Roles en esta app -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary mb-2">
+                                        <i class="bi bi-people me-1"></i>Roles Asignados
+                                    </h6>
+                                    <div id="roles_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted">Cargando...</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Permisos directos -->
+                                <div class="mb-3">
+                                    <h6 class="text-success mb-2">
+                                        <i class="bi bi-key me-1"></i>Permisos Directos
+                                    </h6>
+                                    <div id="perms_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted">Cargando...</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Permisos efectivos -->
+                                <div>
+                                    <h6 class="text-info mb-2">
+                                        <i class="bi bi-shield-check me-1"></i>Permisos Efectivos
+                                    </h6>
+                                    <div id="effective_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted">Cargando...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    {% if apps|length == 0 %}
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <i class="bi bi-apps display-1 text-muted"></i>
+                            <h5 class="text-muted mt-3">No hay aplicaciones disponibles</h5>
+                            <p class="text-muted">Crea aplicaciones desde la configuración del sistema</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Actividad Reciente Tab -->
+            <div class="tab-pane fade" id="activity-pane" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4><i class="bi bi-clock-history me-2"></i>Actividad Reciente</h4>
+                        <p class="text-muted">Historial de acciones y cambios realizados por este usuario</p>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <i class="bi bi-clock-history display-1 text-muted"></i>
+                            <h5 class="text-muted mt-3">Funcionalidad en desarrollo</h5>
+                            <p class="text-muted">La actividad reciente se implementará próximamente</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        {% endif %}
     </div>
 
     <!-- Modal: Gestionar Asignaciones -->

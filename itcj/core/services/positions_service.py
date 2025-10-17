@@ -189,7 +189,11 @@ def get_user_active_positions(user_id: int) -> List[Dict]:
         'position_id': pos.id,
         'code': pos.code,
         'title': pos.title,
-        'department': pos.department,
+        'department': {
+            'id': pos.department.id,
+            'name': pos.department.name,
+            'code': pos.department.code
+        } if pos.department else None,
         'start_date': assignment.start_date,
         'notes': assignment.notes
     } for assignment, pos in assignments]
@@ -430,8 +434,90 @@ def get_position_assignments(position_id: int) -> Dict:
             'id': position.id,
             'code': position.code,
             'title': position.title,
-            'department': position.department
+            'department': {
+                'id': position.department.id,
+                'name': position.department.name,
+                'code': position.department.code
+            } if position.department else None
         },
         'current_user': get_position_current_user(position_id),
         'apps': apps_data
     }
+
+def get_position_by_id(position_id):
+    """Obtiene un puesto por ID"""
+    from itcj.core.models.position import Position
+    return Position.query.get(position_id)
+
+def delete_position(position_id):
+    """Elimina un puesto completamente (CASCADE)"""
+    from itcj.core.models.position import Position
+    
+    position = Position.query.get(position_id)
+    if not position:
+        return False
+    
+    db.session.delete(position)
+    db.session.commit()
+    return True
+
+def update_position(position_id, **kwargs):
+    """Actualiza un puesto organizacional"""
+    position = get_position_by_id(position_id)
+    if not position:
+        raise ValueError("not_found")
+    
+    # Campos permitidos para actualización
+    allowed_fields = ['title', 'description', 'email', 'is_active', 'allows_multiple']
+    
+    for key, value in kwargs.items():
+        if key in allowed_fields and hasattr(position, key):
+            setattr(position, key, value)
+    
+    db.session.commit()
+    return position
+
+def get_user_managed_departments(user_id: int) -> List[Dict]:
+    """Obtiene los departamentos que maneja un usuario como jefe"""
+    from itcj.core.models.department import Department
+    
+    # Buscar asignaciones activas del usuario que sean de jefe de departamento
+    head_assignments = (
+        db.session.query(UserPosition, Position, Department)
+        .join(Position, UserPosition.position_id == Position.id)
+        .join(Department, Position.department_id == Department.id)
+        .filter(
+            UserPosition.user_id == user_id,
+            UserPosition.is_active == True,
+            Position.is_active == True,
+            Position.code.like('head_%'),  # Filtrar solo puestos de jefe
+            Department.is_active == True
+        )
+        .all()
+    )
+    
+    return [{
+        'department': {
+            'id': department.id,
+            'code': department.code,
+            'name': department.name,
+            'description': department.description,
+            'icon_class': department.icon_class,
+            'is_active': department.is_active,
+            'parent_id': department.parent_id
+        },
+        'position': {
+            'id': position.id,
+            'code': position.code,
+            'title': position.title
+        },
+        'assignment': {
+            'start_date': assignment.start_date,
+            'notes': assignment.notes
+        }
+    } for assignment, position, department in head_assignments]
+
+def get_user_primary_managed_department(user_id: int) -> Optional[Dict]:
+    """Obtiene el departamento principal que maneja un usuario como jefe (el primero si hay varios)"""
+    departments = get_user_managed_departments(user_id)
+    return departments[0] if departments else None

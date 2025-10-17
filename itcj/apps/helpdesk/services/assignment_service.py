@@ -4,6 +4,7 @@ from itcj.core.extensions import db
 from itcj.apps.helpdesk.models import Ticket, Assignment, StatusLog
 from itcj.core.models.user import User
 from itcj.core.services.authz_service import user_roles_in_app
+from ..utils.timezone_utils import now_local
 import logging
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def assign_ticket(
     ticket.assigned_to_user_id = assigned_to_user_id
     ticket.assigned_to_team = assigned_to_team
     ticket.status = 'ASSIGNED'
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = now_local()
     
     # Registrar cambio de estado
     status_log = StatusLog(
@@ -228,7 +229,7 @@ def self_assign_ticket(ticket_id: int, technician_id: int) -> Assignment:
     # Actualizar ticket
     ticket.assigned_to_user_id = technician_id
     ticket.assigned_to_team = None
-    ticket.updated_at = datetime.utcnow()
+    ticket.updated_at = now_local()
     
     # Registrar en log
     technician = User.query.get(technician_id)
@@ -350,7 +351,7 @@ def _close_previous_assignment(ticket_id: int) -> None:
     )
     
     if last_assignment:
-        last_assignment.unassigned_at = datetime.utcnow()
+        last_assignment.unassigned_at = now_local()
         logger.debug(f"Cerrada asignación previa del ticket {ticket_id}")
 
 

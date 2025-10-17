@@ -5,6 +5,7 @@ from itcj.apps.helpdesk.models import Comment
 from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.extensions import db
 from datetime import datetime, timedelta
+from ...utils.timezone_utils import now_local
 from . import comments_api_bp
 import logging
 
@@ -190,7 +191,7 @@ def update_comment(comment_id):
         
         # Verificar que no hayan pasado más de 5 minutos
         time_limit = timedelta(minutes=5)
-        if datetime.utcnow() - comment.created_at > time_limit:
+        if now_local() - comment.created_at > time_limit:
             return jsonify({
                 'error': 'time_expired',
                 'message': 'Solo puedes editar comentarios dentro de los primeros 5 minutos'
@@ -198,7 +199,7 @@ def update_comment(comment_id):
         
         # Actualizar comentario
         comment.content = content
-        comment.updated_at = datetime.utcnow()
+        comment.updated_at = now_local()
         db.session.commit()
         
         logger.info(f"Comentario {comment_id} editado por usuario {user_id}")
@@ -253,7 +254,7 @@ def delete_comment(comment_id):
             
             # Verificar que no hayan pasado más de 5 minutos
             time_limit = timedelta(minutes=5)
-            if datetime.utcnow() - comment.created_at > time_limit:
+            if now_local() - comment.created_at > time_limit:
                 return jsonify({
                     'error': 'time_expired',
                     'message': 'Solo puedes eliminar comentarios dentro de los primeros 5 minutos'

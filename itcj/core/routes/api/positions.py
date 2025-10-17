@@ -39,6 +39,38 @@ def list_positions():
     
     return _ok(data)
 
+@api_positions_bp.get("/<int:position_id>")
+@api_auth_required
+@api_role_required(["admin"])
+def get_position(position_id):
+    """Obtiene un puesto específico con toda su información"""
+    try:
+        position = svc.get_position_by_id(position_id)
+        if not position:
+            return _bad("not_found", 404)
+        
+        # Obtener usuarios asignados
+        current_users = svc.get_position_current_users(position_id)
+        
+        # Obtener asignaciones de apps
+        assignments = svc.get_position_assignments(position_id)
+        
+        return _ok({
+            "id": position.id,
+            "code": position.code,
+            "title": position.title,
+            "description": position.description,
+            "email": position.email,
+            "department_id": position.department_id,
+            "is_active": position.is_active,
+            "allows_multiple": position.allows_multiple,
+            "current_users": current_users,
+            "assignments": assignments
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error getting position: {e}")
+        return _bad(str(e), 500)
+
 @api_positions_bp.post("")
 @api_auth_required
 @api_role_required(["admin"])
@@ -89,15 +121,22 @@ def update_position(position_id):
     try:
         position = svc.update_position(position_id, **{
             k: v for k, v in payload.items() 
-            if k in ['title', 'description', 'department', 'is_active']
+            if k in ['title', 'description', 'department_id', 'is_active', 'allows_multiple', 'email']
         })
         return _ok({
             "id": position.id,
             "code": position.code,
             "title": position.title,
             "description": position.description,
-            "department": position.department,
-            "is_active": position.is_active
+            "email": position.email,
+            "department_id": position.department_id,
+            "allows_multiple": position.allows_multiple,
+            "is_active": position.is_active,
+            "department": {
+                "id": position.department.id,
+                "name": position.department.name,
+                "code": position.department.code
+            } if position.department else None
         })
     except ValueError as e:
         return _bad(str(e), 404)
@@ -105,11 +144,34 @@ def update_position(position_id):
 @api_positions_bp.delete("/<int:position_id>")
 @api_auth_required
 @api_role_required(["admin"])
-def deactivate_position(position_id):
-    """Desactiva un puesto organizacional"""
-    if svc.deactivate_position(position_id):
-        return _ok()
-    return _bad("not_found", 404)
+def delete_position(position_id):
+    """Elimina un puesto organizacional SOLO si no tiene usuarios asignados"""
+    try:
+        from itcj.core.models.position import UserPosition
+        
+        # Verificar si hay usuarios asignados
+        active_assignments = UserPosition.query.filter_by(
+            position_id=position_id,
+            is_active=True
+        ).count()
+        
+        if active_assignments > 0:
+            return _bad("position_has_active_users", 409)
+        
+        # Verificar si el puesto existe
+        position = svc.get_position_by_id(position_id)
+        if not position:
+            return _bad("not_found", 404)
+        
+        # Eliminar el puesto
+        if svc.delete_position(position_id):
+            return _ok({"deleted": True})
+        
+        return _bad("deletion_failed", 500)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error deleting position: {e}")
+        return _bad(str(e), 500)
 
 # ---------------------------
 # Asignación de Usuarios a Puestos

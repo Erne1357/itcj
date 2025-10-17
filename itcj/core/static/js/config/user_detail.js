@@ -11,6 +11,7 @@ class UserDetailManager {
     init() {
         this.bindEvents();
         this.initModals();
+        this.loadUserPositions();
         this.loadAllUserAssignments();
     }
 
@@ -47,10 +48,196 @@ class UserDetailManager {
                 this.removePermission(btn.dataset.permCode);
             }
         });
+
+        // Tab change events - load data when tabs are activated
+        const tabTriggers = document.querySelectorAll('#userDetailTabs button[data-bs-toggle="tab"]');
+        tabTriggers.forEach(tab => {
+            tab.addEventListener('shown.bs.tab', (e) => {
+                const targetId = e.target.getAttribute('data-bs-target');
+                
+                if (targetId === '#positions-pane') {
+                    // Recargar puestos si es necesario
+                    this.loadUserPositions();
+                } else if (targetId === '#apps-pane') {
+                    // Recargar asignaciones por app si es necesario
+                    this.loadAllUserAssignments();
+                }
+                // activity-pane no necesita cargar datos por ahora
+            });
+        });
     }
 
     initModals() {
         this.manageModal = new bootstrap.Modal(document.getElementById('manageAssignmentsModal'));
+    }
+
+    async loadUserPositions() {
+        try {
+            const response = await fetch(`${this.apiBase}/positions/users/${this.userId}/positions`);
+            const result = await response.json();
+            
+            if (response.ok && result.data) {
+                this.renderUserPositions(result.data);
+            } else {
+                this.renderPositionsError();
+            }
+        } catch (error) {
+            console.error('Error loading user positions:', error);
+            this.renderPositionsError();
+        }
+    }
+
+    renderUserPositions(positions) {
+        const container = document.getElementById('userPositionsContainer');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (positions.length === 0) {
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="text-center py-5">
+                        <i class="bi bi-briefcase display-1 text-muted"></i>
+                        <h5 class="text-muted mt-3">Sin puestos asignados</h5>
+                        <p class="text-muted">Este usuario no tiene puestos organizacionales activos</p>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        positions.forEach(position => {
+            const positionCard = document.createElement('div');
+            positionCard.className = 'col-12 col-md-6 col-lg-4';
+            
+            positionCard.innerHTML = `
+                <div class="card h-100 shadow-sm position-card">
+                    <div class="card-header bg-primary text-white">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-briefcase me-2"></i>
+                            <div>
+                                <h6 class="mb-0">${position.title}</h6>
+                                <small class="opacity-75">${position.code}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        ${position.department ? `
+                            <div class="mb-3">
+                                <h6 class="text-muted mb-2">
+                                    <i class="bi bi-building me-1"></i>Departamento
+                                </h6>
+                                <div class="d-flex align-items-center">
+                                    ${position.department.icon_class ? 
+                                        `<i class="${position.department.icon_class} me-2 text-primary"></i>` : 
+                                        '<i class="bi bi-building me-2 text-primary"></i>'}
+                                    <div>
+                                        <div class="fw-bold">${position.department.name}</div>
+                                        <small class="text-muted">${position.department.code}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="mb-3">
+                            <h6 class="text-success mb-2">
+                                <i class="bi bi-calendar-check me-1"></i>Información
+                            </h6>
+                            <div class="small text-muted">
+                                <div><strong>Inicio:</strong> ${new Date(position.start_date).toLocaleDateString('es-ES')}</div>
+                                ${position.notes ? `<div><strong>Notas:</strong> ${position.notes}</div>` : ''}
+                            </div>
+                        </div>
+
+                        <div>
+                            <h6 class="text-info mb-2">
+                                <i class="bi bi-shield-check me-1"></i>Permisos por Puesto
+                            </h6>
+                            <div id="positionPerms_${position.position_id}" class="d-flex flex-wrap gap-1">
+                                <span class="badge bg-light text-muted">Cargando...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.appendChild(positionCard);
+            
+            // Cargar permisos del puesto
+            this.loadPositionPermissions(position.position_id);
+        });
+    }
+
+    async loadPositionPermissions(positionId) {
+        try {
+            const response = await fetch(`${this.apiBase}/positions/${positionId}/assignments`);
+            const result = await response.json();
+            
+            if (response.ok && result.data) {
+                this.renderPositionPermissions(positionId, result.data.apps);
+            } else {
+                this.renderPositionPermissionsError(positionId);
+            }
+        } catch (error) {
+            console.error(`Error loading permissions for position ${positionId}:`, error);
+            this.renderPositionPermissionsError(positionId);
+        }
+    }
+
+    renderPositionPermissions(positionId, apps) {
+        const container = document.getElementById(`positionPerms_${positionId}`);
+        if (!container) return;
+
+        if (!apps || Object.keys(apps).length === 0) {
+            container.innerHTML = '<small class="text-muted">Sin permisos asignados</small>';
+            return;
+        }
+
+        let badges = [];
+        
+        Object.entries(apps).forEach(([appKey, appData]) => {
+            // Roles
+            if (appData.roles && appData.roles.length > 0) {
+                appData.roles.forEach(role => {
+                    badges.push(`<span class="badge bg-primary" title="${appData.app_name} - Rol">${appKey}: ${role}</span>`);
+                });
+            }
+            
+            // Permisos directos
+            if (appData.direct_permissions && appData.direct_permissions.length > 0) {
+                appData.direct_permissions.forEach(perm => {
+                    badges.push(`<span class="badge bg-success" title="${appData.app_name} - Permiso directo">${appKey}: ${perm}</span>`);
+                });
+            }
+        });
+
+        if (badges.length === 0) {
+            container.innerHTML = '<small class="text-muted">Sin permisos asignados</small>';
+        } else {
+            container.innerHTML = badges.join(' ');
+        }
+    }
+
+    renderPositionPermissionsError(positionId) {
+        const container = document.getElementById(`positionPerms_${positionId}`);
+        if (container) {
+            container.innerHTML = '<span class="badge bg-danger">Error al cargar</span>';
+        }
+    }
+
+    renderPositionsError() {
+        const container = document.getElementById('userPositionsContainer');
+        if (container) {
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="text-center py-5">
+                        <i class="bi bi-exclamation-triangle display-1 text-danger"></i>
+                        <h5 class="text-danger mt-3">Error al cargar puestos</h5>
+                        <p class="text-muted">No se pudieron cargar los puestos organizacionales</p>
+                    </div>
+                </div>
+            `;
+        }
     }
 
     async loadAllUserAssignments() {

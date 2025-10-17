@@ -138,16 +138,11 @@ class Ticket(db.Model):
             return None
         
         from itcj.apps.helpdesk.utils.time_calculator import calculate_business_hours
-        from datetime import timezone
+        from itcj.apps.helpdesk.utils.timezone_utils import ensure_local_timezone
         
-        # Asegurar que las fechas tengan timezone
-        created_at = self.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-            
-        resolved_at = self.resolved_at
-        if resolved_at.tzinfo is None:
-            resolved_at = resolved_at.replace(tzinfo=timezone.utc)
+        # Asegurar que las fechas tengan timezone local
+        created_at = ensure_local_timezone(self.created_at)
+        resolved_at = ensure_local_timezone(self.resolved_at)
         
         return calculate_business_hours(created_at, resolved_at)
 
@@ -195,20 +190,16 @@ class Ticket(db.Model):
         
         if include_metrics:
             # Calcular métricas temporales
-            from datetime import datetime, timezone
+            from itcj.apps.helpdesk.utils.timezone_utils import now_local, ensure_local_timezone
             
-            # Asegurar que las fechas tengan timezone
-            created_at = self.created_at
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
+            # Asegurar que las fechas tengan timezone local
+            created_at = ensure_local_timezone(self.created_at)
             
             # Tiempo transcurrido desde creación hasta ahora (si no está resuelto) o hasta resolución
             if self.resolved_at:
-                end_time = self.resolved_at
-                if end_time.tzinfo is None:
-                    end_time = end_time.replace(tzinfo=timezone.utc)
+                end_time = ensure_local_timezone(self.resolved_at)
             else:
-                end_time = datetime.now(timezone.utc)
+                end_time = now_local()
             
             total_elapsed_hours = (end_time - created_at).total_seconds() / 3600
             
