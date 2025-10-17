@@ -58,14 +58,13 @@
                     <p class="text-muted">Administra usuarios y sus asignaciones por aplicación</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <form method="GET" action="{{ url_for('pages_core.pages_config.users_management') }}"
-                        class="input-group" style="width: 300px;">
-                        <span class="input-group-text">
+                    <div class="input-group" style="width: 300px;">
+                        <button class="input-group-text btn btn-outline-secondary" id="searchButton" type="button">
                             <i class="bi bi-search"></i>
-                        </span>
+                        </button>
                         <input type="text" class="form-control" id="searchUsers" name="q"
                             placeholder="Buscar usuarios..." value="{{ current_query or '' }}">
-                    </form>
+                    </div>
 
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newUserModal">
                         <i class="bi bi-person-plus-fill me-1"></i>

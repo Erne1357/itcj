@@ -21,49 +21,84 @@ def _bad(msg="bad_request", status=400):
 @api_auth_required
 @api_role_required(["admin"])
 def list_users():
-    """Lista todos los usuarios del sistema (para asignación a puestos)"""
+    """Lista todos los usuarios del sistema con filtros y paginación"""
     try:
-        # Obtener parámetros de filtro opcionales
+        # Parámetros de búsqueda y filtros
         search = request.args.get("search", "").strip()
         role_filter = request.args.get("role")
-        limit = min(int(request.args.get("limit", 50)), 100)  # Máximo 100 usuarios
+        app_filter = request.args.get("app")
+        status_filter = request.args.get("status")  # 'active' o 'inactive'
         
-        # Construir consulta
-        query = db.session.query(User).filter(User.is_active == True)
+        # Parámetros de paginación
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = min(int(request.args.get("per_page", 20)), 100)
         
-        # Filtro por búsqueda en nombre o email
+        # Construir consulta base
+        query = db.session.query(User)
+        
+        # Filtro por estado
+        if status_filter == "active":
+            query = query.filter(User.is_active == True)
+        elif status_filter == "inactive":
+            query = query.filter(User.is_active == False)
+        
+        # Filtro por búsqueda en nombre, email, username o control_number
         if search:
             search_pattern = f"%{search}%"
             query = query.filter(
                 db.or_(
                     User.full_name.ilike(search_pattern),
-                    User.email.ilike(search_pattern)
+                    User.email.ilike(search_pattern),
+                    User.username.ilike(search_pattern),
+                    User.control_number.ilike(search_pattern)
                 )
             )
         
-        # Filtro por rol (si se especifica)
+        # Filtro por rol
         if role_filter:
             from itcj.core.models.role import Role
             query = query.join(Role).filter(Role.name == role_filter)
         
-        # Ordenar y limitar
-        users = query.order_by(User.full_name).limit(limit).all()
+        # TODO: Filtro por app (requiere consulta a las tablas de autorización)
+        # Esto es más complejo, ya que necesitas revisar las tablas de autorización
+        
+        # Ordenar
+        query = query.order_by(User.full_name)
+        
+        # Aplicar paginación
+        pagination = query.paginate(
+            page=page, 
+            per_page=per_page, 
+            error_out=False
+        )
         
         # Formatear respuesta
         users_data = []
-        for user in users:
+        for user in pagination.items:
             users_data.append({
                 "id": user.id,
-                "name": user.full_name,
                 "full_name": user.full_name,
                 "email": user.email,
                 "username": user.username,
                 "control_number": user.control_number,
                 "role": user.role.name if user.role else None,
+                "roles": [role.name for role in user.roles] if hasattr(user, 'roles') else [],
                 "is_active": user.is_active
             })
         
-        return _ok(users_data)
+        return _ok({
+            "users": users_data,
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "has_next": pagination.has_next,
+                "has_prev": pagination.has_prev,
+                "next_num": pagination.next_num,
+                "prev_num": pagination.prev_num
+            }
+        })
         
     except Exception as e:
         current_app.logger.error(f"Error listing users: {e}")
