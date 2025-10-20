@@ -28,6 +28,7 @@ def list_users():
         role_filter = request.args.get("role")
         app_filter = request.args.get("app")
         status_filter = request.args.get("status")  # 'active' o 'inactive'
+        only_staff = request.args.get("only_staff", "false").lower() == "true"
         
         # Parámetros de paginación
         page = max(1, int(request.args.get("page", 1)))
@@ -50,10 +51,14 @@ def list_users():
                     User.full_name.ilike(search_pattern),
                     User.email.ilike(search_pattern),
                     User.username.ilike(search_pattern),
-                    User.control_number.ilike(search_pattern)
+                    User.control_number.ilike(search_pattern),
                 )
             )
         
+        # Filtro para incluir solo personal (excluir estudiantes)
+        if only_staff:
+            query = query.filter(User.control_number == None)
+
         # Filtro por rol
         if role_filter:
             from itcj.core.models.role import Role

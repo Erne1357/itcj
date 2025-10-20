@@ -339,21 +339,21 @@ class PositionDetailManager {
         
         try {
             select.innerHTML = '<option value="">Cargando usuarios...</option>';
-            
-            const response = await fetch(`${this.apiBase}/users?limit=100`);
+
+            const response = await fetch(`${this.apiBase}/users?limit=100&only_staff=true`);
             const result = await response.json();
-            
+
             if (response.ok && result.data) {
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
                 
-                result.data.forEach(user => {
+                result.data.users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
-                    option.textContent = `${user.name}${user.email ? ` (${user.email})` : ''}`;
+                    option.textContent = `${user.username}${user.email ? ` (${user.email})` : ''}`;
                     select.appendChild(option);
                 });
                 
-                if (result.data.length === 0) {
+                if (result.data.users.length === 0) {
                     select.innerHTML = '<option value="">No hay usuarios disponibles</option>';
                 }
             }
@@ -368,19 +368,20 @@ class PositionDetailManager {
         
         try {
             const url = searchTerm ?
-                `${this.apiBase}/users?search=${encodeURIComponent(searchTerm)}&limit=50` :
-                `${this.apiBase}/users?limit=50`;
+                `${this.apiBase}/users?search=${encodeURIComponent(searchTerm)}&limit=50&only_staff=true` :
+                `${this.apiBase}/users?limit=50&only_staff=true`;
             
             const response = await fetch(url);
             const result = await response.json();
             
+
             if (response.ok && result.data) {
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
                 
-                result.data.forEach(user => {
+                result.data.users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
-                    option.textContent = `${user.name}${user.email ? ` (${user.email})` : ''}`;
+                    option.textContent = `${user.username}${user.email ? ` (${user.email})` : ''}`;
                     select.appendChild(option);
                 });
             }
