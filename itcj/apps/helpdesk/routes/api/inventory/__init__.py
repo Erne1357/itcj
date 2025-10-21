@@ -11,6 +11,13 @@ from itcj.apps.helpdesk.routes.api.inventory.inventory_items import bp as invent
 from itcj.apps.helpdesk.routes.api.inventory.inventory_assignments import bp as inventory_assignments
 from itcj.apps.helpdesk.routes.api.inventory.inventory_dashboard import bp as inventory_dashboard
 
+import itcj.apps.helpdesk.routes.api.inventory.inventory_assignments
+import itcj.apps.helpdesk.routes.api.inventory.inventory_categories
+import itcj.apps.helpdesk.routes.api.inventory.inventory_dashboard
+import itcj.apps.helpdesk.routes.api.inventory.inventory_history
+import itcj.apps.helpdesk.routes.api.inventory.inventory_items
+import itcj.apps.helpdesk.routes.api.inventory.inventory_stats
+
 inventory_api_bp.register_blueprint(inventory_categories, url_prefix='/categories')
 inventory_api_bp.register_blueprint(inventory_history, url_prefix='/history')
 inventory_api_bp.register_blueprint(inventory_stats, url_prefix='/stats')

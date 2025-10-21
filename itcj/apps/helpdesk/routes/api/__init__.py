@@ -13,8 +13,7 @@ from . import assignments
 from . import comments
 from . import attachments
 from . import categories
-import itcj.apps.helpdesk.routes.api.inventory
-
+from . import inventory
 __all__ = [
     'tickets_api_bp',
     'assignments_api_bp',

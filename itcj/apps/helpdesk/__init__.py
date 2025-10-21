@@ -1,8 +1,9 @@
 # itcj/apps/helpdesk/__init__.py
-from flask import Blueprint, redirect, url_for, g, render_template, request, jsonify,current_app
+from flask import Blueprint, redirect, url_for, g, render_template, request, jsonify, current_app
 from itcj.core.utils.decorators import login_required, guard_blueprint
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, get_user_permissions_for_app
 from itcj.apps.helpdesk import models
+from itcj.apps.helpdesk.utils.navigation import get_helpdesk_navigation, get_helpdesk_role_groups
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,13 +38,62 @@ from itcj.apps.helpdesk.routes.pages import (
     user_pages_bp,
     secretary_pages_bp,
     technician_pages_bp,
-    department_pages_bp
+    department_pages_bp,
+    inventory_pages_bp
 )
 
 helpdesk_pages_bp.register_blueprint(user_pages_bp, url_prefix='/user')
 helpdesk_pages_bp.register_blueprint(secretary_pages_bp, url_prefix='/secretary')
 helpdesk_pages_bp.register_blueprint(technician_pages_bp, url_prefix='/technician')
 helpdesk_pages_bp.register_blueprint(department_pages_bp, url_prefix='/department')
+helpdesk_pages_bp.register_blueprint(inventory_pages_bp, url_prefix='/inventory')
+
+
+@helpdesk_pages_bp.context_processor
+def inject_helpdesk_nav():
+    """
+    Inyecta navegación dinámica de Help-Desk en todas las páginas.
+    Similar al context processor de AgendaTec.
+    """
+    nav_items = []
+    
+    # CRÍTICO: No ejecutar en páginas de error
+    if g.get("current_user") and not getattr(request, 'is_error_handler', False):
+        try:
+            user_id = g.current_user["sub"]
+            
+            # Obtener roles y permisos del usuario en helpdesk
+            user_roles = set(user_roles_in_app(user_id, "helpdesk"))
+            user_perms = get_user_permissions_for_app(user_id, "helpdesk")
+            
+            # Generar navegación
+            nav_items = get_helpdesk_navigation(user_perms, user_roles)
+            
+            # Añadir URL a cada item
+            for item in nav_items:
+                if item.get('endpoint') and item['endpoint'] != '#':
+                    item['url'] = "" #url_for(item['endpoint'])
+                    # Añadir fragment si existe
+                    if 'fragment' in item:
+                        item['url'] += item['fragment']
+                
+                # Procesar dropdown
+                if 'dropdown' in item:
+                    for sub_item in item['dropdown']:
+                        if sub_item.get('endpoint') and sub_item['endpoint'] != '#':
+                            sub_item['url'] = "" #url_for(sub_item['endpoint'])
+                            if 'fragment' in sub_item:
+                                sub_item['url'] += sub_item['fragment']
+                        
+        except Exception as e:
+            current_app.logger.warning(f"Error en context processor de Help-Desk: {e}")
+            nav_items = []
+    current_app.logger.warning(f"Help-Desk navigation items: {nav_items} {user_roles=}")
+    return {
+        "helpdesk_nav_items": nav_items,
+        "current_route": request.endpoint
+    }
+
 
 
 # ==================== RUTA PRINCIPAL (LANDING) ====================

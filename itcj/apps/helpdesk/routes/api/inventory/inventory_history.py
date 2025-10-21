@@ -2,9 +2,10 @@
 API para consultar historial de equipos
 """
 from flask import Blueprint, request, jsonify, g
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models import InventoryItem
-from itcj.apps.helpdesk.services import InventoryHistoryService
+from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
 bp = Blueprint('inventory_history', __name__)
 
@@ -26,7 +27,7 @@ def get_item_history(item_id):
         404: Equipo no encontrado
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Verificar que el equipo existe
     item = InventoryItem.query.get(item_id)
@@ -96,7 +97,7 @@ def get_recent_events():
         200: Eventos recientes
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     department_id = request.args.get('department_id', type=int)
     days = request.args.get('days', 7, type=int)
@@ -190,7 +191,7 @@ def get_maintenance_history(item_id):
         404: Equipo no encontrado
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Verificar equipo
     item = InventoryItem.query.get(item_id)

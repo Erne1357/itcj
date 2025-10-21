@@ -4,8 +4,9 @@ API para asignación y liberación de equipos
 from flask import Blueprint, request, jsonify, g
 from itcj.core.extensions import db
 from itcj.core.utils.decorators import api_app_required
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.apps.helpdesk.models import InventoryItem
-from itcj.apps.helpdesk.services import InventoryService
+from itcj.apps.helpdesk.services.inventory_service import InventoryService
 from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
 bp = Blueprint('inventory_assignments', __name__)
@@ -31,7 +32,7 @@ def assign_to_user():
     """
     data = request.get_json()
     assigned_by_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(assigned_by_id, 'helpdesk')
     
     # Validaciones básicas
     if not data.get('item_id'):
@@ -106,7 +107,7 @@ def unassign_from_user():
     """
     data = request.get_json()
     unassigned_by_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(unassigned_by_id, 'helpdesk')
     
     # Validación
     if not data.get('item_id'):
@@ -352,7 +353,7 @@ def update_location():
     """
     data = request.get_json()
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Validaciones
     if not data.get('item_id'):

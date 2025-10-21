@@ -237,7 +237,7 @@ class InventoryService:
         # Actualizar
         item.assigned_to_user_id = user_id
         item.assigned_by_id = assigned_by_id
-        item.assigned_at = datetime.utcnow()
+        item.assigned_at = datetime.now()
         
         if location:
             item.location_detail = location
@@ -402,7 +402,7 @@ class InventoryService:
         
         # Dar de baja
         item.is_active = False
-        item.deactivated_at = datetime.utcnow()
+        item.deactivated_at = datetime.now()
         item.deactivated_by_id = deactivated_by_id
         item.deactivation_reason = reason
         item.status = 'RETIRED'

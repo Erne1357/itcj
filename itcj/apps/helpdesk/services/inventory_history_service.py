@@ -48,7 +48,7 @@ class InventoryHistoryService:
         Returns:
             Lista de eventos recientes
         """
-        since_date = datetime.utcnow() - timedelta(days=days)
+        since_date = datetime.now() - timedelta(days=days)
         
         query = db.session.query(InventoryHistory).join(
             InventoryItem, InventoryHistory.item_id == InventoryItem.id
@@ -99,7 +99,7 @@ class InventoryHistoryService:
         Returns:
             Lista de transferencias
         """
-        since_date = datetime.utcnow() - timedelta(days=days)
+        since_date = datetime.now() - timedelta(days=days)
         
         transfers = InventoryHistory.query.filter(
             InventoryHistory.event_type == 'TRANSFERRED',
@@ -184,7 +184,7 @@ class InventoryHistoryService:
         Returns:
             Lista de eventos
         """
-        since_date = datetime.utcnow() - timedelta(days=days)
+        since_date = datetime.now() - timedelta(days=days)
         
         events = InventoryHistory.query.filter(
             InventoryHistory.performed_by_id == user_id,

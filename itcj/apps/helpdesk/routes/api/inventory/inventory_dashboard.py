@@ -2,8 +2,9 @@
 API para widgets del dashboard de inventario
 """
 from flask import Blueprint, request, jsonify, g
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
-from itcj.apps.helpdesk.services import InventoryStatsService
+from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 from itcj.apps.helpdesk.models import InventoryItem
 from itcj.core.extensions import db
 from sqlalchemy import func
@@ -22,7 +23,7 @@ def get_quick_stats():
         200: Stats rápidas
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Si es admin o secretaría: stats globales
     if 'admin' in user_roles or 'helpdesk_secretary' in user_roles:
@@ -217,12 +218,12 @@ def get_recent_activity():
     Returns:
         200: Lista de eventos recientes
     """
-    from itcj.apps.helpdesk.services import InventoryHistoryService
+    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
     
     limit = request.args.get('limit', 10, type=int)
     
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     department_id = None
     
@@ -277,7 +278,7 @@ def get_category_chart():
         200: Datos para Chart.js
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Admin/Secretaría: todas las categorías
     if 'admin' in user_roles or 'helpdesk_secretary' in user_roles:
@@ -344,7 +345,7 @@ def get_status_chart():
         200: Datos para Chart.js (pie chart)
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     query = InventoryItem.query.filter(InventoryItem.is_active == True)
     

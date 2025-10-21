@@ -3,9 +3,10 @@ API para gestión de items del inventario (equipos)
 """
 from flask import Blueprint, request, jsonify, g
 from itcj.core.extensions import db
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models import InventoryItem, InventoryCategory
-from itcj.apps.helpdesk.services import InventoryService
+from itcj.apps.helpdesk.services.inventory_service import InventoryService
 from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
 from sqlalchemy import or_, and_, func
 from datetime import datetime, date
@@ -37,7 +38,7 @@ def get_items():
         200: Lista de items
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Query base
     query = InventoryItem.query.filter_by(is_active=True)
@@ -129,7 +130,7 @@ def get_item(item_id):
         404: Item no encontrado
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     item = InventoryItem.query.get(item_id)
     
@@ -446,7 +447,7 @@ def get_department_equipment(department_id):
         403: Sin permiso
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Verificar permiso si no es admin
     if 'admin' not in user_roles:

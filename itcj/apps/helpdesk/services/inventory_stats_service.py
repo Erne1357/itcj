@@ -173,7 +173,7 @@ class InventoryStatsService:
         Returns:
             Lista de equipos problemáticos
         """
-        since_date = datetime.utcnow() - timedelta(days=days)
+        since_date = datetime.now() - timedelta(days=days)
         
         results = db.session.query(
             InventoryItem,

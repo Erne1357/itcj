@@ -2,8 +2,9 @@
 API para estadísticas del inventario
 """
 from flask import Blueprint, request, jsonify, g
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
-from itcj.apps.helpdesk.services import InventoryStatsService
+from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 
 bp = Blueprint('inventory_stats', __name__)
 
@@ -165,7 +166,7 @@ def get_department_stats(department_id):
         403: Sin permiso
     """
     user_id = int(g.current_user['sub'])
-    user_roles = g.current_user.get('roles', [])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Verificar permiso
     if 'admin' not in user_roles:
