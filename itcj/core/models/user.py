@@ -28,3 +28,21 @@ class User(db.Model):
 
     def __repr__(self) -> str:
         return f"<User {self.id} {self.full_name}>"
+    
+    def to_dict(self) -> dict:
+        """Serialización para API"""
+        return {
+            "id": self.id,
+            "username": self.username,
+            "control_number": self.control_number,
+            "full_name": self.full_name,
+            "email": self.email,
+            "is_active": self.is_active,
+            "must_change_password": self.must_change_password,
+            "role": {
+                "id": self.role.id,
+                "name": self.role.name
+            } if self.role else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }

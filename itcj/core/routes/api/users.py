@@ -1,5 +1,5 @@
 # itcj/core/routes/api/users.py
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app,g
 from itcj.core.models.user import User
 from itcj.core.utils.decorators import api_auth_required, api_role_required
 from itcj.core.extensions import db
@@ -181,3 +181,27 @@ def create_user():
         db.session.rollback()
         current_app.logger.error(f"Error creating user: {e}")
         return jsonify({"error": "An internal error occurred"}), 500
+
+@api_users_bp.get('/me/department')
+@api_auth_required
+def get_my_department():
+    """Obtener departamento del usuario actual"""
+    from itcj.core.services.departments_service import get_user_department
+    
+    user_id = int(g.current_user['sub'])
+    department = get_user_department(user_id)
+    
+    if not department:
+        return jsonify({
+            'success': False,
+            'error': 'Usuario no tiene departamento asignado'
+        }), 404
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'id': department.id,
+            'name': department.name,
+            'code': department.code
+        }
+    }), 200

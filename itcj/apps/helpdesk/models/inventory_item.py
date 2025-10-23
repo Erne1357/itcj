@@ -253,6 +253,7 @@ class InventoryItem(db.Model):
             'next_maintenance_date': self.next_maintenance_date.isoformat() if self.next_maintenance_date else None,
             'notes': self.notes,
             'registered_at': self.registered_at.isoformat() if self.registered_at else None,
+            'assigned_by' : self.assigned_by.to_dict() if self.assigned_by else None,
             'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'is_active': self.is_active,

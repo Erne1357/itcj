@@ -37,7 +37,7 @@ def get_item_history(item_id):
     # Verificar permisos
     if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
         # Jefe de depto: solo su departamento
-        if 'helpdesk_department_head' in user_roles:
+        if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
@@ -106,7 +106,7 @@ def get_recent_events():
     # Verificar permisos
     if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
         # Jefe de depto: forzar filtro por su departamento
-        if 'helpdesk_department_head' in user_roles:
+        if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
@@ -200,7 +200,7 @@ def get_maintenance_history(item_id):
     
     # Verificar permisos
     if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
-        if 'helpdesk_department_head' in user_roles:
+        if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:

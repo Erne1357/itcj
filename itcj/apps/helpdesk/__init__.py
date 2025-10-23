@@ -39,7 +39,8 @@ from itcj.apps.helpdesk.routes.pages import (
     secretary_pages_bp,
     technician_pages_bp,
     department_pages_bp,
-    inventory_pages_bp
+    inventory_pages_bp,
+    admin_pages_bp
 )
 
 helpdesk_pages_bp.register_blueprint(user_pages_bp, url_prefix='/user')
@@ -47,6 +48,7 @@ helpdesk_pages_bp.register_blueprint(secretary_pages_bp, url_prefix='/secretary'
 helpdesk_pages_bp.register_blueprint(technician_pages_bp, url_prefix='/technician')
 helpdesk_pages_bp.register_blueprint(department_pages_bp, url_prefix='/department')
 helpdesk_pages_bp.register_blueprint(inventory_pages_bp, url_prefix='/inventory')
+helpdesk_pages_bp.register_blueprint(admin_pages_bp, url_prefix='/admin')
 
 
 @helpdesk_pages_bp.context_processor
@@ -72,7 +74,7 @@ def inject_helpdesk_nav():
             # Añadir URL a cada item
             for item in nav_items:
                 if item.get('endpoint') and item['endpoint'] != '#':
-                    item['url'] = "" #url_for(item['endpoint'])
+                    item['url'] = url_for(item['endpoint'])
                     # Añadir fragment si existe
                     if 'fragment' in item:
                         item['url'] += item['fragment']
@@ -81,7 +83,7 @@ def inject_helpdesk_nav():
                 if 'dropdown' in item:
                     for sub_item in item['dropdown']:
                         if sub_item.get('endpoint') and sub_item['endpoint'] != '#':
-                            sub_item['url'] = "" #url_for(sub_item['endpoint'])
+                            sub_item['url'] = url_for(sub_item['endpoint'])
                             if 'fragment' in sub_item:
                                 sub_item['url'] += sub_item['fragment']
                         

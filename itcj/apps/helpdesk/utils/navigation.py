@@ -54,7 +54,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
         },
         {
             "label": "Estadísticas",
-            "endpoint": "helpdesk_pages.secretary_pages.stats",
+            "endpoint": "#",# "helpdesk_pages.secretary_pages.stats",
             "icon": "fa-chart-bar",
             "permission": "helpdesk.stats.view",
             "group": "secretary"
@@ -92,11 +92,21 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "group": "department"
         },
         {
-            "label": "Mi Inventario",
-            "endpoint": "helpdesk_pages.department_pages.inventory",
+            "label": "Inventario",
+            "endpoint": "#",
             "icon": "fa-boxes",
             "permission": "helpdesk.inventory.view_own_dept",
-            "group": "department"
+            "group": "department",
+            "dropdown": [{
+                "label": "Mi Inventario",
+                "endpoint": "helpdesk_pages.inventory_pages.items_list",
+                "icon": "fa-list"
+            },
+            {
+                "label": "Asignar Equipo",
+                "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
+                "icon": "fa-plus"
+            }]
         },
         
         # ==================== ADMIN ====================
@@ -124,7 +134,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                 },
                 {
                     "label": "Estadísticas",
-                    "endpoint": "helpdesk_pages.secretary_pages.stats",
+                    "endpoint": "#",#"helpdesk_pages.secretary_pages.stats",
                     "icon": "fa-chart-line"
                 }
             ]
@@ -197,7 +207,7 @@ def get_helpdesk_role_groups(user_roles: set[str]):
         "secretary": ["secretary", "user"],
         "tech_desarrollo": ["technician", "user"],
         "tech_soporte": ["technician", "user"],
-        "head_department": ["department", "user"],
+        "department_head": ["department", "user"],
         "staff": ["user"]
     }
     

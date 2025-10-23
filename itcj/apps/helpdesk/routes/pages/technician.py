@@ -1,10 +1,74 @@
 # itcj/apps/helpdesk/routes/pages/technician.py
-from flask import render_template
-from itcj.core.utils.decorators import app_required
-from . import technician_pages_bp
+"""
+Rutas de vistas para técnicos del helpdesk
+"""
+from flask import render_template, g
+from itcj.core.utils.decorators import app_required as web_app_required
+from itcj.core.services.authz_service import user_roles_in_app
 
-@technician_pages_bp.get('/')
-@app_required('helpdesk', roles=['tech_desarrollo', 'tech_soporte', 'admin'])
+from . import technician_pages_bp as bp
+
+
+@bp.route('/dashboard')
+@web_app_required('helpdesk', perms=['helpdesk.technician.dashboard'])
 def dashboard():
-    """Dashboard de técnicos"""
-    return render_template('technician/dashboard.html', title="Técnico - Dashboard")
+    """
+    Dashboard personal del técnico
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'technician/dashboard.html',
+        user_roles=user_roles,
+        active_page='tech_dashboard'
+    )
+
+
+@bp.route('/my-assignments')
+@web_app_required('helpdesk', perms=['helpdesk.tickets.assigned.read'])
+def my_assignments():
+    """
+    Tickets asignados al técnico actual
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'technician/my_assignments.html',
+        user_roles=user_roles,
+        active_page='tech_assignments'
+    )
+
+
+@bp.route('/team')
+@web_app_required('helpdesk', perms=['helpdesk.tickets.team.read'])
+def team():
+    """
+    Vista de tickets del equipo técnico
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'technician/team.html',
+        user_roles=user_roles,
+        active_page='tech_team'
+    )
+
+
+@bp.route('/tickets/<int:ticket_id>')
+@web_app_required('helpdesk', perms=['helpdesk.tickets.assigned.read'])
+def ticket_detail(ticket_id):
+    """
+    Vista detallada de un ticket para técnico
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'technician/ticket_detail.html',
+        ticket_id=ticket_id,
+        user_roles=user_roles,
+        active_page='tech_assignments'
+    )

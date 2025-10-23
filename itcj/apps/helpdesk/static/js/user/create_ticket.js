@@ -4,6 +4,11 @@ let currentStep = 1;
 const totalSteps = 3;
 let selectedArea = null;
 let categories = [];
+let userInventoryItems = [];
+let preselectedItemId = null;
+
+const urlParams = new URLSearchParams(window.location.search);
+preselectedItemId = urlParams.get('item');
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -11,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFormValidation();
     setupNavigation();
     setupDescriptionCounter();
+    loadUserInventory();
 });
 
 // ==================== AREA SELECTION ====================
@@ -58,6 +64,143 @@ async function selectArea(area) {
     
     // Enable next button
     document.getElementById('btnNext').disabled = false;
+}
+
+// ==================== NUEVO: CARGAR EQUIPOS DEL INVENTARIO ====================
+async function loadUserInventory() {
+    try {
+        // Obtener equipos del usuario + equipos globales de su departamento
+        const response = await fetch('/api/help-desk/v1/inventory/items/my-equipment', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+        });
+
+        if (!response.ok) {
+            console.warn('No se pudieron cargar equipos del inventario');
+            return;
+        }
+
+        const result = await response.json();
+        userInventoryItems = result.data;
+
+        renderInventorySelect();
+
+    } catch (error) {
+        console.error('Error cargando inventario:', error);
+    }
+}
+
+function renderInventorySelect() {
+    const select = document.getElementById('inventory-item');
+    
+    if (!select) return; // Si no existe el elemento, salir
+    
+    if (userInventoryItems.length === 0) {
+        select.innerHTML = '<option value="">No hay equipos disponibles</option>';
+        return;
+    }
+
+    // Agrupar por categoría
+    const byCategory = {};
+    userInventoryItems.forEach(item => {
+        const catName = item.category?.name || 'Otros';
+        if (!byCategory[catName]) {
+            byCategory[catName] = [];
+        }
+        byCategory[catName].push(item);
+    });
+
+    // Construir select con optgroups
+    let html = '<option value="">-- Sin equipo específico --</option>';
+    
+    Object.keys(byCategory).sort().forEach(categoryName => {
+        html += `<optgroup label="${categoryName}">`;
+        
+        byCategory[categoryName].forEach(item => {
+            const selected = preselectedItemId && item.id == preselectedItemId ? 'selected' : '';
+            const displayName = `${item.inventory_number} - ${item.brand || ''} ${item.model || ''}`.trim();
+            const assignedBadge = item.is_assigned_to_user ? '👤 ' : '';
+            
+            html += `
+                <option value="${item.id}" ${selected} 
+                    data-item='${JSON.stringify(item)}'>
+                    ${assignedBadge}${displayName}
+                </option>
+            `;
+        });
+        
+        html += '</optgroup>';
+    });
+
+    select.innerHTML = html;
+
+    // Si hay preselección, mostrar preview
+    if (preselectedItemId) {
+        const preselectedItem = userInventoryItems.find(i => i.id == preselectedItemId);
+        if (preselectedItem) {
+            showItemPreview(preselectedItem);
+        }
+    }
+
+    // Event listener para cambio de selección
+    select.addEventListener('change', handleInventoryItemChange);
+}
+
+function handleInventoryItemChange(e) {
+    const selectedOption = e.target.selectedOptions[0];
+    
+    if (!selectedOption || !selectedOption.value) {
+        hideItemPreview();
+        return;
+    }
+
+    try {
+        const itemData = JSON.parse(selectedOption.dataset.item);
+        showItemPreview(itemData);
+    } catch (error) {
+        console.error('Error parsing item data:', error);
+    }
+}
+
+function showItemPreview(item) {
+    const preview = document.getElementById('selected-item-preview');
+    if (!preview) return;
+
+    document.getElementById('preview-item-number').textContent = item.inventory_number;
+    document.getElementById('preview-item-info').textContent = 
+        `${item.brand || 'N/A'} ${item.model || ''}`.trim();
+    
+    const locationBadge = document.getElementById('preview-item-location');
+    locationBadge.textContent = item.location_detail || item.department?.name || 'Sin ubicación';
+    
+    const statusBadge = document.getElementById('preview-item-status');
+    const statusInfo = getItemStatusInfo(item.status);
+    statusBadge.className = `badge badge-${statusInfo.color}`;
+    statusBadge.textContent = statusInfo.text;
+
+    const link = document.getElementById('preview-item-link');
+    link.href = `/help-desk/inventory/items/${item.id}`;
+
+    preview.style.display = 'block';
+}
+
+function hideItemPreview() {
+    const preview = document.getElementById('selected-item-preview');
+    if (preview) {
+        preview.style.display = 'none';
+    }
+}
+
+function getItemStatusInfo(status) {
+    const statuses = {
+        'ACTIVE': { color: 'success', text: 'Activo' },
+        'MAINTENANCE': { color: 'warning', text: 'Mantenimiento' },
+        'DAMAGED': { color: 'danger', text: 'Dañado' },
+        'RETIRED': { color: 'secondary', text: 'Retirado' },
+        'LOST': { color: 'dark', text: 'Extraviado' }
+    };
+    return statuses[status] || { color: 'secondary', text: status };
 }
 
 // ==================== FORM VALIDATION ====================

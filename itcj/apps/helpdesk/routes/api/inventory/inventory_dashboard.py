@@ -43,7 +43,7 @@ def get_quick_stats():
         }), 200
     
     # Jefe de departamento: stats de su departamento
-    elif 'helpdesk_department_head' in user_roles:
+    elif 'department_head' in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         
@@ -229,7 +229,7 @@ def get_recent_activity():
     
     # Si es jefe de depto, filtrar por su departamento
     if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
-        if 'helpdesk_department_head' in user_roles:
+        if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:

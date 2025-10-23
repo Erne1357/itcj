@@ -1,7 +1,7 @@
 """
 API para gestión de items del inventario (equipos)
 """
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g,current_app
 from itcj.core.extensions import db
 from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
@@ -10,6 +10,7 @@ from itcj.apps.helpdesk.services.inventory_service import InventoryService
 from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
 from sqlalchemy import or_, and_, func
 from datetime import datetime, date
+import logging
 
 bp = Blueprint('inventory_items', __name__)
 
@@ -39,6 +40,7 @@ def get_items():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    user_dept = None
     
     # Query base
     query = InventoryItem.query.filter_by(is_active=True)
@@ -46,7 +48,7 @@ def get_items():
     # Permisos: restringir por rol
     if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
         # Jefe de departamento: solo su departamento
-        if 'helpdesk_department_head' in user_roles:
+        if 'department_head' in user_roles:
             # Obtener departamento del usuario
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
@@ -70,11 +72,12 @@ def get_items():
     category_id = request.args.get('category_id', type=int)
     if category_id:
         query = query.filter(InventoryItem.category_id == category_id)
-    
-    department_id = request.args.get('department_id', type=int)
-    if department_id:
-        query = query.filter(InventoryItem.department_id == department_id)
-    
+
+    if user_dept is None:
+        department_id = request.args.get('department_id', type=int)
+        if department_id:
+            query = query.filter(InventoryItem.department_id == department_id)
+
     status = request.args.get('status')
     if status:
         query = query.filter(InventoryItem.status == status.upper())
@@ -85,7 +88,9 @@ def get_items():
             query = query.filter(InventoryItem.assigned_to_user_id.isnot(None))
         elif assigned.lower() == 'no':
             query = query.filter(InventoryItem.assigned_to_user_id.is_(None))
-    
+
+    current_app.logger.warning("Búsqueda de items de inventario", extra={"query": str(query)})
+
     # Búsqueda
     search = request.args.get('search')
     if search:
@@ -143,7 +148,7 @@ def get_item(item_id):
     # Verificar permisos
     if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
         # Jefe de depto: solo su departamento
-        if 'helpdesk_department_head' in user_roles:
+        if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
