@@ -1,0 +1,13 @@
+# Configuración global por defecto
+* text=auto
+
+# Archivos específicos que deben usar LF siempre
+docker/backend/entrypoint.sh text eol=lf
+database/init-itcj.sh text eol=lf
+
+# Alternativamente, puedes usar patrones para todos los .sh
+*.sh text eol=lf
+
+# Otros archivos que también deberían usar LF
+Dockerfile* text eol=lf
+docker-compose*.yml text eol=lf

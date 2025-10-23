@@ -829,18 +829,27 @@ class DepartmentDetailManager {
             const response = await fetch(`${this.apiBase}/users?limit=100`);
             const result = await response.json();
 
+            console.log('Users API response:', result); // Debug log
+
             if (response.ok && result.data) {
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
 
-                result.data.forEach(user => {
-                    const option = document.createElement('option');
-                    option.value = user.id;
-                    option.textContent = `${user.name}${user.email ? ` (${user.email})` : ''}`;
-                    select.appendChild(option);
-                });
+                // ⭐ VALIDACIÓN: Verificar que result.data sea un array
+                if (Array.isArray(result.data)) {
+                    result.data.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.id;
+                        option.textContent = `${user.name}${user.email ? ` (${user.email})` : ''}`;
+                        select.appendChild(option);
+                    });
 
-                if (result.data.length === 0) {
-                    select.innerHTML = '<option value="">No hay usuarios disponibles</option>';
+                    if (result.data.length === 0) {
+                        select.innerHTML = '<option value="">No hay usuarios disponibles</option>';
+                    }
+                } else {
+                    // ⭐ MANEJO: Si data no es array
+                    console.error('Expected array but got:', typeof result.data, result.data);
+                    throw new Error('La respuesta de usuarios no tiene el formato esperado');
                 }
             } else {
                 throw new Error(result.error || 'Error al obtener usuarios');

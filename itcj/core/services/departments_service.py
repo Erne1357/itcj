@@ -64,3 +64,16 @@ def get_department_positions(dept_id):
     if not department:
         raise ValueError("not_found")
     return positions_service.list_positions(department=department)
+
+def get_user_department(user_id):
+    """Obtiene el primer departamento asignado a un usuario según sus puestos activos"""
+    from itcj.core.models.position import UserPosition
+    from itcj.core.models.department import Department
+    # Busca el primer UserPosition activo del usuario, ordenado por fecha de inicio
+    user_position = UserPosition.query.filter_by(
+        user_id=user_id,
+        is_active=True
+    ).order_by(UserPosition.start_date.asc()).first()
+    if user_position and user_position.position and user_position.position.department_id:
+        return Department.query.get(user_position.position.department_id)
+    return None

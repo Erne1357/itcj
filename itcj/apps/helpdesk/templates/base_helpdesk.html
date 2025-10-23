@@ -14,73 +14,135 @@
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="bg-light">
+<body class="bg-light ">
 
-    <!-- Header -->
-    <header class="sitec-header-nav">
-        <div class="container py-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-3">
-                    {% block header_back %}
-                    <a href="{{ url_for('helpdesk_pages.home') }}" class="btn btn-outline-light btn-sm">
-                        <i class="fas fa-arrow-left me-2"></i>Inicio
-                    </a>
-                    {% endblock %}
-
-                    <div class="d-flex align-items-center gap-2">
+    <!-- Header con Navegación -->
+    <header class="sitec-header-nav sticky-top shadow-sm mb-4">
+        <div class="container-fluid">
+            <nav class="navbar navbar-expand-lg navbar-dark py-2">
+                <div class="container-fluid">
+                    <!-- Logo y Título -->
+                    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('helpdesk_pages.home') }}">
                         <div class="sitec-logo-small">
                             <span class="fw-bold text-white">CC</span>
                         </div>
-                        <div>
-                            <h5 class="mb-0 text-white fw-bold">{% block header_title %}Help-Desk{% endblock %}</h5>
-                            <small class="text-white-50">{% block header_subtitle %}Sistema de Tickets{% endblock
-                                %}</small>
+                        <div class="d-none d-md-block">
+                            <div class="fw-bold text-white" style="font-size: 1.1rem;">Help-Desk</div>
+                            <small class="text-white-50" style="font-size: 0.75rem;">Centro de Cómputo</small>
                         </div>
-                    </div>
-                </div>
+                    </a>
 
-                <div class="d-flex align-items-center gap-3">
-                    {% block header_actions %}{% endblock %}
+                    <!-- Mobile Toggle -->
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#helpdeskNav">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
 
-                    <!-- User Badge -->
-                    <div class="dropdown">
-                        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button"
-                            data-bs-toggle="dropdown">
-                            <i class="fas fa-user-circle me-2"></i>{{ current_user.name if current_user else 'Usuario'
-                            }}
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="/dashboard"><i class="fas fa-home me-2"></i>Dashboard</a>
+                    <!-- Navegación -->
+                    <div class="collapse navbar-collapse" id="helpdeskNav">
+                        <ul class="navbar-nav ms-auto align-items-lg-center">
+                            
+                            {% if helpdesk_nav_items %}
+                                {% for item in helpdesk_nav_items %}
+                                    {% if item.dropdown %}
+                                        <!-- Dropdown Menu -->
+                                        <li class="nav-item dropdown">
+                                            <a class="nav-link dropdown-toggle" href="#" role="button" 
+                                               data-bs-toggle="dropdown" aria-expanded="false">
+                                                <i class="fas {{ item.icon }} me-1"></i>
+                                                {{ item.label }}
+                                            </a>
+                                            <ul class="dropdown-menu dropdown-menu-end">
+                                                {% for sub_item in item.dropdown %}
+                                                    <li>
+                                                        <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" 
+                                                           href="{{sub_item.url}}">
+                                                            <i class="fas {{ sub_item.icon }} me-2"></i>
+                                                            {{ sub_item.label }}
+                                                        </a>
+                                                    </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </li>
+                                    {% else %}
+                                        <!-- Regular Link -->
+                                        <li class="nav-item">
+                                            <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" 
+                                               href="{{ item.url }}">
+                                                <i class="fas {{ item.icon }} me-1"></i>
+                                                {{ item.label }}
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+
+                            <!-- User Dropdown -->
+                            <li class="nav-item dropdown ms-lg-3">
+                                <a class="nav-link dropdown-toggle" href="#" role="button" 
+                                   data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-user-circle me-1"></i>
+                                    <span class="d-lg-none">{{ current_user.name if current_user else 'Usuario' }}</span>
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li>
+                                        <span class="dropdown-item-text">
+                                            <small class="text-muted">Sesión iniciada como:</small><br>
+                                            <strong>{{ current_user.name if current_user else 'Usuario' }}</strong>
+                                        </span>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <a class="dropdown-item" href="/dashboard">
+                                            <i class="fas fa-home me-2"></i>Dashboard Principal
+                                        </a>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <button class="dropdown-item text-danger" id="btnLogout">
+                                            <i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión
+                                        </button>
+                                    </li>
+                                </ul>
                             </li>
-                            <li>
-                                <hr class="dropdown-divider">
-                            </li>
-                            <li><button class="dropdown-item" id="btnLogout"><i
-                                        class="fas fa-sign-out-alt me-2"></i>Cerrar sesión</button></li>
                         </ul>
                     </div>
                 </div>
-            </div>
+            </nav>
         </div>
     </header>
 
+    <!-- Breadcrumb (Opcional) -->
+    {% if show_breadcrumb %}
+    <nav aria-label="breadcrumb" class="bg-white border-bottom">
+        <div class="container py-2">
+            <ol class="breadcrumb mb-0">
+                {% block breadcrumb %}
+                <li class="breadcrumb-item"><a href="{{ url_for('helpdesk_pages.home') }}">Help-Desk</a></li>
+                {% endblock %}
+            </ol>
+        </div>
+    </nav>
+    {% endif %}
+
     <!-- Main Content -->
-    <main class="container py-4">
+    <main class="container-fluid px-5">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Toast Container -->
     <div id="toastContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 9999;"></div>
-    {% block modals %} {% endblock %}
+    
+    {% block modals %}{% endblock %}
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script
-        src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ static_version }}"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ static_version }}"></script>
     <script>
         // Logout handler
         document.getElementById('btnLogout')?.addEventListener('click', async () => {
             try {
-                const res = await fetch('/auth/logout', { method: 'POST' });
+                const res = await fetch('api/auth/v1/logout', { method: 'POST' });
                 if (res.ok) window.location.href = '/auth/login';
             } catch (error) {
                 console.error('Error logging out:', error);

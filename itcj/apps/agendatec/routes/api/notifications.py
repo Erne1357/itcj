@@ -10,7 +10,7 @@ api_notifications_bp = Blueprint("api_notifications", __name__)
 def _current_uid() -> int:
     return int(g.current_user["sub"])
 
-@api_notifications_bp.get("/")
+@api_notifications_bp.get("")
 @api_auth_required
 def list_notifications():
     """

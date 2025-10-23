@@ -30,6 +30,10 @@ def create_app():
     register_blueprints(app)
     register_error_handlers(app)
 
+    #Registrar comandos 
+    from itcj.apps.helpdesk.commands import register_helpdesk_commands
+    register_helpdesk_commands(app)
+
     @app.before_request
     def load_current_user():
         g.current_user = None
