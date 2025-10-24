@@ -15,27 +15,51 @@ def create_ticket():
     """
     Crea un nuevo ticket de soporte.
     
-    Body:
+    Acepta JSON o FormData (si incluye foto)
+    
+    Body (JSON):
         {
             "area": "DESARROLLO" | "SOPORTE",
             "category_id": int,
             "title": str,
             "description": str,
-            "priority": "BAJA" | "MEDIA" | "ALTA" | "URGENTE" (opcional, default: MEDIA),
+            "priority": "BAJA" | "MEDIA" | "ALTA" | "URGENTE" (opcional),
             "location": str (opcional),
-            "office_folio": str (opcional)
+            "office_folio": str (opcional),
+            "inventory_item_id": int (opcional)
         }
+    
+    Body (FormData):
+        Los mismos campos + "photo": archivo de imagen
     
     Returns:
         201: Ticket creado exitosamente
         400: Datos inválidos
     """
-    data = request.get_json()
     user_id = int(g.current_user['sub'])
+    
+    # Detectar si es FormData (multipart) o JSON
+    if request.content_type and 'multipart/form-data' in request.content_type:
+        # Extraer datos del FormData
+        data = {}
+        for key in request.form:
+            value = request.form[key]
+            # Convertir a int si es necesario
+            if key in ['category_id', 'inventory_item_id']:
+                data[key] = int(value) if value else None
+            else:
+                data[key] = value
+        
+        # Obtener archivo de foto
+        photo_file = request.files.get('photo')
+    else:
+        # JSON normal
+        data = request.get_json()
+        photo_file = None
     
     # Validar campos requeridos
     required_fields = ['area', 'category_id', 'title', 'description']
-    missing_fields = [field for field in required_fields if field not in data]
+    missing_fields = [field for field in required_fields if field not in data or not data[field]]
     
     if missing_fields:
         return jsonify({
@@ -56,6 +80,17 @@ def create_ticket():
             'message': 'La descripción debe tener al menos 20 caracteres'
         }), 400
     
+    # Validar inventory_item_id si viene
+    inventory_item_id = data.get('inventory_item_id')
+    if inventory_item_id:
+        from itcj.apps.helpdesk.models import InventoryItem
+        item = InventoryItem.query.get(inventory_item_id)
+        if not item or not item.is_active:
+            return jsonify({
+                'error': 'invalid_equipment',
+                'message': 'El equipo seleccionado no es válido'
+            }), 400
+    
     try:
         ticket = ticket_service.create_ticket(
             requester_id=user_id,
@@ -65,14 +100,12 @@ def create_ticket():
             description=data['description'].strip(),
             priority=data.get('priority', 'MEDIA'),
             location=data.get('location'),
-            office_folio=data.get('office_folio')
+            office_folio=data.get('office_folio'),
+            inventory_item_id=inventory_item_id,
+            photo_file=photo_file  # ← NUEVO
         )
         
         logger.info(f"Ticket {ticket.ticket_number} creado por usuario {user_id}")
-        
-        # TODO: Emitir evento SSE para notificar a secretaría
-        # from itcj.apps.helpdesk.services.notification_service import notify_ticket_created
-        # notify_ticket_created(ticket)
         
         return jsonify({
             'message': 'Ticket creado exitosamente',
@@ -85,7 +118,6 @@ def create_ticket():
             'error': 'creation_failed',
             'message': str(e)
         }), 500
-
 
 # ==================== LISTAR TICKETS ====================
 @tickets_api_bp.get('')

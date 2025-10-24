@@ -23,7 +23,7 @@
                     <div class="col-4">
                         <div class="step-indicator active" id="step-indicator-1">
                             <div class="step-number">1</div>
-                            <small class="step-text">Tipo de Problema</small>
+                            <small class="step-text">Tipo de Servicio</small>
                         </div>
                     </div>
                     <div class="col-4">
@@ -42,9 +42,9 @@
 
                 <form id="ticketForm">
 
-                    <!-- STEP 1: Tipo de Problema -->
+                    <!-- STEP 1: Tipo de Servicio -->
                     <div id="step1" class="step-content">
-                        <h4 class="mb-4 text-center">¿Qué tipo de problema tienes?</h4>
+                        <h4 class="mb-4 text-center">¿Qué tipo de servicio necesitas?</h4>
 
                         <div class="row g-3">
                             <div class="col-md-6">
@@ -98,8 +98,8 @@
                     <div id="step2" class="step-content d-none">
                         <h4 class="mb-4 text-center">Cuéntanos los detalles</h4>
 
-                        <!-- Categoría -->
-                        <div class="mb-4">
+                        <!-- Categoría (solo para DESARROLLO) -->
+                        <div class="mb-4" id="category-section">
                             <label for="category_id" class="sitec-form-label required">
                                 <i class="fas fa-tag me-2"></i>¿Qué específicamente?
                             </label>
@@ -108,215 +108,325 @@
                             </select>
                             <div class="invalid-feedback">Por favor selecciona una categoría</div>
                         </div>
-                        
-                        <div class="form-group" id="inventory-item-section" style="display: none;">
-                            <label for="inventory-item">
-                                <i class="fas fa-laptop"></i> Equipo Relacionado
+
+                        <!-- Sección de Equipos (solo para SOPORTE) -->
+                        <div id="equipment-section" class="mb-4" style="display: none;">
+                            <label class="sitec-form-label">
+                                <i class="fas fa-laptop me-2"></i>Equipo Relacionado
                                 <small class="text-muted">(Opcional)</small>
                             </label>
 
-                            <select class="form-control" id="inventory-item" name="inventory_item_id">
-                                <option value="">Cargando equipos...</option>
-                            </select>
+                            <!-- Pregunta: ¿De quién es el equipo? -->
+                            <div id="equipment-owner-question" class="mb-3">
+                                <div class="card border-primary">
+                                    <div class="card-body p-3">
+                                        <p class="mb-2 fw-bold text-primary">
+                                            <i class="fas fa-question-circle"></i> ¿De quién es el equipo con el
+                                            problema?
+                                        </p>
+                                        <div class="btn-group btn-group-toggle w-100" role="group">
+                                            <input type="radio" class="btn-check" name="equipment-owner" id="owner-mine"
+                                                value="mine" autocomplete="off">
+                                            <label class="btn btn-outline-primary" for="owner-mine">
+                                                <i class="fas fa-user me-2"></i>Es mío
+                                            </label>
 
-                            <small class="form-text text-muted">
-                                <i class="fas fa-info-circle"></i>
-                                Seleccione el equipo relacionado con este ticket
-                            </small>
-
-                            <!-- Preview del equipo seleccionado -->
-                            <div id="selected-item-preview" class="mt-3" style="display: none;">
-                                <div class="card border-left-primary">
-                                    <div class="card-body py-3">
-                                        <div class="d-flex align-items-center">
-                                            <div class="mr-3">
-                                                <i class="fas fa-desktop fa-2x text-primary"></i>
-                                            </div>
-                                            <div class="flex-grow-1">
-                                                <div class="font-weight-bold" id="preview-item-number"></div>
-                                                <div class="text-muted small" id="preview-item-info"></div>
-                                                <div class="mt-1">
-                                                    <span class="badge badge-info" id="preview-item-location"></span>
-                                                    <span class="badge badge-secondary" id="preview-item-status"></span>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <a href="#" id="preview-item-link" target="_blank"
-                                                    class="btn btn-sm btn-outline-primary">
-                                                    <i class="fas fa-external-link-alt"></i> Ver
-                                                </a>
-                                            </div>
+                                            <input type="radio" class="btn-check" name="equipment-owner"
+                                                id="owner-department" value="department" autocomplete="off">
+                                            <label class="btn btn-outline-primary" for="owner-department">
+                                                <i class="fas fa-users me-2"></i>Es de alguien más / Global
+                                            </label>
                                         </div>
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Selector de Equipos -->
+                            <div id="equipment-selector-container" style="display: none;">
+                                <!-- Botón para abrir modal -->
+                                <button type="button" class="btn btn-outline-primary w-100 btn-select-equipment"
+                                    id="open-equipment-modal">
+                                    <i class="fas fa-search me-2"></i>
+                                    <span id="equipment-button-text">Seleccionar Equipo</span>
+                                </button>
+
+                                <!-- Preview del equipo seleccionado -->
+                                <div id="selected-equipment-preview" class="mt-3" style="display: none;">
+                                    <div class="card border-success">
+                                        <div class="card-body p-3">
+                                            <div class="d-flex align-items-center">
+                                                <div class="me-3" id="preview-equipment-icon">
+                                                    <i class="fas fa-laptop fa-2x text-success"></i>
+                                                </div>
+                                                <div class="flex-grow-1">
+                                                    <div class="fw-bold" id="preview-equipment-number"></div>
+                                                    <small class="text-muted" id="preview-equipment-info"></small>
+                                                    <div class="mt-1">
+                                                        <span class="badge bg-info" id="preview-equipment-owner"></span>
+                                                        <span class="badge bg-secondary"
+                                                            id="preview-equipment-location"></span>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                                        id="clear-equipment-btn">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Input oculto para enviar el ID -->
+                                <input type="hidden" id="inventory_item_id" name="inventory_item_id">
+                            </div>
                         </div>
+
                         <!-- Título -->
                         <div class="mb-4">
                             <label for="title" class="sitec-form-label required">
                                 <i class="fas fa-heading me-2"></i>Título del problema
                             </label>
                             <input type="text" class="form-control sitec-form-control" id="title" name="title"
-                                placeholder="Ej: Computadora no enciende en Aula 201" minlength="5" maxlength="200"
-                                required>
-                            <div class="form-text">Mínimo 5 caracteres</div>
-                            <div class="invalid-feedback">El título debe tener entre 5 y 200 caracteres</div>
+                                placeholder="Ej: Computadora no enciende en Aula 101" maxlength="200" required>
+                            <small class="form-text text-muted">Mínimo 5 caracteres</small>
+                            <div class="invalid-feedback">El título debe tener al menos 5 caracteres</div>
                         </div>
 
                         <!-- Descripción -->
                         <div class="mb-4">
                             <label for="description" class="sitec-form-label required">
-                                <i class="fas fa-align-left me-2"></i>Describe el problema
+                                <i class="fas fa-align-left me-2"></i>Descripción detallada
                             </label>
                             <textarea class="form-control sitec-form-control" id="description" name="description"
-                                rows="5"
-                                placeholder="Explica qué está pasando, cuándo ocurre, qué has intentado hacer..."
-                                minlength="20" required></textarea>
-                            <div class="form-text" id="descCharCount">0 / 20 caracteres mínimo</div>
+                                rows="5" placeholder="Describe el problema con el mayor detalle posible..."
+                                required></textarea>
+                            <small class="form-text" id="descCharCount">0 / 20 caracteres mínimo</small>
                             <div class="invalid-feedback">La descripción debe tener al menos 20 caracteres</div>
                         </div>
 
                         <!-- Prioridad -->
                         <div class="mb-4">
-                            <label class="sitec-form-label">
-                                <i class="fas fa-exclamation-circle me-2"></i>¿Qué tan urgente es?
+                            <label class="sitec-form-label required">
+                                <i class="fas fa-exclamation-circle me-2"></i>Prioridad
                             </label>
-                            <div class="row g-2">
-                                <div class="col-6 col-md-3">
-                                    <input type="radio" class="btn-check" name="priority" id="priority-baja"
+                            <div class="d-flex gap-2 flex-wrap">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="priority" id="priority_baja"
                                         value="BAJA">
-                                    <label class="btn btn-outline-success w-100" for="priority-baja">
-                                        <i class="fas fa-arrow-down me-1"></i>Baja
+                                    <label class="form-check-label" for="priority_baja">
+                                        <span class="badge bg-success">Baja</span>
                                     </label>
                                 </div>
-                                <div class="col-6 col-md-3">
-                                    <input type="radio" class="btn-check" name="priority" id="priority-media"
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="priority" id="priority_media"
                                         value="MEDIA" checked>
-                                    <label class="btn btn-outline-warning w-100" for="priority-media">
-                                        <i class="fas fa-minus me-1"></i>Media
+                                    <label class="form-check-label" for="priority_media">
+                                        <span class="badge bg-warning">Media</span>
                                     </label>
                                 </div>
-                                <div class="col-6 col-md-3">
-                                    <input type="radio" class="btn-check" name="priority" id="priority-alta"
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="priority" id="priority_alta"
                                         value="ALTA">
-                                    <label class="btn btn-outline-danger w-100" for="priority-alta">
-                                        <i class="fas fa-arrow-up me-1"></i>Alta
+                                    <label class="form-check-label" for="priority_alta">
+                                        <span class="badge bg-danger">Alta</span>
                                     </label>
                                 </div>
-                                <div class="col-6 col-md-3">
-                                    <input type="radio" class="btn-check" name="priority" id="priority-urgente"
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="priority" id="priority_urgente"
                                         value="URGENTE">
-                                    <label class="btn btn-outline-dark w-100" for="priority-urgente">
-                                        <i class="fas fa-fire me-1"></i>Urgente
+                                    <label class="form-check-label" for="priority_urgente">
+                                        <span class="badge bg-dark">Urgente</span>
                                     </label>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Ubicación (Opcional) -->
+                        <!-- Ubicación (opcional) -->
                         <div class="mb-4">
                             <label for="location" class="sitec-form-label">
-                                <i class="fas fa-map-marker-alt me-2"></i>Ubicación (Opcional)
+                                <i class="fas fa-map-marker-alt me-2"></i>Ubicación física
+                                <small class="text-muted">(Opcional)</small>
                             </label>
                             <input type="text" class="form-control sitec-form-control" id="location" name="location"
-                                placeholder="Ej: Aula 201, Laboratorio B, Oficina de Dirección">
+                                placeholder="Ej: Aula 201, Laboratorio 3, Oficina del Director">
                         </div>
 
-                        <!-- Folio de Oficio (Opcional) -->
+                        <!-- Folio de Oficio (opcional) -->
                         <div class="mb-4">
                             <label for="office_folio" class="sitec-form-label">
-                                <i class="fas fa-file-alt me-2"></i>Folio de Oficio (Opcional)
+                                <i class="fas fa-file-alt me-2"></i>Folio de Oficio
+                                <small class="text-muted">(Opcional)</small>
                             </label>
                             <input type="text" class="form-control sitec-form-control" id="office_folio"
-                                name="office_folio" placeholder="Si existe un oficio relacionado">
+                                name="office_folio" placeholder="Ej: OF-2025-001">
+                        </div>
+                        <div class="mb-4">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="attach_photo_check">
+                                <label class="form-check-label" for="attach_photo_check">
+                                    <i class="fas fa-camera me-2"></i>Adjuntar foto del problema
+                                </label>
+                            </div>
+
+                            <div id="photo_upload_section" style="display: none;">
+                                <input type="file" class="form-control" id="photo_file"
+                                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
+                                <small class="form-text text-muted">
+                                    Máximo 3MB. Formatos: JPG, PNG, GIF, WEBP
+                                    <br><i class="fas fa-paste me-1"></i>También puedes pegar con <kbd>Ctrl+V</kbd>
+                                </small>
+                                <div id="photo_preview" class="mt-2" style="display: none;">
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-check-circle me-1"></i>
+                                        <span id="photo_filename"></span>
+                                        (<span id="photo_filesize"></span>)
+                                    </span>
+                                    <button type="button" class="btn btn-sm btn-link text-danger" id="remove_photo">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- STEP 3: Confirmación -->
                     <div id="step3" class="step-content d-none">
-                        <h4 class="mb-4 text-center">Revisa tu solicitud</h4>
+                        <h4 class="mb-4 text-center">
+                            <i class="fas fa-check-circle me-2 text-success"></i>
+                            Confirma tu solicitud
+                        </h4>
 
-                        <div class="card bg-light border-0">
-                            <div class="card-body">
-                                <div id="ticketSummary">
-                                    <!-- Se llenará dinámicamente -->
-                                </div>
+                        <div class="card mb-4" id="ticketPreview">
+                            <div class="card-body" id="ticketSummary">
+                                <!-- Se llenará dinámicamente -->
                             </div>
                         </div>
 
-                        <div class="text-center mt-4">
-                            <div class="ticket-preview-animation" id="ticketPreview">
-                                <i class="fas fa-ticket-alt fa-4x text-primary mb-3"></i>
-                                <p class="text-muted">Tu ticket será enviado al Centro de Cómputo</p>
-                                <small class="text-muted">Recibirás una notificación cuando sea asignado</small>
-                            </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>¿Qué sigue?</strong><br>
+                            Tu ticket será revisado por el equipo de soporte. Recibirás una notificación cuando sea
+                            asignado a un técnico.
                         </div>
                     </div>
 
                     <!-- Navigation Buttons -->
-                    <div class="d-flex justify-content-between mt-4 pt-3 border-top">
-                        <button type="button" class="btn btn-outline-secondary" id="btnPrevious" style="display: none;">
+                    <div class="d-flex justify-content-between mt-4">
+                        <button type="button" class="btn btn-secondary" id="btnPrevious" style="display: none;">
                             <i class="fas fa-arrow-left me-2"></i>Anterior
                         </button>
-                        <div class="ms-auto">
-                            <button type="button" class="btn btn-primary" id="btnNext">
-                                Siguiente<i class="fas fa-arrow-right ms-2"></i>
-                            </button>
-                            <button type="submit" class="btn btn-success" id="btnSubmit" style="display: none;">
-                                <i class="fas fa-paper-plane me-2"></i>Enviar Ticket
-                            </button>
-                        </div>
+                        <button type="button" class="btn btn-primary ms-auto" id="btnNext" disabled>
+                            Siguiente<i class="fas fa-arrow-right ms-2"></i>
+                        </button>
+                        <button type="submit" class="btn btn-success ms-auto" id="btnSubmit" style="display: none;">
+                            <i class="fas fa-paper-plane me-2"></i>Enviar Ticket
+                        </button>
                     </div>
+
                 </form>
             </div>
         </div>
 
-        <!-- Helper Info -->
-        <div class="alert alert-info border-0 shadow-sm">
-            <i class="fas fa-info-circle me-2"></i>
-            <strong>Nota:</strong> Recibirás notificaciones sobre el progreso de tu ticket.
-            Asegúrate de proporcionar todos los detalles posibles para una atención más rápida.
+    </div>
+</div>
+
+<!-- Modal de Selección de Equipos -->
+<div class="modal fade" id="equipmentModal" tabindex="-1" aria-labelledby="equipmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="equipmentModalLabel">
+                    <i class="fas fa-laptop me-2"></i>Seleccionar Equipo
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                    aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Filtros -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <input type="text" class="form-control" id="equipment-search" placeholder="Buscar equipo...">
+                    </div>
+                    <div class="col-md-6">
+                        <select class="form-select" id="equipment-category-filter">
+                            <option value="">Todas las categorías</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div id="equipment-loading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="text-muted mt-3">Cargando equipos...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="equipment-empty" class="text-center py-5" style="display: none;">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No hay equipos disponibles</p>
+                </div>
+
+                <!-- Lista de Equipos -->
+                <div id="equipment-list" style="max-height: 500px; overflow-y: auto;">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="confirm-equipment-btn" disabled>
+                    <i class="fas fa-check me-2"></i>Confirmar Selección
+                </button>
+            </div>
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_css %}
 <style>
-    /* Step Indicator Styles */
+    :root {
+        --sitec-primary: #059669;
+        --sitec-secondary: #10b981;
+    }
+
+    /* Step Indicators */
     .step-indicator {
         position: relative;
+        opacity: 0.5;
+        transition: all 0.3s ease;
+    }
+
+    .step-indicator.active {
+        opacity: 1;
+    }
+
+    .step-indicator.active .step-number {
+        background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+        color: white;
+        transform: scale(1.1);
     }
 
     .step-number {
-        width: 45px;
-        height: 45px;
+        width: 50px;
+        height: 50px;
         border-radius: 50%;
-        background: #e9ecef;
-        color: #6c757d;
-        display: flex;
+        background: #e2e8f0;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-weight: bold;
-        font-size: 1.2rem;
+        font-size: 1.5rem;
+        font-weight: 600;
         margin: 0 auto 8px;
         transition: all 0.3s ease;
     }
 
-    .step-indicator.active .step-number {
-        background: var(--sitec-primary);
-        color: white;
-        box-shadow: 0 4px 15px rgba(5, 150, 105, 0.3);
-    }
-
     .step-text {
-        color: #6c757d;
-        font-weight: 500;
-        font-size: 0.85rem;
-    }
-
-    .step-indicator.active .step-text {
-        color: var(--sitec-primary);
+        display: block;
         font-weight: 600;
     }
 
@@ -367,15 +477,6 @@
         box-shadow: 0 0 0 0.25rem rgba(5, 150, 105, 0.15);
     }
 
-    /* Ticket Preview Animation */
-    .ticket-preview-animation {
-        transition: all 0.3s ease;
-    }
-
-    .ticket-preview-animation:hover {
-        transform: scale(1.05);
-    }
-
     /* Slide Animations */
     .step-content {
         animation: slideIn 0.5s ease;
@@ -391,6 +492,90 @@
             opacity: 1;
             transform: translateX(0);
         }
+    }
+
+    /* Equipment Cards en Modal */
+    .equipment-card {
+        border: 2px solid #e3e6f0;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: white;
+    }
+
+    .equipment-card:hover {
+        border-color: #4e73df;
+        background: #f8f9fc;
+        transform: translateX(5px);
+    }
+
+    .equipment-card.selected {
+        border-color: #1cc88a;
+        background: #e7f9f3;
+        box-shadow: 0 0 0 3px rgba(28, 200, 138, 0.2);
+    }
+
+    .equipment-icon {
+        width: 60px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 0.75rem;
+        color: white;
+        font-size: 1.75rem;
+    }
+
+    .btn-select-equipment {
+        padding: 1rem;
+        border: 2px dashed #4e73df;
+        background: #f8f9fc;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .btn-select-equipment:hover {
+        background: #e7f1ff;
+        border-color: #2e59d9;
+    }
+
+    /* Scrollbar */
+    #equipment-list::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    #equipment-list::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+
+    #equipment-list::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 10px;
+    }
+
+    #equipment-list::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+
+    /* Animation */
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .equipment-card {
+        animation: fadeIn 0.3s ease;
     }
 </style>
 {% endblock %}

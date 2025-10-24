@@ -196,6 +196,11 @@ class Ticket(db.Model):
                     'brand': self.inventory_item.brand,
                     'model': self.inventory_item.model,
                     'location_detail': self.inventory_item.location_detail,
+                    'category': {
+                        'id': self.inventory_item.category.id,
+                        'name': self.inventory_item.category.name,
+                        'icon': self.inventory_item.category.icon
+                    } if self.inventory_item.category else None
                 } if self.inventory_item else None,
             })
         

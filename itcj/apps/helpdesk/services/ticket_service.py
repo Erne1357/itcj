@@ -1,5 +1,6 @@
 from datetime import datetime
-from flask import abort
+import os
+from flask import abort,g
 from itcj.core.extensions import db
 from itcj.apps.helpdesk.models import Ticket, Category, Comment, StatusLog
 from itcj.apps.helpdesk.utils.ticket_number_generator import generate_ticket_number
@@ -8,9 +9,98 @@ from itcj.core.models.user import User
 from itcj.core.models.department import Department
 from sqlalchemy import and_, or_
 import logging
-
+from flask import current_app
+from werkzeug.utils import secure_filename
+from PIL import Image
+import io
 logger = logging.getLogger(__name__)
 
+# ==================== GUARDAR FOTO DEL TICKET ====================
+
+def _save_ticket_photo(ticket_id, photo_file):
+    """
+    Guarda la foto de un ticket.
+    Formato: /instance/apps/helpdesk/{ticket_id}.jpg
+    
+    Args:
+        ticket_id: ID del ticket
+        photo_file: FileStorage object de Werkzeug
+    """
+    from itcj.apps.helpdesk.models import Attachment
+    
+    # Obtener configuración
+    upload_path = current_app.config.get('HELPDESK_UPLOAD_PATH', 'instance/apps/helpdesk')
+    max_size = current_app.config.get('HELPDESK_MAX_FILE_SIZE', 3 * 1024 * 1024)
+    allowed_extensions = current_app.config.get('HELPDESK_ALLOWED_EXTENSIONS', {'jpg', 'jpeg', 'png', 'gif', 'webp'})
+    
+    # Crear directorio si no existe
+    os.makedirs(upload_path, exist_ok=True)
+    
+    # Validar extensión
+    original_filename = secure_filename(photo_file.filename)
+    if '.' not in original_filename:
+        raise ValueError('Archivo sin extensión')
+    
+    file_ext = original_filename.rsplit('.', 1)[1].lower()
+    if file_ext not in allowed_extensions:
+        raise ValueError(f'Solo se permiten: {", ".join(allowed_extensions)}')
+    
+    # Validar tamaño
+    photo_file.seek(0, 2)
+    file_size = photo_file.tell()
+    photo_file.seek(0)
+    
+    if file_size > max_size:
+        raise ValueError(f'El archivo no debe exceder {max_size // (1024*1024)}MB')
+    
+    # Nombre del archivo: {ticket_id}.jpg
+    filename = f"{ticket_id}.jpg"
+    filepath = os.path.join(upload_path, filename)
+    
+    # Comprimir y guardar como JPEG
+    try:
+        img = Image.open(photo_file)
+        
+        # Convertir a RGB
+        if img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            if img.mode in ('RGBA', 'LA'):
+                background.paste(img, mask=img.split()[-1])
+            img = background
+        
+        # Redimensionar si es muy grande (máx 1920x1080)
+        max_size_dims = (1920, 1080)
+        if img.width > max_size_dims[0] or img.height > max_size_dims[1]:
+            img.thumbnail(max_size_dims, Image.Resampling.LANCZOS)
+        
+        # Guardar con compresión
+        img.save(filepath, format='JPEG', quality=85, optimize=True)
+        
+        # Obtener tamaño final
+        final_size = os.path.getsize(filepath)
+        
+        logger.info(f"Foto guardada: {filepath} ({final_size} bytes)")
+        
+        # Crear registro en DB
+        attachment = Attachment(
+            ticket_id=ticket_id,
+            uploaded_by_id=g.current_user['sub'] if hasattr(g, 'current_user') else None,
+            filename=filename,
+            original_filename=original_filename,
+            filepath=filepath,
+            mime_type='image/jpeg',
+            file_size=final_size
+        )
+        
+        db.session.add(attachment)
+        
+    except Exception as e:
+        logger.error(f"Error al procesar imagen: {e}")
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
 
 # ==================== CREAR TICKET ====================
 def create_ticket(
@@ -21,7 +111,9 @@ def create_ticket(
     description: str,
     priority: str = 'MEDIA',
     location: str = None,
-    office_folio: str = None
+    office_folio: str = None,
+    inventory_item_id: int = None,
+    photo_file = None
 ) -> Ticket:
     """
     Crea un nuevo ticket.
@@ -64,7 +156,7 @@ def create_ticket(
     # Validar prioridad
     if priority not in ['BAJA', 'MEDIA', 'ALTA', 'URGENTE']:
         abort(400, description='Prioridad inválida')
-    
+
     # Obtener departamento del usuario (puede ser None)
     department_id = None
     try:
@@ -95,11 +187,19 @@ def create_ticket(
         description=description,
         location=location,
         office_document_folio=office_folio,
+        inventory_item_id=inventory_item_id,
         status='PENDING'
     )
     
     db.session.add(ticket)
-    
+    db.session.flush()  # Obtener ID antes de commit
+
+    if photo_file:
+        try: 
+            _save_ticket_photo(ticket.id, photo_file)
+        except Exception as e:
+            logger.error(f"Error al guardar foto del ticket {ticket.id}: {e}")
+
     # Registrar creación en log
     status_log = StatusLog(
         ticket=ticket,
