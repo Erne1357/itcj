@@ -168,6 +168,7 @@ class Ticket(db.Model):
             'rating': self.rating,
             'rating_comment': self.rating_comment,
             'resolution_notes': self.resolution_notes,
+            'resolved_by': self.resolved_by.to_dict() if self.resolved_by else None,
             'time_invested_minutes': self.time_invested_minutes,
         }
         

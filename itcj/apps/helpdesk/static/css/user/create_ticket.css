@@ -1,0 +1,188 @@
+:root {
+    --sitec-primary: #059669;
+    --sitec-secondary: #10b981;
+}
+
+/* Step Indicators */
+.step-indicator {
+    position: relative;
+    opacity: 0.5;
+    transition: all 0.3s ease;
+}
+
+.step-indicator.active {
+    opacity: 1;
+}
+
+.step-indicator.active .step-number {
+    background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+    color: white;
+    transform: scale(1.1);
+}
+
+.step-number {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0 auto 8px;
+    transition: all 0.3s ease;
+}
+
+.step-text {
+    display: block;
+    font-weight: 600;
+}
+
+/* Area Cards */
+.area-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.area-card .card {
+    transition: all 0.3s ease;
+}
+
+.area-card:hover .card {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+
+.area-card .card.selected {
+    border-color: var(--sitec-primary) !important;
+    background: linear-gradient(135deg, rgba(5, 150, 105, 0.05), rgba(16, 185, 129, 0.05));
+    box-shadow: 0 8px 25px rgba(5, 150, 105, 0.2);
+}
+
+.area-icon {
+    transition: transform 0.3s ease;
+}
+
+.area-card:hover .area-icon {
+    transform: scale(1.1);
+}
+
+.area-examples {
+    background: rgba(0, 0, 0, 0.03);
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+/* Form Styles */
+.required::after {
+    content: " *";
+    color: #dc3545;
+}
+
+.form-control:focus {
+    border-color: var(--sitec-primary);
+    box-shadow: 0 0 0 0.25rem rgba(5, 150, 105, 0.15);
+}
+
+/* Slide Animations */
+.step-content {
+    animation: slideIn 0.5s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Equipment Cards en Modal */
+.equipment-card {
+    border: 2px solid #e3e6f0;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+.equipment-card:hover {
+    border-color: #4e73df;
+    background: #f8f9fc;
+    transform: translateX(5px);
+}
+
+.equipment-card.selected {
+    border-color: #1cc88a;
+    background: #e7f9f3;
+    box-shadow: 0 0 0 3px rgba(28, 200, 138, 0.2);
+}
+
+.equipment-icon {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 0.75rem;
+    color: white;
+    font-size: 1.75rem;
+}
+
+.btn-select-equipment {
+    padding: 1rem;
+    border: 2px dashed #4e73df;
+    background: #f8f9fc;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-select-equipment:hover {
+    background: #e7f1ff;
+    border-color: #2e59d9;
+}
+
+/* Scrollbar */
+#equipment-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+#equipment-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#equipment-list::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+#equipment-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Animation */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.equipment-card {
+    animation: fadeIn 0.3s ease;
+}

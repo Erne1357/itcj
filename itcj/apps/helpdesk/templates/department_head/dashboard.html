@@ -408,37 +408,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
-.activity-item {
-    padding: 12px;
-    border-left: 3px solid transparent;
-    transition: all 0.2s ease;
-}
-
-.activity-item:hover {
-    background: rgba(0,0,0,0.02);
-    border-left-color: var(--sitec-primary);
-}
-
-.activity-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.ticket-dept-card {
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
-
-.ticket-dept-card:hover {
-    transform: translateX(5px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-</style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/department_head/dashboard.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}

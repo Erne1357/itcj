@@ -2,9 +2,7 @@
 {% block title %}Admin · Encuestas{% endblock %}
 
 {% block extra_css %}
-<style>
-  .tab-btn { cursor:pointer; }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/surveys.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}

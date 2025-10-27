@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Coordinador - Horario{% endblock %}
+{% block extra_css %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/coord/slots.css') }}?v={{ static_version }}">
+{% endblock %}
 
 {% block content %}
 <div class="row g-3">
@@ -104,62 +107,7 @@
     </div>
 </div>
 
-<!-- Estilos mínimos para la tira -->
-<style>
-    .slot-strip {
-        display: flex;
-        gap: 6px;
-        flex-wrap: wrap;
-    }
 
-    .slot-chip {
-        min-width: 90px;
-        padding: 6px 8px;
-        border-radius: 10px;
-        border: 1px solid var(--bs-border-color);
-        font-size: 12px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .slot-free {
-        background: #f8f9fa;
-    }
-
-    .slot-booked {
-        background: #e7f1ff;
-        border-color: #cfe2ff;
-    }
-
-    .legend {
-        display: inline-block;
-        width: 14px;
-        height: 14px;
-        border-radius: 4px;
-        margin-right: 6px;
-        vertical-align: -2px;
-        border: 1px solid var(--bs-border-color);
-    }
-
-    .legend-free {
-        background: #f8f9fa;
-    }
-
-    .legend-booked {
-        background: #e7f1ff;
-        border-color: #cfe2ff;
-    }
-
-    .tt {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 160px;
-        display: inline-block;
-        vertical-align: bottom;
-    }
-</style>
 <div class="card shadow-sm mt-3">
     <div class="card-body">
         <h6 class="card-title">Eliminar horas</h6>
@@ -197,5 +145,4 @@
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_view.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_delete.js') }}?v={{ static_version }}"></script>
-
 {% endblock %}

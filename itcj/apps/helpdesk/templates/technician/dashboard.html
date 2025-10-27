@@ -356,50 +356,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
-/* Ticket cards */
-.ticket-tech-card {
-    transition: all 0.2s ease;
-    border-left: 4px solid transparent;
-}
-
-.ticket-tech-card:hover {
-    transform: translateX(5px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-
-.ticket-tech-card.priority-URGENTE {
-    border-left-color: #dc3545;
-    background: rgba(220, 53, 69, 0.03);
-}
-
-.ticket-tech-card.priority-ALTA {
-    border-left-color: #fd7e14;
-}
-
-/* Resolution type cards */
-.form-check.p-3 {
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.form-check.p-3:hover {
-    background: rgba(5, 150, 105, 0.05);
-}
-
-.form-check-input:checked + .form-check-label {
-    font-weight: 600;
-}
-
-/* Time badge */
-.time-badge {
-    font-size: 0.85rem;
-    padding: 4px 8px;
-    border-radius: 4px;
-    background: rgba(5, 150, 105, 0.1);
-    color: var(--sitec-primary);
-}
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}
