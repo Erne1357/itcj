@@ -12,89 +12,89 @@
 </a>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const backButton = document.getElementById('backButton');
-    const backButtonText = document.getElementById('backButtonText');
-    
-    // Obtener el referrer o parámetro de URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const fromParam = urlParams.get('from');
-    const referrer = document.referrer;
-    
-    let backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}"; // Default fallback
-    let backText = "Mis Tickets";
-    
-    // Determinar la URL y texto basado en el parámetro 'from'
-    if (fromParam) {
-        switch(fromParam) {
-            case 'dashboard':
+    document.addEventListener('DOMContentLoaded', function () {
+        const backButton = document.getElementById('backButton');
+        const backButtonText = document.getElementById('backButtonText');
+
+        // Obtener el referrer o parámetro de URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const fromParam = urlParams.get('from');
+        const referrer = document.referrer;
+
+        let backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}"; // Default fallback
+        let backText = "Mis Tickets";
+
+        // Determinar la URL y texto basado en el parámetro 'from'
+        if (fromParam) {
+            switch (fromParam) {
+                case 'dashboard':
+                    backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
+                    backText = "Dashboard";
+                    break;
+                case 'my_tickets':
+                    backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
+                    backText = "Mis Tickets";
+                    break;
+                case 'department':
+                    backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
+                    backText = "Departamento";
+                    break;
+                case 'admin':
+                    backUrl = "/help-desk/admin/tickets";
+                    backText = "Administración";
+                    break;
+                case 'secretary':
+                    backUrl = "{{ url_for('helpdesk_pages.secretary_pages.dashboard') }}";
+                    backText = "Secretaría";
+                default:
+                    // Mantener valores por defecto
+                    break;
+            }
+        }
+        // Si no hay parámetro, intentar determinar por referrer
+        else if (referrer) {
+            if (referrer.includes('/help-desk/user/dashboard')) {
                 backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
                 backText = "Dashboard";
-                break;
-            case 'my_tickets':
+            } else if (referrer.includes('/help-desk/user/tickets')) {
                 backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
                 backText = "Mis Tickets";
-                break;
-            case 'department':
+            } else if (referrer.includes('/help-desk/department')) {
                 backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
                 backText = "Departamento";
-                break;
-            case 'admin':
+            } else if (referrer.includes('/help-desk/admin')) {
                 backUrl = "/help-desk/admin/tickets";
                 backText = "Administración";
-                break;
-            case 'secretary':
-                backUrl = "{{ url_for('helpdesk_pages.secretary_pages.dashboard') }}";
-                backText = "Secretaría";
-            default:
-                // Mantener valores por defecto
-                break;
-        }
-    } 
-    // Si no hay parámetro, intentar determinar por referrer
-    else if (referrer) {
-        if (referrer.includes('/help-desk/user/dashboard')) {
-            backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
-            backText = "Dashboard";
-        } else if (referrer.includes('/help-desk/user/tickets')) {
-            backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
-            backText = "Mis Tickets";
-        } else if (referrer.includes('/help-desk/department')) {
-            backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
-            backText = "Departamento";
-        } else if (referrer.includes('/help-desk/admin')) {
-            backUrl = "/help-desk/admin/tickets";
-            backText = "Administración";
-        } else if (referrer.includes('/help-desk')) {
-            // Si viene de alguna página de helpdesk pero no coincide con las anteriores
-            backText = "Volver";
-            backUrl = referrer;
-        }
-    }
-    
-    // Fallback: usar sessionStorage si no se pudo determinar
-    if (!fromParam && !referrer) {
-        try {
-            const lastPage = JSON.parse(sessionStorage.getItem('helpdesk_last_page') || '{}');
-            if (lastPage.url && lastPage.text) {
-                backUrl = lastPage.url;
-                backText = lastPage.text;
+            } else if (referrer.includes('/help-desk')) {
+                // Si viene de alguna página de helpdesk pero no coincide con las anteriores
+                backText = "Volver";
+                backUrl = referrer;
             }
-        } catch (e) {
-            // Ignorar errores de JSON parsing
         }
-    }
-    
-    // Aplicar la URL y texto determinados
-    backButton.href = backUrl;
-    backButtonText.textContent = backText;
-    
-    // Guardar en sessionStorage para futuras navegaciones
-    sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
-        url: backUrl,
-        text: backText
-    }));
-});
+
+        // Fallback: usar sessionStorage si no se pudo determinar
+        if (!fromParam && !referrer) {
+            try {
+                const lastPage = JSON.parse(sessionStorage.getItem('helpdesk_last_page') || '{}');
+                if (lastPage.url && lastPage.text) {
+                    backUrl = lastPage.url;
+                    backText = lastPage.text;
+                }
+            } catch (e) {
+                // Ignorar errores de JSON parsing
+            }
+        }
+
+        // Aplicar la URL y texto determinados
+        backButton.href = backUrl;
+        backButtonText.textContent = backText;
+
+        // Guardar en sessionStorage para futuras navegaciones
+        sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
+            url: backUrl,
+            text: backText
+        }));
+    });
 </script>
 {% endblock %}
 
@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="row">
         <!-- Left Column: Ticket Info -->
         <div class="col-lg-8">
-            
+
             <!-- Ticket Header Card -->
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-body p-4">
@@ -143,12 +143,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <!-- Badges dinámicos -->
                             </div>
                         </div>
-                        
+
                         <!-- Quick Actions -->
                         <div class="dropdown">
-                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" 
-                                    type="button" 
-                                    data-bs-toggle="dropdown">
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                                data-bs-toggle="dropdown">
                                 <i class="fas fa-ellipsis-v"></i>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end" id="quickActions">
@@ -156,9 +155,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             </ul>
                         </div>
                     </div>
-                    
+
                     <h3 class="mb-3" id="ticketTitle">Título del Ticket</h3>
-                    
+
                     <!-- Info Grid -->
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
@@ -167,21 +166,21 @@ document.addEventListener('DOMContentLoaded', function() {
                             </small>
                             <strong id="ticketCreated">-</strong>
                         </div>
-                        
+
                         <div class="col-md-6">
                             <small class="text-muted d-block mb-1">
                                 <i class="fas fa-clock me-1"></i>Última Actualización
                             </small>
                             <strong id="ticketUpdated">-</strong>
                         </div>
-                        
+
                         <div class="col-md-6" id="locationContainer" style="display: none;">
                             <small class="text-muted d-block mb-1">
                                 <i class="fas fa-map-marker-alt me-1"></i>Ubicación
                             </small>
                             <strong id="ticketLocation">-</strong>
                         </div>
-                        
+
                         <div class="col-md-6" id="folioContainer" style="display: none;">
                             <small class="text-muted d-block mb-1">
                                 <i class="fas fa-file-alt me-1"></i>Folio de Oficio
@@ -189,9 +188,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong id="ticketFolio">-</strong>
                         </div>
                     </div>
-                    
+
                     <hr class="my-3">
-                    
+
                     <!-- Description -->
                     <div class="mb-3">
                         <h6 class="fw-bold mb-2">
@@ -199,7 +198,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         </h6>
                         <p class="text-muted mb-0" id="ticketDescription" style="white-space: pre-wrap;">-</p>
                     </div>
-                    
+                    <div id="photoContainer" class="card-body border-top" style="display: none;">
+                        <h6 class="fw-bold mb-3">
+                            <i class="fas fa-camera me-2 text-primary"></i>Foto del Problema
+                        </h6>
+                        <div class="photo-thumbnail-container" id="photoThumbnail">
+                            <!-- Se llenará dinámicamente -->
+                        </div>
+                    </div>
+
                     <!-- Resolution (if exists) -->
                     <div id="resolutionContainer" class="d-none">
                         <hr class="my-3">
@@ -216,7 +223,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Rating (if exists) -->
                     <div id="ratingContainer" class="d-none">
                         <hr class="my-3">
@@ -232,7 +239,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </div>
-            
+
             <!-- Comments Section -->
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-header bg-white border-bottom">
@@ -243,15 +250,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     </h5>
                 </div>
                 <div class="card-body">
-                    
+
                     <!-- Add Comment Form (only if ticket is open) -->
                     <div id="addCommentForm" class="mb-4 d-none">
                         <div class="d-flex gap-3">
                             <div class="flex-grow-1">
-                                <textarea class="form-control" 
-                                          id="newCommentText" 
-                                          rows="3" 
-                                          placeholder="Escribe un comentario..."></textarea>
+                                <textarea class="form-control" id="newCommentText" rows="3"
+                                    placeholder="Escribe un comentario..."></textarea>
                             </div>
                             <div>
                                 <button class="btn btn-primary" onclick="addComment()" id="btnAddComment">
@@ -264,7 +269,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             Los comentarios son visibles para el técnico asignado
                         </small>
                     </div>
-                    
+
                     <!-- Comments List -->
                     <div id="commentsList">
                         <div class="text-center text-muted py-4">
@@ -274,12 +279,21 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </div>
-            
+
         </div>
-        
+
         <!-- Right Column: Sidebar -->
         <div class="col-lg-4">
-            
+            <div class="card border-0 shadow-sm mb-4" id="equipmentCard" style="display: none;">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0 fw-bold">
+                        <i class="fas fa-laptop me-2"></i>Equipo Relacionado
+                    </h6>
+                </div>
+                <div class="card-body" id="equipmentInfo">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
             <!-- Status Timeline -->
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-header bg-white border-bottom">
@@ -296,7 +310,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </div>
-            
+
             <!-- Assignment Info -->
             <div class="card border-0 shadow-sm mb-4" id="assignmentCard">
                 <div class="card-header bg-white border-bottom">
@@ -313,12 +327,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </div>
-            
+
             <!-- Action Buttons -->
             <div id="actionButtons" class="d-grid gap-2">
                 <!-- Se llenarán dinámicamente -->
             </div>
-            
+
         </div>
     </div>
 </div>
@@ -326,7 +340,21 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 
 {% block modals %}
-
+<div class="modal fade" id="photoModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-image me-2"></i>Foto del Problema
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center p-0">
+                <img id="photoModalImage" src="" alt="Foto del problema" class="img-fluid">
+            </div>
+        </div>
+    </div>
+</div>
 <!-- Rating Modal -->
 <div class="modal fade" id="ratingModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
@@ -339,7 +367,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <div class="modal-body">
                 <p class="text-muted mb-4">¿Cómo calificarías la atención recibida?</p>
-                
+
                 <!-- Star Rating -->
                 <div class="d-flex justify-content-center gap-2 my-4">
                     <button type="button" class="btn btn-outline-warning btn-lg star-btn" data-rating="1">
@@ -361,16 +389,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="text-center mb-4">
                     <small class="text-muted">1 = Muy malo, 5 = Excelente</small>
                 </div>
-                
+
                 <!-- Comment -->
                 <div class="mb-3">
                     <label for="ratingCommentInput" class="form-label">
                         Comentarios adicionales (opcional)
                     </label>
-                    <textarea class="form-control" 
-                              id="ratingCommentInput" 
-                              rows="3" 
-                              placeholder="Comparte tu experiencia..."></textarea>
+                    <textarea class="form-control" id="ratingCommentInput" rows="3"
+                        placeholder="Comparte tu experiencia..."></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -397,17 +423,15 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <div class="modal-body">
                 <p>¿Estás seguro que deseas cancelar este ticket?</p>
-                
+
                 <div class="mb-3">
                     <label for="cancelReason" class="form-label">
                         Razón de cancelación (opcional)
                     </label>
-                    <textarea class="form-control" 
-                              id="cancelReason" 
-                              rows="3" 
-                              placeholder="¿Por qué deseas cancelar?"></textarea>
+                    <textarea class="form-control" id="cancelReason" rows="3"
+                        placeholder="¿Por qué deseas cancelar?"></textarea>
                 </div>
-                
+
                 <div class="alert alert-warning mb-0">
                     <i class="fas fa-info-circle me-2"></i>
                     <strong>Nota:</strong> Esta acción no se puede deshacer.
@@ -428,7 +452,8 @@ document.addEventListener('DOMContentLoaded', function() {
 {% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ static_version }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}

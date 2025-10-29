@@ -104,7 +104,12 @@ function renderTicketDetail(ticket) {
             document.getElementById('ratingComment').textContent = 'Sin comentarios adicionales';
         }
     }
+    if (ticket.inventory_item) {
+        renderEquipmentInfo(ticket.inventory_item);
+    }
     
+    // Photo Attachment (if exists)
+    loadPhotoAttachment(ticket.id);
     // Quick Actions Menu
     renderQuickActions(ticket);
     
@@ -408,4 +413,117 @@ async function confirmCancel() {
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
+}
+function renderEquipmentInfo(equipment) {
+    const container = document.getElementById('equipmentInfo');
+    const card = document.getElementById('equipmentCard');
+    
+    if (!equipment) {
+        card.style.display = 'none';
+        return;
+    }
+    
+    // Mostrar card
+    card.style.display = 'block';
+    
+    // Icono según categoría
+    const icon = equipment.category?.icon || 'fas fa-laptop';
+    
+    // Información del propietario
+    let ownerHtml = '';
+    if (equipment.assigned_to_user) {
+        ownerHtml = `
+            <div class="mb-2">
+                <small class="text-muted d-block">Asignado a:</small>
+                <strong><i class="fas fa-user me-1"></i>${equipment.assigned_to_user.full_name}</strong>
+            </div>
+        `;
+    } else {
+        ownerHtml = `
+            <div class="mb-2">
+                <span class="badge bg-secondary">
+                    <i class="fas fa-building me-1"></i>Global del Departamento
+                </span>
+            </div>
+        `;
+    }
+    
+    container.innerHTML = `
+        <div class="d-flex align-items-start gap-3">
+            <div class="equipment-icon-detail">
+                <i class="${icon}"></i>
+            </div>
+            <div class="flex-grow-1">
+                <div class="fw-bold text-primary mb-1">${equipment.inventory_number}</div>
+                <div class="mb-2">
+                    <strong>${equipment.brand || 'N/A'} ${equipment.model || ''}</strong>
+                </div>
+                <div class="mb-2">
+                    <span class="badge bg-info">
+                        <i class="fas fa-tag me-1"></i>${equipment.category?.name || 'Sin categoría'}
+                    </span>
+                </div>
+                ${ownerHtml}
+                ${equipment.location_detail ? `
+                    <div>
+                        <small class="text-muted">
+                            <i class="fas fa-map-marker-alt me-1"></i>${equipment.location_detail}
+                        </small>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+}
+
+// ==================== LOAD AND RENDER PHOTO ====================
+async function loadPhotoAttachment(ticketId) {
+    try {
+        const response = await HelpdeskUtils.api.getAttachments(ticketId);
+        const attachments = response.attachments || [];
+        
+        if (attachments.length === 0) {
+            return; // No hay foto
+        }
+        
+        // Tomar el primer attachment (asumiendo que es la única foto)
+        const photo = attachments[0];
+        
+        // Mostrar container
+        document.getElementById('photoContainer').style.display = 'block';
+        
+        // Renderizar thumbnail
+        renderPhotoThumbnail(photo);
+        
+    } catch (error) {
+        console.error('Error loading photo:', error);
+        // No mostrar error al usuario, simplemente no mostrar la foto
+    }
+}
+
+function renderPhotoThumbnail(photo) {
+    const container = document.getElementById('photoThumbnail');
+    
+    // URL para descargar/ver la foto
+    const photoUrl = `/api/help-desk/v1/attachments/${photo.id}/download`;
+    
+    container.innerHTML = `
+        <div class="photo-thumbnail" onclick="openPhotoModal('${photoUrl}')">
+            <img src="${photoUrl}" alt="Foto del problema" class="img-thumbnail">
+            <div class="photo-overlay">
+                <i class="fas fa-search-plus fa-2x"></i>
+            </div>
+        </div>
+        <div class="mt-2">
+            <small class="text-muted">
+                <i class="fas fa-clock me-1"></i>Subida ${HelpdeskUtils.formatTimeAgo(photo.uploaded_at)}
+            </small>
+        </div>
+    `;
+}
+
+function openPhotoModal(photoUrl) {
+    const modal = new bootstrap.Modal(document.getElementById('photoModal'));
+    document.getElementById('photoModalImage').src = photoUrl;
+    modal.show();
 }

@@ -1,10 +1,10 @@
 from . import db
 
 class Coordinator(db.Model):
-    __tablename__ = "coordinators"
+    __tablename__ = "core_coordinators"
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.BigInteger, db.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), unique=True, nullable=False)
+    user_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="CASCADE"), unique=True, nullable=False)
 
     contact_email = db.Column(db.Text)
     office_hours = db.Column(db.Text)
@@ -21,7 +21,7 @@ class Coordinator(db.Model):
     # convenient many-to-many
     programs = db.relationship(
         "Program",
-        secondary="program_coordinator",
+        secondary="core_program_coordinator",
         back_populates="coordinators",
         viewonly=True,
     )

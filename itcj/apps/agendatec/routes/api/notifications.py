@@ -3,7 +3,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from itcj.core.utils.decorators import api_auth_required
 from itcj.apps.agendatec.models import db
-from itcj.apps.agendatec.models.notification import Notification
+from itcj.core.models.notification import Notification
 
 api_notifications_bp = Blueprint("api_notifications", __name__)
 

@@ -60,14 +60,14 @@ class InventoryItem(db.Model):
     # Ubicación y asignación
     department_id = db.Column(
         db.Integer,
-        db.ForeignKey("departments.id"),
+        db.ForeignKey("core_departments.id"),
         nullable=False,
         index=True
     )
     
     assigned_to_user_id = db.Column(
         db.BigInteger,
-        db.ForeignKey("users.id"),
+        db.ForeignKey("core_users.id"),
         nullable=True,
         index=True
     )
@@ -99,13 +99,13 @@ class InventoryItem(db.Model):
     # Auditoría de registro
     registered_by_id = db.Column(
         db.BigInteger,
-        db.ForeignKey("users.id"),
+        db.ForeignKey("core_users.id"),
         nullable=False
     )
     registered_at = db.Column(db.DateTime, server_default=db.func.now(), nullable=False)
     
     # Auditoría de asignación
-    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey("users.id"))
+    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id"))
     assigned_at = db.Column(db.DateTime)
     
     # Timestamps generales
@@ -118,7 +118,7 @@ class InventoryItem(db.Model):
     # Soft delete
     is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
     deactivated_at = db.Column(db.DateTime)
-    deactivated_by_id = db.Column(db.BigInteger, db.ForeignKey("users.id"))
+    deactivated_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id"))
     deactivation_reason = db.Column(db.Text)
     
     # Relaciones

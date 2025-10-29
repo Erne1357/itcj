@@ -115,6 +115,11 @@ class HelpdeskAPI {
     async getTeamTickets(teamName) {
         return this.request(`/assignments/team/${teamName}`);
     }
+
+    // Attachments
+    async getAttachments(ticketId) {
+        return this.request(`/attachments/ticket/${ticketId}`);
+    }
 }
 
 // Instancia global
@@ -362,7 +367,15 @@ function goToTicketDetailNewTab(ticketId, fromPage = null) {
     
     window.open(url, '_blank');
 }
-
+async function getAttachments(ticketId) {
+    const response = await fetch(`/api/help-desk/v1/attachments/ticket/${ticketId}`, {
+        headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+    });
+    if (!response.ok) throw new Error('Error al cargar attachments');
+    return await response.json();
+}
 // ==================== EXPORT ====================
 window.HelpdeskUtils = {
     api,
@@ -377,5 +390,6 @@ window.HelpdeskUtils = {
     showEmpty,
     confirmDialog,
     goToTicketDetail,
-    goToTicketDetailNewTab
+    goToTicketDetailNewTab,
+    getAttachments
 };

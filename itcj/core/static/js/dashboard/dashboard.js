@@ -165,6 +165,7 @@ class WindowsDesktop {
     window.style.top = "100px"
     window.style.zIndex = ++this.windowZIndex
     window.dataset.appId = appId
+    window.classList.add("maximized") // Iniciar maximizado
 
     window.innerHTML = `
         <div class="window-titlebar">
@@ -195,7 +196,7 @@ class WindowsDesktop {
 
     this.setupWindowControls(window, appId)
     this.setupWindowDragging(window)
-    this.setupIframeMonitoring(window, appId) // Nueva función
+    this.setupIframeMonitoring(window, appId) 
 
     document.getElementById("windows-container").appendChild(window)
     this.openWindows.push(appId)

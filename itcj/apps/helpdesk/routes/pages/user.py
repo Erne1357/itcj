@@ -39,7 +39,7 @@ def my_tickets():
 
 
 @user_pages_bp.get('/tickets/<int:ticket_id>')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.own.read','helpdesk.tickets.all.read'])
 def ticket_detail(ticket_id):
     """Vista de detalle de un ticket específico"""
     user_id = int(g.current_user['sub'])

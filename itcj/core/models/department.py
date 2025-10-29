@@ -2,14 +2,14 @@
 from itcj.core.extensions import db
 
 class Department(db.Model):
-    __tablename__ = 'departments'
+    __tablename__ = 'core_departments'
     
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     icon_class = db.Column(db.String(50), nullable=True)  # ⭐ NUEVO
-    parent_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('core_departments.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, server_default=db.text("NOW()"), nullable=False)
     

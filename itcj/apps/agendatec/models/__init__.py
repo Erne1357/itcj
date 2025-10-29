@@ -9,7 +9,7 @@ from .availability_window import AvailabilityWindow
 from .time_slot import TimeSlot
 from .request import Request
 from .appointment import Appointment
-from .notification import Notification
+from ....core.models.notification import Notification
 from .audit_log import AuditLog
 
 __all__ = [

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Configuración
 UPLOAD_FOLDER = os.getenv('HELPDESK_UPLOAD_PATH', 'uploads/helpdesk')
-MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_FILE_SIZE = 3 * 1024 * 1024  # 3MB
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'}
 ALLOWED_MIME_TYPES = {
     'image/png', 'image/jpeg', 'image/gif', 'image/webp',

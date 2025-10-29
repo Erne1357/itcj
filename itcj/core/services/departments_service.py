@@ -38,7 +38,8 @@ def create_department(code, name, description=None, parent_id=None, icon_class=N
         name=name,
         description=description,
         parent_id=parent_id,
-        icon_class=icon_class
+        icon_class=icon_class,
+        created_at=db.func.now(),
     )
     db.session.add(dept)
     db.session.commit()

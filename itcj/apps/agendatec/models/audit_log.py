@@ -5,7 +5,7 @@ class AuditLog(db.Model):
 
     id = db.Column(db.BigInteger, primary_key=True)
 
-    actor_id = db.Column(db.BigInteger, db.ForeignKey("users.id", onupdate="CASCADE", ondelete="SET NULL"))
+    actor_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="SET NULL"))
     action = db.Column(db.Text, nullable=False)   # e.g. 'REQUEST_STATUS_CHANGED'
     entity = db.Column(db.Text, nullable=False)   # e.g. 'requests', 'appointments'
     entity_id = db.Column(db.BigInteger)          # affected row id

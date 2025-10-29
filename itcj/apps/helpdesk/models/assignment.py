@@ -11,10 +11,10 @@ class Assignment(db.Model):
     ticket_id = db.Column(db.Integer, db.ForeignKey('helpdesk_ticket.id'), nullable=False, index=True)
     
     # Quién asignó
-    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False)
+    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)
     
     # A quién/qué se asignó
-    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=True)  # Usuario específico
+    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)  # Usuario específico
     assigned_to_team = db.Column(db.String(50), nullable=True)  # O equipo ('desarrollo', 'soporte')
     
     # Timestamps

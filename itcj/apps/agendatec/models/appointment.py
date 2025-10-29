@@ -9,9 +9,9 @@ class Appointment(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
 
     request_id = db.Column(db.BigInteger, db.ForeignKey("agendatec_requests.id", onupdate="CASCADE", ondelete="CASCADE"), unique=True)
-    student_id = db.Column(db.BigInteger, db.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    coordinator_id = db.Column(db.Integer, db.ForeignKey("coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    program_id = db.Column(db.Integer, db.ForeignKey("programs.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    student_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    coordinator_id = db.Column(db.Integer, db.ForeignKey("core_coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    program_id = db.Column(db.Integer, db.ForeignKey("core_programs.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     slot_id = db.Column(db.BigInteger, db.ForeignKey("agendatec_time_slots.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
     status = db.Column(appointment_status_pg_enum, nullable=False, server_default="SCHEDULED")

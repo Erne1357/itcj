@@ -9,7 +9,7 @@ class Comment(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     ticket_id = db.Column(db.Integer, db.ForeignKey('helpdesk_ticket.id'), nullable=False, index=True)
-    author_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False)
+    author_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)
     
     # Contenido
     content = db.Column(db.Text, nullable=False)

@@ -11,11 +11,11 @@ class Ticket(db.Model):
     ticket_number = db.Column(db.String(20), unique=True, nullable=False, index=True)  # TK-2025-0001
     
     # ==================== SOLICITANTE ====================
-    requester_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False, index=True)
+    requester_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False, index=True)
     
     # Departamento (puede ser NULL si el usuario no tiene position)
     # Lo obtendremos de position → department, pero guardamos el ID aquí por rendimiento
-    requester_department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
+    requester_department_id = db.Column(db.Integer, db.ForeignKey('core_departments.id'), nullable=True)
     
     # ==================== CLASIFICACIÓN ====================
     area = db.Column(db.String(20), nullable=False, index=True)  # 'DESARROLLO' | 'SOPORTE'
@@ -39,13 +39,13 @@ class Ticket(db.Model):
     # - CLOSED: Cerrado (después de calificación)
     # - CANCELED: Cancelado por el usuario
     
-    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=True, index=True)
+    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True, index=True)
     assigned_to_team = db.Column(db.String(50), nullable=True)  # 'desarrollo', 'soporte', NULL
     
     # ==================== RESOLUCIÓN ====================
     resolution_notes = db.Column(db.Text, nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
-    resolved_by_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=True)
+    resolved_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)
     
     # ==================== CALIFICACIÓN ====================
     rating = db.Column(db.Integer, nullable=True)  # 1-5 estrellas
@@ -201,7 +201,11 @@ class Ticket(db.Model):
                         'id': self.inventory_item.category.id,
                         'name': self.inventory_item.category.name,
                         'icon': self.inventory_item.category.icon
-                    } if self.inventory_item.category else None
+                    } if self.inventory_item.category else None,
+                    'assigned_to_user': {
+                        'id': self.inventory_item.assigned_to_user.id,
+                        'full_name': self.inventory_item.assigned_to_user.full_name,
+                    } if self.inventory_item.assigned_to_user else None
                 } if self.inventory_item else None,
             })
         

@@ -63,7 +63,7 @@ class InventoryHistory(db.Model):
     # Auditoría
     performed_by_id = db.Column(
         db.BigInteger,
-        db.ForeignKey("users.id"),
+        db.ForeignKey("core_users.id"),
         nullable=False
     )
     

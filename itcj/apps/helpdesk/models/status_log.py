@@ -15,7 +15,7 @@ class StatusLog(db.Model):
     to_status = db.Column(db.String(30), nullable=False)
     
     # Quién cambió el estado
-    changed_by_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False)
+    changed_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)
     
     # Notas opcionales (ej: razón de cancelación)
     notes = db.Column(db.Text, nullable=True)

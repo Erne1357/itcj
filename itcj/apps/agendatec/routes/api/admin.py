@@ -17,7 +17,7 @@ from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.request import Request as Req
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.apps.agendatec.models.notification import Notification
+from itcj.core.models.notification import Notification
 from itcj.apps.agendatec.models.audit_log import AuditLog
 from itcj.apps.agendatec.models.survey_dispatches import SurveyDispatch
 
