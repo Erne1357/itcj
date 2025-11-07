@@ -49,7 +49,6 @@
         const r = await fetch("/api/core/v1/user/password-state", { credentials: "include" });
         if (r.ok) {
             const { must_change } = await r.json();
-            console.log("Must change: " + must_change);
             if (must_change) modal.show();
         }
     } catch (e) {

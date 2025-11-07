@@ -32,7 +32,6 @@ const AppState = {
 
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('✅ Iniciando Create Ticket');
 
     // Inicializar componentes
     AreaSelection.init();
@@ -188,7 +187,6 @@ const Equipment = {
 
     handleOwnerSelection(ownerType) {
         AppState.equipment.ownerType = ownerType;
-        console.log(`📦 Tipo de propietario seleccionado: ${ownerType}`);
 
         // Mostrar selector de equipos
         document.getElementById('equipment-selector-container').style.display = 'block';
@@ -912,4 +910,3 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-console.log('✅ Create Ticket Module Loaded');

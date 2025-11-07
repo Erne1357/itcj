@@ -5,6 +5,17 @@ from itcj.core.services import departments_service as dept_svc
 
 api_departments_bp = Blueprint("api_departments_bp", __name__)
 
+@api_departments_bp.get("/direction")
+@api_auth_required
+@api_role_required(["admin"])
+def get_direction():
+    """Obtiene la dirección (departamento raíz sin padre)"""
+    direction = dept_svc.get_direction()
+    return jsonify({
+        "status": "ok", 
+        "data": direction.to_dict(include_children=True) if direction else None
+    })
+
 @api_departments_bp.get("/subdirections")
 @api_auth_required
 @api_role_required(["admin"])
@@ -14,6 +25,17 @@ def list_subdirections():
     return jsonify({
         "status": "ok",
         "data": [d.to_dict(include_children=True) for d in subdirs]
+    })
+
+@api_departments_bp.get("/parent-options")
+@api_auth_required
+@api_role_required(["admin"])
+def list_parent_options():
+    """Lista departamentos que pueden ser padres (dirección y subdirecciones)"""
+    options = dept_svc.list_parent_options()
+    return jsonify({
+        "status": "ok",
+        "data": [d.to_dict() for d in options]
     })
 
 @api_departments_bp.get("/by-parent")

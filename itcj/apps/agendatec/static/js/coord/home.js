@@ -11,7 +11,6 @@
         const r = await fetch("/api/agendatec/v1/coord/password-state", { credentials: "include" });
         if (r.ok) {
             const { must_change } = await r.json();
-            console.log("Must change: " + must_change);
             if (must_change) modal.show();
         }
     } catch { }

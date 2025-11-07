@@ -88,7 +88,6 @@ async function loadDepartmentUsers() {
         if (!response.ok) throw new Error('Error al cargar usuarios');
 
         const result = await response.json();
-        console.log("Cargando usuarios del departamento" , result);
         departmentUsers = result.data.users.sort((a, b) => 
             a.full_name.localeCompare(b.full_name)
         );

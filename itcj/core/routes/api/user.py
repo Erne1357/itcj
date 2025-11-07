@@ -111,3 +111,80 @@ def get_current_user():
             "positions": positions
         }
     })
+
+@api_user_bp.get("/me/profile")
+@api_auth_required
+def get_full_profile():
+    """Obtiene el perfil completo del usuario actual"""
+    from itcj.core.services.profile_service import get_user_profile_data
+    
+    user_id = int(g.current_user["sub"])
+    profile = get_user_profile_data(user_id)
+    
+    if not profile:
+        return jsonify({"error": "user_not_found"}), 404
+    
+    return jsonify({
+        "status": "ok",
+        "data": profile
+    })
+
+@api_user_bp.get("/me/activity")
+@api_auth_required
+def get_my_activity():
+    """Obtiene la actividad reciente del usuario"""
+    from itcj.core.services.profile_service import get_user_activity
+    
+    user_id = int(g.current_user["sub"])
+    limit = request.args.get('limit', 10, type=int)
+    
+    activities = get_user_activity(user_id, limit=min(limit, 50))
+    
+    return jsonify({
+        "status": "ok",
+        "data": activities
+    })
+
+@api_user_bp.get("/me/notifications")
+@api_auth_required
+def get_my_notifications():
+    """Obtiene las notificaciones del usuario"""
+    from itcj.core.services.profile_service import get_user_notifications
+    
+    user_id = int(g.current_user["sub"])
+    unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+    limit = request.args.get('limit', 20, type=int)
+    
+    notifications = get_user_notifications(user_id, unread_only, min(limit, 100))
+    
+    return jsonify({
+        "status": "ok",
+        "data": notifications
+    })
+
+@api_user_bp.patch("/me/profile")
+@api_auth_required
+def update_my_profile():
+    """Actualiza información básica del perfil"""
+    user_id = int(g.current_user["sub"])
+    user = User.query.get(user_id)
+    
+    if not user:
+        return jsonify({"error": "user_not_found"}), 404
+    
+    data = request.get_json()
+    
+    # Solo permitir actualizar campos no críticos
+    allowed_fields = ['email']
+    
+    for field in allowed_fields:
+        if field in data:
+            setattr(user, field, data[field])
+    
+    try:
+        db.session.commit()
+        return jsonify({"status": "ok", "message": "profile_updated"})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating profile: {e}")
+        return jsonify({"error": "update_failed"}), 500

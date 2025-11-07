@@ -22,6 +22,8 @@ api_core_bp.register_blueprint(api_users_bp, url_prefix="/users")
 from .routes.pages.auth import pages_auth_bp
 from .routes.pages.dashboard import pages_dashboard_bp
 from .routes.pages.config import pages_config_bp
+from .routes.pages.profile import pages_profile_bp
 pages_core_bp.register_blueprint(pages_auth_bp)
 pages_core_bp.register_blueprint(pages_dashboard_bp)
 pages_core_bp.register_blueprint(pages_config_bp)
+pages_core_bp.register_blueprint(pages_profile_bp)

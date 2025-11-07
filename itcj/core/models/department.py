@@ -17,9 +17,18 @@ class Department(db.Model):
     positions = db.relationship('Position', back_populates='department', lazy='dynamic')
     parent = db.relationship('Department', remote_side=[id], backref='subdepartments')
 
-    def is_subdirection(self):
-        """Verifica si es una subdirección (no tiene padre)"""
+    def is_direction(self):
+        """Verifica si es la dirección (departamento raíz sin padre)"""
         return self.parent_id is None
+    
+    def is_subdirection(self):
+        """Verifica si es una subdirección (hijo directo de la dirección)"""
+        if self.parent_id is None:
+            return False  # Es la dirección, no una subdirección
+        
+        # Obtener el departamento padre
+        parent = Department.query.get(self.parent_id)
+        return parent and parent.parent_id is None  # El padre no tiene padre (es la dirección)
     
     def get_children_count(self):
         """Obtiene cantidad de departamentos hijos"""
@@ -58,14 +67,14 @@ class Department(db.Model):
             'is_subdirection': self.is_subdirection(),  # ⭐ NUEVO
             'parent_id': self.parent_id,  # ⭐ NUEVO
             'positions_count': self.positions.filter_by(is_active=True).count(),
-            'children_count': self.get_children_count() if self.is_subdirection() else 0,  # ⭐ NUEVO
+            'children_count': self.get_children_count(),  # ⭐ NUEVO
             'head': {
                 'full_name': head_user.full_name,
                 'email': head_user.email
             } if head_user else None
         }
         
-        if include_children and self.is_subdirection():
+        if include_children and (self.is_direction() or self.is_subdirection()):
             data['children'] = [
                 child.to_dict() for child in 
                 Department.query.filter_by(parent_id=self.id, is_active=True).all()

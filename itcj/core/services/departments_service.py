@@ -2,12 +2,22 @@
 from itcj.core.models.department import Department
 from itcj.core.extensions import db
 
-def list_subdirections():
-    """Obtiene solo las subdirecciones (departamentos padres)"""
+def get_direction():
+    """Obtiene la dirección (departamento raíz)"""
     return Department.query.filter_by(
         parent_id=None,
         is_active=True
-    ).order_by(Department.name).all()
+    ).first()
+
+def list_subdirections():
+    """Obtiene las subdirecciones (hijas de la dirección)"""
+    direction = get_direction()
+    if direction:
+        return Department.query.filter_by(
+            parent_id=direction.id,
+            is_active=True
+        ).order_by(Department.name).all()
+    return []
 
 def list_departments_by_parent(parent_id=None):
     """Obtiene departamentos por subdirección"""
@@ -19,6 +29,16 @@ def list_departments_by_parent(parent_id=None):
     else:
         # Si no hay parent_id, devolver subdirecciones
         return list_subdirections()
+
+def list_parent_options():
+    """Obtiene todos los departamentos que pueden ser padres (dirección y subdirecciones)"""
+    direction = get_direction()
+    if not direction:
+        return []
+    
+    options = [direction]  # Incluir la dirección
+    options.extend(list_subdirections())  # Incluir subdirecciones
+    return options
 
 def list_departments():
     """Lista todos los departamentos (para admin)"""

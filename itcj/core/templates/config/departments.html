@@ -21,21 +21,21 @@
                                 <i class="bi bi-gear me-1"></i>Configuración
                             </a>
                         </li>
-                        <li class="breadcrumb-item active" id="currentBreadcrumb">Subdirecciones</li>
+                        <li class="breadcrumb-item active" id="currentBreadcrumb">Dirección</li>
                     </ol>
                 </nav>
                 
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <h2 id="pageTitle">
-                            <i class="bi bi-diagram-3 me-2"></i>Subdirecciones
+                            <i class="bi bi-briefcase me-2"></i>Dirección
                         </h2>
-                        <p class="text-muted" id="pageSubtitle">Selecciona una subdirección para ver sus departamentos</p>
+                        <p class="text-muted" id="pageSubtitle">Estructura organizacional del instituto</p>
                     </div>
                     
                     <!-- Botón para regresar (oculto inicialmente) -->
                     <button class="btn btn-outline-secondary back-btn" id="backBtn" style="display: none;">
-                        <i class="bi bi-arrow-left me-2"></i>Volver a Subdirecciones
+                        <i class="bi bi-arrow-left me-2"></i>Volver
                     </button>
                     
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
@@ -74,10 +74,13 @@
                             <textarea class="form-control" id="deptDescription" name="description" rows="3"></textarea>
                         </div>
                         <div class="mb-3">
-                            <label for="deptParent" class="form-label">Subdirección</label>
+                            <label for="deptParent" class="form-label">Departamento Padre</label>
                             <select class="form-select" id="deptParent" name="parent_id">
-                                <option value="">-- Es una subdirección --</option>
+                                <option value="">-- Nivel Superior (Dirección/Subdirección) --</option>
                             </select>
+                            <small class="form-text text-muted">
+                                Selecciona la dirección para crear una subdirección, o una subdirección para crear un departamento.
+                            </small>
                         </div>
                         <div class="mb-3">
                             <label for="deptIcon" class="form-label">Icono (Bootstrap Icons)</label>

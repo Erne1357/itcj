@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi Perfil - ITCJ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet"
+        href="{{ url_for('static', filename='core/css/profile/profile.css') }}?v={{ static_version }}">
+</head>
+
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <div class="row justify-content-center">
+            <div class="col-12 col-xl-10">
+                <!-- Profile Header Card -->
+                <div class="card shadow-sm mb-4 profile-header-card">
+                    <div class="card-body p-4">
+                        <div class="row align-items-center">
+                            <div class="col-auto">
+                                <div class="profile-avatar">
+                                    <i class="bi bi-person-circle"></i>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="d-flex justify-content-between align-items-start flex-wrap">
+                                    <div>
+                                        <h3 class="mb-1 fw-bold">{{ profile.full_name }}</h3>
+
+                                        {% if profile.positions %}
+                                        <p class="text-muted mb-2">
+                                            <i class="bi bi-briefcase me-1"></i>
+                                            <span class="fw-semibold">{{ profile.positions[0].title }}</span>
+                                        </p>
+                                        {% endif %}
+
+                                        <div class="d-flex flex-wrap gap-2 mb-2">
+                                            {% if profile.positions and profile.positions[0].department %}
+                                            <span class="badge bg-secondary">
+                                                <i
+                                                    class="{{ profile.positions[0].department.icon_class or 'bi-building' }} me-1"></i>
+                                                {{ profile.positions[0].department.name }}
+                                            </span>
+                                            {% endif %}
+
+                                            <span
+                                                class="badge {{ 'bg-success' if profile.is_active else 'bg-secondary' }}">
+                                                <i
+                                                    class="bi bi-{{ 'check-circle' if profile.is_active else 'x-circle' }} me-1"></i>
+                                                {{ 'Activo' if profile.is_active else 'Inactivo' }}
+                                            </span>
+                                        </div>
+
+                                        <div class="text-muted small">
+                                            <i class="bi bi-envelope me-1"></i>{{ profile.email or 'Sin email' }}
+                                            {% if profile.username %}
+                                            <span class="mx-2">|</span>
+                                            <i class="bi bi-person-badge me-1"></i>{{ profile.username }}
+                                            {% elif profile.control_number %}
+                                            <span class="mx-2">|</span>
+                                            <i class="bi bi-hash me-1"></i>{{ profile.control_number }}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 mt-md-0">
+                                        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal"
+                                            data-bs-target="#editProfileModal">
+                                            <i class="bi bi-pencil me-1"></i>Editar Perfil
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs Navigation -->
+                <ul class="nav nav-tabs nav-fill mb-4" id="profileTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info"
+                            type="button" role="tab">
+                            <i class="bi bi-info-circle me-2"></i>
+                            <span class="d-none d-sm-inline">Información General</span>
+                            <span class="d-inline d-sm-none">Info</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="permissions-tab" data-bs-toggle="tab" data-bs-target="#permissions"
+                            type="button" role="tab">
+                            <i class="bi bi-shield-check me-2"></i>
+                            <span class="d-none d-sm-inline">Permisos y Accesos</span>
+                            <span class="d-inline d-sm-none">Permisos</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity"
+                            type="button" role="tab">
+                            <i class="bi bi-clock-history me-2"></i>
+                            <span class="d-none d-sm-inline">Actividad Reciente</span>
+                            <span class="d-inline d-sm-none">Actividad</span>
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link position-relative" id="notifications-tab" data-bs-toggle="tab"
+                            data-bs-target="#notifications" type="button" role="tab">
+                            <i class="bi bi-bell me-2"></i>
+                            <span class="d-none d-sm-inline">Notificaciones</span>
+                            <span class="d-inline d-sm-none">Notif.</span>
+                            <span
+                                class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger notification-badge"
+                                id="notificationBadge" style="display: none;">
+                                0
+                            </span>
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Tab Content -->
+                <div class="tab-content" id="profileTabsContent">
+                    <!-- Información General Tab -->
+                    <div class="tab-pane fade show active" id="info" role="tabpanel">
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <div class="card shadow-sm h-100">
+                                    <div class="card-header bg-white">
+                                        <h5 class="mb-0"><i class="bi bi-person me-2"></i>Datos Personales</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="info-item">
+                                            <label>Nombre Completo</label>
+                                            <p>{{ profile.full_name }}</p>
+                                        </div>
+                                        <div class="info-item">
+                                            <label>Correo Electrónico</label>
+                                            <p>{{ profile.email or 'No registrado' }}</p>
+                                        </div>
+                                        {% if profile.username %}
+                                        <div class="info-item">
+                                            <label>Usuario</label>
+                                            <p>{{ profile.username }}</p>
+                                        </div>
+                                        {% endif %}
+                                        {% if profile.control_number %}
+                                        <div class="info-item">
+                                            <label>Número de Control</label>
+                                            <p>{{ profile.control_number }}</p>
+                                        </div>
+                                        {% endif %}
+                                        <div class="info-item">
+                                            <label>Rol del Sistema</label>
+                                            <p><span class="badge bg-primary">{{ profile.role }}</span></p>
+                                        </div>
+                                        <div class="info-item mb-0">
+                                            <label>Fecha de Registro</label>
+                                            <p>{{ profile.created_at.strftime('%d de %B, %Y') if profile.created_at else
+                                                'No disponible' }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card shadow-sm h-100">
+                                    <div class="card-header bg-white">
+                                        <h5 class="mb-0"><i class="bi bi-briefcase me-2"></i>Información Organizacional
+                                        </h5>
+                                    </div>
+                                    <div class="card-body">
+                                        {% if profile.positions %}
+                                        {% for position in profile.positions %}
+                                        <div class="info-item {{ 'mb-0' if loop.last else '' }}">
+                                            <label>Puesto {{ loop.index }}</label>
+                                            <p class="fw-semibold">{{ position.title }}</p>
+                                            {% if position.department %}
+                                            <p class="text-muted small mb-0">
+                                                <i
+                                                    class="{{ position.department.icon_class or 'bi-building' }} me-1"></i>
+                                                {{ position.department.name }}
+                                            </p>
+                                            {% endif %}
+                                            <p class="text-muted small mb-0">
+                                                Desde: {{ position.start_date.strftime('%d/%m/%Y') if
+                                                position.start_date else 'No registrado' }}
+                                            </p>
+                                        </div>
+                                        {% if not loop.last %}
+                                        <hr class="my-3">
+                                        {% endif %}
+                                        {% endfor %}
+                                        {% else %}
+                                        <div class="text-center py-4">
+                                            <i class="bi bi-briefcase display-4 text-muted"></i>
+                                            <p class="text-muted mt-2">Sin puestos asignados</p>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Permisos y Accesos Tab -->
+                    <div class="tab-pane fade" id="permissions" role="tabpanel">
+                        <div class="card shadow-sm mb-4">
+                            <div class="card-header bg-white">
+                                <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>Acceso a Aplicaciones</h5>
+                            </div>
+                            <div class="card-body">
+                                {% if profile.app_assignments %}
+                                {% for app_key, app_data in profile.app_assignments.items() %}
+                                <div class="app-permission-section">
+                                    <div class="d-flex align-items-center mb-3">
+                                        <div class="app-icon app-icon-{{ app_key }} me-3">
+                                            <i class="{{ app_data.app_icon }}"></i>
+                                        </div>
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">{{ app_data.app_name }}</h6>
+                                            <small class="text-muted">{{ app_key }}</small>
+                                        </div>
+                                    </div>
+
+                                    <!-- Roles -->
+                                    <div class="mb-3">
+                                        <p class="small text-muted mb-2 fw-semibold">
+                                            <i class="bi bi-people me-1"></i>Roles Asignados:
+                                        </p>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            {% if app_data.roles %}
+                                            {% for role in app_data.roles %}
+                                            <span class="badge bg-primary">{{ role }}</span>
+                                            {% endfor %}
+                                            {% else %}
+                                            <span class="text-muted small">Sin roles asignados</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Permisos directos -->
+                                    {% if app_data.direct_permissions %}
+                                    <div class="mb-3">
+                                        <p class="small text-muted mb-2 fw-semibold">
+                                            <i class="bi bi-key me-1"></i>Permisos Directos:
+                                        </p>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            {% for perm in app_data.direct_permissions %}
+                                            <span class="badge bg-success">{{ perm }}</span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+
+                                    <!-- Permisos efectivos -->
+                                    <div>
+                                        <p class="small text-muted mb-2 fw-semibold">
+                                            <i class="bi bi-shield-check me-1"></i>Permisos Efectivos:
+                                        </p>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            {% if app_data.effective_permissions %}
+                                            {% for perm in app_data.effective_permissions %}
+                                            <span class="badge badge-permission"><i class="bi bi-check2 me-1"></i>{{
+                                                perm }}</span>
+                                            {% endfor %}
+                                            {% else %}
+                                            <span class="text-muted small">Sin permisos</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {% if not loop.last %}
+                                <hr class="my-4">
+                                {% endif %}
+                                {% endfor %}
+                                {% else %}
+                                <div class="text-center py-4">
+                                    <i class="bi bi-apps display-4 text-muted"></i>
+                                    <p class="text-muted mt-2">Sin acceso a aplicaciones</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actividad Reciente Tab -->
+                    <div class="tab-pane fade" id="activity" role="tabpanel">
+                        <div class="card shadow-sm">
+                            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Actividad Reciente</h5>
+                                <select class="form-select form-select-sm w-auto" id="activityFilter">
+                                    <option value="7">Últimos 7 días</option>
+                                    <option value="30">Últimos 30 días</option>
+                                    <option value="90">Últimos 90 días</option>
+                                </select>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="activity-timeline" id="activityContainer">
+                                    <!-- Se carga dinámicamente vía JavaScript -->
+                                    <div class="text-center py-5">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Cargando actividad...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Notificaciones Tab -->
+                    <div class="tab-pane fade" id="notifications" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0"><i class="bi bi-bell me-2"></i>Notificaciones</h5>
+                            <button class="btn btn-sm btn-outline-primary" id="markAllReadBtn">
+                                <i class="bi bi-check-all me-1"></i>Marcar todas como leídas
+                            </button>
+                        </div>
+
+                        <!-- Filter Buttons -->
+                        <div class="btn-group mb-4 w-100" role="group" id="notificationFilters">
+                            <input type="radio" class="btn-check" name="notifFilter" id="notifAll" checked>
+                            <label class="btn btn-outline-secondary" for="notifAll">
+                                Todas <span class="badge bg-secondary ms-1" id="badgeAll">0</span>
+                            </label>
+
+                            <!-- Los filtros por app se generan dinámicamente -->
+                        </div>
+
+                        <!-- Notifications List -->
+                        <div class="notifications-container" id="notificationsContainer">
+                            <!-- Se carga dinámicamente vía JavaScript -->
+                            <div class="text-center py-5">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Cargando notificaciones...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div class="modal fade" id="editProfileModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Editar Perfil</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editProfileForm">
+                        <div class="mb-3">
+                            <label class="form-label">Correo Electrónico</label>
+                            <input type="email" class="form-control" id="editEmail" value="{{ profile.email or '' }}">
+                            <small class="text-muted">Solo puedes cambiar tu correo electrónico.</small>
+                        </div>
+                        <div class="alert alert-info small mb-0">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Los cambios en información crítica (nombre, puesto, departamento, permisos) deben ser
+                            solicitados al administrador del sistema.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" id="saveProfileBtn">Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">Éxito</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successMessage"></div>
+        </div>
+
+        <div id="errorToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorMessage"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='core/js/profile/profile.js') }}?v={{ static_version }}"></script>
+</body>
+
+</html>

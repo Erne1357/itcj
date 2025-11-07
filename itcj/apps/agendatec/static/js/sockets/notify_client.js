@@ -22,8 +22,6 @@
     });
     window.__notifySocket = socket;
 
-    socket.on("connect", () => console.log("[WS notify] conectado", socket.id));
-    socket.on("hello", (p) => console.log("[WS notify] hello", p));
     socket.on("notify", (n) => {
       // n es {id,type,title,body,is_read,created_at,data}
       document.dispatchEvent(new CustomEvent("notif:push", { detail: n }));

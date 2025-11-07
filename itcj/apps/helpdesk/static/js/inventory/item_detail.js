@@ -49,7 +49,6 @@ async function loadItemDetail() {
         }
 
         const result = await response.json();
-        console.log('Item Detail:', result);
         currentItem = result.data;
 
         renderItemDetail(currentItem);

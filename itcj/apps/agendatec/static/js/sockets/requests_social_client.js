@@ -22,10 +22,7 @@
     });
     window.__reqSocket = socket;
 
-    socket.on("connect", () => console.log("[WS social] conectado", socket.id));
-    socket.on("disconnect", (r) => console.log("[WS social] desconectado:", r));
     socket.on("connect_error", (e) => console.error("[WS social] error:", e?.message || e));
-    socket.on("hello", (p) => console.log("[WS social] hello:", p));
 
     // Helpers para unirse/dejar rooms por día/programa
     window.__socialJoinApDay = ({ day, program_id }) => {

@@ -84,7 +84,6 @@ function renderTicketDetail(ticket) {
     // Description
     document.getElementById('ticketDescription').textContent = ticket.description;
     
-    console.log('Ticket :', ticket);
 
     // Resolution (if exists)
     if (ticket.resolution_notes) {

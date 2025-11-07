@@ -60,11 +60,9 @@ class WindowsDesktop {
       // Manejar diferentes tipos de mensajes
       switch (event.data.type) {
         case 'LOGOUT':
-          console.log('Logout detectado desde iframe:', event.data)
           this.handleLogout()
           break
         case 'SESSION_EXPIRED':
-          console.log('Sesión expirada detectada desde iframe:', event.data)
           this.handleSessionExpired()
           break
         case 'NAVIGATION':
@@ -77,7 +75,6 @@ class WindowsDesktop {
 
   handleLogout() {
     // Mostrar mensaje de logout si es necesario
-    console.log('Cerrando sesión en dashboard principal...')
 
     // Cerrar todas las ventanas
     this.closeAllWindows()
@@ -87,7 +84,6 @@ class WindowsDesktop {
   }
 
   handleSessionExpired() {
-    console.log('Sesión expirada, redirigiendo...')
     this.closeAllWindows()
     window.location.href = '/itcj/login?session_expired=true'
   }
@@ -222,7 +218,6 @@ class WindowsDesktop {
 
           // Verificar si es logout
           if (pathname.endsWith('/logout') || pathname === '/itcj/login') {
-            console.log('Logout detectado via URL monitoring:', pathname)
             this.handleLogout()
             return
           }

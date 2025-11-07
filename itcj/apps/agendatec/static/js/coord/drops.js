@@ -20,14 +20,12 @@
       s.off?.("request_status_changed");
 
       s.on("drop_created", (p) => {
-        console.log("[WS req] drop_created", p);
         if (shouldRefreshForStatus()) {
           document.querySelector("#btnLoadDrops")?.click();
         }
       });
       s.on("request_status_changed", (p) => {
         if (p?.type !== "DROP") return;
-        console.log("[WS req] request_status_changed", p);
         document.querySelector("#btnLoadDrops")?.click();
       });
     };
