@@ -2,6 +2,7 @@
 from flask import Blueprint, request, jsonify, make_response, current_app
 from itcj.core.utils.jwt_tools import encode_jwt, decode_jwt
 from itcj.core.services.auth_service import authenticate, authenticate_by_username
+from itcj.core.utils.decorators import api_auth_required
 
 api_auth_bp = Blueprint("api_auth", __name__)
 
@@ -41,6 +42,7 @@ def api_login():
     return resp
 
 @api_auth_bp.get("/me")
+@api_auth_required
 def api_me():
     token = request.cookies.get("itcj_token")
     data = decode_jwt(token) if token else None
@@ -52,6 +54,7 @@ def api_me():
     }})
 
 @api_auth_bp.post("/logout")
+@api_auth_required
 def api_logout():
     resp = make_response({}, 204)
     resp.set_cookie("itcj_token","",expires=0,httponly=True,

@@ -122,6 +122,10 @@ body {
   background: linear-gradient(135deg, var(--color-helpdesk) 0%, var(--color-helpdesk-dark) 100%);
 }
 
+.app-icon-itcj {
+  background: linear-gradient(135deg, #e61d1d 0%, #a50e0e 100%);
+}
+
 /* App Badges */
 .app-badge-core {
   background-color: var(--color-core);

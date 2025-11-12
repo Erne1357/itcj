@@ -285,6 +285,7 @@ def list_tickets(
     
     # PERMISOS: Determinar qué tickets puede ver
     if 'admin' in user_roles or 'secretary' in user_roles:
+        query = query.order_by(Ticket.created_at.desc())
         # Admin y secretaría ven todos
         pass
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
@@ -341,15 +342,8 @@ def list_tickets(
     if department_id:
         query = query.filter(Ticket.requester_department_id == department_id)
     
-    # ORDENAMIENTO: Prioridad + FIFO (created_at)
-    priority_order = db.case(
-        (Ticket.priority == 'URGENTE', 1),
-        (Ticket.priority == 'ALTA', 2),
-        (Ticket.priority == 'MEDIA', 3),
-        (Ticket.priority == 'BAJA', 4),
-        else_=5
-    )
-    query = query.order_by(priority_order, Ticket.created_at.asc())
+    # ORDENAMIENTO: FIFO (created_at)
+    query = query.order_by(Ticket.created_at.desc())
     
     # PAGINACIÓN
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)

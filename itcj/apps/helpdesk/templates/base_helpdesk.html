@@ -27,8 +27,8 @@
                             <span class="fw-bold text-white">CC</span>
                         </div>
                         <div class="d-none d-md-block">
-                            <div class="fw-bold text-white" style="font-size: 1.1rem;">Help-Desk</div>
-                            <small class="text-white-50" style="font-size: 0.75rem;">Centro de Cómputo</small>
+                            <div class="fw-bold text-white" style="font-size: 1.1rem;">{% block header_title %}Help-Desk{% endblock %}</div>
+                            <small class="text-white-50" style="font-size: 0.75rem;">{% block header_subtitle %}Centro de Cómputo{% endblock %}</small>
                         </div>
                     </a>
 
@@ -36,7 +36,8 @@
                     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#helpdeskNav">
                         <span class="navbar-toggler-icon"></span>
                     </button>
-
+                    {% block header_back %} {% endblock %}
+                    {% block header_actions %} {% endblock %}
                     <!-- Navegación -->
                     <div class="collapse navbar-collapse" id="helpdeskNav">
                         <ul class="navbar-nav ms-auto align-items-lg-center">

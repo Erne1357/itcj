@@ -32,7 +32,9 @@ def create_app():
 
     #Registrar comandos 
     from itcj.apps.helpdesk.commands import register_helpdesk_commands
+    from itcj.core.commands import register_commands
     register_helpdesk_commands(app)
+    register_commands(app)
 
     @app.before_request
     def load_current_user():

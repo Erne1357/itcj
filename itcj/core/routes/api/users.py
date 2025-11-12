@@ -110,7 +110,8 @@ def list_users():
         return _bad("internal_server_error", 500)
 
 @api_users_bp.post("")
-# @api_permission_required(app_key="core", perms=["users.create"]) # Usarías esto con el nuevo sistema de permisos
+@api_auth_required
+@api_role_required(["admin"])
 def create_user():
     """Crea un nuevo usuario (estudiante o personal)"""
     data = request.get_json()

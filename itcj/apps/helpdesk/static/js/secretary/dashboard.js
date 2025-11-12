@@ -161,15 +161,7 @@ function renderPendingTickets(tickets) {
         return;
     }
     
-    // Sort: URGENTE first, then by created_at
-    const sorted = [...tickets].sort((a, b) => {
-        const priorityOrder = { 'URGENTE': 0, 'ALTA': 1, 'MEDIA': 2, 'BAJA': 3 };
-        const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-        if (priorityDiff !== 0) return priorityDiff;
-        return new Date(a.created_at) - new Date(b.created_at);
-    });
-    
-    container.innerHTML = sorted.map(ticket => createPendingTicketCard(ticket)).join('');
+    container.innerHTML = tickets.map(ticket => createPendingTicketCard(ticket)).join('');
 }
 
 function createPendingTicketCard(ticket) {
@@ -752,9 +744,7 @@ function showTicketQuickView(ticketId) {
     const ticket = allPendingTickets.find(t => t.id === ticketId) || 
                    allActiveTickets.find(t => t.id === ticketId);
     
-    if (ticket) {
-        HelpdeskUtils.showToast(`Ticket ${ticket.ticket_number} - Click en "Asignar" para gestionar`, 'info');
-    }
+    window.location.href = `/help-desk/user/tickets/${ticketId}`;
 }
 window.showTicketQuickView = showTicketQuickView;
 

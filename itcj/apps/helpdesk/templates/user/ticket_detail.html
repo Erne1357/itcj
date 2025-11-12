@@ -19,6 +19,7 @@
         // Obtener el referrer o parámetro de URL
         const urlParams = new URLSearchParams(window.location.search);
         const fromParam = urlParams.get('from');
+        console.log('fromParam:', fromParam);
         const referrer = document.referrer;
 
         let backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}"; // Default fallback

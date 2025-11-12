@@ -6,7 +6,7 @@ from itcj.core.models.position import Position
 from itcj.core.models.role import Role
 from itcj.core.models.permission import Permission
 from itcj.core.models.user import User
-from itcj.core.utils.decorators import login_required
+from itcj.core.utils.decorators import login_required, role_required_page
 from itcj.core.extensions import db
 from sqlalchemy import or_
 
@@ -16,8 +16,7 @@ pages_config_bp = Blueprint('pages_config', __name__, template_folder='templates
 # Página principal de configuración
 @pages_config_bp.route("/config")
 @login_required
-# Decorador comentado para que cualquiera pueda acceder mientras configuramos
-# @role_required_page(["admin", "super_admin"])  
+@role_required_page(["admin"])
 def settings():
     """Panel principal de configuración del sistema"""
     apps = App.query.order_by(App.key.asc()).all()
@@ -34,9 +33,11 @@ def settings():
         "departments_count": departments_count
     }
     return render_template("config/index.html", **context)
+
 # Gestión de Apps
 @pages_config_bp.route("/config/apps")
 @login_required
+@role_required_page(["admin"])
 def apps_management():
     """Página de gestión de aplicaciones"""
     apps = App.query.order_by(App.key.asc()).all()
@@ -45,6 +46,7 @@ def apps_management():
 # Gestión de Roles
 @pages_config_bp.route("/config/roles")
 @login_required
+@role_required_page(["admin"])
 def roles_management():
     """Página de gestión de roles globales"""
     roles = Role.query.order_by(Role.name.asc()).all()
@@ -53,27 +55,25 @@ def roles_management():
 # Gestión de Permisos por App
 @pages_config_bp.route("/config/apps/<string:app_key>/permissions")
 @login_required
+@role_required_page(["admin"])
 def app_permissions(app_key):
     """Página de gestión de permisos de una app específica"""
     app = App.query.filter_by(key=app_key).first_or_404()
     permissions = Permission.query.filter_by(app_id=app.id).order_by(Permission.code.asc()).all()
     return render_template("config/permissions.html", app=app, permissions=permissions)
 
-#
-#  Gestión de Usuarios
+# Gestión de Usuarios
 @pages_config_bp.route("/config/users")
 @login_required
+@role_required_page(["admin"])
 def users_management():
     """Página de gestión de usuarios con paginación Y BÚSQUEDA"""
     page = request.args.get('page', 1, type=int)
-    # 1. Obtener el término de búsqueda de los argumentos de la URL
     query_string = request.args.get('q', '', type=str)
     per_page = 20
 
-    # 2. Construir la consulta base
     users_query = User.query
 
-    # 3. Si hay un término de búsqueda, aplicar filtros
     if query_string:
         search_term = f"%{query_string}%"
         users_query = users_query.filter(
@@ -85,7 +85,6 @@ def users_management():
             )
         )
 
-    # 4. Ordenar y paginar sobre la consulta (ya sea la original o la filtrada)
     pagination = users_query.order_by(User.full_name.asc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
@@ -100,14 +99,13 @@ def users_management():
         apps=apps, 
         roles=roles, 
         pagination=pagination,
-        # 5. Pasar el término de búsqueda de vuelta a la plantilla
         current_query=query_string
     )
-
 
 # Detalle de usuario específico
 @pages_config_bp.route("/config/users/<int:user_id>")
 @login_required
+@role_required_page(["admin"])
 def user_detail(user_id):
     """Página de detalle de un usuario específico con sus asignaciones"""
     user = User.query.get_or_404(user_id)
@@ -115,15 +113,16 @@ def user_detail(user_id):
     roles = Role.query.order_by(Role.name.asc()).all()
     return render_template("config/user_detail.html", user=user, apps=apps, roles=roles)
 
-
 @pages_config_bp.get("/config/departments")
 @login_required
-def positions_management():  # Mantener el nombre para no romper URLs existentes
-    """Vista principal de departamentos (era positions_management)"""
+@role_required_page(["admin"])
+def positions_management():
+    """Vista principal de departamentos"""
     return render_template("config/departments.html")
 
 @pages_config_bp.get("/config/departments/<int:department_id>")
 @login_required
+@role_required_page(["admin"])
 def department_detail(department_id):
     """Vista de detalle de un departamento con sus puestos"""
     dept = Department.query.get_or_404(department_id)
@@ -131,6 +130,7 @@ def department_detail(department_id):
 
 @pages_config_bp.get("/config/positions/<int:position_id>")
 @login_required
+@role_required_page(["admin"])
 def position_detail(position_id):
     """Vista de detalle/edición de un puesto"""
     from itcj.core.models.position import Position
