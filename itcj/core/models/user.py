@@ -4,7 +4,7 @@ class User(db.Model):
     __tablename__ = "core_users"
 
     id = db.Column(db.BigInteger, primary_key=True)
-    role_id = db.Column(db.Integer, db.ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="RESTRICT"), nullable=True)
 
     username = db.Column(db.Text, unique=True)  # nullable for students
     control_number = db.Column(db.CHAR(8), unique=True)  # nullable for staff
