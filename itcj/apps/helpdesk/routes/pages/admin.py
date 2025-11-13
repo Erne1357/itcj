@@ -9,7 +9,7 @@ from . import admin_pages_bp as bp
 
 
 @bp.route('/home')
-@web_app_required('helpdesk', perms=['helpdesk.admin.access'])
+@web_app_required('helpdesk', perms=['helpdesk.dashboard.admin'])
 def home():
     """
     Dashboard principal de administrador
@@ -75,7 +75,7 @@ def inventory_create():
 
 
 @bp.route('/inventory/categories')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.categories.manage'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory_categories.manage'])
 def inventory_categories():
     """
     Gestión de categorías de inventario
@@ -91,7 +91,7 @@ def inventory_categories():
 
 
 @bp.route('/inventory/reports')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.reports.view'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.export'])
 def inventory_reports():
     """
     Reportes de inventario

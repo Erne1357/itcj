@@ -29,7 +29,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "label": "Dashboard",
             "endpoint": "helpdesk_pages.secretary_pages.dashboard",
             "icon": "fa-tachometer-alt",
-            "permission": "helpdesk.secretary.dashboard",
+            "permission": "helpdesk.dashboard.secretary",
             "group": "secretary",
             "dropdown": [
                 {
@@ -65,7 +65,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "label": "Mi Dashboard",
             "endpoint": "helpdesk_pages.technician_pages.dashboard",
             "icon": "fa-clipboard-list",
-            "permission": "helpdesk.technician.dashboard",
+            "permission": "helpdesk.dashboard.technician",
             "group": "technician"
         },
         {
@@ -88,7 +88,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "label": "Dashboard Dept.",
             "endpoint": "helpdesk_pages.department_pages.tickets",
             "icon": "fa-building",
-            "permission": "helpdesk.department.dashboard",
+            "permission": "helpdesk.dashboard.department",
             "group": "department"
         },
         {
@@ -114,7 +114,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "label": "Gestión",
             "endpoint": "#",
             "icon": "fa-cog",
-            "permission": "helpdesk.admin.access",
+            "permission": "helpdesk.dashboard.admin",
             "group": "admin",
             "dropdown": [
                 {

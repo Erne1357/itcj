@@ -10,7 +10,7 @@ from . import technician_pages_bp as bp
 
 
 @bp.route('/dashboard')
-@web_app_required('helpdesk', perms=['helpdesk.technician.dashboard'])
+@web_app_required('helpdesk', perms=['helpdesk.dashboard.technician'])
 def dashboard():
     """
     Dashboard personal del técnico

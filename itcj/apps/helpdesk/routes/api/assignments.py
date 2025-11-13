@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== ASIGNAR TICKET ====================
 @assignments_api_bp.post('')
-@api_app_required('helpdesk', perms=['helpdesk.assign'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.assign'])
 def assign_ticket():
     """
     Asigna un ticket a un técnico o equipo (secretaría/admin).
@@ -75,7 +75,7 @@ def assign_ticket():
 
 # ==================== REASIGNAR TICKET ====================
 @assignments_api_bp.post('/<int:ticket_id>/reassign')
-@api_app_required('helpdesk', perms=['helpdesk.reassign'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.reassign'])
 def reassign_ticket(ticket_id):
     """
     Reasigna un ticket que ya estaba asignado.
@@ -165,7 +165,7 @@ def self_assign_ticket(ticket_id):
 
 # ==================== HISTORIAL DE ASIGNACIONES ====================
 @assignments_api_bp.get('/<int:ticket_id>/history')
-@api_app_required('helpdesk', perms=['helpdesk.all.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.all.read'])
 def get_assignment_history(ticket_id):
     """
     Obtiene el historial completo de asignaciones de un ticket.
@@ -250,7 +250,7 @@ def get_team_tickets(team_name):
 
 # ==================== OBTENER TÉCNICOS DISPONIBLES ====================
 @assignments_api_bp.get('/technicians/<string:area>')
-@api_app_required('helpdesk', perms=['helpdesk.assign'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.assign'])
 def get_available_technicians(area):
     """
     Obtiene la lista de técnicos disponibles para un área.
@@ -309,7 +309,7 @@ def get_available_technicians(area):
 
 # ==================== ESTADÍSTICAS DE ASIGNACIÓN ====================
 @assignments_api_bp.get('/stats')
-@api_app_required('helpdesk', perms=['helpdesk.all.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.all.read'])
 def get_assignment_stats():
     """
     Obtiene estadísticas de asignación de tickets.

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== CREAR TICKET ====================
 @tickets_api_bp.post('')
-@api_app_required('helpdesk', perms=['helpdesk.create'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.create'])
 def create_ticket():
     """
     Crea un nuevo ticket de soporte.
@@ -121,7 +121,7 @@ def create_ticket():
 
 # ==================== LISTAR TICKETS ====================
 @tickets_api_bp.get('')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def list_tickets():
     """
     Lista tickets según filtros y permisos del usuario.
@@ -183,7 +183,7 @@ def list_tickets():
 
 # ==================== OBTENER TICKET POR ID ====================
 @tickets_api_bp.get('/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def get_ticket(ticket_id):
     """
     Obtiene un ticket específico por ID.
@@ -217,7 +217,7 @@ def get_ticket(ticket_id):
 
 # ==================== INICIAR TRABAJO EN TICKET ====================
 @tickets_api_bp.post('/<int:ticket_id>/start')
-@api_app_required('helpdesk', perms=['helpdesk.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
 def start_ticket(ticket_id):
     """
     Técnico marca que comenzó a trabajar en el ticket (ASSIGNED → IN_PROGRESS).
@@ -266,7 +266,7 @@ def start_ticket(ticket_id):
 
 # ==================== RESOLVER TICKET ====================
 @tickets_api_bp.post('/<int:ticket_id>/resolve')
-@api_app_required('helpdesk', perms=['helpdesk.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
 def resolve_ticket(ticket_id):
     """
     Técnico resuelve el ticket.
@@ -320,7 +320,7 @@ def resolve_ticket(ticket_id):
 
 # ==================== CALIFICAR TICKET ====================
 @tickets_api_bp.post('/<int:ticket_id>/rate')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def rate_ticket(ticket_id):
     """
     Usuario califica el servicio del ticket.
@@ -386,7 +386,7 @@ def rate_ticket(ticket_id):
 
 # ==================== CANCELAR TICKET ====================
 @tickets_api_bp.post('/<int:ticket_id>/cancel')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def cancel_ticket(ticket_id):
     """
     Usuario cancela su ticket.
@@ -427,7 +427,7 @@ def cancel_ticket(ticket_id):
 
 # ==================== OBTENER COMENTARIOS ====================
 @tickets_api_bp.get('/<int:ticket_id>/comments')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def get_comments(ticket_id):
     """
     Obtiene los comentarios de un ticket.
@@ -469,7 +469,7 @@ def get_comments(ticket_id):
 
 # ==================== AGREGAR COMENTARIO ====================
 @tickets_api_bp.post('/<int:ticket_id>/comments')
-@api_app_required('helpdesk', perms=['helpdesk.comment'])
+@api_app_required('helpdesk', perms=['helpdesk.comments.create'])
 def add_comment(ticket_id):
     """
     Agrega un comentario a un ticket.

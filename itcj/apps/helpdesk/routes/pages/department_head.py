@@ -34,7 +34,7 @@ def inventory():
     return redirect(url_for('helpdesk_pages.inventory_pages.items_list'))
 
 @department_pages_bp.get('/tickets/<int:ticket_id>')
-@app_required('helpdesk', perms=['helpdesk.department.dashboard'])
+@app_required('helpdesk', perms=['helpdesk.tickets.department.read'])
 def ticket_detail(ticket_id):
     """Vista de detalle de ticket del departamento"""
     # Obtener el departamento del cual el usuario es jefe
@@ -63,7 +63,7 @@ def ticket_detail(ticket_id):
                          active_page='tickets')
 
 @department_pages_bp.get('/reports')
-@app_required('helpdesk', perms=['helpdesk.department.dashboard'])
+@app_required('helpdesk', perms=['helpdesk.dashboard.department'])
 def reports():
     """Vista de reportes del departamento"""
     # Obtener el departamento del cual el usuario es jefe
