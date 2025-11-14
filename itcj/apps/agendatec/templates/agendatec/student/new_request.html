@@ -1,0 +1,189 @@
+{% extends "agendatec/base.html" %}
+{% block title %}Alumno - Nueva solicitud{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/student/new_request.css') }}?v={{ static_version }}">
+{% endblock %}
+{% block content %}
+<div class="row g-3">
+    <div class="col-12 col-lg-10">
+        <a href="{{ url_for('agendatec_pages.student_pages.student_home') }}" class="btn btn-link p-0 mb-2">
+            <i class="bi bi-arrow-left"></i> Regresar
+        </a>
+
+        <div class="card shadow-sm mb-3 first-phase" id="stepType">
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2">
+                    <i class="bi bi-sliders2"></i> 1) ¿Qué deseas hacer?
+                </h5>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-primary" data-type="DROP">Baja</button>
+                    <button class="btn btn-outline-primary" data-type="APPOINTMENT">Alta</button>
+                    <button class="btn btn-outline-primary" data-type="BOTH">Alta y Baja</button>
+                </div>
+                <div id="typeHint" class="form-text mt-2"></div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-3" id="stepProgram" hidden>
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2">
+                    <i class="bi bi-mortarboard"></i> 2) Elige tu carrera
+                </h5>
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label">Programa</label>
+                        <select class="form-select" id="programSelect"></select>
+                    </div>
+                    <div class="col-12 col-sm">
+                        <button class="btn btn-outline-secondary" id="btnReloadPrograms">
+                            <i class="bi bi-arrow-repeat me-1"></i> Recargar
+                        </button>
+                    </div>
+                </div>
+
+
+
+            </div>
+        </div>
+        <div class="card shadow-sm mb-3" id="stepForms" hidden>
+            <div id="coordCard" class="mt-3" hidden>
+                <div class="card border-0 bg-light">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="bi bi-person-badge" style="font-size:1.6rem;"></i>
+                            <div>
+                                <h3 class="center">Coordinador</h3>
+                                <div class="fw-semibold" id="coordName">Coordinador</div>
+                                <div class="small text-muted" id="coordEmail"></div>
+                                <div class="small" id="coordHours"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2">
+                    <i class="bi bi-clipboard2-check"></i> 3) Detalles de la solicitud
+                </h5>
+                <div id="altaFields" class="mb-3" hidden>
+                    <h6 class="mb-2">Alta de materia</h6>
+                    <div class="row g-2">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label">Materia a dar de alta</label>
+                            <input type="text" class="form-control" id="altaMateria" placeholder="Ej. Cálculo Integral">
+                        </div>
+                        <div class="col-12 col-sm-6 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="altaNoSe" />
+                                <label class="form-check-label" for="altaNoSe">No sé qué materia quiero</label>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label">Horario de la materia (si lo conoces)</label>
+                            <input type="text" class="form-control" id="altaHorario" placeholder="Ej. Lu-Mi 9:00–10:50">
+                        </div>
+                    </div>
+                    <div class="form-text mt-1">
+                        Recuerda: la alta depende de cupos/requisitos, no siempre es posible.
+                    </div>
+                </div>
+
+                <div id="bajaFields" class="mb-3" hidden>
+                    <h6 class="mb-2">Baja de materia</h6>
+                    <div class="row g-2">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label">Materia a dar de baja</label>
+                            <input type="text" class="form-control" id="bajaMateria" placeholder="Ej. Física I">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label">Horario de la materia</label>
+                            <input type="text" class="form-control" id="bajaHorario"
+                                placeholder="Ej. Ma-Ju 11:00–12:50">
+                        </div>
+                    </div>
+                    <div class="form-text mt-1">
+                        Verifica que al dar de baja no quedes con <strong>&lt; 20 créditos</strong>.
+                    </div>
+                </div>
+                <!-- Boton para confirmar form-->
+                <button class="btn btn-primary" id="btnConfirmForms">
+                    <i class="bi bi-check2-circle me-1"></i> Confirmar detalles
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-3" id="stepCalendar" hidden>
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2">
+                    <i class="bi bi-calendar-event"></i> 4) Selecciona el día y el horario
+                </h5>
+
+                <div id="calendarBlock" class="expand-fade-enter">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label">Día disponible</label>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-outline-secondary day-btn" data-day="2025-08-25">25 Ago</button>
+                                <button class="btn btn-outline-secondary day-btn" data-day="2025-08-26">26 Ago</button>
+                                <button class="btn btn-outline-secondary day-btn" data-day="2025-08-27">27 Ago</button>
+                            </div>
+                            <div class="form-text">Los demás días están bloqueados.</div>
+                        </div>
+                    </div>
+
+                    <div id="slotsWrap" class="mt-3" hidden>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="fw-semibold">Horarios</div>
+                            <button class="btn btn-sm btn-outline-secondary" id="btnChangeDay">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Elegir otro día
+                            </button>
+                        </div>
+
+                        <!-- Leyenda compacta -->
+                        <div class="small text-muted mb-2">
+                            <span class="me-3">
+                                <span class="d-inline-block rounded-circle bg-secondary me-1"
+                                    style="width:10px;height:10px;vertical-align:middle;"></span>
+                                Disponible
+                            </span>
+                            <span class="me-3">
+                                <span class="d-inline-block rounded-circle bg-success me-1"
+                                    style="width:10px;height:10px;vertical-align:middle;"></span>
+                                Seleccionado
+                            </span>
+                            <span>
+                                <span class="d-inline-block rounded-circle bg-warning me-1"
+                                    style="width:10px;height:10px;vertical-align:middle;"></span>
+                                En espera
+                            </span>
+                        </div>
+
+                        <!-- Tabs por hora -->
+                        <ul class="nav nav-pills mb-2 flex-wrap gap-1 btn-outline-light" id="hourTabs"></ul>
+
+                        <!-- Contenedor de slots -->
+                        <div id="slotGrid" class="d-flex flex-wrap gap-2"></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="d-flex gap-2" id="actionBar" hidden>
+            <button id="btnSubmit" class="btn btn-primary" disabled>
+                 
+            </button>
+            <a href="{{ url_for('agendatec_pages.student_pages.student_home') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-x-circle me-1"></i> Cancelar
+            </a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='agendatec/js/student/request.js') }}?v={{ static_version }}"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ static_version }}"></script>
+{% endblock %}

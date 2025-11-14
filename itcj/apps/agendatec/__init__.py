@@ -57,7 +57,7 @@ def register_agendatec_error_handlers():
     def render_agendatec_error_page(status_code, message):
         # Marcar que estamos en un error handler para evitar loops en context processor
         request.is_error_handler = True
-        return render_template("errors/error_page.html",
+        return render_template("agendatec/errors/error_page.html",
                              code=status_code,
                              message=message), status_code
     

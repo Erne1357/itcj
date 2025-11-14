@@ -20,7 +20,7 @@ def tickets():
     department = managed_department['department']
     position = managed_department['position']
     
-    return render_template('department_head/dashboard.html', 
+    return render_template('helpdesk/department_head/dashboard.html', 
                          title=f"Departamento - {department['name']}", 
                          department=department,
                          position=position,
@@ -54,7 +54,7 @@ def ticket_detail(ticket_id):
     department = managed_department['department']
     position = managed_department['position']
     
-    return render_template('department_head/ticket_detail.html', 
+    return render_template('helpdesk/department_head/ticket_detail.html', 
                          title=f"Ticket #{ticket_id}",
                          ticket_id=ticket_id,
                          department=department,
@@ -78,7 +78,7 @@ def reports():
     department = managed_department['department']
     position = managed_department['position']
     
-    return render_template('department_head/reports.html', 
+    return render_template('helpdesk/department_head/reports.html', 
                          title=f"Reportes - {department['name']}", 
                          department=department,
                          position=position,

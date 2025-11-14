@@ -8,4 +8,4 @@ social_pages_bp = Blueprint("social_pages", __name__)
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.social_home.view"])
 def social_home():
-    return render_template("social/home.html", title="Servicio Social - Citas del día")
+    return render_template("agendatec/social/home.html", title="Servicio Social - Citas del día")

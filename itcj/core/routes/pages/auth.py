@@ -10,4 +10,4 @@ def login_page():
     if g.current_user:
         current_app.logger.warning(f"Usuario : {g.current_user}")
         return redirect(role_home(g.current_user.get('role')))
-    return render_template("auth/login.html")
+    return render_template("core/auth/login.html")

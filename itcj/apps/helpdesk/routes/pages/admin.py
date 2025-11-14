@@ -18,7 +18,7 @@ def home():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/home.html',
+        'helpdesk/admin/home.html',
         user_roles=user_roles,
         active_page='admin_home'
     )
@@ -38,7 +38,7 @@ def assign_tickets():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/assign_tickets.html',
+        'helpdesk/admin/assign_tickets.html',
         user_roles=user_roles,
         active_page='admin_assign_tickets'
     )
@@ -54,7 +54,7 @@ def all_tickets():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/all_tickets.html',
+        'helpdesk/admin/all_tickets.html',
         user_roles=user_roles,
         active_page='admin_tickets'
     )
@@ -70,7 +70,7 @@ def categories():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/categories.html',
+        'helpdesk/admin/categories.html',
         user_roles=user_roles,
         active_page='admin_categories'
     )
@@ -104,7 +104,7 @@ def inventory_categories():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/inventory_categories.html',
+        'helpdesk/admin/inventory_categories.html',
         user_roles=user_roles,
         active_page='admin_inventory_categories'
     )
@@ -120,7 +120,7 @@ def inventory_reports():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/inventory_reports.html',
+        'helpdesk/admin/inventory_reports.html',
         user_roles=user_roles,
         active_page='admin_inventory_reports'
     )
@@ -136,7 +136,7 @@ def stats():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/stats.html',
+        'helpdesk/admin/stats.html',
         user_roles=user_roles,
         active_page='admin_stats'
     )

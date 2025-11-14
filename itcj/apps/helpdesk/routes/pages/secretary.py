@@ -34,7 +34,7 @@ def dashboard():
         abort(403, description="Usuario sin departamento asignado")
     
     return render_template(
-        'secretary/dashboard.html',
+        'helpdesk/secretary/dashboard.html',
         title="Secretaría - Dashboard",
         department=department,
         department_name=department.name

@@ -14,25 +14,25 @@ def coord_index():
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.coord_dashboard.view"])
 def coord_home_page():
-    return render_template("coord/home.html", title="Coordinador - Dashboard")
+    return render_template("agendatec/coord/home.html", title="Coordinador - Dashboard")
 
 @coord_pages_bp.get("/appointments")
 @pw_changed_required
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.appointments.view"])
 def coord_appointments_page():
-    return render_template("coord/appointments.html", title="Coordinador - Citas del día")
+    return render_template("agendatec/coord/appointments.html", title="Coordinador - Citas del día")
 
 @coord_pages_bp.get("/drops")
 @pw_changed_required
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.drops.view"])
 def coord_drops_page():
-    return render_template("coord/drops.html", title="Coordinador - Drops")
+    return render_template("agendatec/coord/drops.html", title="Coordinador - Drops")
 
 @coord_pages_bp.get("/slots")
 @pw_changed_required
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.slots.view"])
 def coord_slots_page():
-    return render_template("coord/slots.html", title="Coordinador - Horario ")
+    return render_template("agendatec/coord/slots.html", title="Coordinador - Horario ")

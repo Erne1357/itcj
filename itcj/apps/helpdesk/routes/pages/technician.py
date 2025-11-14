@@ -19,7 +19,7 @@ def dashboard():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'technician/dashboard.html',
+        'helpdesk/technician/dashboard.html',
         user_roles=user_roles,
         active_page='tech_dashboard'
     )
@@ -35,7 +35,7 @@ def my_assignments():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'technician/my_assignments.html',
+        'helpdesk/technician/my_assignments.html',
         user_roles=user_roles,
         active_page='tech_assignments'
     )
@@ -51,7 +51,7 @@ def team():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'technician/team.html',
+        'helpdesk/technician/team.html',
         user_roles=user_roles,
         active_page='tech_team'
     )
@@ -67,7 +67,7 @@ def ticket_detail(ticket_id):
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'technician/ticket_detail.html',
+        'helpdesk/technician/ticket_detail.html',
         ticket_id=ticket_id,
         user_roles=user_roles,
         active_page='tech_assignments'

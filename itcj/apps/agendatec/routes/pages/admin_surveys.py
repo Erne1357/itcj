@@ -11,7 +11,7 @@ admin_surveys_pages = Blueprint("admin_surveys_pages", __name__, template_folder
 def admin_surveys():
     acct = read_account_info() or {}
     # Muestra estado de conexión y botones
-    return render_template("admin/surveys.html", ms_account=acct)
+    return render_template("agendatec/admin/surveys.html", ms_account=acct)
 
 @admin_surveys_pages.get("/auth/ms/login")
 @login_required

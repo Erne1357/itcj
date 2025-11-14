@@ -16,7 +16,7 @@ def create_ticket():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'user/create_ticket.html', 
+        'helpdesk/user/create_ticket.html', 
         title="Crear Ticket",
         user_roles=user_roles,
         active_page='create_ticket'
@@ -31,7 +31,7 @@ def my_tickets():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'user/my_tickets.html', 
+        'helpdesk/user/my_tickets.html', 
         title="Mis Tickets",
         user_roles=user_roles,
         active_page='my_tickets'
@@ -46,7 +46,7 @@ def ticket_detail(ticket_id):
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'user/ticket_detail.html', 
+        'helpdesk/user/ticket_detail.html', 
         title=f"Ticket #{ticket_id}", 
         ticket_id=ticket_id,
         user_roles=user_roles,

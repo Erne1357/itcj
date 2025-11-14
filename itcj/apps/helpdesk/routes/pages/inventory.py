@@ -19,7 +19,7 @@ def dashboard():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/dashboard.html',
+        'helpdesk/inventory/dashboard.html',
         user_roles=user_roles,
         active_page='inventory_dashboard'
     )
@@ -40,7 +40,7 @@ def items_list():
     can_view_all = 'admin' in user_roles or 'secretary' in user_roles
     
     return render_template(
-        'inventory/items_list.html',
+        'helpdesk/inventory/items_list.html',
         user_roles=user_roles,
         can_view_all=can_view_all,
         active_page='inventory_items'
@@ -57,7 +57,7 @@ def item_create():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/item_create.html',
+        'helpdesk/inventory/item_create.html',
         user_roles=user_roles,
         active_page='inventory_items'
     )
@@ -74,7 +74,7 @@ def item_detail(item_id):
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/item_detail.html',
+        'helpdesk/inventory/item_detail.html',
         item_id=item_id,
         user_roles=user_roles,
         active_page='inventory_items'
@@ -91,7 +91,7 @@ def my_equipment():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/my_equipment.html',
+        'helpdesk/inventory/my_equipment.html',
         user_roles=user_roles,
         active_page='inventory_my_equipment'
     )
@@ -107,7 +107,7 @@ def assign_equipment():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/assign_equipment.html',
+        'helpdesk/inventory/assign_equipment.html',
         user_roles=user_roles,
         active_page='inventory_assign'
     )
@@ -123,7 +123,7 @@ def warranty_report():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/reports/warranty.html',
+        'helpdesk/inventory/reports/warranty.html',
         user_roles=user_roles,
         active_page='inventory_reports'
     )
@@ -139,7 +139,7 @@ def maintenance_report():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/reports/maintenance.html',
+        'helpdesk/inventory/reports/maintenance.html',
         user_roles=user_roles,
         active_page='inventory_reports'
     )
@@ -155,7 +155,7 @@ def lifecycle_report():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/reports/lifecycle.html',
+        'helpdesk/inventory/reports/lifecycle.html',
         user_roles=user_roles,
         active_page='inventory_reports'
     )

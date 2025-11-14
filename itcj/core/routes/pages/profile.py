@@ -17,4 +17,4 @@ def profile():
     
     if not profile:
         return "Usuario no encontrado", 404
-    return render_template("profile/profile.html", profile=profile)
+    return render_template("core/profile/profile.html", profile=profile)

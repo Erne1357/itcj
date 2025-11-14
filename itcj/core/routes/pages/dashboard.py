@@ -11,4 +11,4 @@ pages_dashboard_bp = Blueprint("pages_dashboard", __name__)
 def dashboard():
     #if g.current_user:
     #    return redirect(role_home(g.current_user.get("role")))
-    return render_template("dashboard/dashboard.html")
+    return render_template("core/dashboard/dashboard.html")

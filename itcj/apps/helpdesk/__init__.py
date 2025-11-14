@@ -90,7 +90,6 @@ def inject_helpdesk_nav():
         except Exception as e:
             current_app.logger.warning(f"Error en context processor de Help-Desk: {e}")
             nav_items = []
-    current_app.logger.warning(f"Help-Desk navigation items: {nav_items} {user_roles=}")
     return {
         "helpdesk_nav_items": nav_items,
         "current_route": request.endpoint
@@ -103,7 +102,7 @@ def inject_helpdesk_nav():
 @login_required
 def home():
     """Landing page - entry point para todos los usuarios"""
-    return render_template("home_landing.html", title="Help-Desk")
+    return render_template("helpdesk/home_landing.html", title="Help-Desk")
 
 
 # ==================== REDIRECCIÓN POR ROL ====================
@@ -121,7 +120,7 @@ def redirect_by_role():
     
     # Prioridad de roles (de más específico a más general)
     if 'admin' in user_roles:
-        return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
+        return jsonify({'redirect': url_for('helpdesk_pages.admin_pages.home')}), 200
 
     elif 'secretary' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
