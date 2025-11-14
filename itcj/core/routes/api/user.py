@@ -27,7 +27,7 @@ def user_password_state():
     if not u:
         return jsonify({"error": "user_not_found"}), 404
     # Solo aplica para usuarios no estudiantes
-    if u.role.name == "student":
+    if user_roles_in_app(u.id, "itcj").__contains__("student"):
         return jsonify({"must_change": False})
     # Verifica si la contraseña del usuario es la por defecto
     must_change = verify_nip(DEFAULT_PASSWORD, u.nip_hash)
@@ -38,7 +38,7 @@ def user_password_state():
 @api_auth_required
 def change_password():
     u = _current_user()
-    if not u or u.role.name == "student":
+    if not u or user_roles_in_app(u.id, "itcj").__contains__("student"):
         return jsonify({"error": "unauthorized"}), 403
     
     try:
@@ -71,7 +71,10 @@ def get_current_user():
         return jsonify({"error": "user_not_found"}), 404
     
     # Obtener rol global (puedes ajustar según tu lógica)
-    global_role = u.role.name if hasattr(u, 'role') and u.role else "Usuario"
+    global_role = "Usuario"
+    roles_in_itcj = user_roles_in_app(u.id, "itcj")
+    if roles_in_itcj:
+        global_role = list(roles_in_itcj)[0]  # O ajusta según la lógica deseada
     
     apps_keys = App.query.with_entities(App.key).all()
     apps_keys = [app.key for app in apps_keys]
