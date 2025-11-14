@@ -4,6 +4,7 @@ from .core.extensions import db, migrate
 from werkzeug.exceptions import HTTPException
 from .core.utils.jwt_tools import encode_jwt, decode_jwt
 from itcj.core.utils.role_home import role_home
+from itcj.core.services.authz_service import user_roles_in_app
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -53,7 +54,7 @@ def create_app():
     def maybe_refresh_cookie(resp):
         if getattr(g, "_refresh_token", False) and g.current_user:
             new_token = encode_jwt(
-                {"sub": g.current_user["sub"], "role": g.current_user["role"],
+                {"sub": g.current_user["sub"], "role": user_roles_in_app(int(g.current_user["sub"]), 'itcj'),
                  "cn": g.current_user.get("cn"), "name": g.current_user.get("name")},
                 hours=current_app.config["JWT_EXPIRES_HOURS"]
             )
@@ -85,7 +86,7 @@ def create_app():
     @app.get("/")
     def home():
         if g.current_user:
-            return redirect(role_home(g.current_user.get("role")))
+            return redirect(role_home(user_roles_in_app(int(g.current_user["sub"]), 'itcj')))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor

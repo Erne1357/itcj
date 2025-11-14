@@ -29,6 +29,7 @@ def init_database_command():
             '07_insert_user.sql',
             '08_insert_role_positions_helpdesk.sql',
             '09_insert_user_positions.sql',
+            '10_insert_user_roles.sql'
         ]),
         ('app/database/DML/core/agendatec', [
             '01_insert_permissions.sql',
@@ -41,7 +42,8 @@ def init_database_command():
             '03_insert_role_permission.sql',
             '04_insert_categories.sql',
             '05_insert_inventory_categories.sql',
-            '06_insert_enhanced_inventory_categories.sql'
+            '06_insert_enhanced_inventory_categories.sql',
+            '07_insert_position_app_perm.sql'
         ])
     ]
     
