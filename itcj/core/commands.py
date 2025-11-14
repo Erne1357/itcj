@@ -27,7 +27,7 @@ def init_database_command():
             '05_insert_permissions.sql',
             '06_insert_role_permissions.sql',
             '07_insert_user.sql',
-            '08_insert_role_positions.sql',
+            '08_insert_role_positions_helpdesk.sql',
             '09_insert_user_positions.sql',
         ]),
         ('app/database/DML/core/agendatec', [

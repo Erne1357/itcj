@@ -26,37 +26,10 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
         
         # ==================== SECRETARÍA ====================
         {
-            "label": "Dashboard",
+            "label": "Mi Departamento",
             "endpoint": "helpdesk_pages.secretary_pages.dashboard",
-            "icon": "fa-tachometer-alt",
+            "icon": "fa-building",
             "permission": "helpdesk.dashboard.secretary",
-            "group": "secretary",
-            "dropdown": [
-                {
-                    "label": "Cola de Tickets",
-                    "endpoint": "helpdesk_pages.secretary_pages.dashboard",
-                    "icon": "fa-inbox",
-                    "fragment": "#queue"  # Para hacer scroll a sección
-                },
-                {
-                    "label": "Tickets Activos",
-                    "endpoint": "helpdesk_pages.secretary_pages.dashboard",
-                    "icon": "fa-tasks",
-                    "fragment": "#active"
-                },
-                {
-                    "label": "Técnicos",
-                    "endpoint": "helpdesk_pages.secretary_pages.dashboard",
-                    "icon": "fa-users",
-                    "fragment": "#technicians"
-                }
-            ]
-        },
-        {
-            "label": "Estadísticas",
-            "endpoint": "#",# "helpdesk_pages.secretary_pages.stats",
-            "icon": "fa-chart-bar",
-            "permission": "helpdesk.stats.view",
             "group": "secretary"
         },
         
@@ -111,6 +84,13 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
         
         # ==================== ADMIN ====================
         {
+            "label": "Asignar Tickets",
+            "endpoint": "helpdesk_pages.admin_pages.assign_tickets",
+            "icon": "fa-user-plus",
+            "permission": "helpdesk.tickets.assign",
+            "group": "admin"
+        },
+        {
             "label": "Gestión",
             "endpoint": "#",
             "icon": "fa-cog",
@@ -119,7 +99,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "dropdown": [
                 {
                     "label": "Dashboard Admin",
-                    "endpoint": "helpdesk_pages.secretary_pages.dashboard",  # Reusa secretary
+                    "endpoint": "helpdesk_pages.admin_pages.home",
                     "icon": "fa-tachometer-alt"
                 },
                 {
@@ -134,7 +114,7 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                 },
                 {
                     "label": "Estadísticas",
-                    "endpoint": "#",#"helpdesk_pages.secretary_pages.stats",
+                    "endpoint": "helpdesk_pages.admin_pages.stats",
                     "icon": "fa-chart-line"
                 }
             ]
@@ -154,17 +134,20 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                 {
                     "label": "Registrar Equipo",
                     "endpoint": "helpdesk_pages.admin_pages.inventory_create",
-                    "icon": "fa-plus"
+                    "icon": "fa-plus",
+                    "permission": "helpdesk.inventory.create"
                 },
                 {
                     "label": "Categorías Inv.",
                     "endpoint": "helpdesk_pages.admin_pages.inventory_categories",
-                    "icon": "fa-folder"
+                    "icon": "fa-folder",
+                    "permission": "helpdesk.inventory_categories.manage"
                 },
                 {
                     "label": "Reportes",
                     "endpoint": "helpdesk_pages.admin_pages.inventory_reports",
-                    "icon": "fa-file-export"
+                    "icon": "fa-file-export",
+                    "permission": "helpdesk.inventory.export"
                 }
             ]
         }

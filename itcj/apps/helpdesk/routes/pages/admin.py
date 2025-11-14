@@ -24,6 +24,26 @@ def home():
     )
 
 
+@bp.route('/assign-tickets')
+@web_app_required('helpdesk', perms=['helpdesk.tickets.assign'])
+def assign_tickets():
+    """
+    Vista para asignar y gestionar tickets (antes era secretaría)
+    
+    Requiere permiso específico: helpdesk.tickets.assign
+    - Admins lo tienen por defecto
+    - Posición secretary_comp_center lo tiene asignado
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'admin/assign_tickets.html',
+        user_roles=user_roles,
+        active_page='admin_assign_tickets'
+    )
+
+
 @bp.route('/tickets')
 @web_app_required('helpdesk', perms=['helpdesk.tickets.all.read'])
 def all_tickets():
