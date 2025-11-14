@@ -24,14 +24,14 @@ def dashboard():
     """
     user_id = int(g.current_user['sub'])
     
-    # Obtener usuario y su departamento
+    # Obtener usuario y su departamento a través de su puesto activo
     user = User.query.get(user_id)
-    if not user or not user.department_id:
-        abort(403, description="Usuario sin departamento asignado")
+    if not user:
+        abort(404, description="Usuario no encontrado")
     
-    department = Department.query.get(user.department_id)
+    department = user.get_current_department()
     if not department:
-        abort(404, description="Departamento no encontrado")
+        abort(403, description="Usuario sin departamento asignado")
     
     return render_template(
         'secretary/dashboard.html',
