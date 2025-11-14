@@ -5,7 +5,7 @@ from itcj.core.services import positions_service
 from . import department_pages_bp
 
 @department_pages_bp.get('/')
-@app_required('helpdesk', positions=['department_head'])
+@app_required('helpdesk', roles=['department_head'])
 def tickets():
     """Vista de tickets del departamento"""
     # Obtener el departamento del cual el usuario es jefe

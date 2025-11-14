@@ -219,7 +219,7 @@ def register_error_handlers(app):
         return request.path.startswith("/api/")
 
     def render_error_page(status_code, error_info):
-        return render_template("errors/core_error.html",
+        return render_template("core/errors/core_error.html",
                              error_code=status_code,
                              error_title=error_info['title'],
                              error_message=error_info['message']), status_code

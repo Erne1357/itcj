@@ -490,7 +490,7 @@ def get_user_managed_departments(user_id: int) -> List[Dict]:
             UserPosition.user_id == user_id,
             UserPosition.is_active == True,
             Position.is_active == True,
-            Position.code.like('head_%'),  # Filtrar solo puestos de jefe
+            or_(Position.code.like('head_%'),Position.code.like('subdirector_%'),Position.code.like('director')),  # Filtrar solo puestos de jefe
             Department.is_active == True
         )
         .all()
