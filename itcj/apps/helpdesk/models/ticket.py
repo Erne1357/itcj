@@ -27,7 +27,6 @@ class Ticket(db.Model):
     description = db.Column(db.Text, nullable=False)
     location = db.Column(db.String(200), nullable=True)  # Ubicación física (opcional)
     office_document_folio = db.Column(db.String(50), nullable=True)  # Folio de oficio (opcional)
-    inventory_item_id = db.Column(db.Integer, db.ForeignKey('helpdesk_inventory_items.id'), nullable=True, index=True)  # Ítem de inventario relacionado (opcional)
     # ==================== ESTADO Y ASIGNACIÓN ====================
     status = db.Column(db.String(30), nullable=False, default='PENDING', index=True)
     # Estados posibles:
@@ -80,8 +79,12 @@ class Ticket(db.Model):
     status_logs = db.relationship('StatusLog', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     
     #Inventario relacionado
-    inventory_item = db.relationship('InventoryItem', back_populates='tickets', lazy='joined')
-
+    ticket_items = db.relationship(
+        "TicketInventoryItem",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        lazy='dynamic'
+    )
     # ==================== TIEMPOS ====================
     # AUTOMÁTICO: Para métricas de servicio al usuario
     # (Ya definido arriba en TIMESTAMPS)
@@ -149,6 +152,16 @@ class Ticket(db.Model):
         
         return calculate_business_hours(created_at, resolved_at)
 
+    @property
+    def inventory_items(self):
+        """Lista de equipos relacionados con el ticket"""
+        return [ti.inventory_item for ti in self.ticket_items if ti.inventory_item]
+    
+    @property
+    def inventory_items_count(self):
+        """Cantidad de equipos relacionados"""
+        return self.ticket_items.count()
+
     def to_dict(self, include_relations=False, include_metrics=False):
         data = {
             'id': self.id,
@@ -190,23 +203,31 @@ class Ticket(db.Model):
                     'id': self.requester_department.id,
                     'name': self.requester_department.name
                 } if self.requester_department else None,
-                'inventory_item': {
-                    'id': self.inventory_item.id,
-                    'inventory_number': self.inventory_item.inventory_number,
-                    'display_name': self.inventory_item.display_name,
-                    'brand': self.inventory_item.brand,
-                    'model': self.inventory_item.model,
-                    'location_detail': self.inventory_item.location_detail,
-                    'category': {
-                        'id': self.inventory_item.category.id,
-                        'name': self.inventory_item.category.name,
-                        'icon': self.inventory_item.category.icon
-                    } if self.inventory_item.category else None,
-                    'assigned_to_user': {
-                        'id': self.inventory_item.assigned_to_user.id,
-                        'full_name': self.inventory_item.assigned_to_user.full_name,
-                    } if self.inventory_item.assigned_to_user else None
-                } if self.inventory_item else None,
+                'inventory_items': [
+                    {
+                        'id': item.id,
+                        'inventory_number': item.inventory_number,
+                        'display_name': item.display_name,
+                        'brand': item.brand,
+                        'model': item.model,
+                        'location_detail': item.location_detail,
+                        'category': {
+                            'id': item.category.id,
+                            'name': item.category.name,
+                            'icon': item.category.icon
+                        } if item.category else None,
+                        'assigned_to_user': {
+                            'id': item.assigned_to_user.id,
+                            'full_name': item.assigned_to_user.full_name,
+                        } if item.assigned_to_user else None,
+                        'group': {
+                            'id': item.group.id,
+                            'name': item.group.name,
+                            'code': item.group.code
+                        } if item.group else None
+                    } for item in self.inventory_items
+                ] if self.inventory_items else [],
+                'inventory_items_count': self.inventory_items_count, 
             })
         
         if include_metrics:
