@@ -166,12 +166,6 @@ class InventoryItem(db.Model):
         foreign_keys=[deactivated_by_id]
     )
     
-    # Relación con tickets
-    tickets = db.relationship(
-        "Ticket",
-        back_populates="inventory_item",
-        lazy='dynamic'
-    )
 
     ticket_items = db.relationship(
         "TicketInventoryItem",
@@ -287,6 +281,15 @@ class InventoryItem(db.Model):
             Ticket.id.in_(active_ticket_ids),
             ~Ticket.status.in_(['CLOSED', 'CANCELED'])
         ).count()
+    
+    @property
+    def tickets(self):
+        """Obtener tickets relacionados a través de la tabla intermedia"""
+        from itcj.apps.helpdesk.models.ticket import Ticket
+        ticket_ids = [ti.ticket_id for ti in self.ticket_items]
+        if not ticket_ids:
+            return []
+        return Ticket.query.filter(Ticket.id.in_(ticket_ids)).all()
 
     def to_dict(self, include_relations=False):
         """Serialización para API"""
