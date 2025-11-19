@@ -112,7 +112,7 @@ def create_ticket(
     priority: str = 'MEDIA',
     location: str = None,
     office_folio: str = None,
-    inventory_item_id: int = None,
+    inventory_item_ids: list = None,  # MODIFICADO: ahora es lista
     photo_file = None
 ) -> Ticket:
     """
@@ -127,6 +127,8 @@ def create_ticket(
         priority: 'BAJA', 'MEDIA', 'ALTA', 'URGENTE'
         location: Ubicación física (opcional)
         office_folio: Folio de oficio (opcional)
+        inventory_item_ids: Lista de IDs de equipos asociados (opcional)  # MODIFICADO
+        photo_file: Archivo de foto (opcional)
     
     Returns:
         Ticket creado
@@ -175,7 +177,7 @@ def create_ticket(
     # Generar número de ticket
     ticket_number = generate_ticket_number()
     
-    # Crear ticket
+    # Crear ticket (sin inventory_item_id, ahora es many-to-many)
     ticket = Ticket(
         ticket_number=ticket_number,
         requester_id=requester_id,
@@ -187,12 +189,24 @@ def create_ticket(
         description=description,
         location=location,
         office_document_folio=office_folio,
-        inventory_item_id=inventory_item_id,
+        # inventory_item_id=inventory_item_id,  # ELIMINADO: ya no existe este campo
         status='PENDING'
     )
     
     db.session.add(ticket)
     db.session.flush()  # Obtener ID antes de commit
+
+    # NUEVO: Asociar equipos si se proporcionaron
+    if inventory_item_ids:
+        try:
+            from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+            TicketInventoryService.add_items_to_ticket(ticket.id, inventory_item_ids)
+            logger.info(f"Ticket {ticket.ticket_number}: {len(inventory_item_ids)} equipos asociados")
+        except Exception as e:
+            logger.error(f"Error al asociar equipos al ticket {ticket.id}: {e}")
+            # No abortar, el ticket se crea sin equipos
+            db.session.rollback()
+            raise
 
     if photo_file:
         try: 
@@ -218,7 +232,6 @@ def create_ticket(
         db.session.rollback()
         logger.error(f"Error al crear ticket: {e}")
         abort(500, description='Error al crear ticket')
-
 
 # ==================== OBTENER TICKET ====================
 def get_ticket_by_id(ticket_id: int, user_id: int = None, check_permissions: bool = True) -> Ticket:

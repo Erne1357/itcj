@@ -26,11 +26,12 @@ def create_ticket():
             "priority": "BAJA" | "MEDIA" | "ALTA" | "URGENTE" (opcional),
             "location": str (opcional),
             "office_folio": str (opcional),
-            "inventory_item_id": int (opcional)
+            "inventory_item_ids": [int] (opcional) - Array de IDs de equipos
         }
     
     Body (FormData):
         Los mismos campos + "photo": archivo de imagen
+        Para inventory_item_ids usar: inventory_item_ids[] repetido o JSON string
     
     Returns:
         201: Ticket creado exitosamente
@@ -45,10 +46,21 @@ def create_ticket():
         for key in request.form:
             value = request.form[key]
             # Convertir a int si es necesario
-            if key in ['category_id', 'inventory_item_id']:
+            if key == 'category_id':
                 data[key] = int(value) if value else None
+            elif key == 'inventory_item_ids':
+                # Puede venir como JSON string
+                try:
+                    import json
+                    data[key] = json.loads(value)
+                except:
+                    data[key] = []
             else:
                 data[key] = value
+        
+        # Si viene como array HTML (inventory_item_ids[])
+        if 'inventory_item_ids[]' in request.form:
+            data['inventory_item_ids'] = request.form.getlist('inventory_item_ids[]', type=int)
         
         # Obtener archivo de foto
         photo_file = request.files.get('photo')
@@ -80,16 +92,23 @@ def create_ticket():
             'message': 'La descripción debe tener al menos 20 caracteres'
         }), 400
     
-    # Validar inventory_item_id si viene
-    inventory_item_id = data.get('inventory_item_id')
-    if inventory_item_id:
-        from itcj.apps.helpdesk.models import InventoryItem
-        item = InventoryItem.query.get(inventory_item_id)
-        if not item or not item.is_active:
+    # Validar inventory_item_ids si vienen (NUEVO: validar múltiples)
+    inventory_item_ids = data.get('inventory_item_ids', [])
+    if inventory_item_ids:
+        if not isinstance(inventory_item_ids, list):
             return jsonify({
-                'error': 'invalid_equipment',
-                'message': 'El equipo seleccionado no es válido'
+                'error': 'invalid_equipment_format',
+                'message': 'inventory_item_ids debe ser un array'
             }), 400
+        
+        from itcj.apps.helpdesk.models import InventoryItem
+        for item_id in inventory_item_ids:
+            item = InventoryItem.query.get(item_id)
+            if not item or not item.is_active:
+                return jsonify({
+                    'error': 'invalid_equipment',
+                    'message': f'El equipo {item_id} no es válido'
+                }), 400
     
     try:
         ticket = ticket_service.create_ticket(
@@ -101,8 +120,8 @@ def create_ticket():
             priority=data.get('priority', 'MEDIA'),
             location=data.get('location'),
             office_folio=data.get('office_folio'),
-            inventory_item_id=inventory_item_id,
-            photo_file=photo_file  # ← NUEVO
+            inventory_item_ids=inventory_item_ids,  # MODIFICADO: ahora es array
+            photo_file=photo_file
         )
         
         logger.info(f"Ticket {ticket.ticket_number} creado por usuario {user_id}")
@@ -526,4 +545,222 @@ def add_comment(ticket_id):
         
     except Exception as e:
         logger.error(f"Error al agregar comentario al ticket {ticket_id}: {e}")
+        raise
+
+    # ==================== GESTIÓN DE EQUIPOS EN TICKET ====================
+@tickets_api_bp.post('/<int:ticket_id>/equipment')
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+def add_equipment_to_ticket(ticket_id):
+    """
+    Agrega equipos a un ticket existente.
+    
+    Body:
+        {
+            "item_ids": [int]  # Array de IDs de equipos a agregar
+        }
+    
+    Returns:
+        200: Equipos agregados
+        400: Datos inválidos
+        403: Sin permiso
+        404: Ticket no encontrado
+    """
+    data = request.get_json()
+    user_id = int(g.current_user['sub'])
+    
+    if not data.get('item_ids') or not isinstance(data['item_ids'], list):
+        return jsonify({
+            'error': 'invalid_data',
+            'message': 'Se requiere item_ids como array'
+        }), 400
+    
+    try:
+        # Verificar permisos sobre el ticket
+        ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
+        
+        # Solo el requester, técnico asignado o admin puede agregar equipos
+        user_roles = user_roles_in_app(user_id, 'helpdesk')
+        if (ticket.requester_id != user_id and 
+            ticket.assigned_to_user_id != user_id and 
+            'admin' not in user_roles):
+            return jsonify({
+                'error': 'forbidden',
+                'message': 'No tienes permiso para modificar este ticket'
+            }), 403
+        
+        # Agregar equipos
+        from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+        added = TicketInventoryService.add_items_to_ticket(ticket_id, data['item_ids'])
+        
+        logger.info(f"{len(added)} equipos agregados al ticket {ticket_id}")
+        
+        return jsonify({
+            'message': f'{len(added)} equipos agregados al ticket',
+            'added_count': len(added),
+            'ticket': ticket.to_dict(include_relations=True)
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({
+            'error': 'validation_error',
+            'message': str(e)
+        }), 400
+    except Exception as e:
+        logger.error(f"Error al agregar equipos al ticket {ticket_id}: {e}")
+        return jsonify({
+            'error': 'operation_failed',
+            'message': str(e)
+        }), 500
+
+
+@tickets_api_bp.delete('/<int:ticket_id>/equipment/<int:item_id>')
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+def remove_equipment_from_ticket(ticket_id, item_id):
+    """
+    Remueve un equipo de un ticket.
+    
+    Params:
+        ticket_id: ID del ticket
+        item_id: ID del equipo a remover
+    
+    Returns:
+        200: Equipo removido
+        403: Sin permiso
+        404: Ticket o equipo no encontrado
+    """
+    user_id = int(g.current_user['sub'])
+    
+    try:
+        # Verificar permisos sobre el ticket
+        ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
+        
+        # Solo el requester, técnico asignado o admin pueden remover equipos
+        user_roles = user_roles_in_app(user_id, 'helpdesk')
+        if (ticket.requester_id != user_id and 
+            ticket.assigned_to_user_id != user_id and 
+            'admin' not in user_roles):
+            return jsonify({
+                'error': 'forbidden',
+                'message': 'No tienes permiso para modificar este ticket'
+            }), 403
+        
+        # Remover equipo
+        from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+        TicketInventoryService.remove_item_from_ticket(ticket_id, item_id)
+        
+        logger.info(f"Equipo {item_id} removido del ticket {ticket_id}")
+        
+        return jsonify({
+            'message': 'Equipo removido del ticket',
+            'ticket': ticket.to_dict(include_relations=True)
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({
+            'error': 'not_found',
+            'message': str(e)
+        }), 404
+    except Exception as e:
+        logger.error(f"Error al remover equipo del ticket {ticket_id}: {e}")
+        return jsonify({
+            'error': 'operation_failed',
+            'message': str(e)
+        }), 500
+
+
+@tickets_api_bp.put('/<int:ticket_id>/equipment')
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+def replace_ticket_equipment(ticket_id):
+    """
+    Reemplaza todos los equipos de un ticket.
+    
+    Body:
+        {
+            "item_ids": [int]  # Nueva lista completa de IDs de equipos
+        }
+    
+    Returns:
+        200: Equipos reemplazados
+        400: Datos inválidos
+        403: Sin permiso
+        404: Ticket no encontrado
+    """
+    data = request.get_json()
+    user_id = int(g.current_user['sub'])
+    
+    if not data.get('item_ids') or not isinstance(data['item_ids'], list):
+        return jsonify({
+            'error': 'invalid_data',
+            'message': 'Se requiere item_ids como array'
+        }), 400
+    
+    try:
+        # Verificar permisos sobre el ticket
+        ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
+        
+        # Solo el requester, técnico asignado o admin pueden reemplazar equipos
+        user_roles = user_roles_in_app(user_id, 'helpdesk')
+        if (ticket.requester_id != user_id and 
+            ticket.assigned_to_user_id != user_id and 
+            'admin' not in user_roles):
+            return jsonify({
+                'error': 'forbidden',
+                'message': 'No tienes permiso para modificar este ticket'
+            }), 403
+        
+        # Reemplazar equipos
+        from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+        replaced = TicketInventoryService.replace_ticket_items(ticket_id, data['item_ids'])
+        
+        logger.info(f"Equipos del ticket {ticket_id} reemplazados: {len(replaced)} nuevos")
+        
+        return jsonify({
+            'message': f'Equipos actualizados: {len(replaced)} equipos',
+            'equipment_count': len(replaced),
+            'ticket': ticket.to_dict(include_relations=True)
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({
+            'error': 'validation_error',
+            'message': str(e)
+        }), 400
+    except Exception as e:
+        logger.error(f"Error al reemplazar equipos del ticket {ticket_id}: {e}")
+        return jsonify({
+            'error': 'operation_failed',
+            'message': str(e)
+        }), 500
+
+
+@tickets_api_bp.get('/<int:ticket_id>/equipment')
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+def get_ticket_equipment(ticket_id):
+    """
+    Obtiene la lista de equipos asociados a un ticket.
+    
+    Params:
+        ticket_id: ID del ticket
+    
+    Returns:
+        200: Lista de equipos
+        403: Sin permiso
+        404: Ticket no encontrado
+    """
+    user_id = int(g.current_user['sub'])
+    
+    try:
+        # Verificar permisos sobre el ticket
+        ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
+        
+        # Obtener equipos
+        equipment = [item.to_dict(include_relations=True) for item in ticket.inventory_items]
+        
+        return jsonify({
+            'equipment': equipment,
+            'count': len(equipment)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error al obtener equipos del ticket {ticket_id}: {e}")
         raise
