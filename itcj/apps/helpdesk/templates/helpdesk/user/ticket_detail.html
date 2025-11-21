@@ -341,6 +341,39 @@
 {% endblock %}
 
 {% block modals %}
+<!-- Modal de Equipos Múltiples -->
+<div class="modal fade" id="equipmentListModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-laptop me-2"></i>Equipos Relacionados
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="equipment-modal-group-info" class="alert alert-info mb-3" style="display: none;">
+                    <!-- Info del grupo si aplica -->
+                </div>
+                
+                <!-- Lista de equipos -->
+                <div id="equipment-modal-list">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Cargando...</span>
+                        </div>
+                        <p class="text-muted mt-2">Cargando equipos...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <div class="modal fade" id="photoModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-centered">
         <div class="modal-content">

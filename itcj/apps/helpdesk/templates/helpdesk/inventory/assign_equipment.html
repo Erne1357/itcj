@@ -3,7 +3,8 @@
 {% block title %}Asignar Equipos - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/assign_equipment.css') }}?v={{ static_version }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/inventory/assign_equipment.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -34,7 +35,7 @@
 
     <!-- Main Content -->
     <div id="main-content" style="display: none;">
-        
+
         <!-- Estadísticas Rápidas -->
         <div class="row mb-4">
             <div class="col-md-3">
@@ -65,7 +66,7 @@
 
         <!-- Layout de 2 Columnas -->
         <div class="row">
-            
+
             <!-- Columna Izquierda: Usuarios -->
             <div class="col-lg-5 mb-4">
                 <div class="card shadow h-100">
@@ -76,15 +77,11 @@
                         <span class="badge badge-primary" id="users-count">0</span>
                     </div>
                     <div class="card-body">
-                        
+
                         <!-- Búsqueda de Usuarios -->
                         <div class="form-group">
-                            <input 
-                                type="text" 
-                                class="form-control" 
-                                id="search-users" 
-                                placeholder="Buscar usuario por nombre o email..."
-                            >
+                            <input type="text" class="form-control" id="search-users"
+                                placeholder="Buscar usuario por nombre o email...">
                         </div>
 
                         <!-- Lista de Usuarios -->
@@ -115,12 +112,12 @@
 
                         <!-- Equipos del Usuario Seleccionado -->
                         <div id="user-equipment-section" style="display: none;">
-                            
+
                             <!-- Equipos Asignados -->
                             <div class="mb-4">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h6 class="mb-0">
-                                        <i class="fas fa-user-check text-info"></i> 
+                                        <i class="fas fa-user-check text-info"></i>
                                         Equipos Asignados
                                         <span class="badge badge-info ml-2" id="assigned-count">0</span>
                                     </h6>
@@ -136,9 +133,8 @@
                             <div>
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h6 class="mb-0">
-                                        <i class="fas fa-box text-secondary"></i> 
+                                        <i class="fas fa-box text-secondary"></i>
                                         Equipos Disponibles (Globales)
-                                        <span class="badge badge-secondary ml-2" id="available-count">0</span>
                                     </h6>
                                     <button class="btn btn-sm btn-outline-primary" onclick="toggleFilters()">
                                         <i class="fas fa-filter"></i> Filtros
@@ -155,132 +151,191 @@
                                             </select>
                                         </div>
                                         <div class="col-md-6">
-                                            <input 
-                                                type="text" 
-                                                class="form-control form-control-sm" 
-                                                id="filter-equipment" 
-                                                placeholder="Buscar equipo..."
-                                            >
+                                            <input type="text" class="form-control form-control-sm"
+                                                id="filter-equipment" placeholder="Buscar equipo...">
                                         </div>
                                     </div>
                                 </div>
 
-                                <div id="available-equipment-list">
-                                    <!-- Se llenará con JavaScript -->
+                                <!-- Tabs de Equipos y Grupos -->
+                                <ul class="nav nav-tabs mt-3" id="equipmentTabs" role="tablist">
+                                    <li class="nav-item">
+                                        <a class="nav-link active" id="individual-tab" data-toggle="tab"
+                                            href="#individual-equipment" role="tab">
+                                            <i class="fas fa-laptop"></i> Equipos Individuales
+                                            <span class="badge badge-secondary ml-1" id="individual-count">0</span>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link" id="groups-tab" data-toggle="tab" href="#groups-equipment"
+                                            role="tab">
+                                            <i class="fas fa-layer-group"></i> Grupos
+                                            <span class="badge badge-info ml-1" id="groups-count">0</span>
+                                        </a>
+                                    </li>
+                                </ul>
+
+                                <div class="tab-content" id="equipmentTabsContent">
+                                    <!-- Tab: Equipos Individuales -->
+                                    <div class="tab-pane fade show active" id="individual-equipment" role="tabpanel">
+                                        <div id="individual-equipment-list" class="mt-3">
+                                            <!-- Se llenará con JavaScript -->
+                                        </div>
+                                    </div>
+
+                                    <!-- Tab: Grupos -->
+                                    <div class="tab-pane fade" id="groups-equipment" role="tabpanel">
+                                        <div id="groups-list" class="mt-3">
+                                            <!-- Se llenará con JavaScript -->
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
 
+            </div>
+
+        </div>
+    </div>
+    {% endblock %}
+
+    {% block modals %}
+    <!-- Modal: Confirmar Asignación -->
+    <div class="modal fade" id="assignModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-plus"></i> Confirmar Asignación
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form id="assign-form">
+                    <div class="modal-body">
+                        <input type="hidden" id="assign-item-id">
+                        <input type="hidden" id="assign-user-id">
+
+                        <div class="alert alert-info">
+                            <strong>Equipo:</strong> <span id="assign-item-name"></span><br>
+                            <strong>Usuario:</strong> <span id="assign-user-name"></span>
                         </div>
 
-                    </div>
-                </div>
-            </div>
+                        <div class="form-group">
+                            <label>Ubicación Específica</label>
+                            <input type="text" class="form-control" id="assign-location"
+                                placeholder="Ej: Oficina 205, Cubículo 3...">
+                            <small class="text-muted">Opcional: Especifica dónde estará el equipo</small>
+                        </div>
 
+                        <div class="form-group">
+                            <label>Notas</label>
+                            <textarea class="form-control" id="assign-notes" rows="2"
+                                placeholder="Razón de la asignación (opcional)..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-check"></i> Confirmar Asignación
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
-
     </div>
-</div>
 
-<!-- Modal: Confirmar Asignación -->
-<div class="modal fade" id="assignModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fas fa-user-plus"></i> Confirmar Asignación
-                </h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
+    <!-- Modal: Confirmar Liberación -->
+    <div class="modal fade" id="unassignModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-times"></i> Confirmar Liberación
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <form id="unassign-form">
+                    <div class="modal-body">
+                        <input type="hidden" id="unassign-item-id">
+
+                        <div class="alert alert-warning">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Atención:</strong> El equipo volverá a estar disponible como global del
+                            departamento.
+                        </div>
+
+                        <p><strong>Equipo:</strong> <span id="unassign-item-name"></span></p>
+                        <p><strong>Usuario actual:</strong> <span id="unassign-user-name"></span></p>
+
+                        <div class="form-group">
+                            <label>Razón de la liberación</label>
+                            <textarea class="form-control" id="unassign-notes" rows="2"
+                                placeholder="Explique por qué se libera el equipo..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-check"></i> Liberar Equipo
+                        </button>
+                    </div>
+                </form>
             </div>
-            <form id="assign-form">
+        </div>
+    </div>
+    <div class="modal fade" id="selectGroupEquipmentModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-layer-group"></i> Seleccionar Equipo del Grupo
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
                 <div class="modal-body">
-                    <input type="hidden" id="assign-item-id">
-                    <input type="hidden" id="assign-user-id">
+                    <input type="hidden" id="selected-group-id">
 
-                    <div class="alert alert-info">
-                        <strong>Equipo:</strong> <span id="assign-item-name"></span><br>
-                        <strong>Usuario:</strong> <span id="assign-user-name"></span>
+                    <!-- Info del Grupo -->
+                    <div class="alert alert-info mb-3">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-door-open fa-2x mr-3"></i>
+                            <div>
+                                <h6 class="mb-0 font-weight-bold" id="group-modal-name">Nombre del Grupo</h6>
+                                <small id="group-modal-description">Descripción</small>
+                            </div>
+                        </div>
                     </div>
 
+                    <!-- Búsqueda en grupo -->
                     <div class="form-group">
-                        <label>Ubicación Específica</label>
-                        <input 
-                            type="text" 
-                            class="form-control" 
-                            id="assign-location" 
-                            placeholder="Ej: Oficina 205, Cubículo 3..."
-                        >
-                        <small class="text-muted">Opcional: Especifica dónde estará el equipo</small>
+                        <input type="text" class="form-control" id="search-group-equipment"
+                            placeholder="Buscar en el grupo...">
                     </div>
 
-                    <div class="form-group">
-                        <label>Notas</label>
-                        <textarea 
-                            class="form-control" 
-                            id="assign-notes" 
-                            rows="2" 
-                            placeholder="Razón de la asignación (opcional)..."
-                        ></textarea>
+                    <!-- Lista de equipos del grupo -->
+                    <div id="group-equipment-list" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center py-4">
+                            <i class="fas fa-spinner fa-spin fa-2x text-info"></i>
+                            <p class="text-muted mt-2">Cargando equipos...</p>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="fas fa-check"></i> Confirmar Asignación
-                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cerrar</button>
                 </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Confirmar Liberación -->
-<div class="modal fade" id="unassignModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-warning">
-                <h5 class="modal-title">
-                    <i class="fas fa-user-times"></i> Confirmar Liberación
-                </h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
             </div>
-            <form id="unassign-form">
-                <div class="modal-body">
-                    <input type="hidden" id="unassign-item-id">
-
-                    <div class="alert alert-warning">
-                        <i class="fas fa-info-circle"></i>
-                        <strong>Atención:</strong> El equipo volverá a estar disponible como global del departamento.
-                    </div>
-
-                    <p><strong>Equipo:</strong> <span id="unassign-item-name"></span></p>
-                    <p><strong>Usuario actual:</strong> <span id="unassign-user-name"></span></p>
-
-                    <div class="form-group">
-                        <label>Razón de la liberación</label>
-                        <textarea 
-                            class="form-control" 
-                            id="unassign-notes" 
-                            rows="2" 
-                            placeholder="Explique por qué se libera el equipo..."
-                        ></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-warning">
-                        <i class="fas fa-check"></i> Liberar Equipo
-                    </button>
-                </div>
-            </form>
         </div>
     </div>
-</div>
-{% endblock %}
+    {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/assign.js') }}?v={{static_version}}"></script>
-{% endblock %}
+    {% block extra_js %}
+    <script src="{{ url_for('static', filename='helpdesk/js/inventory/assign_equipment.js') }}?v={{static_version}}"></script>
+    {% endblock %}

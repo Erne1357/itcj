@@ -131,6 +131,12 @@ class InventoryItem(db.Model):
         onupdate=db.func.now()
     )
     
+    created_at = db.Column(
+        db.DateTime,
+        server_default=db.func.now(),
+        nullable=False
+    )
+
     # Soft delete
     is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
     deactivated_at = db.Column(db.DateTime)
@@ -202,7 +208,7 @@ class InventoryItem(db.Model):
     @property
     def is_global(self):
         """¿Es global del departamento?"""
-        return self.assigned_to_user_id is None
+        return self.assigned_to_user_id is None and not self.is_in_group
     
     @property
     def display_name(self):
@@ -316,6 +322,7 @@ class InventoryItem(db.Model):
             'assigned_by': self.assigned_by.to_dict() if self.assigned_by else None,
             'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
             'is_active': self.is_active,
             # Propiedades calculadas
             'display_name': self.display_name,

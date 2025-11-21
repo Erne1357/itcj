@@ -859,9 +859,9 @@ function showNotFound() {
 }
 
 function showSuccess(message) {
-    alert(message); // Reemplazar con tu sistema de notificaciones
+    showToast(message, 'success'); // Reemplazar con tu sistema de notificaciones
 }
 
 function showError(message) {
-    alert(message);
+    showToast(message, 'error'); // Reemplazar con tu sistema de notificaciones
 }

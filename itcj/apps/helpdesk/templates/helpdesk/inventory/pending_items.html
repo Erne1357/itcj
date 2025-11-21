@@ -1,0 +1,302 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Equipos Pendientes - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/pending_items.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    
+    <!-- Header -->
+    <div class="pending-header shadow">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <h1 class="mb-2">
+                    <i class="fas fa-hourglass-half mr-2"></i>
+                    Equipos Pendientes de Asignación
+                </h1>
+                <p class="mb-0 opacity-75">
+                    Equipos registrados que aún no han sido asignados a un departamento
+                </p>
+            </div>
+            <div>
+                <span class="badge badge-light badge-lg">
+                    <i class="fas fa-inbox mr-1"></i>
+                    <span id="pending-count">0</span> pendientes
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Estadísticas Rápidas -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card border-left-warning shadow h-100">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                Total Pendientes
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-total">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-hourglass-half fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card border-left-info shadow h-100">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                Seleccionados
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-selected">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-check-square fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card border-left-primary shadow h-100">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                Categorías
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-categories">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-tags fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card border-left-success shadow h-100">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                Asignados Hoy
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-assigned-today">0</div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-user-check fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filtros y Acciones -->
+    <div class="card shadow mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <input 
+                        type="text" 
+                        class="form-control" 
+                        id="search-input" 
+                        placeholder="Buscar por número, marca, modelo, serie..."
+                    >
+                </div>
+                <div class="col-md-3">
+                    <select class="form-control" id="category-filter">
+                        <option value="">Todas las categorías</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-control" id="sort-filter">
+                        <option value="newest">Más recientes</option>
+                        <option value="oldest">Más antiguos</option>
+                        <option value="category">Por categoría</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-success btn-block" id="assign-selected-btn" onclick="openBulkAssignModal()" disabled>
+                        <i class="fas fa-users"></i> Asignar Seleccionados
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading-container" class="text-center py-5">
+        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <p class="text-muted">Cargando equipos pendientes...</p>
+    </div>
+
+    <!-- Tabla de Equipos Pendientes -->
+    <div id="table-container" class="card shadow mb-4" style="display: none;">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-warning">
+                <i class="fas fa-list"></i> Equipos en Limbo
+            </h6>
+            <div>
+                <button class="btn btn-sm btn-outline-primary" onclick="selectAll()">
+                    <i class="fas fa-check-square"></i> Seleccionar Todo
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="deselectAll()">
+                    <i class="fas fa-square"></i> Deseleccionar Todo
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" id="pending-table">
+                    <thead class="thead-light">
+                        <tr>
+                            <th style="width: 50px;">
+                                <input type="checkbox" id="select-all-checkbox" class="form-check-input">
+                            </th>
+                            <th>N° Inventario</th>
+                            <th>Categoría</th>
+                            <th>Equipo</th>
+                            <th>Serie</th>
+                            <th>Registrado</th>
+                            <th>Registrado Por</th>
+                            <th class="text-center" style="width: 200px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Se llenará con JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" style="display: none;" class="text-center py-5">
+        <i class="fas fa-check-circle fa-4x text-success mb-3"></i>
+        <h4 class="text-muted">¡Todo asignado!</h4>
+        <p class="text-muted">No hay equipos pendientes de asignación</p>
+    </div>
+</div>
+
+<!-- Modal: Asignar a Departamento (Individual) -->
+<div class="modal fade" id="assignModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-building"></i> Asignar a Departamento
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="assign-form">
+                <div class="modal-body">
+                    <input type="hidden" id="assign-item-id">
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Equipo:</strong> <span id="assign-item-number"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="required-field">Departamento de Destino</label>
+                        <select class="form-control" id="assign-department" required>
+                            <option value="">Seleccionar departamento...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Notas</label>
+                        <textarea 
+                            class="form-control" 
+                            id="assign-notes" 
+                            rows="3"
+                            placeholder="Observaciones sobre esta asignación..."
+                        ></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Asignar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Asignación Masiva -->
+<div class="modal fade" id="bulkAssignModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-users"></i> Asignación Masiva
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="bulk-assign-form">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Se asignarán <strong id="bulk-count">0</strong> equipo(s) al departamento seleccionado
+                    </div>
+
+                    <div class="form-group">
+                        <label class="required-field">Departamento de Destino</label>
+                        <select class="form-control" id="bulk-department" required>
+                            <option value="">Seleccionar departamento...</option>
+                        </select>
+                    </div>
+
+                    <!-- Preview de equipos seleccionados -->
+                    <div class="form-group">
+                        <label>Equipos a Asignar:</label>
+                        <div id="bulk-items-preview" class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+                            <!-- Se llenará con JavaScript -->
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Notas</label>
+                        <textarea 
+                            class="form-control" 
+                            id="bulk-notes" 
+                            rows="2"
+                            placeholder="Observaciones generales..."
+                        ></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Asignar Todo
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/pending_items.js') }}?v={{static_version}}"></script>
+{% endblock %}

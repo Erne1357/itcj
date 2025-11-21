@@ -276,5 +276,5 @@ function getEventBadge(eventType) {
 
 function showError(message) {
     // Implementar notificación de error (toastr, sweetalert, etc.)
-    alert(message);
+    showToast(message, 'error');
 }

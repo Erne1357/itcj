@@ -21,6 +21,10 @@ import itcj.apps.helpdesk.routes.api.inventory.inventory_dashboard
 import itcj.apps.helpdesk.routes.api.inventory.inventory_history
 import itcj.apps.helpdesk.routes.api.inventory.inventory_items
 import itcj.apps.helpdesk.routes.api.inventory.inventory_stats
+import itcj.apps.helpdesk.routes.api.inventory.inventory_groups
+import itcj.apps.helpdesk.routes.api.inventory.inventory_bulk
+import itcj.apps.helpdesk.routes.api.inventory.inventory_pending
+import itcj.apps.helpdesk.routes.api.inventory.inventory_selection
 
 inventory_api_bp.register_blueprint(inventory_categories, url_prefix='/categories')
 inventory_api_bp.register_blueprint(inventory_history, url_prefix='/history')

@@ -22,7 +22,7 @@ def get_pending_items():
         
         return jsonify({
             'success': True,
-            'items': [item.to_dict(include_relations=True) for item in items]
+            'data': [item.to_dict(include_relations=True) for item in items]
         }), 200
         
     except Exception as e:

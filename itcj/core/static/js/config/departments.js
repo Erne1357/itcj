@@ -30,7 +30,7 @@ class DepartmentsManager {
             
             // Departamentos - Académica
             'basic_sciences': 'bi-calculator',
-            'mechanical_eng': 'bi-tools',
+            'metal_mechanics': 'bi-tools',
             'elec_electronics': 'bi-lightning',
             'academic_dev': 'bi-journal-check',
             'sys_computing': 'bi-code-slash',

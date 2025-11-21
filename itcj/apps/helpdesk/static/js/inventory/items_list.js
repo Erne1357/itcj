@@ -432,7 +432,7 @@ async function handleChangeStatus(e) {
     const notes = document.getElementById('status-notes').value;
 
     if (!newStatus) {
-        alert('Debes seleccionar un estado');
+        showToast('Debes seleccionar un estado', 'error');
         return;
     }
 
@@ -463,7 +463,7 @@ async function handleChangeStatus(e) {
 
 // ==================== EXPORTAR ====================
 function exportToExcel() {
-    alert('Función de exportación en desarrollo');
+    showToast('Función de exportación en desarrollo', 'info');
     // TODO: Implementar exportación a Excel
 }
 
@@ -526,11 +526,11 @@ function hideLoading() {
 
 function showSuccess(message) {
     // Implementar con tu librería de notificaciones (toastr, sweetalert, etc.)
-    alert(message);
+    showToast(message, 'success');
 }
 
 function showError(message) {
-    alert(message);
+    showToast(message, 'error');
 }
 
 function debounce(func, wait) {

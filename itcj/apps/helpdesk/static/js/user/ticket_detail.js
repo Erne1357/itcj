@@ -11,25 +11,25 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==================== LOAD TICKET DETAIL ====================
 async function loadTicketDetail() {
     showState('loading');
-    
+
     try {
         // Load ticket data
         const ticketResponse = await HelpdeskUtils.api.getTicket(ticketId);
         currentTicket = ticketResponse.ticket;
-        
+
         // Load comments
         const commentsResponse = await HelpdeskUtils.api.getComments(ticketId);
         const comments = commentsResponse.comments || [];
-        
+
         // Render everything
         renderTicketDetail(currentTicket);
         renderComments(comments);
         renderStatusTimeline(currentTicket);
         renderAssignmentInfo(currentTicket);
         renderActionButtons(currentTicket);
-        
+
         showState('main');
-        
+
     } catch (error) {
         console.error('Error loading ticket:', error);
         showError(error.message || 'No se pudo cargar el ticket');
@@ -53,10 +53,10 @@ function renderTicketDetail(ticket) {
     document.getElementById('ticketNumber').innerHTML = `
         <i class="fas fa-ticket-alt me-2 text-primary"></i>${ticket.ticket_number}
     `;
-    
+
     // Title
     document.getElementById('ticketTitle').textContent = ticket.title;
-    
+
     // Badges
     document.getElementById('ticketBadges').innerHTML = `
         ${HelpdeskUtils.getStatusBadge(ticket.status)}
@@ -64,26 +64,26 @@ function renderTicketDetail(ticket) {
         ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
         ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
     `;
-    
+
     // Dates
     document.getElementById('ticketCreated').textContent = HelpdeskUtils.formatDate(ticket.created_at);
     document.getElementById('ticketUpdated').textContent = HelpdeskUtils.formatTimeAgo(ticket.updated_at);
-    
+
     // Location (optional)
     if (ticket.location) {
         document.getElementById('locationContainer').style.display = '';
         document.getElementById('ticketLocation').textContent = ticket.location;
     }
-    
+
     // Folio (optional)
     if (ticket.office_document_folio) {
         document.getElementById('folioContainer').style.display = '';
         document.getElementById('ticketFolio').textContent = ticket.office_document_folio;
     }
-    
+
     // Description
     document.getElementById('ticketDescription').textContent = ticket.description;
-    
+
 
     // Resolution (if exists)
     if (ticket.resolution_notes) {
@@ -92,7 +92,7 @@ function renderTicketDetail(ticket) {
         document.getElementById('resolvedBy').textContent = ticket.resolved_by?.full_name || 'N/A';
         document.getElementById('resolvedAt').textContent = HelpdeskUtils.formatDate(ticket.resolved_at);
     }
-    
+
     // Rating (if exists)
     if (ticket.rating) {
         document.getElementById('ratingContainer').classList.remove('d-none');
@@ -103,15 +103,19 @@ function renderTicketDetail(ticket) {
             document.getElementById('ratingComment').textContent = 'Sin comentarios adicionales';
         }
     }
-    if (ticket.inventory_item) {
+    if (ticket.inventory_items && ticket.inventory_items.length > 0) {
+        // Múltiples equipos
+        renderEquipmentInfo(ticket.inventory_items);
+    } else if (ticket.inventory_item) {
+        // Un solo equipo (compatibilidad con versión anterior)
         renderEquipmentInfo(ticket.inventory_item);
     }
-    
+
     // Photo Attachment (if exists)
     loadPhotoAttachment(ticket.id);
     // Quick Actions Menu
     renderQuickActions(ticket);
-    
+
     // Show comment form if ticket is open
     const isOpen = !['CLOSED', 'CANCELED'].includes(ticket.status);
     document.getElementById('addCommentForm').classList.toggle('d-none', !isOpen);
@@ -120,7 +124,7 @@ function renderTicketDetail(ticket) {
 function renderQuickActions(ticket) {
     const menu = document.getElementById('quickActions');
     let html = '';
-    
+
     // Refresh
     html += `
         <li>
@@ -129,7 +133,7 @@ function renderQuickActions(ticket) {
             </a>
         </li>
     `;
-    
+
     // Print
     html += `
         <li>
@@ -138,7 +142,7 @@ function renderQuickActions(ticket) {
             </a>
         </li>
     `;
-    
+
     menu.innerHTML = html;
 }
 
@@ -146,9 +150,9 @@ function renderQuickActions(ticket) {
 function renderComments(comments) {
     const container = document.getElementById('commentsList');
     const countBadge = document.getElementById('commentsCount');
-    
+
     countBadge.textContent = comments.length;
-    
+
     if (comments.length === 0) {
         container.innerHTML = `
             <div class="text-center text-muted py-4">
@@ -158,7 +162,7 @@ function renderComments(comments) {
         `;
         return;
     }
-    
+
     container.innerHTML = comments.map(comment => `
         <div class="comment-bubble ${comment.author.id === currentTicket.requester.id ? 'own' : ''}">
             <div class="d-flex justify-content-between align-items-start">
@@ -178,26 +182,26 @@ function renderComments(comments) {
 async function addComment() {
     const textarea = document.getElementById('newCommentText');
     const content = textarea.value.trim();
-    
+
     if (!content) {
         HelpdeskUtils.showToast('Escribe un comentario', 'warning');
         return;
     }
-    
+
     const btn = document.getElementById('btnAddComment');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    
+
     try {
         await HelpdeskUtils.api.addComment(ticketId, content);
-        
+
         HelpdeskUtils.showToast('Comentario agregado', 'success');
         textarea.value = '';
-        
+
         // Reload comments
         const commentsResponse = await HelpdeskUtils.api.getComments(ticketId);
         renderComments(commentsResponse.comments || []);
-        
+
     } catch (error) {
         console.error('Error adding comment:', error);
         HelpdeskUtils.showToast(error.message || 'Error al agregar comentario', 'error');
@@ -210,7 +214,7 @@ async function addComment() {
 // ==================== RENDER STATUS TIMELINE ====================
 function renderStatusTimeline(ticket) {
     const container = document.getElementById('statusTimeline');
-    
+
     // Define status flow
     const statusFlow = [
         { status: 'PENDING', label: 'Creado', icon: 'fa-plus-circle' },
@@ -219,17 +223,17 @@ function renderStatusTimeline(ticket) {
         { status: 'RESOLVED_SUCCESS', label: 'Resuelto', icon: 'fa-check-circle' },
         { status: 'CLOSED', label: 'Cerrado', icon: 'fa-lock' }
     ];
-    
+
     const currentStatusIndex = statusFlow.findIndex(s => s.status === ticket.status);
-    
+
     container.innerHTML = `
         <div class="timeline">
             ${statusFlow.map((item, index) => {
-                const isPast = index < currentStatusIndex;
-                const isCurrent = index === currentStatusIndex;
-                const isActive = isPast || isCurrent;
-                
-                return `
+        const isPast = index < currentStatusIndex;
+        const isCurrent = index === currentStatusIndex;
+        const isActive = isPast || isCurrent;
+
+        return `
                     <div class="timeline-item ${isCurrent ? 'active' : ''} ${!isActive ? 'text-muted' : ''}">
                         <div class="timeline-item-content">
                             <i class="fas ${item.icon} me-2"></i>
@@ -238,7 +242,7 @@ function renderStatusTimeline(ticket) {
                         </div>
                     </div>
                 `;
-            }).join('')}
+    }).join('')}
         </div>
     `;
 }
@@ -246,7 +250,7 @@ function renderStatusTimeline(ticket) {
 // ==================== RENDER ASSIGNMENT INFO ====================
 function renderAssignmentInfo(ticket) {
     const container = document.getElementById('assignmentInfo');
-    
+
     if (ticket.assigned_to) {
         const initials = ticket.assigned_to.name.split(' ').map(n => n[0]).join('').substring(0, 2);
         container.innerHTML = `
@@ -281,10 +285,10 @@ function renderAssignmentInfo(ticket) {
 function renderActionButtons(ticket) {
     const container = document.getElementById('actionButtons');
     let html = '';
-    
+
     const canRate = ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(ticket.status) && !ticket.rating;
     const canCancel = ['PENDING', 'ASSIGNED'].includes(ticket.status);
-    
+
     if (canRate) {
         html += `
             <button class="btn btn-warning btn-lg btn-action" onclick="openRatingModal()">
@@ -292,7 +296,7 @@ function renderActionButtons(ticket) {
             </button>
         `;
     }
-    
+
     if (canCancel) {
         html += `
             <button class="btn btn-outline-danger btn-action" onclick="openCancelModal()">
@@ -300,20 +304,20 @@ function renderActionButtons(ticket) {
             </button>
         `;
     }
-    
+
     container.innerHTML = html;
 }
 
 // ==================== RATING MODAL ====================
 function setupRatingModal() {
     document.querySelectorAll('.star-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             currentRating = parseInt(this.dataset.rating);
             updateStarButtons();
             document.getElementById('btnSubmitRating').disabled = false;
         });
     });
-    
+
     document.getElementById('btnSubmitRating').addEventListener('click', submitRating);
 }
 
@@ -322,7 +326,7 @@ function openRatingModal() {
     updateStarButtons();
     document.getElementById('ratingCommentInput').value = '';
     document.getElementById('btnSubmitRating').disabled = true;
-    
+
     const modal = new bootstrap.Modal(document.getElementById('ratingModal'));
     modal.show();
 }
@@ -342,33 +346,33 @@ function updateStarButtons() {
 
 async function submitRating() {
     if (currentRating === 0) return;
-    
+
     const btn = document.getElementById('btnSubmitRating');
     const originalText = btn.innerHTML;
-    
+
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Enviando...';
-    
+
     try {
         const comment = document.getElementById('ratingCommentInput').value.trim();
-        
+
         await HelpdeskUtils.api.rateTicket(ticketId, {
             rating: currentRating,
             comment: comment || null
         });
-        
+
         HelpdeskUtils.showToast('¡Gracias por tu calificación!', 'success');
-        
+
         const modal = bootstrap.Modal.getInstance(document.getElementById('ratingModal'));
         modal.hide();
-        
+
         // Reload ticket
         await loadTicketDetail();
-        
+
     } catch (error) {
         console.error('Error submitting rating:', error);
         HelpdeskUtils.showToast(error.message || 'Error al enviar calificación', 'error');
-        
+
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
@@ -388,47 +392,59 @@ function openCancelModal() {
 async function confirmCancel() {
     const btn = document.getElementById('btnConfirmCancel');
     const originalText = btn.innerHTML;
-    
+
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Cancelando...';
-    
+
     try {
         const reason = document.getElementById('cancelReason').value.trim();
-        
+
         await HelpdeskUtils.api.cancelTicket(ticketId, reason || null);
-        
+
         HelpdeskUtils.showToast('Ticket cancelado exitosamente', 'success');
-        
+
         const modal = bootstrap.Modal.getInstance(document.getElementById('cancelModal'));
         modal.hide();
-        
+
         // Reload ticket
         await loadTicketDetail();
-        
+
     } catch (error) {
         console.error('Error canceling ticket:', error);
         HelpdeskUtils.showToast(error.message || 'Error al cancelar ticket', 'error');
-        
+
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
 }
-function renderEquipmentInfo(equipment) {
+async function renderEquipmentInfo(equipmentData) {
     const container = document.getElementById('equipmentInfo');
     const card = document.getElementById('equipmentCard');
-    
-    if (!equipment) {
+
+    // Si no hay equipos, ocultar card
+    if (!equipmentData || (Array.isArray(equipmentData) && equipmentData.length === 0)) {
         card.style.display = 'none';
         return;
     }
-    
+
     // Mostrar card
     card.style.display = 'block';
-    
-    // Icono según categoría
+
+    // Determinar si son múltiples equipos o uno solo
+    const isMultiple = Array.isArray(equipmentData);
+
+    if (isMultiple) {
+        // Múltiples equipos (de un grupo)
+        renderMultipleEquipmentPreview(equipmentData, container);
+    } else {
+        // Equipo individual
+        renderSingleEquipmentPreview(equipmentData, container);
+    }
+}
+
+function renderSingleEquipmentPreview(equipment, container) {
     const icon = equipment.category?.icon || 'fas fa-laptop';
-    
-    // Información del propietario
+
     let ownerHtml = '';
     if (equipment.assigned_to_user) {
         ownerHtml = `
@@ -446,7 +462,7 @@ function renderEquipmentInfo(equipment) {
             </div>
         `;
     }
-    
+
     container.innerHTML = `
         <div class="d-flex align-items-start gap-3">
             <div class="equipment-icon-detail">
@@ -475,25 +491,181 @@ function renderEquipmentInfo(equipment) {
     `;
 }
 
+function renderMultipleEquipmentPreview(equipmentList, container) {
+    // Obtener información del grupo si todos los equipos pertenecen al mismo
+    const firstEquipment = equipmentList[0];
+    const groupInfo = firstEquipment.group || null;
+
+    container.innerHTML = `
+        <div class="multiple-equipment-preview" onclick="openEquipmentListModal()">
+            <div class="d-flex align-items-start gap-3">
+                <div class="equipment-icon-detail">
+                    <i class="fas fa-layer-group"></i>
+                </div>
+                <div class="flex-grow-1">
+                    ${groupInfo ? `
+                        <div class="fw-bold text-info mb-1">
+                            <i class="fas fa-door-open me-1"></i>${groupInfo.name}
+                        </div>
+                        <small class="text-muted d-block mb-2">${groupInfo.description || 'Grupo de equipos'}</small>
+                    ` : `
+                        <div class="fw-bold text-primary mb-1">Equipos Múltiples</div>
+                    `}
+                    <div class="mb-2">
+                        <span class="badge bg-success">
+                            <i class="fas fa-laptop me-1"></i>${equipmentList.length} equipos
+                        </span>
+                    </div>
+                    ${groupInfo && (groupInfo.building || groupInfo.floor) ? `
+                        <div>
+                            <small class="text-muted">
+                                <i class="fas fa-map-marker-alt me-1"></i>
+                                ${[groupInfo.building, groupInfo.floor ? `Piso ${groupInfo.floor}` : ''].filter(Boolean).join(' - ')}
+                            </small>
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="ms-auto">
+                    <i class="fas fa-chevron-right text-muted"></i>
+                </div>
+            </div>
+            <div class="mt-3 pt-3 border-top">
+                <small class="text-primary">
+                    <i class="fas fa-hand-pointer me-1"></i>
+                    Click para ver detalles de todos los equipos
+                </small>
+            </div>
+        </div>
+    `;
+}
+
+function openEquipmentListModal() {
+    if (!currentTicket || !currentTicket.inventory_items || currentTicket.inventory_items.length === 0) {
+        return;
+    }
+
+    const modal = new bootstrap.Modal(document.getElementById('equipmentListModal'));
+
+    // Renderizar lista de equipos
+    renderEquipmentModalList(currentTicket.inventory_items);
+
+    modal.show();
+}
+
+function renderEquipmentModalList(equipmentList) {
+    const listContainer = document.getElementById('equipment-modal-list');
+    const groupInfoContainer = document.getElementById('equipment-modal-group-info');
+
+    // Verificar si hay info de grupo
+    const firstEquipment = equipmentList[0];
+    if (firstEquipment.group) {
+        groupInfoContainer.style.display = 'block';
+        groupInfoContainer.innerHTML = `
+            <div class="d-flex align-items-center">
+                <i class="fas fa-door-open fa-2x me-3 text-info"></i>
+                <div>
+                    <h6 class="mb-0 fw-bold">${firstEquipment.group.name}</h6>
+                    <small class="text-muted">${firstEquipment.group.description || ''}</small>
+                    ${firstEquipment.group.building || firstEquipment.group.floor ? `
+                        <div class="mt-1">
+                            <span class="badge bg-light text-dark">
+                                <i class="fas fa-map-marker-alt me-1"></i>
+                                ${[firstEquipment.group.building, firstEquipment.group.floor ? `Piso ${firstEquipment.group.floor}` : ''].filter(Boolean).join(' - ')}
+                            </span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    } else {
+        groupInfoContainer.style.display = 'none';
+    }
+
+    // Renderizar equipos
+    listContainer.innerHTML = equipmentList.map(equipment => {
+        const icon = equipment.category?.icon || 'fas fa-laptop';
+
+        return `
+            <div class="equipment-modal-item">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="equipment-modal-icon">
+                        <i class="${icon}"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-primary mb-1">${equipment.inventory_number}</div>
+                        <div class="mb-2">
+                            <strong>${equipment.brand || 'N/A'} ${equipment.model || ''}</strong>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <span class="badge bg-info">
+                                <i class="fas fa-tag me-1"></i>${equipment.category?.name || 'Sin categoría'}
+                            </span>
+                            ${equipment.serial_number ? `
+                                <span class="badge bg-light text-dark">
+                                    <i class="fas fa-barcode me-1"></i>${equipment.serial_number}
+                                </span>
+                            ` : ''}
+                            ${getEquipmentStatusBadge(equipment.status)}
+                        </div>
+                        ${equipment.assigned_to_user ? `
+                            <div class="mb-1">
+                                <small class="text-muted">
+                                    <i class="fas fa-user me-1"></i>${equipment.assigned_to_user.full_name}
+                                </small>
+                            </div>
+                        ` : `
+                            <div class="mb-1">
+                                <small class="text-muted">
+                                    <i class="fas fa-building me-1"></i>Global del Departamento
+                                </small>
+                            </div>
+                        `}
+                        ${equipment.location_detail ? `
+                            <div>
+                                <small class="text-muted">
+                                    <i class="fas fa-map-marker-alt me-1"></i>${equipment.location_detail}
+                                </small>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function getEquipmentStatusBadge(status) {
+    const statusMap = {
+        'ACTIVE': { class: 'success', text: 'Activo' },
+        'MAINTENANCE': { class: 'warning', text: 'Mantenimiento' },
+        'DAMAGED': { class: 'danger', text: 'Dañado' },
+        'RETIRED': { class: 'secondary', text: 'Retirado' },
+        'LOST': { class: 'dark', text: 'Extraviado' },
+        'PENDING_ASSIGNMENT': { class: 'info', text: 'Pendiente' }
+    };
+    const config = statusMap[status] || { class: 'secondary', text: status };
+    return `<span class="badge bg-${config.class}">${config.text}</span>`;
+}
+
 // ==================== LOAD AND RENDER PHOTO ====================
 async function loadPhotoAttachment(ticketId) {
     try {
         const response = await HelpdeskUtils.api.getAttachments(ticketId);
         const attachments = response.attachments || [];
-        
+
         if (attachments.length === 0) {
             return; // No hay foto
         }
-        
+
         // Tomar el primer attachment (asumiendo que es la única foto)
         const photo = attachments[0];
-        
+
         // Mostrar container
         document.getElementById('photoContainer').style.display = 'block';
-        
+
         // Renderizar thumbnail
         renderPhotoThumbnail(photo);
-        
+
     } catch (error) {
         console.error('Error loading photo:', error);
         // No mostrar error al usuario, simplemente no mostrar la foto
@@ -502,10 +674,10 @@ async function loadPhotoAttachment(ticketId) {
 
 function renderPhotoThumbnail(photo) {
     const container = document.getElementById('photoThumbnail');
-    
+
     // URL para descargar/ver la foto
     const photoUrl = `/api/help-desk/v1/attachments/${photo.id}/download`;
-    
+
     container.innerHTML = `
         <div class="photo-thumbnail" onclick="openPhotoModal('${photoUrl}')">
             <img src="${photoUrl}" alt="Foto del problema" class="img-thumbnail">

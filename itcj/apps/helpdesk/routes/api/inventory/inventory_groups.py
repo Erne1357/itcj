@@ -2,6 +2,7 @@
 API para gestión de grupos de inventario (salones, laboratorios, etc.)
 """
 from flask import Blueprint, request, jsonify, g
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 from itcj.apps.helpdesk.models import InventoryGroup, InventoryCategory
@@ -18,6 +19,16 @@ inventory_groups_api_bp = Blueprint('inventory_groups_api', __name__)
 def get_all_groups():
     """Obtiene todos los grupos de inventario (solo admin)"""
     try:
+        user_id = int(g.current_user['sub'])
+        user_roles = user_roles_in_app(user_id, 'helpdesk')
+        
+        # Solo admin puede ver todos los grupos sin restricción
+        if 'admin' not in user_roles:
+            return jsonify({
+                'success': False,
+                'error': 'No tiene permisos para ver todos los grupos'
+            }), 403
+        
         include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
         department_id = request.args.get('department_id', type=int)
         
@@ -26,14 +37,14 @@ def get_all_groups():
         if not include_inactive:
             query = query.filter_by(is_active=True)
         
-        if department_id:
+        if department_id is not None:
             query = query.filter_by(department_id=department_id)
         
         groups = query.order_by(InventoryGroup.name).all()
         
         return jsonify({
             'success': True,
-            'groups': [g.to_dict(include_capacities=True) for g in groups]
+            'data': [g.to_dict(include_capacities=True) for g in groups]
         }), 200
         
     except Exception as e:
@@ -47,24 +58,25 @@ def get_groups_by_department(department_id):
     """Obtiene grupos de un departamento específico"""
     try:
         user_id = int(g.current_user['sub'])
+        user_roles = user_roles_in_app(user_id, 'helpdesk')
         
         # Validar acceso: solo puede ver su departamento a menos que sea admin
-        from itcj.core.services.authz_service import user_has_permission
-        if not user_has_permission(user_id, 'helpdesk', 'helpdesk.inventory_groups.view'):
+        if 'admin' not in user_roles:
             # Si no es admin, validar que sea su departamento
-            from itcj.core.models import UserPosition, Position
-            user_dept_ids = [
-                pos.position.department_id 
-                for pos in UserPosition.query.filter_by(user_id=user_id).all()
-            ]
-            if department_id not in user_dept_ids:
-                return jsonify({'success': False, 'error': 'No autorizado'}), 403
+            from itcj.core.services.departments_service import get_user_department
+            user_dept = get_user_department(user_id)
+            
+            if not user_dept or user_dept.id != department_id:
+                return jsonify({
+                    'success': False, 
+                    'error': 'No tiene permisos para ver grupos de este departamento'
+                }), 403
         
         groups = InventoryGroupService.get_groups_by_department(department_id)
         
         return jsonify({
             'success': True,
-            'groups': [g.to_dict(include_capacities=True) for g in groups]
+            'data': [g.to_dict(include_capacities=True) for g in groups]
         }), 200
         
     except Exception as e:
@@ -86,7 +98,7 @@ def get_group_detail(group_id):
         
         return jsonify({
             'success': True,
-            'group': group.to_dict(include_items=include_items, include_capacities=True)
+            'data': group.to_dict(include_items=include_items, include_capacities=True)
         }), 200
         
     except Exception as e:
@@ -105,7 +117,7 @@ def get_group_items(group_id):
         
         return jsonify({
             'success': True,
-            'items': [item.to_dict(include_relations=True) for item in items]
+            'data': [item.to_dict(include_relations=True) for item in items]
         }), 200
         
     except Exception as e:
@@ -133,7 +145,7 @@ def create_group():
         return jsonify({
             'success': True,
             'message': 'Grupo creado exitosamente',
-            'group': group.to_dict(include_capacities=True)
+            'data': group.to_dict(include_capacities=True)
         }), 201
         
     except ValueError as e:
@@ -155,7 +167,7 @@ def update_group(group_id):
         return jsonify({
             'success': True,
             'message': 'Grupo actualizado exitosamente',
-            'group': group.to_dict(include_capacities=True)
+            'data': group.to_dict(include_capacities=True)
         }), 200
         
     except ValueError as e:
@@ -180,7 +192,7 @@ def update_capacities(group_id):
         return jsonify({
             'success': True,
             'message': 'Capacidades actualizadas exitosamente',
-            'group': group.to_dict(include_capacities=True)
+            'data': group.to_dict(include_capacities=True)
         }), 200
         
     except ValueError as e:
@@ -229,7 +241,7 @@ def assign_item_to_group(group_id):
         return jsonify({
             'success': True,
             'message': 'Equipo asignado al grupo exitosamente',
-            'item': item.to_dict(include_relations=True)
+            'data': item.to_dict(include_relations=True)
         }), 200
         
     except ValueError as e:
@@ -251,7 +263,7 @@ def unassign_item_from_group(item_id):
         return jsonify({
             'success': True,
             'message': 'Equipo removido del grupo exitosamente',
-            'item': item.to_dict(include_relations=True)
+            'data': item.to_dict(include_relations=True)
         }), 200
         
     except ValueError as e:

@@ -169,7 +169,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         // Load tickets stats
-        const ticketsRes = await fetch('/api/help-desk/tickets');
+        const ticketsRes = await fetch('/api/help-desk/v1/tickets');
         const ticketsData = await ticketsRes.json();
         
         document.getElementById('totalTickets').textContent = ticketsData.total || 0;
@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function generateTicketsReport() {
     // TODO: Implement ticket report generation
-    alert('Funcionalidad de reportes próximamente');
+    showToast('Funcionalidad de reportes próximamente', 'info');
 }
 </script>
 {% endblock %}

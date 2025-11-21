@@ -12,9 +12,10 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="h3 mb-0 text-gray-800">
-                <i class="fas fa-plus-circle fa-fw"></i> Registrar Nuevo Equipo
+                <i class="fas fa-plus-circle fa-fw"></i> 
+                <span id="page-title">Registrar Nuevo Equipo</span>
             </h1>
-            <p class="text-muted mb-0">Complete la información del equipo para agregarlo al inventario</p>
+            <p class="text-muted mb-0" id="page-subtitle">Complete la información del equipo para agregarlo al inventario</p>
         </div>
         <div>
             <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary">
@@ -23,10 +24,29 @@
         </div>
     </div>
 
+    <!-- Selector de Modo -->
+    <div class="mode-selector text-center">
+        <div class="btn-group btn-group-lg" role="group">
+            <button type="button" class="mode-btn active" id="mode-individual-btn" onclick="switchMode('individual')">
+                <i class="fas fa-box mr-2"></i>
+                Registro Individual
+            </button>
+            <button type="button" class="mode-btn" id="mode-bulk-btn" onclick="switchMode('bulk')">
+                <i class="fas fa-boxes mr-2"></i>
+                Registro Masivo
+            </button>
+        </div>
+        <p class="text-muted mt-2 mb-0">
+            <small id="mode-description">Registra un equipo con toda su información detallada</small>
+        </p>
+    </div>
+
     <div class="row">
         <!-- Formulario Principal -->
         <div class="col-lg-8">
-            <form id="create-item-form">
+            
+            <!-- ==================== MODO INDIVIDUAL ==================== -->
+            <form id="create-item-form" style="display: block;">
                 
                 <!-- SECCIÓN 1: Categoría y Número -->
                 <div class="form-section">
@@ -262,78 +282,329 @@
                 </div>
 
             </form>
+
+            <!-- ==================== MODO MASIVO ==================== -->
+            <form id="bulk-create-form" style="display: none;">
+                
+                <!-- SECCIÓN: Configuración General -->
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <i class="fas fa-cog"></i> Configuración del Registro Masivo
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Registro Masivo:</strong> Todos los equipos compartirán la misma categoría, marca y modelo. 
+                        Los números de inventario se generarán automáticamente de forma secuencial.
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="required-field">Categoría</label>
+                                <select class="form-control" id="bulk-category-id" required>
+                                    <option value="">Seleccionar categoría...</option>
+                                    <!-- Se llenará con JavaScript -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="required-field">Cantidad de Equipos</label>
+                                <input 
+                                    type="number" 
+                                    class="form-control form-control-lg" 
+                                    id="bulk-quantity" 
+                                    min="2" 
+                                    max="100" 
+                                    value="10"
+                                    required
+                                >
+                                <small class="form-text text-muted">
+                                    Mínimo 2, máximo 100 equipos
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Marca (Común)</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="bulk-brand" 
+                                    placeholder="HP, Dell, Lenovo..."
+                                >
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Modelo (Común)</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="bulk-model" 
+                                    placeholder="OptiPlex 7090, Vostro 3681..."
+                                >
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: Asignación -->
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <i class="fas fa-map-marker-alt"></i> Ubicación y Destino
+                    </div>
+
+                    <div class="form-group">
+                        <label>Destino de los Equipos</label>
+                        <select class="form-control" id="bulk-destination-type">
+                            <option value="pending">Dejar Pendientes (Limbo)</option>
+                            <option value="department">Asignar a Departamento</option>
+                            <option value="group">Asignar a Grupo/Salón</option>
+                        </select>
+                        <small class="form-text text-muted">
+                            Define dónde se ubicarán los equipos registrados
+                        </small>
+                    </div>
+
+                    <!-- Asignación a Departamento -->
+                    <div id="bulk-department-section" style="display: none;">
+                        <div class="form-group">
+                            <label class="required-field">Departamento</label>
+                            <select class="form-control" id="bulk-department-id">
+                                <option value="">Seleccionar departamento...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Ubicación Específica</label>
+                            <input 
+                                type="text" 
+                                class="form-control" 
+                                id="bulk-location-detail" 
+                                placeholder="Ej: Laboratorio de Sistemas"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Asignación a Grupo -->
+                    <div id="bulk-group-section" style="display: none;">
+                        <div class="form-group">
+                            <label class="required-field">Departamento del Grupo</label>
+                            <select class="form-control" id="bulk-group-department-id">
+                                <option value="">Seleccionar departamento...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="required-field">Grupo/Salón</label>
+                            <select class="form-control" id="bulk-group-id">
+                                <option value="">Primero selecciona un departamento</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Los equipos se agregarán a este grupo automáticamente
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: Información Adicional -->
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <i class="fas fa-sticky-note"></i> Información Adicional (Opcional)
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Fecha de Adquisición</label>
+                                <input 
+                                    type="date" 
+                                    class="form-control" 
+                                    id="bulk-acquisition-date"
+                                >
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Vencimiento de Garantía</label>
+                                <input 
+                                    type="date" 
+                                    class="form-control" 
+                                    id="bulk-warranty-expiration"
+                                >
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Observaciones Generales</label>
+                        <textarea 
+                            class="form-control" 
+                            id="bulk-notes" 
+                            rows="3"
+                            placeholder="Notas que aplicarán a todos los equipos..."
+                        ></textarea>
+                    </div>
+                </div>
+
+                <!-- Botones -->
+                <div class="d-flex justify-content-between mb-5">
+                    <button type="button" class="btn btn-outline-secondary" onclick="window.history.back()">
+                        <i class="fas fa-times"></i> Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-success btn-lg" id="bulk-submit-btn">
+                        <i class="fas fa-boxes"></i> Registrar <span id="bulk-btn-quantity">0</span> Equipos
+                    </button>
+                </div>
+
+            </form>
+
         </div>
 
         <!-- Panel Lateral - Preview y Ayuda -->
         <div class="col-lg-4">
-            <!-- Preview de Número de Inventario -->
-            <div class="card shadow mb-4">
-                <div class="card-body inventory-preview">
-                    <div class="text-uppercase mb-2" style="font-size: 0.9rem; opacity: 0.9;">
-                        Número de Inventario
+            
+            <!-- PREVIEW MODO INDIVIDUAL -->
+            <div id="individual-preview">
+                <!-- Preview de Número de Inventario -->
+                <div class="card shadow mb-4">
+                    <div class="card-body inventory-preview">
+                        <div class="text-uppercase mb-2" style="font-size: 0.9rem; opacity: 0.9;">
+                            Número de Inventario
+                        </div>
+                        <div class="number" id="preview-inventory-number">
+                            ---
+                        </div>
+                        <div class="mt-2" style="font-size: 0.85rem; opacity: 0.8;">
+                            Se generará al guardar
+                        </div>
                     </div>
-                    <div class="number" id="preview-inventory-number">
-                        ---
+                </div>
+
+                <!-- Estado Inicial -->
+                <div class="card shadow mb-4">
+                    <div class="card-header">
+                        <h6 class="m-0 font-weight-bold text-primary">
+                            <i class="fas fa-toggle-on"></i> Estado Inicial
+                        </h6>
                     </div>
-                    <div class="mt-2" style="font-size: 0.85rem; opacity: 0.8;">
-                        Se generará al guardar
+                    <div class="card-body">
+                        <div class="text-center py-3">
+                            <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                            <h5 class="text-success mb-0">ACTIVO</h5>
+                            <p class="text-muted mb-0">
+                                <small>El equipo se registrará con estado activo</small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tips -->
+                <div class="card shadow">
+                    <div class="card-header">
+                        <h6 class="m-0 font-weight-bold text-info">
+                            <i class="fas fa-lightbulb"></i> Consejos
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <small>El número de serie debe ser único</small>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <small>Las especificaciones ayudan al soporte técnico</small>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <small>La ubicación facilita localizar el equipo</small>
+                            </li>
+                            <li class="mb-0">
+                                <i class="fas fa-check text-success mr-2"></i>
+                                <small>Registra la garantía para recibir alertas</small>
+                            </li>
+                        </ul>
                     </div>
                 </div>
             </div>
 
-            <!-- Estado Inicial -->
-            <div class="card shadow mb-4">
-                <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-primary">
-                        <i class="fas fa-toggle-on"></i> Estado Inicial
-                    </h6>
+            <!-- PREVIEW MODO MASIVO -->
+            <div id="bulk-preview" style="display: none;">
+                <!-- Preview de Cantidad -->
+                <div class="card shadow mb-4">
+                    <div class="card-body text-center">
+                        <div class="text-uppercase mb-2" style="font-size: 0.9rem; opacity: 0.7;">
+                            Equipos a Registrar
+                        </div>
+                        <div class="quantity-preview" id="preview-bulk-quantity">
+                            0
+                        </div>
+                        <div class="mt-2" style="font-size: 0.85rem; opacity: 0.7;">
+                            equipos del mismo tipo
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <div class="text-center py-3">
-                        <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
-                        <h5 class="text-success mb-0">ACTIVO</h5>
-                        <p class="text-muted mb-0">
-                            <small>El equipo se registrará con estado activo</small>
-                        </p>
+
+                <!-- Resumen -->
+                <div class="card shadow mb-4">
+                    <div class="card-header">
+                        <h6 class="m-0 font-weight-bold text-success">
+                            <i class="fas fa-list-check"></i> Resumen
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="bulk-summary">
+                            <p class="text-muted"><small>Configura el registro masivo para ver el resumen</small></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tips Masivo -->
+                <div class="card shadow">
+                    <div class="card-header">
+                        <h6 class="m-0 font-weight-bold text-warning">
+                            <i class="fas fa-exclamation-triangle"></i> Importante
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="fas fa-check text-warning mr-2"></i>
+                                <small>Los números se generan automáticamente</small>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-warning mr-2"></i>
+                                <small>Todos tendrán la misma categoría</small>
+                            </li>
+                            <li class="mb-2">
+                                <i class="fas fa-check text-warning mr-2"></i>
+                                <small>Puedes asignarlos después individualmente</small>
+                            </li>
+                            <li class="mb-0">
+                                <i class="fas fa-check text-warning mr-2"></i>
+                                <small>Máximo 100 equipos por operación</small>
+                            </li>
+                        </ul>
                     </div>
                 </div>
             </div>
 
-            <!-- Tips -->
-            <div class="card shadow">
-                <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-info">
-                        <i class="fas fa-lightbulb"></i> Consejos
-                    </h6>
-                </div>
-                <div class="card-body">
-                    <ul class="list-unstyled mb-0">
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success mr-2"></i>
-                            <small>El número de serie debe ser único</small>
-                        </li>
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success mr-2"></i>
-                            <small>Las especificaciones ayudan al soporte técnico</small>
-                        </li>
-                        <li class="mb-2">
-                            <i class="fas fa-check text-success mr-2"></i>
-                            <small>La ubicación facilita localizar el equipo</small>
-                        </li>
-                        <li class="mb-0">
-                            <i class="fas fa-check text-success mr-2"></i>
-                            <small>Registra la garantía para recibir alertas</small>
-                        </li>
-                    </ul>
-                </div>
-            </div>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block modals %}
-<!-- Modal: Éxito -->
+<!-- Modal: Éxito Individual -->
 <div class="modal fade" id="successModal" tabindex="-1" data-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -356,8 +627,64 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: Éxito Masivo -->
+<div class="modal fade" id="bulkSuccessModal" tabindex="-1" data-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center py-5">
+                <i class="fas fa-check-circle fa-5x text-success mb-4"></i>
+                <h3 class="mb-3">¡Registro Masivo Completado!</h3>
+                <p class="text-muted mb-4">
+                    Se han registrado exitosamente <strong id="bulk-success-count">0</strong> equipos
+                </p>
+                
+                <div id="bulk-success-details" class="text-left mb-4" style="max-height: 300px; overflow-y: auto;">
+                    <!-- Se llenará con JavaScript -->
+                </div>
+
+                <div class="d-flex justify-content-center gap-2">
+                    <a href="/help-desk/inventory/items" class="btn btn-primary">
+                        <i class="fas fa-list"></i> Ver Inventario
+                    </a>
+                    <button type="button" class="btn btn-outline-secondary" onclick="location.reload()">
+                        <i class="fas fa-plus"></i> Registrar Más
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Progreso -->
+<div class="modal fade" id="progressModal" tabindex="-1" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center py-5">
+                <i class="fas fa-cog fa-spin fa-3x text-primary mb-4"></i>
+                <h5 class="mb-3">Registrando Equipos...</h5>
+                <div class="progress mb-3" style="height: 25px;">
+                    <div 
+                        id="progress-bar" 
+                        class="progress-bar progress-bar-striped progress-bar-animated" 
+                        role="progressbar" 
+                        style="width: 0%"
+                    >
+                        <span id="progress-text">0%</span>
+                    </div>
+                </div>
+                <p class="text-muted mb-0">
+                    <span id="progress-current">0</span> / <span id="progress-total">0</span> equipos
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_form.js') }}?v={{static_version}}"></script>
+<script>
+    const BULK_MODE = {{ 'true' if bulk_mode else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_create.js') }}?v={{static_version}}"></script>
 {% endblock %}

@@ -186,3 +186,58 @@
 .equipment-card {
     animation: fadeIn 0.3s ease;
 }
+
+/* Estilos para tarjetas de grupo */
+.group-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.group-card:hover {
+    transform: translateX(5px);
+    border-color: #17a2b8 !important;
+}
+
+.group-card.selected {
+    border-color: #17a2b8 !important;
+    background: #e7f6f8;
+    box-shadow: 0 0 0 3px rgba(23, 162, 184, 0.2);
+}
+
+/* Selección múltiple en equipos de grupo */
+.group-equipment-item {
+    cursor: pointer;
+    position: relative;
+}
+
+.group-equipment-item .form-check {
+    pointer-events: none;
+}
+
+.group-equipment-item.selected {
+    border-color: #28a745 !important;
+    background: #e7f9ec;
+}
+
+/* Badges de equipos seleccionados */
+#group-equipment-list .badge {
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+}
+
+/* Radio buttons personalizados */
+.form-check-label {
+    cursor: pointer;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.form-check-label:hover {
+    background: #f8f9fa;
+}
+
+.form-check-input:checked + .form-check-label {
+    background: #e7f6f8;
+    border-color: #17a2b8;
+}

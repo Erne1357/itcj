@@ -229,6 +229,13 @@ class Ticket(db.Model):
                 ] if self.inventory_items else [],
                 'inventory_items_count': self.inventory_items_count, 
             })
+            if data.get('inventory_items'):
+                if len(data['inventory_items']) == 1:
+                    data['inventory_item'] = data['inventory_items'][0]
+                else:
+                    data['inventory_item'] = None
+            else:
+                data['inventory_item'] = None
         
         if include_metrics:
             # Calcular métricas temporales

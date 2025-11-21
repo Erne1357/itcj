@@ -1,0 +1,31 @@
+.group-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+.group-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15) !important;
+}
+.capacity-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+.group-stats {
+    display: flex;
+    justify-content: space-around;
+    padding: 1rem 0;
+    border-top: 1px solid #e3e6f0;
+}
+.group-stat {
+    text-align: center;
+}
+.group-stat-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #5a5c69;
+}
+.group-stat-label {
+    font-size: 0.75rem;
+    color: #858796;
+    text-transform: uppercase;
+}

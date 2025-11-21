@@ -23,6 +23,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.tickets.own.read",
             "group": "user"
         },
+        {
+            "label": "Mi Equipo",
+            "endpoint": "helpdesk_pages.inventory_pages.my_equipment",
+            "icon": "fa-laptop",
+            "group": "user"
+        },
         
         # ==================== SECRETARÍA ====================
         {
@@ -70,16 +76,30 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "icon": "fa-boxes",
             "permission": "helpdesk.inventory.view_own_dept",
             "group": "department",
-            "dropdown": [{
-                "label": "Mi Inventario",
-                "endpoint": "helpdesk_pages.inventory_pages.items_list",
-                "icon": "fa-list"
-            },
-            {
-                "label": "Asignar Equipo",
-                "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
-                "icon": "fa-plus"
-            }]
+            "dropdown": [
+                {
+                    "label": "Mi Inventario",
+                    "endpoint": "helpdesk_pages.inventory_pages.items_list",
+                    "icon": "fa-list"
+                },
+                {
+                    "label": "Asignar Equipo",
+                    "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
+                    "icon": "fa-user-plus",
+                    "permission": "helpdesk.inventory.assign"
+                },
+                {
+                    "label": "Grupos/Salones",
+                    "endpoint": "helpdesk_pages.inventory_pages.groups_list",
+                    "icon": "fa-door-open",
+                    "permission": "helpdesk.inventory_groups.view_own_dept"
+                },
+                {
+                    "label": "Mi Equipo",
+                    "endpoint": "helpdesk_pages.inventory_pages.my_equipment",
+                    "icon": "fa-user-gear"
+                }
+            ]
         },
         
         # ==================== ADMIN ====================
@@ -127,27 +147,68 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "group": "admin",
             "dropdown": [
                 {
+                    "label": "Dashboard Inventario",
+                    "endpoint": "helpdesk_pages.inventory_pages.dashboard",
+                    "icon": "fa-tachometer-alt",
+                    "permission": "helpdesk.inventory.view"
+                },
+                {
                     "label": "Ver Inventario",
-                    "endpoint": "helpdesk_pages.admin_pages.inventory_list",
+                    "endpoint": "helpdesk_pages.inventory_pages.items_list",
                     "icon": "fa-list"
                 },
                 {
                     "label": "Registrar Equipo",
-                    "endpoint": "helpdesk_pages.admin_pages.inventory_create",
+                    "endpoint": "helpdesk_pages.inventory_pages.item_create",
                     "icon": "fa-plus",
                     "permission": "helpdesk.inventory.create"
                 },
                 {
-                    "label": "Categorías Inv.",
-                    "endpoint": "helpdesk_pages.admin_pages.inventory_categories",
-                    "icon": "fa-folder",
-                    "permission": "helpdesk.inventory_categories.manage"
+                    "label": "Registro Masivo",
+                    "endpoint": "helpdesk_pages.inventory_pages.bulk_register",
+                    "icon": "fa-upload",
+                    "permission": "helpdesk.inventory.bulk_create"
+                },
+                {
+                    "label": "Grupos/Salones",
+                    "endpoint": "helpdesk_pages.inventory_pages.groups_list",
+                    "icon": "fa-door-open",
+                    "permission": "helpdesk.inventory_groups.view_own_dept"
+                },
+                {
+                    "label": "Pendientes",
+                    "endpoint": "helpdesk_pages.inventory_pages.pending_items",
+                    "icon": "fa-clock",
+                    "permission": "helpdesk.inventory.view_pending"
+                },
+                {
+                    "label": "Asignar Equipos",
+                    "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
+                    "icon": "fa-user-plus",
+                    "permission": "helpdesk.inventory.assign"
                 },
                 {
                     "label": "Reportes",
-                    "endpoint": "helpdesk_pages.admin_pages.inventory_reports",
-                    "icon": "fa-file-export",
-                    "permission": "helpdesk.inventory.export"
+                    "endpoint": "#",
+                    "icon": "fa-chart-bar",
+                    "permission": "helpdesk.inventory.stats",
+                    "submenu": [
+                        {
+                            "label": "Garantías",
+                            "endpoint": "helpdesk_pages.inventory_pages.warranty_report",
+                            "icon": "fa-shield-alt"
+                        },
+                        {
+                            "label": "Mantenimientos",
+                            "endpoint": "helpdesk_pages.inventory_pages.maintenance_report",
+                            "icon": "fa-tools"
+                        },
+                        {
+                            "label": "Ciclo de Vida",
+                            "endpoint": "helpdesk_pages.inventory_pages.lifecycle_report",
+                            "icon": "fa-history"
+                        }
+                    ]
                 }
             ]
         }

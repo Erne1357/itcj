@@ -170,12 +170,14 @@ def get_alerts():
     
     # Equipos problemáticos (>10 tickets en 6 meses)
     six_months_ago = date.today() - timedelta(days=180)
-    from itcj.apps.helpdesk.models import Ticket
-    
+    from itcj.apps.helpdesk.models import Ticket, TicketInventoryItem
+
     problematic = db.session.query(
         InventoryItem.id
     ).join(
-        Ticket, Ticket.inventory_item_id == InventoryItem.id
+        TicketInventoryItem, TicketInventoryItem.inventory_item_id == InventoryItem.id
+    ).join(
+        Ticket, Ticket.id == TicketInventoryItem.ticket_id
     ).filter(
         InventoryItem.is_active == True,
         Ticket.created_at >= six_months_ago

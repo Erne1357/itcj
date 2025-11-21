@@ -124,26 +124,109 @@
                                             <i class="fas fa-question-circle"></i> ¿De quién es el equipo con el
                                             problema?
                                         </p>
-                                        <div class="btn-group btn-group-toggle w-100" role="group">
-                                            <input type="radio" class="btn-check" name="equipment-owner" id="owner-mine"
-                                                value="mine" autocomplete="off">
-                                            <label class="btn btn-outline-primary" for="owner-mine">
-                                                <i class="fas fa-user me-2"></i>Es mío
-                                            </label>
+                                        <div class="d-grid gap-2">
+                                            <div class="form-check">
+                                                <input type="radio" class="form-check-input" name="equipment-owner"
+                                                    id="owner-mine" value="mine" autocomplete="off">
+                                                <label class="form-check-label w-100" for="owner-mine">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-user me-2 text-primary"></i>
+                                                        <div>
+                                                            <strong>Es mío</strong>
+                                                            <small class="d-block text-muted">Equipos asignados a
+                                                                mí</small>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
 
-                                            <input type="radio" class="btn-check" name="equipment-owner"
-                                                id="owner-department" value="department" autocomplete="off">
-                                            <label class="btn btn-outline-primary" for="owner-department">
-                                                <i class="fas fa-users me-2"></i>Es de alguien más / Global
-                                            </label>
+                                            <div class="form-check">
+                                                <input type="radio" class="form-check-input" name="equipment-owner"
+                                                    id="owner-department" value="department" autocomplete="off">
+                                                <label class="form-check-label w-100" for="owner-department">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-users me-2 text-success"></i>
+                                                        <div>
+                                                            <strong>Es de alguien más / Global</strong>
+                                                            <small class="d-block text-muted">Equipos del
+                                                                departamento</small>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
+
+                                            <div class="form-check">
+                                                <input type="radio" class="form-check-input" name="equipment-owner"
+                                                    id="owner-group" value="group" autocomplete="off">
+                                                <label class="form-check-label w-100" for="owner-group">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-door-open me-2 text-info"></i>
+                                                        <div>
+                                                            <strong>Es de un salón/grupo</strong>
+                                                            <small class="d-block text-muted">Equipos de un salón o
+                                                                laboratorio</small>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            <!-- Selector de Equipos -->
+                            <!-- Selector de Grupo (NUEVO) -->
+                            <div id="group-selector-container" style="display: none;">
+                                <button type="button" class="btn btn-outline-info w-100 btn-select-group"
+                                    id="open-group-modal">
+                                    <i class="fas fa-door-open me-2"></i>
+                                    <span id="group-button-text">Seleccionar Salón/Grupo</span>
+                                </button>
+
+                                <!-- Preview del grupo seleccionado -->
+                                <div id="selected-group-preview" class="mt-3" style="display: none;">
+                                    <div class="card border-info">
+                                        <div class="card-body p-3">
+                                            <div class="d-flex align-items-center">
+                                                <div class="me-3">
+                                                    <i class="fas fa-door-open fa-2x text-info"></i>
+                                                </div>
+                                                <div class="flex-grow-1">
+                                                    <div class="fw-bold" id="preview-group-name"></div>
+                                                    <small class="text-muted" id="preview-group-info"></small>
+                                                    <div class="mt-1">
+                                                        <span class="badge bg-secondary"
+                                                            id="preview-group-location"></span>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                                        id="clear-group-btn">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Preview de equipos seleccionados del grupo -->
+                                <div id="selected-group-equipment-preview" class="mt-3" style="display: none;">
+                                    <label class="form-label fw-bold">
+                                        <i class="fas fa-check-circle me-2 text-success"></i>
+                                        Equipos seleccionados (<span id="group-equipment-count">0</span>)
+                                    </label>
+                                    <div id="group-equipment-list" class="border rounded p-2"
+                                        style="max-height: 200px; overflow-y: auto;">
+                                        <!-- Se llenará dinámicamente -->
+                                    </div>
+                                </div>
+
+                                <!-- Input oculto para grupo -->
+                                <input type="hidden" id="selected_group_id" name="selected_group_id">
+                            </div>
+
+                            <!-- Selector de Equipos Individual -->
                             <div id="equipment-selector-container" style="display: none;">
-                                <!-- Botón para abrir modal -->
                                 <button type="button" class="btn btn-outline-primary w-100 btn-select-equipment"
                                     id="open-equipment-modal">
                                     <i class="fas fa-search me-2"></i>
@@ -178,8 +261,8 @@
                                     </div>
                                 </div>
 
-                                <!-- Input oculto para enviar el ID -->
-                                <input type="hidden" id="inventory_item_id" name="inventory_item_id">
+                                <!-- Input oculto para equipos -->
+                                <input type="hidden" id="inventory_item_ids" name="inventory_item_ids">
                             </div>
                         </div>
 
@@ -386,13 +469,118 @@
         </div>
     </div>
 </div>
+<!-- Modal de Selección de Grupos -->
+<div class="modal fade" id="groupModal" tabindex="-1" aria-labelledby="groupModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="groupModalLabel">
+                    <i class="fas fa-door-open me-2"></i>Seleccionar Salón/Grupo
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Filtros -->
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <input type="text" class="form-control" id="group-search" placeholder="Buscar grupo...">
+                    </div>
+                </div>
 
+                <!-- Loading State -->
+                <div id="group-loading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-info" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="text-muted mt-3">Cargando grupos...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="group-empty" class="text-center py-5" style="display: none;">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No hay grupos disponibles</p>
+                </div>
+
+                <!-- Lista de Grupos -->
+                <div id="group-list" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-info" id="confirm-group-btn" disabled>
+                    <i class="fas fa-check me-2"></i>Confirmar Grupo
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Selección de Equipos del Grupo -->
+<div class="modal fade" id="groupEquipmentModal" tabindex="-1" aria-labelledby="groupEquipmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="groupEquipmentModalLabel">
+                    <i class="fas fa-laptop me-2"></i>Seleccionar Equipos
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong id="group-equipment-modal-title"></strong>
+                        <br>
+                        <small>Selecciona uno o varios equipos con problemas</small>
+                    </div>
+                </div>
+
+                <!-- Acciones rápidas -->
+                <div class="mb-3 d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="select-all-group-equipment">
+                        <i class="fas fa-check-double me-1"></i>Seleccionar todos
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-all-group-equipment">
+                        <i class="fas fa-times me-1"></i>Limpiar selección
+                    </button>
+                </div>
+
+                <!-- Loading State -->
+                <div id="group-equipment-loading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-success" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="text-muted mt-3">Cargando equipos...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="group-equipment-empty" class="text-center py-5" style="display: none;">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">Este grupo no tiene equipos asignados</p>
+                </div>
+
+                <!-- Lista de Equipos -->
+                <div id="group-equipment-list-modal" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" id="confirm-group-equipment-btn" disabled>
+                    <i class="fas fa-check me-2"></i>Confirmar Selección (<span id="group-equipment-selected-count">0</span>)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/user/create_ticket.css') }}?v={{ static_version }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/user/create_ticket.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}
-    <script src="{{ url_for('static', filename='helpdesk/js/user/create_ticket.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/user/create_ticket.js') }}?v={{ static_version }}"></script>
 {% endblock %}

@@ -6,6 +6,7 @@
 let currentDepartment = null;
 let departmentUsers = [];
 let departmentEquipment = [];
+let departmentGroups = []; // NUEVO
 let selectedUser = null;
 let allCategories = [];
 
@@ -23,6 +24,9 @@ function setupEventListeners() {
     document.getElementById('filter-category').addEventListener('change', filterEquipment);
     document.getElementById('filter-equipment').addEventListener('input', filterEquipment);
 
+    // Búsqueda en modal de grupo
+    document.getElementById('search-group-equipment').addEventListener('input', filterGroupEquipmentModal);
+
     // Forms
     document.getElementById('assign-form').addEventListener('submit', handleAssign);
     document.getElementById('unassign-form').addEventListener('submit', handleUnassign);
@@ -39,6 +43,9 @@ async function loadInitialData() {
 
         // Cargar equipos del departamento
         await loadDepartmentEquipment();
+
+        // Cargar grupos del departamento (NUEVO)
+        await loadDepartmentGroups();
 
         // Cargar categorías para filtros
         await loadCategories();
@@ -117,6 +124,32 @@ async function loadDepartmentEquipment() {
     } catch (error) {
         console.error('Error:', error);
         throw error;
+    }
+}
+
+async function loadDepartmentGroups() {
+    try {
+        const response = await fetch(
+            `/api/help-desk/v1/inventory/groups/department/${currentDepartment.id}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            }
+        );
+
+        if (!response.ok) {
+            console.warn('No se pudieron cargar grupos');
+            departmentGroups = [];
+            return;
+        }
+
+        const result = await response.json();
+        departmentGroups = result.data || [];
+
+    } catch (error) {
+        console.error('Error cargando grupos:', error);
+        departmentGroups = [];
     }
 }
 
@@ -244,8 +277,9 @@ function renderUserEquipment() {
         e.assigned_to_user_id === selectedUser.id
     );
 
-    const availableEquipment = departmentEquipment.filter(e => 
-        !e.is_assigned_to_user && e.status === 'ACTIVE'
+    // Equipos individuales disponibles (sin grupo y no asignados)
+    const individualAvailable = departmentEquipment.filter(e => 
+        !e.is_assigned_to_user && e.status === 'ACTIVE' && !e.is_in_group
     );
 
     // Equipos asignados
@@ -265,27 +299,108 @@ function renderUserEquipment() {
         ).join('');
     }
 
-    // Equipos disponibles
-    const availableContainer = document.getElementById('available-equipment-list');
-    document.getElementById('available-count').textContent = availableEquipment.length;
+    // Equipos individuales disponibles
+    const individualContainer = document.getElementById('individual-equipment-list');
+    document.getElementById('individual-count').textContent = individualAvailable.length;
 
-    if (availableEquipment.length === 0) {
-        availableContainer.innerHTML = `
+    if (individualAvailable.length === 0) {
+        individualContainer.innerHTML = `
             <div class="text-center text-muted py-3">
                 <i class="fas fa-info-circle fa-2x mb-2"></i>
-                <p class="mb-0">No hay equipos disponibles para asignar</p>
+                <p class="mb-0">No hay equipos individuales disponibles</p>
             </div>
         `;
     } else {
-        availableContainer.innerHTML = availableEquipment.map(item => 
+        individualContainer.innerHTML = individualAvailable.map(item => 
             renderEquipmentItem(item, 'available')
         ).join('');
     }
+
+    // Grupos disponibles
+    renderGroupsList();
+}
+
+function renderGroupsList() {
+    const container = document.getElementById('groups-list');
+    document.getElementById('groups-count').textContent = departmentGroups.length;
+
+    if (departmentGroups.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-muted py-3">
+                <i class="fas fa-layer-group fa-2x mb-2"></i>
+                <p class="mb-0">No hay grupos disponibles en este departamento</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = departmentGroups.map(group => {
+        // Contar equipos disponibles del grupo
+        const groupEquipment = departmentEquipment.filter(e => 
+            e.group_id === group.id && !e.is_assigned_to_user && e.status === 'ACTIVE'
+        );
+
+        const groupTypeIcons = {
+            'CLASSROOM': 'fa-chalkboard-teacher',
+            'LABORATORY': 'fa-flask',
+            'OFFICE': 'fa-briefcase',
+            'MEETING_ROOM': 'fa-users',
+            'WORKSHOP': 'fa-tools',
+            'OTHER': 'fa-door-open'
+        };
+
+        const icon = groupTypeIcons[group.group_type] || 'fa-door-open';
+
+        return `
+            <div class="equipment-item group-item" onclick="openGroupModal(${group.id})">
+                <div class="d-flex align-items-center">
+                    <div class="mr-3">
+                        <i class="fas ${icon} fa-2x text-info"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="font-weight-bold">
+                            <i class="fas fa-layer-group mr-1"></i>
+                            ${group.name}
+                        </div>
+                        <small class="text-muted">
+                            ${group.description || 'Sin descripción'}
+                        </small>
+                        <br>
+                        <span class="badge badge-success mt-1">
+                            <i class="fas fa-laptop mr-1"></i>
+                            ${groupEquipment.length} equipos disponibles
+                        </span>
+                        ${group.building || group.floor ? `
+                            <span class="badge badge-light text-dark mt-1">
+                                <i class="fas fa-map-marker-alt mr-1"></i>
+                                ${[group.building, group.floor ? `Piso ${group.floor}` : ''].filter(Boolean).join(' - ')}
+                            </span>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-info" onclick="event.stopPropagation(); openGroupModal(${group.id});">
+                            <i class="fas fa-hand-pointer"></i> Ver Equipos
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function renderEquipmentItem(item, type) {
     const isAssigned = type === 'assigned';
     const icon = item.category?.icon || 'fas fa-box';
+
+    // Determinar badge de grupo si aplica
+    let groupBadge = '';
+    if (item.is_in_group && item.group) {
+        groupBadge = `
+            <br><small class="badge badge-info mt-1">
+                <i class="fas fa-layer-group mr-1"></i>${item.group.name}
+            </small>
+        `;
+    }
 
     return `
         <div class="equipment-item ${isAssigned ? 'assigned' : 'global'}">
@@ -305,6 +420,7 @@ function renderEquipmentItem(item, type) {
                             <i class="fas fa-map-marker-alt"></i> ${item.location_detail}
                         </small>
                     ` : ''}
+                    ${groupBadge}
                 </div>
                 <div>
                     ${isAssigned ? `
@@ -330,6 +446,145 @@ function renderEquipmentItem(item, type) {
     `;
 }
 
+// ==================== MODAL DE GRUPO ====================
+let currentGroupEquipment = [];
+
+async function openGroupModal(groupId) {
+    if (!selectedUser) {
+        showError('Seleccione un usuario primero');
+        return;
+    }
+
+    const group = departmentGroups.find(g => g.id === groupId);
+    if (!group) return;
+
+    // Actualizar info del grupo
+    document.getElementById('selected-group-id').value = groupId;
+    document.getElementById('group-modal-name').textContent = group.name;
+    document.getElementById('group-modal-description').textContent = group.description || 'Sin descripción';
+
+    // Limpiar búsqueda
+    document.getElementById('search-group-equipment').value = '';
+
+    // Abrir modal
+    $('#selectGroupEquipmentModal').modal('show');
+
+    // Cargar equipos del grupo
+    await loadGroupEquipment(groupId);
+}
+
+async function loadGroupEquipment(groupId) {
+    const container = document.getElementById('group-equipment-list');
+    
+    container.innerHTML = `
+        <div class="text-center py-4">
+            <i class="fas fa-spinner fa-spin fa-2x text-info"></i>
+            <p class="text-muted mt-2">Cargando equipos...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch(
+            `/api/help-desk/v1/inventory/groups/${groupId}/items`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            }
+        );
+
+        if (!response.ok) throw new Error('Error al cargar equipos del grupo');
+
+        const result = await response.json();
+        
+        // Filtrar solo equipos disponibles (no asignados)
+        currentGroupEquipment = result.data.filter(item => 
+            !item.is_assigned_to_user && item.status === 'ACTIVE'
+        );
+
+        renderGroupEquipmentList();
+
+    } catch (error) {
+        console.error('Error:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle"></i> 
+                Error al cargar equipos del grupo
+            </div>
+        `;
+    }
+}
+
+function renderGroupEquipmentList(filter = '') {
+    const container = document.getElementById('group-equipment-list');
+
+    const filterLower = filter.toLowerCase();
+    const filteredEquipment = filter
+        ? currentGroupEquipment.filter(item =>
+            item.inventory_number.toLowerCase().includes(filterLower) ||
+            (item.brand && item.brand.toLowerCase().includes(filterLower)) ||
+            (item.model && item.model.toLowerCase().includes(filterLower))
+        )
+        : currentGroupEquipment;
+
+    if (filteredEquipment.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-muted py-4">
+                <i class="fas fa-inbox fa-2x mb-2"></i>
+                <p class="mb-0">${filter ? 'No se encontraron equipos' : 'No hay equipos disponibles en este grupo'}</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = filteredEquipment.map(item => {
+        const icon = item.category?.icon || 'fas fa-laptop';
+        
+        return `
+            <div class="equipment-item selectable-item" onclick="quickAssignFromGroup(${item.id})">
+                <div class="d-flex align-items-center">
+                    <div class="mr-3">
+                        <i class="${icon} fa-2x text-primary"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="font-weight-bold">
+                            ${item.inventory_number}
+                        </div>
+                        <small class="text-muted">
+                            ${item.brand || 'N/A'} ${item.model || ''}
+                        </small>
+                        ${item.location_detail ? `
+                            <br><small class="text-muted">
+                                <i class="fas fa-map-marker-alt"></i> ${item.location_detail}
+                            </small>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); quickAssignFromGroup(${item.id});">
+                            <i class="fas fa-plus"></i> Asignar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function filterGroupEquipmentModal() {
+    const searchTerm = document.getElementById('search-group-equipment').value;
+    renderGroupEquipmentList(searchTerm);
+}
+
+async function quickAssignFromGroup(itemId) {
+    if (!selectedUser) return;
+
+    // Cerrar modal
+    $('#selectGroupEquipmentModal').modal('hide');
+
+    // Abrir modal de confirmación
+    openAssignModal(itemId);
+}
+
 // ==================== FILTROS ====================
 function filterUsers() {
     const searchTerm = document.getElementById('search-users').value;
@@ -337,8 +592,6 @@ function filterUsers() {
 }
 
 function filterEquipment() {
-    // Implementar filtrado de equipos disponibles
-    // Por simplicidad, re-renderizar todo
     if (selectedUser) {
         renderUserEquipment();
     }
@@ -400,7 +653,6 @@ async function handleAssign(e) {
         $('#assignModal').modal('hide');
         showSuccess('Equipo asignado correctamente');
         
-        // Recargar datos
         await refreshData();
 
     } catch (error) {
@@ -450,7 +702,6 @@ async function handleUnassign(e) {
         $('#unassignModal').modal('hide');
         showSuccess('Equipo liberado correctamente');
         
-        // Recargar datos
         await refreshData();
 
     } catch (error) {
@@ -466,12 +717,12 @@ async function refreshData() {
     try {
         await loadDepartmentUsers();
         await loadDepartmentEquipment();
+        await loadDepartmentGroups();
         
         renderStats();
         renderUsersList();
         
         if (selectedUser) {
-            // Re-seleccionar el usuario actual
             const updatedUser = departmentUsers.find(u => u.id === selectedUser.id);
             if (updatedUser) {
                 selectedUser = updatedUser;
@@ -499,10 +750,9 @@ function hideLoading() {
 }
 
 function showSuccess(message) {
-    // Implementar con tu sistema de notificaciones
-    alert(message);
+    showToast(message, 'success');
 }
 
 function showError(message) {
-    alert(message);
+    showToast(message, 'error');
 }

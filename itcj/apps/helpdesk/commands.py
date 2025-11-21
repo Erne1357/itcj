@@ -1,333 +1,296 @@
-from flask import current_app, url_for
-import click
-from flask.cli import with_appcontext
-from itcj.core.models.app import App
-from itcj.core.models.permission import Permission
-from itcj.core.extensions import db
 # itcj/apps/helpdesk/commands.py
 
-@click.command('init-helpdesk-navigation-perms')
-@with_appcontext
-def init_helpdesk_navigation_permissions():
-    """Inicializa permisos para navegación de Help-Desk"""
+"""
+Comandos CLI para la aplicación Help-Desk
+"""
+
+from flask import current_app
+import click
+from flask.cli import with_appcontext
+from itcj.core.extensions import db
+from itcj.apps.helpdesk.models import InventoryCategory, InventoryItem, InventoryGroup, InventoryGroupCapacity
+from itcj.core.models.department import Department
+from datetime import date
+import csv
+import os
+
+
+# ==================== MAPEO DE DEPARTAMENTOS ====================
+DEPARTMENT_MAPPING = {
+    'CENTRO DE COMPUTO': 'comp_center',
+    'CENTRO DE INFORMACION': 'info_resources',
+    'CIENCIAS BASICAS': 'basic_sciences',
+    'COMUNICACIÓN': 'comms_diffusion',
+    'DESARROLLO ACADEMICO': 'academic_dev',
+    'DIRECCION': 'direction',
+    'DIRECCION ': 'direction',  # Con espacio
+    'DIV. EST. PROF': 'prof_studies_div',
+    'ECONOMICO ADMINISTARTIVO': 'eco_admin_sci',
+    'EDUCACION A DISTANCIA': 'basic_sciences',
+    'ELECTRICA-ELECTRONICA': 'elec_electronics',
+    'INGENIERIA INDUSTRIAL': 'industrial_eng',
+    'MANTENIMIENTO': 'equipment_maint',
+    'METAL MECANICA': 'metal_mechanics',
+    'METALMECANICA': 'metal_mechanics',
+    'METALMECANICA ': 'metal_mechanics',  # Con espacio
+    'METALMECANICA TALLER': 'metal_mechanics',
+    'PLANEACION': 'planning',
+    'POSGRADO': 'postgrad_research',
+    'RECURSOS FINANCIEROS': 'financial_resources',
+    'RECURSOS MATERIALES ': 'mat_services',
+    'SERVICIOS ESCOLARES': 'school_services',
+    'SISTEMAS': 'sys_computing',
+    'SUBDIRECCION': 'sub_planning',
+    'SUBDIRECCION ACADEMICA': 'sub_academic',
+    'SUBDIRECCION ADMINISTRATIVA': 'sub_admin_services',
+    'VINCULACION': 'tech_management',
+    # Mapeos especiales
+    'SERVICIO SOCIAL': 'tech_management',
+    'SERVICIO MEDICO': 'school_services',
+    'CALIDAD': 'direction',
+    'MECATRONICA': 'elec_electronics',
+    'AUDITORIO': 'comms_diffusion',
+    'GIMNACIO': 'extracurricular_act',
+    'TITULACION': 'prof_studies_div',
+    '800´S': 'industrial_eng',
+    'INDUSTRIAL': 'industrial_eng',
+    'INDUSTRIAL ': 'industrial_eng',
+    'LABORATORIO DE ELECTRICA': 'elec_electronics',
+}
+
+# Departamentos a ignorar
+IGNORE_DEPARTMENTS = ['DELEGACIÓN SINDICAL', 'GUILLOT', 'GUILLOT ']
+
+
+def normalize_storage(storage_str):
+    """Normaliza valores de almacenamiento a GB"""
+    storage_str = str(storage_str).strip().upper()
+    if 'TERA' in storage_str:
+        return 1000
+    try:
+        return int(float(storage_str))
+    except:
+        return 500  # Default
+
+
+def normalize_ram(ram_str):
+    """Normaliza valores de RAM a GB"""
+    try:
+        return int(float(str(ram_str).strip()))
+    except:
+        return 4  # Default
+
+
+def determine_group_type(location_name):
+    """Determina el tipo de grupo basado en el nombre de ubicación"""
+    location_upper = location_name.upper()
     
-    app = App.query.filter_by(key='helpdesk').first()
-    if not app:
-        click.echo("❌ App 'helpdesk' no encontrada. Créala primero.")
+    if any(word in location_upper for word in ['LABORATORIO', 'LAB', 'TALLER']):
+        return 'LABORATORY'
+    elif any(word in location_upper for word in ['SALA', 'SALON', 'AULA']):
+        return 'CLASSROOM'
+    elif any(word in location_upper for word in ['CUBICULO', 'CUBÍCULO', 'OFICINA', 'JEFATURA']):
+        return 'OFFICE'
+    else:
+        return 'CLASSROOM'  # Default
+
+
+@click.command('load-inventory-csv')
+@with_appcontext
+def load_inventory_csv():
+    """
+    Carga el inventario desde CSV y crea equipos y grupos
+    
+    Lee el archivo database/CSV/inventario.csv y:
+    - Crea grupos para ubicaciones con múltiples equipos
+    - Crea items de inventario con especificaciones
+    - Asocia equipos a grupos automáticamente
+    """
+    
+    csv_path = os.path.join(current_app.root_path, '..', 'database', 'CSV', 'inventario.csv')
+    
+    if not os.path.exists(csv_path):
+        click.echo(click.style(f'❌ Archivo no encontrado: {csv_path}', fg='red'))
         return
     
-    navigation_permissions = [
-        # Usuarios
-        {'code': 'helpdesk.tickets.create', 'name': 'Crear tickets', 'description': 'Crear nuevos tickets'},
-        {'code': 'helpdesk.tickets.own.read', 'name': 'Ver propios tickets', 'description': 'Ver sus propios tickets'},
-        
-        # Secretaría
-        {'code': 'helpdesk.secretary.dashboard', 'name': 'Dashboard secretaría', 'description': 'Acceso a dashboard de secretaría'},
-        {'code': 'helpdesk.stats.view', 'name': 'Ver estadísticas', 'description': 'Ver estadísticas del sistema'},
-        
-        # Técnicos
-        {'code': 'helpdesk.technician.dashboard', 'name': 'Dashboard técnico', 'description': 'Acceso a dashboard de técnico'},
-        {'code': 'helpdesk.tickets.assigned.read', 'name': 'Ver tickets asignados', 'description': 'Ver tickets asignados personalmente'},
-        {'code': 'helpdesk.tickets.team.read', 'name': 'Ver tickets del equipo', 'description': 'Ver tickets del equipo completo'},
-        
-        # Jefe de Departamento
-        {'code': 'helpdesk.department.dashboard', 'name': 'Dashboard departamento', 'description': 'Dashboard del departamento'},
-        {'code': 'helpdesk.inventory.view_own_dept', 'name': 'Ver inventario depto', 'description': 'Ver inventario del departamento'},
-        
-        # Admin
-        {'code': 'helpdesk.admin.access', 'name': 'Acceso admin', 'description': 'Acceso a sección administrativa'},
-        {'code': 'helpdesk.inventory.view', 'name': 'Ver todo inventario', 'description': 'Ver inventario completo'},
-    ]
+    click.echo(click.style('🚀 Iniciando carga de inventario desde CSV...', fg='cyan', bold=True))
+    click.echo(f'📂 Archivo: {csv_path}')
     
-    for perm_data in navigation_permissions:
-        existing = Permission.query.filter_by(
-            app_id=app.id,
-            code=perm_data['code']
-        ).first()
-        
-        if not existing:
-            perm = Permission(
-                app_id=app.id,
-                code=perm_data['code'],
-                name=perm_data['name'],
-                description=perm_data['description']
-            )
-            db.session.add(perm)
-            click.echo(f"✓ Creado: {perm_data['code']}")
-        else:
-            click.echo(f"- Ya existe: {perm_data['code']}")
-    
-    db.session.commit()
-    click.echo("✅ Permisos de navegación inicializados")
-
-
-@click.command('init-inventory-perms')
-@with_appcontext
-def init_inventory_permissions():
-    """Inicializa permisos para el módulo de inventario"""
-    
-    app = App.query.filter_by(key='helpdesk').first()
-    if not app:
-        click.echo("❌ App 'helpdesk' no encontrada.")
+    # Obtener categoría "computer"
+    computer_category = InventoryCategory.query.filter_by(code='computer').first()
+    if not computer_category:
+        click.echo(click.style('❌ Categoría "computer" no encontrada. Ejecuta primero las migraciones.', fg='red'))
         return
     
-    inventory_permissions = [
-        # ==================== ADMIN ====================
-        {'code': 'helpdesk.inventory.view', 'name': 'Ver inventario completo', 
-         'description': 'Ver todos los equipos del inventario institucional'},
-        {'code': 'helpdesk.inventory.create', 'name': 'Registrar equipos', 
-         'description': 'Registrar nuevos equipos en el inventario'},
-        {'code': 'helpdesk.inventory.edit', 'name': 'Editar equipos', 
-         'description': 'Modificar información de equipos'},
-        {'code': 'helpdesk.inventory.deactivate', 'name': 'Dar de baja equipos', 
-         'description': 'Desactivar equipos del inventario'},
-        {'code': 'helpdesk.inventory.transfer', 'name': 'Transferir entre departamentos', 
-         'description': 'Mover equipos entre departamentos'},
-        {'code': 'helpdesk.inventory.stats', 'name': 'Ver estadísticas inventario', 
-         'description': 'Acceso a reportes y estadísticas de inventario'},
-        {'code': 'helpdesk.inventory.export', 'name': 'Exportar inventario', 
-         'description': 'Exportar datos del inventario'},
-        
-        # ==================== JEFE DE DEPARTAMENTO ====================
-        {'code': 'helpdesk.inventory.view_own_dept', 'name': 'Ver inventario departamento', 
-         'description': 'Ver equipos del propio departamento'},
-        {'code': 'helpdesk.inventory.assign', 'name': 'Asignar equipos', 
-         'description': 'Asignar equipos a usuarios del departamento'},
-        {'code': 'helpdesk.inventory.unassign', 'name': 'Liberar equipos', 
-         'description': 'Liberar equipos asignados'},
-        {'code': 'helpdesk.inventory.update_location', 'name': 'Actualizar ubicación', 
-         'description': 'Cambiar ubicación física de equipos'},
-        
-        # ==================== CATEGORÍAS ====================
-        {'code': 'helpdesk.inventory_categories.view', 'name': 'Ver categorías inventario', 
-         'description': 'Ver categorías de inventario'},
-        {'code': 'helpdesk.inventory_categories.manage', 'name': 'Gestionar categorías', 
-         'description': 'Crear y editar categorías de inventario'},
-    ]
+    click.echo(f'✅ Categoría encontrada: {computer_category.name} (ID: {computer_category.id})')
     
-    for perm_data in inventory_permissions:
-        existing = Permission.query.filter_by(
-            app_id=app.id,
-            code=perm_data['code']
-        ).first()
-        
-        if not existing:
-            perm = Permission(
-                app_id=app.id,
-                code=perm_data['code'],
-                name=perm_data['name'],
-                description=perm_data['description']
-            )
-            db.session.add(perm)
-            click.echo(f"✓ Creado: {perm_data['code']}")
-        else:
-            click.echo(f"- Ya existe: {perm_data['code']}")
-    
-    db.session.commit()
-    click.echo("✅ Permisos de inventario inicializados")
-
-
-@click.command('assign-inventory-perms')
-@with_appcontext
-def assign_inventory_permissions_to_roles():
-    """Asigna permisos de inventario a los roles existentes"""
-    from itcj.core.models.role import Role
-    from itcj.core.models.role_permission import RolePermission
-    
-    app = App.query.filter_by(key='helpdesk').first()
-    if not app:
-        click.echo("❌ App 'helpdesk' no encontrada.")
-        return
-    
-    # Definir qué permisos tiene cada rol
-    role_permissions = {
-        'admin': [
-            'helpdesk.inventory.view',
-            'helpdesk.inventory.create',
-            'helpdesk.inventory.edit',
-            'helpdesk.inventory.deactivate',
-            'helpdesk.inventory.transfer',
-            'helpdesk.inventory.stats',
-            'helpdesk.inventory.export',
-            'helpdesk.inventory_categories.view',
-            'helpdesk.inventory_categories.manage',
-        ],
-        'secretary': [
-            'helpdesk.inventory.view',
-            'helpdesk.inventory.create',
-            'helpdesk.inventory.edit',
-            'helpdesk.inventory.stats',
-            'helpdesk.inventory_categories.view',
-        ],
-        'department_head': [
-            'helpdesk.inventory.view_own_dept',
-            'helpdesk.inventory.assign',
-            'helpdesk.inventory.unassign',
-            'helpdesk.inventory.update_location',
-            'helpdesk.inventory_categories.view',
-        ],
-        # Usuarios regulares: solo pueden VER sus equipos (sin permiso específico, por lógica)
+    # Contadores
+    stats = {
+        'total_rows': 0,
+        'ignored': 0,
+        'groups_created': 0,
+        'items_created': 0,
+        'errors': 0
     }
     
-    for role_name, perm_codes in role_permissions.items():
-        role = Role.query.filter_by(name=role_name).first()
-        if not role:
-            click.echo(f"⚠️  Rol '{role_name}' no encontrado, saltando...")
-            continue
-        
-        for perm_code in perm_codes:
-            # Buscar permiso
-            perm = Permission.query.filter_by(
-                app_id=app.id,
-                code=perm_code
-            ).first()
-            
-            if not perm:
-                click.echo(f"⚠️  Permiso '{perm_code}' no encontrado")
-                continue
-            
-            # Verificar si ya tiene el permiso
-            existing = RolePermission.query.filter_by(
-                role_id=role.id,
-                perm_id=perm.id
-            ).first()
-            
-            if not existing:
-                role_perm = RolePermission(
-                    role_id=role.id,
-                    perm_id=perm.id
-                )
-                db.session.add(role_perm)
-                click.echo(f"✓ Asignado '{perm_code}' a rol '{role_name}'")
-            else:
-                click.echo(f"- '{role_name}' ya tiene '{perm_code}'")
+    # Almacenar grupos creados para no duplicar
+    created_groups = {}  # key: (dept_code, location_name)
     
-    db.session.commit()
-    click.echo("✅ Permisos asignados a roles")
+    # Contador de serie
+    serial_counter = 1
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8-sig') as csvfile:
+            # Detectar delimitador
+            reader = csv.DictReader(csvfile, delimiter=';')
+            
+            click.echo('\n📊 Procesando registros...\n')
+            
+            for row in reader:
+                stats['total_rows'] += 1
+                
+                try:
+                    # Extraer datos
+                    dept_name = row.get('DEPARTAMENTO', '').strip()
+                    location = row.get('UBICACIÓN', '').strip() or row.get('UBICACION', '').strip()
+                    quantity = int(row.get('CANTIDAD', '1').strip() or '1')
+                    brand = row.get('MARCA', '').strip()
+                    model = row.get('MODELO', '').strip()
+                    storage = row.get('DISCO DURO ', '').strip() or row.get('DISCO DURO', '').strip()
+                    ram = row.get('RAM (GB)', '').strip()
+                    
+                    # Validar departamento
+                    if not dept_name or dept_name in IGNORE_DEPARTMENTS:
+                        stats['ignored'] += 1
+                        click.echo(f'⏭️  Fila {stats["total_rows"]}: Ignorado - {dept_name}')
+                        continue
+                    
+                    # Mapear departamento
+                    dept_code = DEPARTMENT_MAPPING.get(dept_name.upper())
+                    if not dept_code:
+                        click.echo(click.style(f'⚠️  Fila {stats["total_rows"]}: Departamento no mapeado: {dept_name}', fg='yellow'))
+                        stats['ignored'] += 1
+                        continue
+                    
+                    # Buscar departamento en BD
+                    department = Department.query.filter_by(code=dept_code).first()
+                    if not department:
+                        click.echo(click.style(f'❌ Fila {stats["total_rows"]}: Departamento no encontrado en BD: {dept_code}', fg='red'))
+                        stats['errors'] += 1
+                        continue
+                    
+                    # Normalizar especificaciones
+                    storage_gb = normalize_storage(storage)
+                    ram_gb = normalize_ram(ram)
+                    
+                    specifications = {
+                        "processor": "N/A",
+                        "ram": str(ram_gb),
+                        "storage": str(storage_gb),
+                        "storage_type": "HDD",
+                        "os": "Windows"
+                    }
+                    
+                    # Determinar si crear grupo o equipo individual
+                    group = None
+                    
+                    if quantity > 1 and location:
+                        # Crear o recuperar grupo
+                        group_key = (dept_code, location.upper())
+                        
+                        if group_key in created_groups:
+                            group = created_groups[group_key]
+                            click.echo(f'♻️  Usando grupo existente: {location} ({quantity} equipos)')
+                        else:
+                            # Crear nuevo grupo
+                            group_code = f"{dept_code.upper()}-{location.replace(' ', '-')[:20]}"
+                            group_type = determine_group_type(location)
+                            
+                            group = InventoryGroup(
+                                name=location,
+                                code=group_code,
+                                department_id=department.id,
+                                group_type=group_type,
+                                description=f"Grupo creado desde CSV - {location}",
+                                created_by_id=10
+                            )
+                            
+                            db.session.add(group)
+                            db.session.flush()  # Obtener ID
+                            
+                            # Crear capacidad para computadoras
+                            capacity = InventoryGroupCapacity(
+                                group_id=group.id,
+                                category_id=computer_category.id,
+                                max_capacity=quantity + 5  # Un poco más por si acaso
+                            )
+                            db.session.add(capacity)
+                            
+                            created_groups[group_key] = group
+                            stats['groups_created'] += 1
+                            
+                            click.echo(click.style(f'✨ Grupo creado: {location} (capacidad: {quantity} equipos)', fg='green'))
+                    
+                    # Crear equipos
+                    for i in range(quantity):
+                        # Generar número de inventario
+                        inventory_number = f"COMP-2022-{stats['items_created'] + 1:04d}"
+                        
+                        # Generar número de serie
+                        serial_number = f"ITCJ-2022-{serial_counter:06d}"
+                        serial_counter += 1
+                        
+                        # Crear item
+                        item = InventoryItem(
+                            inventory_number=inventory_number,
+                            category_id=computer_category.id,
+                            brand=brand or 'N/A',
+                            model=model or 'N/A',
+                            serial_number=serial_number,
+                            specifications=specifications,
+                            department_id=department.id,
+                            group_id=group.id if group else None,
+                            location_detail=location if quantity == 1 else None,  # Solo si es individual
+                            status='ACTIVE',
+                            acquisition_date=date.today(),
+                            registered_by_id=10
+                        )
+                        
+                        db.session.add(item)
+                        stats['items_created'] += 1
+                    
+                    # Commit cada 50 registros
+                    if stats['items_created'] % 50 == 0:
+                        db.session.commit()
+                        click.echo(f'💾 Guardado intermedio: {stats["items_created"]} equipos creados')
+                
+                except Exception as e:
+                    stats['errors'] += 1
+                    click.echo(click.style(f'❌ Error en fila {stats["total_rows"]}: {str(e)}', fg='red'))
+                    continue
+            
+            # Commit final
+            db.session.commit()
+            
+            # Resumen
+            click.echo('\n' + '='*60)
+            click.echo(click.style('✅ PROCESO COMPLETADO', fg='green', bold=True))
+            click.echo('='*60)
+            click.echo(f'📊 Total de filas procesadas: {stats["total_rows"]}')
+            click.echo(f'✨ Grupos creados: {stats["groups_created"]}')
+            click.echo(f'💻 Equipos creados: {stats["items_created"]}')
+            click.echo(f'⏭️  Registros ignorados: {stats["ignored"]}')
+            click.echo(f'❌ Errores: {stats["errors"]}')
+            click.echo('='*60)
+            
+    except Exception as e:
+        db.session.rollback()
+        click.echo(click.style(f'\n❌ ERROR CRÍTICO: {str(e)}', fg='red', bold=True))
+        raise
 
-@click.command('init-inventory-categories')
-@with_appcontext
-def init_inventory_categories():
-    """Crea categorías iniciales de inventario"""
-    from itcj.apps.helpdesk.models import InventoryCategory
-    
-    categories = [
-        {
-            'code': 'computer',
-            'name': 'Computadora',
-            'description': 'Equipos de cómputo (Desktop, Laptop, All-in-One)',
-            'icon': 'fas fa-desktop',
-            'inventory_prefix': 'COMP',
-            'requires_specs': True,
-            'display_order': 1,
-            'spec_template': {
-                'processor': {'label': 'Procesador', 'type': 'text', 'required': True},
-                'ram': {'label': 'RAM (GB)', 'type': 'number', 'required': True},
-                'storage': {'label': 'Almacenamiento (GB)', 'type': 'number', 'required': True},
-                'storage_type': {'label': 'Tipo Almacenamiento', 'type': 'select', 
-                                'options': ['HDD', 'SSD', 'Hybrid'], 'required': True},
-                'os': {'label': 'Sistema Operativo', 'type': 'text', 'required': False},
-                'has_monitor': {'label': '¿Tiene monitor?', 'type': 'boolean', 'required': False},
-                'monitor_size': {'label': 'Tamaño Monitor (pulgadas)', 'type': 'number', 'required': False}
-            }
-        },
-        {
-            'code': 'printer',
-            'name': 'Impresora',
-            'description': 'Impresoras y multifuncionales',
-            'icon': 'fas fa-print',
-            'inventory_prefix': 'IMP',
-            'requires_specs': True,
-            'display_order': 2,
-            'spec_template': {
-                'type': {'label': 'Tipo', 'type': 'select', 
-                        'options': ['Láser', 'Inyección', 'Matriz'], 'required': True},
-                'color': {'label': '¿Imprime a color?', 'type': 'boolean', 'required': True},
-                'network': {'label': '¿Red?', 'type': 'boolean', 'required': False},
-                'duplex': {'label': '¿Dúplex?', 'type': 'boolean', 'required': False},
-                'scanner': {'label': '¿Escáner?', 'type': 'boolean', 'required': False}
-            }
-        },
-        {
-            'code': 'projector',
-            'name': 'Proyector/Cañón',
-            'description': 'Proyectores para aulas y salas',
-            'icon': 'fas fa-video',
-            'inventory_prefix': 'PROJ',
-            'requires_specs': True,
-            'display_order': 3,
-            'spec_template': {
-                'lumens': {'label': 'Lúmenes', 'type': 'number', 'required': False},
-                'resolution': {'label': 'Resolución', 'type': 'text', 'required': False},
-                'connection_types': {'label': 'Tipos de conexión', 'type': 'text', 'required': False}
-            }
-        },
-        {
-            'code': 'network_device',
-            'name': 'Dispositivo de Red',
-            'description': 'Switches, routers, access points',
-            'icon': 'fas fa-network-wired',
-            'inventory_prefix': 'NET',
-            'requires_specs': True,
-            'display_order': 4,
-            'spec_template': {
-                'device_type': {'label': 'Tipo', 'type': 'select', 
-                               'options': ['Switch', 'Router', 'Access Point', 'Firewall'], 'required': True},
-                'ports': {'label': 'Número de puertos', 'type': 'number', 'required': False},
-                'speed': {'label': 'Velocidad', 'type': 'text', 'required': False},
-                'managed': {'label': '¿Administrable?', 'type': 'boolean', 'required': False}
-            }
-        },
-        {
-            'code': 'phone',
-            'name': 'Teléfono',
-            'description': 'Teléfonos IP y análogos',
-            'icon': 'fas fa-phone',
-            'inventory_prefix': 'TEL',
-            'requires_specs': False,
-            'display_order': 5,
-            'spec_template': {
-                'type': {'label': 'Tipo', 'type': 'select', 
-                        'options': ['IP', 'Análogo'], 'required': True},
-                'extension': {'label': 'Extensión', 'type': 'text', 'required': False}
-            }
-        },
-        {
-            'code': 'scanner',
-            'name': 'Escáner',
-            'description': 'Escáneres dedicados',
-            'icon': 'fas fa-scanner',
-            'inventory_prefix': 'SCAN',
-            'requires_specs': False,
-            'display_order': 6
-        },
-        {
-            'code': 'other',
-            'name': 'Otro Equipo',
-            'description': 'Otros equipos no clasificados',
-            'icon': 'fas fa-box',
-            'inventory_prefix': 'OTH',
-            'requires_specs': False,
-            'display_order': 99
-        }
-    ]
-    
-    for cat_data in categories:
-        existing = InventoryCategory.query.filter_by(code=cat_data['code']).first()
-        if not existing:
-            category = InventoryCategory(**cat_data)
-            db.session.add(category)
-            click.echo(f"✓ Creada categoría: {cat_data['name']}")
-        else:
-            click.echo(f"- Ya existe: {cat_data['name']}")
-    
-    db.session.commit()
-    click.echo("✅ Categorías de inventario inicializadas")
 
-# Registrar comandos en la app
 def register_helpdesk_commands(app):
-    """Registra todos los comandos de Help-Desk"""
-    app.cli.add_command(init_helpdesk_navigation_permissions)  # Fase 1
-    app.cli.add_command(init_inventory_permissions)  # Nuevo
-    app.cli.add_command(assign_inventory_permissions_to_roles)  # Nuevo
-    app.cli.add_command(init_inventory_categories)
+    """
+    Registra todos los comandos de Help-Desk en la aplicación Flask
+    """
+    app.cli.add_command(load_inventory_csv)

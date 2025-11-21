@@ -4,6 +4,7 @@ Rutas de vistas para el módulo de inventario
 from flask import Blueprint, render_template, abort, g
 from itcj.core.utils.decorators import app_required as web_app_required
 from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.departments_service import get_user_department
 
 from . import inventory_pages_bp as bp
 
@@ -158,4 +159,78 @@ def lifecycle_report():
         'helpdesk/inventory/reports/lifecycle.html',
         user_roles=user_roles,
         active_page='inventory_reports'
+    )
+
+@bp.route('/groups')
+@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+def groups_list():
+    """
+    Lista de grupos de equipos (salones, laboratorios)
+    - Admin: Todos los grupos
+    - Jefe Depto: Solo su departamento
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    user_dept = get_user_department(user_id)
+    department_id = user_dept.id if user_dept else None
+    can_view_all = 'admin' in user_roles
+
+    return render_template(
+        'helpdesk/inventory/groups_list.html',
+        user_roles=user_roles,
+        can_view_all=can_view_all,
+        department_id=department_id,
+        active_page='inventory_groups'
+    )
+
+
+@bp.route('/groups/<int:group_id>')
+@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+def group_detail(group_id):
+    """
+    Detalle de un grupo con sus equipos
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    user_dept = get_user_department(user_id)
+    department_id = user_dept.id if user_dept else None
+    
+    return render_template(
+        'helpdesk/inventory/group_detail.html',
+        group_id=group_id,
+        user_roles=user_roles,
+        department_id=department_id,
+        active_page='inventory_groups'
+    )
+
+
+@bp.route('/pending')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.view_pending'])
+def pending_items():
+    """
+    Equipos pendientes de asignación (limbo del CC)
+    Solo: Admin y Secretaría del CC
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'helpdesk/inventory/pending_items.html',
+        user_roles=user_roles,
+        active_page='inventory_pending'
+    )
+
+
+@bp.route('/bulk-register')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.bulk_create'])
+def bulk_register():
+    """
+    Registro masivo de equipos
+    Redirige a item_create con modo bulk
+    """
+    return render_template(
+        'helpdesk/inventory/item_create.html',
+        bulk_mode=True,
+        user_roles=user_roles_in_app(int(g.current_user['sub']), 'helpdesk'),
+        active_page='inventory_items'
     )

@@ -21,13 +21,20 @@ const AppState = {
     selectedArea: null,
     categories: [],
     equipment: {
-        ownerType: null, // 'mine' | 'department'
+        ownerType: null, // 'mine' | 'department' | 'group'
         available: [],
         filtered: [],
         selected: null,
-        categories: []
+        categories: [],
+        groups: [],
+        filteredGroups: [],
+        selectedGroup: null,
+        groupEquipment: [],
+        selectedGroupEquipment: []
     },
-    modal: null
+    modal: null,
+    groupModal: null,
+    groupEquipmentModal: null
 };
 
 // ==================== INICIALIZACIÓN ====================
@@ -120,7 +127,7 @@ const AreaSelection = {
     }
 };
 
-// ==================== GESTIÓN DE EQUIPOS ====================
+// ==================== GESTIÓN DE EQUIPOS Y GRUPOS ====================
 const Equipment = {
     init() {
         // Event listeners para selección de propietario
@@ -128,24 +135,44 @@ const Equipment = {
             radio.addEventListener('change', (e) => this.handleOwnerSelection(e.target.value));
         });
 
-        // Botón para abrir modal
+        // Botones para abrir modales
         document.getElementById('open-equipment-modal')?.addEventListener('click', () => {
-            this.openModal();
+            this.openEquipmentModal();
         });
 
-        // Botón para confirmar selección en modal
+        document.getElementById('open-group-modal')?.addEventListener('click', () => {
+            this.openGroupModal();
+        });
+
+        // Botones para confirmar selección
         document.getElementById('confirm-equipment-btn')?.addEventListener('click', () => {
-            this.confirmSelection();
+            this.confirmEquipmentSelection();
         });
 
-        // Botón para limpiar selección
+        document.getElementById('confirm-group-btn')?.addEventListener('click', () => {
+            this.confirmGroupSelection();
+        });
+
+        document.getElementById('confirm-group-equipment-btn')?.addEventListener('click', () => {
+            this.confirmGroupEquipmentSelection();
+        });
+
+        // Botones para limpiar selección
         document.getElementById('clear-equipment-btn')?.addEventListener('click', () => {
             this.clearSelection();
         });
 
-        // Búsqueda en modal
+        document.getElementById('clear-group-btn')?.addEventListener('click', () => {
+            this.clearGroupSelection();
+        });
+
+        // Búsqueda en modales
         document.getElementById('equipment-search')?.addEventListener('input', (e) => {
             this.filterEquipment(e.target.value);
+        });
+
+        document.getElementById('group-search')?.addEventListener('input', (e) => {
+            this.filterGroups(e.target.value);
         });
 
         // Filtro por categoría en modal
@@ -153,10 +180,28 @@ const Equipment = {
             this.filterByCategory(e.target.value);
         });
 
-        // Inicializar modal de Bootstrap
-        const modalElement = document.getElementById('equipmentModal');
-        if (modalElement) {
-            AppState.modal = new bootstrap.Modal(modalElement);
+        // Selección múltiple en modal de equipos de grupo
+        document.getElementById('select-all-group-equipment')?.addEventListener('click', () => {
+            this.selectAllGroupEquipment();
+        });
+
+        document.getElementById('clear-all-group-equipment')?.addEventListener('click', () => {
+            this.clearAllGroupEquipment();
+        });
+
+        // Inicializar modales de Bootstrap
+        const equipmentModalElement = document.getElementById('equipmentModal');
+        const groupModalElement = document.getElementById('groupModal');
+        const groupEquipmentModalElement = document.getElementById('groupEquipmentModal');
+
+        if (equipmentModalElement) {
+            AppState.modal = new bootstrap.Modal(equipmentModalElement);
+        }
+        if (groupModalElement) {
+            AppState.groupModal = new bootstrap.Modal(groupModalElement);
+        }
+        if (groupEquipmentModalElement) {
+            AppState.groupEquipmentModal = new bootstrap.Modal(groupEquipmentModalElement);
         }
     },
 
@@ -188,31 +233,416 @@ const Equipment = {
     handleOwnerSelection(ownerType) {
         AppState.equipment.ownerType = ownerType;
 
-        // Mostrar selector de equipos
-        document.getElementById('equipment-selector-container').style.display = 'block';
+        // Ocultar todos los contenedores
+        document.getElementById('equipment-selector-container').style.display = 'none';
+        document.getElementById('group-selector-container').style.display = 'none';
 
-        // Actualizar texto del botón
-        const buttonText = document.getElementById('equipment-button-text');
-        if (ownerType === 'mine') {
-            buttonText.textContent = 'Seleccionar de Mis Equipos';
-        } else {
-            buttonText.textContent = 'Seleccionar de Equipos del Departamento';
-        }
-
-        // Limpiar selección previa si cambia el tipo
+        // Limpiar selecciones previas
         this.clearSelection();
+        this.clearGroupSelection();
+
+        // Mostrar contenedor apropiado
+        if (ownerType === 'group') {
+            document.getElementById('group-selector-container').style.display = 'block';
+        } else {
+            document.getElementById('equipment-selector-container').style.display = 'block';
+
+            // Actualizar texto del botón
+            const buttonText = document.getElementById('equipment-button-text');
+            if (ownerType === 'mine') {
+                buttonText.textContent = 'Seleccionar de Mis Equipos';
+            } else {
+                buttonText.textContent = 'Seleccionar de Equipos del Departamento';
+            }
+        }
     },
 
-    async openModal() {
-        if (!AppState.equipment.ownerType) {
+    // ==================== MODAL DE GRUPOS ====================
+    async openGroupModal() {
+        AppState.groupModal.show();
+        await this.loadGroupsForModal();
+    },
+
+    async loadGroupsForModal() {
+        const listContainer = document.getElementById('group-list');
+        const loadingDiv = document.getElementById('group-loading');
+        const emptyDiv = document.getElementById('group-empty');
+
+        loadingDiv.style.display = 'block';
+        emptyDiv.style.display = 'none';
+        listContainer.innerHTML = '';
+
+        try {
+            // Obtener departamento del usuario
+            const userResponse = await fetch('/api/core/v1/users/me/department');
+            const userData = await userResponse.json();
+            if (!userData.success || !userData.data) {
+                throw new Error('No se pudo obtener el departamento');
+            }
+
+            const deptId = userData.data.id;
+
+            // Obtener grupos del departamento
+            const response = await fetch(`/api/help-desk/v1/inventory/groups/department/${deptId}`);
+            if (!response.ok) throw new Error('Error al cargar grupos');
+            const result = await response.json();
+            AppState.equipment.groups = result.data || [];
+            AppState.equipment.filteredGroups = [...AppState.equipment.groups];
+
+            loadingDiv.style.display = 'none';
+
+            if (AppState.equipment.groups.length === 0) {
+                emptyDiv.style.display = 'block';
+            } else {
+                this.renderGroupList();
+            }
+
+        } catch (error) {
+            console.error('❌ Error cargando grupos:', error);
+            loadingDiv.style.display = 'none';
+            emptyDiv.style.display = 'block';
+            HelpdeskUtils.showToast('Error al cargar grupos', 'error');
+        }
+    },
+
+    renderGroupList() {
+        const listContainer = document.getElementById('group-list');
+        listContainer.innerHTML = '';
+
+        if (AppState.equipment.filteredGroups.length === 0) {
+            listContainer.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-search fa-2x text-muted mb-2"></i>
+                    <p class="text-muted">No se encontraron grupos con ese criterio</p>
+                </div>
+            `;
+            return;
+        }
+
+        AppState.equipment.filteredGroups.forEach(group => {
+            const card = this.createGroupCard(group);
+            listContainer.appendChild(card);
+        });
+    },
+
+    createGroupCard(group) {
+        const card = document.createElement('div');
+        card.className = 'group-card equipment-card';
+        if (AppState.equipment.selectedGroup?.id === group.id) {
+            card.classList.add('selected');
+        }
+
+        const groupTypeIcons = {
+            'CLASSROOM': 'fa-chalkboard-teacher',
+            'LABORATORY': 'fa-flask',
+            'OFFICE': 'fa-briefcase',
+            'MEETING_ROOM': 'fa-users',
+            'WORKSHOP': 'fa-tools',
+            'OTHER': 'fa-door-open'
+        };
+
+        const icon = groupTypeIcons[group.group_type] || 'fa-door-open';
+
+        card.innerHTML = `
+            <div class="d-flex align-items-start">
+                <div class="equipment-icon me-3">
+                    <i class="fas ${icon}"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="fw-bold text-info">${group.name}</div>
+                    <div class="text-dark">${group.description || 'Sin descripción'}</div>
+                    <small class="text-muted">
+                        <i class="fas fa-laptop me-1"></i>${group.total_assigned} equipos
+                    </small>
+                    <div class="mt-2">
+                        ${group.building ? `<span class="badge bg-light text-dark"><i class="fas fa-building me-1"></i>${group.building}</span>` : ''}
+                        ${group.floor ? `<span class="badge bg-light text-dark"><i class="fas fa-layer-group me-1"></i>Piso ${group.floor}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        card.addEventListener('click', () => {
+            this.selectGroupInModal(group);
+        });
+
+        return card;
+    },
+
+    selectGroupInModal(group) {
+        AppState.equipment.selectedGroup = group;
+
+        // Actualizar UI del modal
+        document.querySelectorAll('.group-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        event.currentTarget.classList.add('selected');
+
+        // Habilitar botón de confirmar
+        document.getElementById('confirm-group-btn').disabled = false;
+    },
+
+    confirmGroupSelection() {
+        if (!AppState.equipment.selectedGroup) return;
+
+        // Cerrar modal de grupos
+        AppState.groupModal.hide();
+
+        // Mostrar preview del grupo
+        this.showGroupPreview(AppState.equipment.selectedGroup);
+
+        // Abrir modal de equipos del grupo
+        setTimeout(() => {
+            this.openGroupEquipmentModal();
+        }, 300);
+    },
+
+    showGroupPreview(group) {
+        const preview = document.getElementById('selected-group-preview');
+        const name = document.getElementById('preview-group-name');
+        const info = document.getElementById('preview-group-info');
+        const location = document.getElementById('preview-group-location');
+
+        name.textContent = group.name;
+        info.textContent = `${group.total_assigned} equipos disponibles`;
+        location.textContent = [group.building, group.floor ? `Piso ${group.floor}` : ''].filter(Boolean).join(' - ') || 'Sin ubicación';
+
+        preview.style.display = 'block';
+
+        // Guardar ID en input oculto
+        document.getElementById('selected_group_id').value = group.id;
+    },
+
+    clearGroupSelection() {
+        AppState.equipment.selectedGroup = null;
+        AppState.equipment.selectedGroupEquipment = [];
+        document.getElementById('selected-group-preview').style.display = 'none';
+        document.getElementById('selected-group-equipment-preview').style.display = 'none';
+        document.getElementById('selected_group_id').value = '';
+        document.getElementById('inventory_item_ids').value = '';
+        document.getElementById('group-button-text').textContent = 'Seleccionar Salón/Grupo';
+    },
+
+    // ==================== MODAL DE EQUIPOS DE GRUPO ====================
+    async openGroupEquipmentModal() {
+        if (!AppState.equipment.selectedGroup) return;
+
+        AppState.groupEquipmentModal.show();
+
+        // Actualizar título
+        document.getElementById('group-equipment-modal-title').textContent =
+            `Equipos de: ${AppState.equipment.selectedGroup.name}`;
+
+        await this.loadGroupEquipmentForModal();
+    },
+
+    async loadGroupEquipmentForModal() {
+        const listContainer = document.getElementById('group-equipment-list-modal');
+        const loadingDiv = document.getElementById('group-equipment-loading');
+        const emptyDiv = document.getElementById('group-equipment-empty');
+
+        loadingDiv.style.display = 'block';
+        emptyDiv.style.display = 'none';
+        listContainer.innerHTML = '';
+
+        try {
+            const groupId = AppState.equipment.selectedGroup.id;
+            const response = await fetch(`/api/help-desk/v1/inventory/groups/${groupId}/items`);
+
+            if (!response.ok) throw new Error('Error al cargar equipos');
+
+            const result = await response.json();
+            AppState.equipment.groupEquipment = result.data || [];
+
+            loadingDiv.style.display = 'none';
+
+            if (AppState.equipment.groupEquipment.length === 0) {
+                emptyDiv.style.display = 'block';
+            } else {
+                this.renderGroupEquipmentList();
+            }
+
+        } catch (error) {
+            console.error('❌ Error cargando equipos del grupo:', error);
+            loadingDiv.style.display = 'none';
+            emptyDiv.style.display = 'block';
+            HelpdeskUtils.showToast('Error al cargar equipos', 'error');
+        }
+    },
+
+    renderGroupEquipmentList() {
+        const listContainer = document.getElementById('group-equipment-list-modal');
+        listContainer.innerHTML = '';
+
+        AppState.equipment.groupEquipment.forEach(item => {
+            const card = this.createGroupEquipmentCard(item);
+            listContainer.appendChild(card);
+        });
+
+        this.updateGroupEquipmentSelectionCount();
+    },
+
+    createGroupEquipmentCard(item) {
+        const card = document.createElement('div');
+        card.className = 'equipment-card group-equipment-item';
+        card.dataset.itemId = item.id;
+
+        const isSelected = AppState.equipment.selectedGroupEquipment.includes(item.id);
+        if (isSelected) {
+            card.classList.add('selected');
+        }
+
+        const icon = this.getEquipmentIcon(item.category?.icon || 'fa-laptop');
+
+        card.innerHTML = `
+            <div class="d-flex align-items-start">
+                <div class="form-check me-3 mt-1">
+                    <input class="form-check-input" type="checkbox" ${isSelected ? 'checked' : ''}>
+                </div>
+                <div class="equipment-icon me-3">
+                    <i class="${icon}"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="fw-bold text-primary">${item.inventory_number}</div>
+                    <div class="text-dark">${item.brand || 'N/A'} ${item.model || ''}</div>
+                    <small class="text-muted">
+                        <i class="fas fa-tag me-1"></i>${item.category?.name || 'Sin categoría'}
+                    </small>
+                    <div class="mt-2">
+                        ${item.location_detail ? `<span class="badge bg-light text-dark"><i class="fas fa-map-marker-alt me-1"></i>${item.location_detail}</span>` : ''}
+                        ${this.getStatusBadge(item.status)}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        card.addEventListener('click', () => {
+            this.toggleGroupEquipmentSelection(item.id);
+        });
+
+        return card;
+    },
+
+    toggleGroupEquipmentSelection(itemId) {
+        const index = AppState.equipment.selectedGroupEquipment.indexOf(itemId);
+
+        if (index > -1) {
+            // Deseleccionar
+            AppState.equipment.selectedGroupEquipment.splice(index, 1);
+        } else {
+            // Seleccionar
+            AppState.equipment.selectedGroupEquipment.push(itemId);
+        }
+
+        // Actualizar UI
+        const card = document.querySelector(`.group-equipment-item[data-item-id="${itemId}"]`);
+        const checkbox = card.querySelector('input[type="checkbox"]');
+
+        if (index > -1) {
+            card.classList.remove('selected');
+            checkbox.checked = false;
+        } else {
+            card.classList.add('selected');
+            checkbox.checked = true;
+        }
+
+        this.updateGroupEquipmentSelectionCount();
+    },
+
+    selectAllGroupEquipment() {
+        AppState.equipment.selectedGroupEquipment = AppState.equipment.groupEquipment.map(item => item.id);
+
+        document.querySelectorAll('.group-equipment-item').forEach(card => {
+            card.classList.add('selected');
+            card.querySelector('input[type="checkbox"]').checked = true;
+        });
+
+        this.updateGroupEquipmentSelectionCount();
+    },
+
+    clearAllGroupEquipment() {
+        AppState.equipment.selectedGroupEquipment = [];
+
+        document.querySelectorAll('.group-equipment-item').forEach(card => {
+            card.classList.remove('selected');
+            card.querySelector('input[type="checkbox"]').checked = false;
+        });
+
+        this.updateGroupEquipmentSelectionCount();
+    },
+
+    updateGroupEquipmentSelectionCount() {
+        const count = AppState.equipment.selectedGroupEquipment.length;
+        document.getElementById('group-equipment-selected-count').textContent = count;
+        document.getElementById('confirm-group-equipment-btn').disabled = count === 0;
+    },
+
+    confirmGroupEquipmentSelection() {
+        if (AppState.equipment.selectedGroupEquipment.length === 0) return;
+
+        // Cerrar modal
+        AppState.groupEquipmentModal.hide();
+
+        // Mostrar preview de equipos seleccionados
+        this.showGroupEquipmentPreview();
+
+        // Guardar IDs en input oculto (como JSON string)
+        document.getElementById('inventory_item_ids').value = JSON.stringify(AppState.equipment.selectedGroupEquipment);
+
+        HelpdeskUtils.showToast(`${AppState.equipment.selectedGroupEquipment.length} equipos seleccionados`, 'success');
+    },
+
+    showGroupEquipmentPreview() {
+        const preview = document.getElementById('selected-group-equipment-preview');
+        const listDiv = document.getElementById('group-equipment-list');
+        const countSpan = document.getElementById('group-equipment-count');
+
+        countSpan.textContent = AppState.equipment.selectedGroupEquipment.length;
+
+        // Crear badges de equipos seleccionados
+        listDiv.innerHTML = '';
+        AppState.equipment.selectedGroupEquipment.forEach(itemId => {
+            const item = AppState.equipment.groupEquipment.find(eq => eq.id === itemId);
+            if (item) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-success me-2 mb-2';
+                badge.innerHTML = `
+                    <i class="fas fa-laptop me-1"></i>
+                    ${item.inventory_number}
+                `;
+                listDiv.appendChild(badge);
+            }
+        });
+
+        preview.style.display = 'block';
+    },
+
+    filterGroups(searchTerm) {
+        const term = searchTerm.toLowerCase().trim();
+
+        if (!term) {
+            AppState.equipment.filteredGroups = [...AppState.equipment.groups];
+        } else {
+            AppState.equipment.filteredGroups = AppState.equipment.groups.filter(group => {
+                return (
+                    group.name.toLowerCase().includes(term) ||
+                    (group.code && group.code.toLowerCase().includes(term)) ||
+                    (group.description && group.description.toLowerCase().includes(term))
+                );
+            });
+        }
+
+        this.renderGroupList();
+    },
+
+    // ==================== MODAL DE EQUIPOS INDIVIDUAL (ya existente) ====================
+    async openEquipmentModal() {
+        if (!AppState.equipment.ownerType || AppState.equipment.ownerType === 'group') {
             HelpdeskUtils.showToast('Por favor selecciona primero el tipo de propietario', 'warning');
             return;
         }
 
-        // Mostrar modal
         AppState.modal.show();
-
-        // Cargar equipos
         await this.loadEquipmentForModal();
     },
 
@@ -221,7 +651,6 @@ const Equipment = {
         const loadingDiv = document.getElementById('equipment-loading');
         const emptyDiv = document.getElementById('equipment-empty');
 
-        // Mostrar loading
         loadingDiv.style.display = 'block';
         emptyDiv.style.display = 'none';
         listContainer.innerHTML = '';
@@ -231,7 +660,6 @@ const Equipment = {
             if (AppState.equipment.ownerType === 'mine') {
                 endpoint = '/api/help-desk/v1/inventory/items/my-equipment';
             } else {
-                // Obtener departamento del usuario
                 const userResponse = await fetch('/api/core/v1/users/me/department');
                 const userData = await userResponse.json();
                 const deptId = userData.data.id;
@@ -245,7 +673,6 @@ const Equipment = {
             AppState.equipment.available = result.data || [];
             AppState.equipment.filtered = [...AppState.equipment.available];
 
-            // Ocultar loading
             loadingDiv.style.display = 'none';
 
             if (AppState.equipment.available.length === 0) {
@@ -289,10 +716,8 @@ const Equipment = {
             card.classList.add('selected');
         }
 
-        // Icono según categoría
         const icon = this.getEquipmentIcon(item.category?.icon || 'fa-laptop');
 
-        // Información del propietario
         const ownerInfo = item.assigned_to_user
             ? `<span class="badge bg-info"><i class="fas fa-user me-1"></i>${item.assigned_to_user.full_name}</span>`
             : `<span class="badge bg-secondary"><i class="fas fa-building me-1"></i>Global del Departamento</span>`;
@@ -319,7 +744,6 @@ const Equipment = {
             </div>
         `;
 
-        // Click para seleccionar
         card.addEventListener('click', () => {
             this.selectEquipmentInModal(item);
         });
@@ -328,9 +752,7 @@ const Equipment = {
     },
 
     getEquipmentIcon(iconClass) {
-        // Si ya viene el icono completo de la categoría
         if (iconClass) return iconClass;
-        // Por defecto
         return 'fas fa-laptop';
     },
 
@@ -340,42 +762,37 @@ const Equipment = {
             'MAINTENANCE': { class: 'warning', text: 'Mantenimiento' },
             'DAMAGED': { class: 'danger', text: 'Dañado' },
             'RETIRED': { class: 'secondary', text: 'Retirado' },
-            'LOST': { class: 'dark', text: 'Extraviado' }
+            'LOST': { class: 'dark', text: 'Extraviado' },
+            'PENDING_ASSIGNMENT': { class: 'info', text: 'Pendiente' }
         };
         const config = statusMap[status] || { class: 'secondary', text: status };
         return `<span class="badge bg-${config.class}">${config.text}</span>`;
     },
 
     selectEquipmentInModal(item) {
-        // Actualizar selección
         AppState.equipment.selected = item;
 
-        // Actualizar UI del modal
         document.querySelectorAll('.equipment-card').forEach(card => {
             card.classList.remove('selected');
         });
         event.currentTarget.classList.add('selected');
 
-        // Habilitar botón de confirmar
         document.getElementById('confirm-equipment-btn').disabled = false;
     },
 
-    confirmSelection() {
+    confirmEquipmentSelection() {
         if (!AppState.equipment.selected) return;
 
-        // Cerrar modal
         AppState.modal.hide();
+        this.showEquipmentPreview(AppState.equipment.selected);
 
-        // Actualizar preview
-        this.showPreview(AppState.equipment.selected);
-
-        // Guardar ID en input oculto
-        document.getElementById('inventory_item_id').value = AppState.equipment.selected.id;
+        // Guardar ID como array de un solo elemento
+        document.getElementById('inventory_item_ids').value = JSON.stringify([AppState.equipment.selected.id]);
 
         HelpdeskUtils.showToast('Equipo seleccionado correctamente', 'success');
     },
 
-    showPreview(item) {
+    showEquipmentPreview(item) {
         const preview = document.getElementById('selected-equipment-preview');
         const icon = document.getElementById('preview-equipment-icon');
         const number = document.getElementById('preview-equipment-number');
@@ -383,7 +800,6 @@ const Equipment = {
         const owner = document.getElementById('preview-equipment-owner');
         const location = document.getElementById('preview-equipment-location');
 
-        // Actualizar contenido
         icon.innerHTML = `<i class="${this.getEquipmentIcon(item.category?.icon)} fa-2x text-success"></i>`;
         number.textContent = item.inventory_number;
         info.textContent = `${item.brand || 'N/A'} ${item.model || ''}`.trim();
@@ -396,19 +812,23 @@ const Equipment = {
 
         location.textContent = item.location_detail || item.department?.name || 'Sin ubicación';
 
-        // Mostrar preview
         preview.style.display = 'block';
-
-        // Actualizar texto del botón
         document.getElementById('equipment-button-text').textContent = 'Cambiar Equipo';
     },
 
     clearSelection() {
         AppState.equipment.selected = null;
-        document.getElementById('inventory_item_id').value = '';
+        AppState.equipment.selectedGroupEquipment = [];
         document.getElementById('selected-equipment-preview').style.display = 'none';
-        document.getElementById('equipment-button-text').textContent =
-            AppState.equipment.ownerType === 'mine' ? 'Seleccionar de Mis Equipos' : 'Seleccionar de Equipos del Departamento';
+        document.getElementById('selected-group-equipment-preview').style.display = 'none';
+        document.getElementById('inventory_item_ids').value = '';
+
+        const buttonText = document.getElementById('equipment-button-text');
+        if (buttonText) {
+            buttonText.textContent = AppState.equipment.ownerType === 'mine'
+                ? 'Seleccionar de Mis Equipos'
+                : 'Seleccionar de Equipos del Departamento';
+        }
     },
 
     filterEquipment(searchTerm) {
@@ -542,14 +962,18 @@ const FormValidation = {
             data.category_id = parseInt(document.getElementById('category_id').value);
         }
 
-        // Para SOPORTE: incluir inventory_item_id si se seleccionó
+        // Para SOPORTE: incluir inventory_item_ids si se seleccionaron
         if (data.area === 'SOPORTE') {
-            const inventoryItemId = document.getElementById('inventory_item_id').value;
-            if (inventoryItemId) {
-                data.inventory_item_id = parseInt(inventoryItemId);
+            const inventoryItemIds = document.getElementById('inventory_item_ids').value;
+            if (inventoryItemIds) {
+                try {
+                    data.inventory_item_ids = JSON.parse(inventoryItemIds);
+                } catch {
+                    data.inventory_item_ids = [];
+                }
             }
-            // Para SOPORTE aún necesitamos una categoría (puede ser genérica o derivada del equipo)
-            // Por ahora ponemos una categoría por defecto o la primera disponible
+
+            // Para SOPORTE aún necesitamos una categoría (puede ser genérica)
             if (AppState.categories.length > 0) {
                 data.category_id = AppState.categories[0].id;
             }
