@@ -46,9 +46,11 @@ class Ticket(db.Model):
     resolved_at = db.Column(db.DateTime, nullable=True)
     resolved_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)
     
-    # ==================== CALIFICACIÓN ====================
-    rating = db.Column(db.Integer, nullable=True)  # 1-5 estrellas
-    rating_comment = db.Column(db.Text, nullable=True)
+    # ==================== CALIFICACIÓN (ENCUESTA) ====================
+    rating_attention = db.Column(db.Integer, nullable=True)  # 1-5 estrellas - Calidad de atención
+    rating_speed = db.Column(db.Integer, nullable=True)  # 1-5 estrellas - Rapidez del servicio
+    rating_efficiency = db.Column(db.Boolean, nullable=True)  # Si/No - Eficiencia del servicio
+    rating_comment = db.Column(db.Text, nullable=True)  # Sugerencias y comentarios (opcional)
     rated_at = db.Column(db.DateTime, nullable=True)
     
     # ==================== TIMESTAMPS ====================
@@ -77,7 +79,7 @@ class Ticket(db.Model):
     comments = db.relationship('Comment', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     attachments = db.relationship('Attachment', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     status_logs = db.relationship('StatusLog', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
-    
+    collaborators = db.relationship('TicketCollaborator',back_populates='ticket',cascade='all, delete-orphan', lazy='dynamic', order_by='TicketCollaborator.added_at')
     #Inventario relacionado
     ticket_items = db.relationship(
         "TicketInventoryItem",
@@ -117,7 +119,7 @@ class Ticket(db.Model):
     @property
     def can_be_rated(self):
         """Puede ser calificado si está resuelto y no ha sido calificado"""
-        return self.is_resolved and self.rating is None
+        return self.is_resolved and self.rating_attention is None
     
     @property
     def resolution_time_hours(self):
@@ -178,7 +180,9 @@ class Ticket(db.Model):
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'rated_at': self.rated_at.isoformat() if self.rated_at else None,
             'closed_at': self.closed_at.isoformat() if self.closed_at else None,
-            'rating': self.rating,
+            'rating_attention': self.rating_attention,
+            'rating_speed': self.rating_speed,
+            'rating_efficiency': self.rating_efficiency,
             'rating_comment': self.rating_comment,
             'resolution_notes': self.resolution_notes,
             'resolved_by': self.resolved_by.to_dict() if self.resolved_by else None,
@@ -203,6 +207,8 @@ class Ticket(db.Model):
                     'id': self.requester_department.id,
                     'name': self.requester_department.name
                 } if self.requester_department else None,
+                'collaborators': [c.to_dict() for c in self.collaborators] if hasattr(self, 'collaborators') else [],
+                'collaborators_count': self.collaborators.count() if hasattr(self, 'collaborators') else 0,
                 'inventory_items': [
                     {
                         'id': item.id,

@@ -5,7 +5,9 @@ let filteredTickets = [];
 let currentPage = 1;
 const itemsPerPage = 10;
 
-let currentRating = 0;
+let currentRatingAttention = 0;
+let currentRatingSpeed = 0;
+let currentRatingEfficiency = null;
 let ticketToRate = null;
 let ticketToCancel = null;
 
@@ -50,7 +52,7 @@ function updateSummaryCards() {
         ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED'].includes(t.status)
     ).length;
     const pendingRating = allTickets.filter(t => 
-        ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(t.status) && !t.rating
+        ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(t.status) && !t.rating_attention
     ).length;
     
     document.getElementById('totalTickets').textContent = total;
@@ -103,9 +105,9 @@ function renderTickets() {
 }
 
 function createTicketCard(ticket) {
-    const canRate = ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(ticket.status) && !ticket.rating;
+    const canRate = ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(ticket.status) && !ticket.rating_attention;
     const canCancel = ['PENDING', 'ASSIGNED'].includes(ticket.status);
-    const hasRating = ticket.rating !== null;
+    const hasRating = ticket.rating_attention !== null;
     
     return `
         <div class="ticket-card border-bottom p-3" onclick="showTicketDetail(${ticket.id})">
@@ -163,7 +165,12 @@ function createTicketCard(ticket) {
                     
                     ${hasRating ? `
                         <div class="mt-2 p-2 bg-light rounded small">
-                            <strong>Tu calificación:</strong> ${HelpdeskUtils.renderStarRating(ticket.rating)}
+                            <strong>Tu evaluación:</strong>
+                            <div class="mt-1">
+                                <span class="me-3"><i class="fas fa-user-tie me-1"></i>Atención: ${HelpdeskUtils.renderStarRating(ticket.rating_attention)}</span>
+                                <span class="me-3"><i class="fas fa-tachometer-alt me-1"></i>Rapidez: ${HelpdeskUtils.renderStarRating(ticket.rating_speed)}</span>
+                                <span><i class="fas fa-check-circle me-1"></i>Eficiencia: ${ticket.rating_efficiency ? 'Sí' : 'No'}</span>
+                            </div>
                             ${ticket.rating_comment ? `
                                 <div class="mt-1 text-muted">
                                     <i class="fas fa-comment me-1"></i>"${ticket.rating_comment}"
@@ -307,11 +314,28 @@ function applyFilters() {
 
 // ==================== RATING MODAL ====================
 function setupRatingModal() {
-    // Star buttons
-    document.querySelectorAll('.star-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            currentRating = parseInt(this.dataset.rating);
+    // Configurar estrellas de atención
+    document.querySelectorAll('.star-btn-attention').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentRatingAttention = parseInt(btn.dataset.rating);
             updateStarButtons();
+            checkRatingFormValidity();
+        });
+    });
+
+    // Configurar estrellas de rapidez
+    document.querySelectorAll('.star-btn-speed').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentRatingSpeed = parseInt(btn.dataset.rating);
+            updateStarButtons();
+            checkRatingFormValidity();
+        });
+    });
+
+    // Configurar radio buttons de eficiencia
+    document.querySelectorAll('input[name="ratingEfficiency"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            currentRatingEfficiency = radio.value === 'true';
             checkRatingFormValidity();
         });
     });
@@ -322,26 +346,36 @@ function setupRatingModal() {
 
 function openRatingModal(ticketId) {
     ticketToRate = allTickets.find(t => t.id === ticketId);
-    if (!ticketToRate) return;
+    if (!ticketToRate) {
+        HelpdeskUtils.showToast('Ticket no encontrado', 'danger');
+        return;
+    }
+    
+    // Reset ratings
+    currentRatingAttention = 0;
+    currentRatingSpeed = 0;
+    currentRatingEfficiency = null;
     
     // Update summary
     document.getElementById('ratingTicketSummary').innerHTML = `
-        <h6 class="mb-2">${ticketToRate.ticket_number}: ${ticketToRate.title}</h6>
-        <div class="d-flex gap-2 mb-2">
-            ${HelpdeskUtils.getAreaBadge(ticketToRate.area)}
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <strong>${ticketToRate.ticket_number}</strong>
+                <p class="mb-0 text-muted small">${ticketToRate.title}</p>
+            </div>
             ${HelpdeskUtils.getStatusBadge(ticketToRate.status)}
         </div>
-        ${ticketToRate.resolution_notes ? `
-            <p class="mb-0 small text-muted">
-                <strong>Solución:</strong> ${ticketToRate.resolution_notes}
-            </p>
-        ` : ''}
     `;
     
     // Reset form
-    currentRating = 0;
     updateStarButtons();
     document.getElementById('ratingComment').value = '';
+    
+    // Reset radio buttons
+    document.querySelectorAll('input[name="ratingEfficiency"]').forEach(radio => {
+        radio.checked = false;
+    });
+    
     document.getElementById('btnSubmitRating').disabled = true;
     
     // Show modal
@@ -350,25 +384,41 @@ function openRatingModal(ticketId) {
 }
 
 function updateStarButtons() {
-    document.querySelectorAll('.star-btn').forEach(btn => {
+    // Actualizar estrellas de atención
+    document.querySelectorAll('.star-btn-attention').forEach(btn => {
         const rating = parseInt(btn.dataset.rating);
-        if (rating <= currentRating) {
-            btn.classList.remove('btn-outline-warning');
-            btn.classList.add('btn-warning', 'active');
+        if (rating <= currentRatingAttention) {
+            btn.classList.add('active');
+            btn.querySelector('i').classList.replace('far', 'fas');
         } else {
-            btn.classList.remove('btn-warning', 'active');
-            btn.classList.add('btn-outline-warning');
+            btn.classList.remove('active');
+            btn.querySelector('i').classList.replace('fas', 'far');
+        }
+    });
+
+    // Actualizar estrellas de rapidez
+    document.querySelectorAll('.star-btn-speed').forEach(btn => {
+        const rating = parseInt(btn.dataset.rating);
+        if (rating <= currentRatingSpeed) {
+            btn.classList.add('active');
+            btn.querySelector('i').classList.replace('far', 'fas');
+        } else {
+            btn.classList.remove('active');
+            btn.querySelector('i').classList.replace('fas', 'far');
         }
     });
 }
 
 function checkRatingFormValidity() {
-    const submitBtn = document.getElementById('btnSubmitRating');
-    submitBtn.disabled = currentRating === 0;
+    const isValid = currentRatingAttention > 0 && currentRatingSpeed > 0 && currentRatingEfficiency !== null;
+    document.getElementById('btnSubmitRating').disabled = !isValid;
 }
 
 async function submitRating() {
-    if (!ticketToRate || currentRating === 0) return;
+    if (currentRatingAttention === 0 || currentRatingSpeed === 0 || currentRatingEfficiency === null) {
+        HelpdeskUtils.showToast('Por favor completa todos los campos obligatorios', 'warning');
+        return;
+    }
     
     const submitBtn = document.getElementById('btnSubmitRating');
     const originalText = submitBtn.innerHTML;
@@ -377,14 +427,14 @@ async function submitRating() {
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Enviando...';
     
     try {
-        const comment = document.getElementById('ratingComment').value.trim();
-        
-        await HelpdeskUtils.api.rateTicket(ticketToRate.id, {
-            rating: currentRating,
-            comment: comment || null
+        const response = await HelpdeskUtils.api.rateTicket(ticketToRate.id, {
+            rating_attention: currentRatingAttention,
+            rating_speed: currentRatingSpeed,
+            rating_efficiency: currentRatingEfficiency,
+            comment: document.getElementById('ratingComment').value.trim() || null
         });
         
-        HelpdeskUtils.showToast('¡Gracias por tu calificación!', 'success');
+        HelpdeskUtils.showToast('¡Gracias por tu evaluación!', 'success');
         
         // Close modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('ratingModal'));

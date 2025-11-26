@@ -1012,7 +1012,7 @@ const FormValidation = {
                 formDataMultipart.append('photo', photoFile);
 
                 // Enviar con fetch directamente
-                const response = await fetch('/api/help-desk/v1/tickets', {
+                const response = await fetch('/api/help-desk/v1/tickets/', {
                     method: 'POST',
                     body: formDataMultipart
                     // No incluir Content-Type, el browser lo pone automáticamente

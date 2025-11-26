@@ -308,29 +308,67 @@
 
                     <!-- Notificaciones Tab -->
                     <div class="tab-pane fade" id="notifications" role="tabpanel">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0"><i class="bi bi-bell me-2"></i>Notificaciones</h5>
-                            <button class="btn btn-sm btn-outline-primary" id="markAllReadBtn">
-                                <i class="bi bi-check-all me-1"></i>Marcar todas como leídas
-                            </button>
-                        </div>
+                        <div class="card shadow-sm">
+                            <div class="card-header bg-white">
+                                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                    <h5 class="mb-0"><i class="bi bi-bell me-2"></i>Notificaciones</h5>
+                                    <button class="btn btn-sm btn-outline-primary" id="markAllReadBtn">
+                                        <i class="bi bi-check-all me-1"></i>Marcar todas como leídas
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <!-- Advanced Filters Row -->
+                                <div class="row g-3 mb-4">
+                                    <!-- App Filter -->
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold text-muted">
+                                            <i class="bi bi-funnel me-1"></i>Filtrar por Aplicación
+                                        </label>
+                                        <div class="btn-group w-100" role="group" id="notificationFilters">
+                                            <input type="radio" class="btn-check" name="notifFilter" id="notifAll" checked>
+                                            <label class="btn btn-outline-secondary btn-sm" for="notifAll">
+                                                Todas <span class="badge bg-secondary ms-1" id="badgeAll">0</span>
+                                            </label>
+                                            <!-- Los filtros por app se generan dinámicamente -->
+                                        </div>
+                                    </div>
 
-                        <!-- Filter Buttons -->
-                        <div class="btn-group mb-4 w-100" role="group" id="notificationFilters">
-                            <input type="radio" class="btn-check" name="notifFilter" id="notifAll" checked>
-                            <label class="btn btn-outline-secondary" for="notifAll">
-                                Todas <span class="badge bg-secondary ms-1" id="badgeAll">0</span>
-                            </label>
+                                    <!-- Read/Unread Filter -->
+                                    <div class="col-md-3">
+                                        <label class="form-label small fw-semibold text-muted">
+                                            <i class="bi bi-eye me-1"></i>Estado
+                                        </label>
+                                        <select class="form-select form-select-sm" id="readStatusFilter">
+                                            <option value="all">Todas</option>
+                                            <option value="unread">No leídas</option>
+                                            <option value="read">Leídas</option>
+                                        </select>
+                                    </div>
 
-                            <!-- Los filtros por app se generan dinámicamente -->
-                        </div>
+                                    <!-- Date Range Filter -->
+                                    <div class="col-md-3">
+                                        <label class="form-label small fw-semibold text-muted">
+                                            <i class="bi bi-calendar-range me-1"></i>Período
+                                        </label>
+                                        <select class="form-select form-select-sm" id="dateRangeFilter">
+                                            <option value="all">Todo el tiempo</option>
+                                            <option value="today">Hoy</option>
+                                            <option value="week" selected>Última semana</option>
+                                            <option value="month">Último mes</option>
+                                            <option value="3months">Últimos 3 meses</option>
+                                        </select>
+                                    </div>
+                                </div>
 
-                        <!-- Notifications List -->
-                        <div class="notifications-container" id="notificationsContainer">
-                            <!-- Se carga dinámicamente vía JavaScript -->
-                            <div class="text-center py-5">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Cargando notificaciones...</span>
+                                <!-- Notifications List -->
+                                <div class="notifications-container" id="notificationsContainer">
+                                    <!-- Se carga dinámicamente vía JavaScript -->
+                                    <div class="text-center py-5">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Cargando notificaciones...</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -392,7 +430,64 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- ⭐ NUEVO: SSE Client for Real-time Notifications -->
+    <script src="{{ url_for('static', filename='core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
+
     <script src="{{ url_for('static', filename='core/js/profile/profile.js') }}?v={{ static_version }}"></script>
+
+    <!-- ⭐ NUEVO: Initialize SSE for Profile Page -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize SSE client for real-time notification updates
+            if (window.NotificationSSEClient && window.ProfileManager) {
+                const sseClient = new NotificationSSEClient('/api/core/v1');
+
+                // Listen for new notifications
+                sseClient.on('notification', (notification) => {
+                    console.log('[Profile] New notification received:', notification);
+
+                    // Reload notifications if in notifications tab
+                    const notificationsTab = document.getElementById('notifications-tab');
+                    if (notificationsTab && notificationsTab.classList.contains('active')) {
+                        // Reload notifications after a short delay to allow DB commit
+                        setTimeout(() => {
+                            if (window.profileManager) {
+                                window.profileManager.loadNotifications();
+                            }
+                        }, 500);
+                    }
+                });
+
+                // Listen for connection status
+                sseClient.on('connected', (data) => {
+                    console.log('[Profile] SSE connected, unread counts:', data.counts);
+
+                    // Update notification badge
+                    if (data.counts) {
+                        const totalUnread = Object.values(data.counts).reduce((sum, count) => sum + count, 0);
+                        const badge = document.getElementById('notificationBadge');
+                        if (badge) {
+                            if (totalUnread > 0) {
+                                badge.textContent = totalUnread > 99 ? '99+' : totalUnread;
+                                badge.style.display = 'inline';
+                            } else {
+                                badge.style.display = 'none';
+                            }
+                        }
+                    }
+                });
+
+                sseClient.on('error', (error) => {
+                    console.error('[Profile] SSE error:', error);
+                });
+
+                // Connect
+                sseClient.connect();
+                console.log('[Profile] SSE client initialized');
+            }
+        });
+    </script>
 </body>
 
 </html>

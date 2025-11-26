@@ -54,13 +54,42 @@ class Notification(db.Model):
             'is_read': self.is_read,
             'read_at': self.read_at.isoformat() if self.read_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'action_url': self._get_action_url(),
+            'app_icon': self._get_app_icon(),
+            'app_color': self._get_app_color(),
         }
-        
+
         if include_source and self.ticket:
             data['ticket'] = {
                 'id': self.ticket.id,
                 'ticket_number': self.ticket.ticket_number,
                 'title': self.ticket.title
             }
-        
+
         return data
+
+    def _get_action_url(self):
+        """Extrae la URL de acción desde el campo data JSONB"""
+        if not self.data:
+            return None
+        return self.data.get('url')
+
+    def _get_app_icon(self):
+        """Retorna el icono correspondiente a cada aplicación"""
+        icons = {
+            'agendatec': 'bi-calendar-check',
+            'helpdesk': 'bi-headset',
+            'inventory': 'bi-box-seam',
+            'core': 'bi-gear',
+        }
+        return icons.get(self.app_name, 'bi-bell')
+
+    def _get_app_color(self):
+        """Retorna el color correspondiente a cada aplicación"""
+        colors = {
+            'agendatec': 'primary',
+            'helpdesk': 'success',
+            'inventory': 'warning',
+            'core': 'secondary',
+        }
+        return colors.get(self.app_name, 'info')

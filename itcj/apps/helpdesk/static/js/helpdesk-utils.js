@@ -38,7 +38,7 @@ class HelpdeskAPI {
     // Tickets
     async getTickets(filters = {}) {
         const params = new URLSearchParams(filters);
-        return this.request(`/tickets?${params}`);
+        return this.request(`/tickets/?${params}`);
     }
 
     async getTicket(ticketId) {
@@ -46,7 +46,7 @@ class HelpdeskAPI {
     }
 
     async createTicket(data) {
-        return this.request('/tickets', {
+        return this.request('/tickets/', {
             method: 'POST',
             body: JSON.stringify(data)
         });

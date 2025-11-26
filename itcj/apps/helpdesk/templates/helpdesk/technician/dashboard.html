@@ -31,7 +31,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
         <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
             <div class="card-body">
@@ -47,7 +47,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
         <div class="card border-0 shadow-sm border-start border-info border-4 h-100">
             <div class="card-body">
@@ -63,7 +63,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-lg-3 col-md-6">
         <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
             <div class="card-body">
@@ -110,7 +110,7 @@
 
 <!-- Tab Content -->
 <div class="tab-content" id="technicianTabContent">
-    
+
     <!-- Queue Tab (ASSIGNED) -->
     <div class="tab-pane fade show active" id="queue" role="tabpanel">
         <div class="card border-0 shadow-sm">
@@ -129,7 +129,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Working Tab (IN_PROGRESS) -->
     <div class="tab-pane fade" id="working" role="tabpanel">
         <div class="card border-0 shadow-sm">
@@ -148,15 +148,15 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Team Tab (Team Tickets) -->
     <div class="tab-pane fade" id="team" role="tabpanel">
         <div class="alert alert-info border-0 shadow-sm">
             <i class="fas fa-info-circle me-2"></i>
-            <strong>Tickets del Equipo:</strong> Estos tickets están asignados a todo el equipo. 
+            <strong>Tickets del Equipo:</strong> Estos tickets están asignados a todo el equipo.
             Puedes tomarlos para trabajar en ellos.
         </div>
-        
+
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom">
                 <h5 class="mb-0">
@@ -173,7 +173,7 @@
             </div>
         </div>
     </div>
-    
+
     <!-- History Tab (Resolved) -->
     <div class="tab-pane fade" id="history" role="tabpanel">
         <div class="row mb-3">
@@ -186,11 +186,10 @@
                 </select>
             </div>
             <div class="col-md-6">
-                <input type="text" class="form-control" id="historySearch" 
-                       placeholder="Buscar en historial...">
+                <input type="text" class="form-control" id="historySearch" placeholder="Buscar en historial...">
             </div>
         </div>
-        
+
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom">
                 <h5 class="mb-0">
@@ -257,14 +256,14 @@
             </div>
             <div class="modal-body">
                 <div id="resolveTicketInfo" class="p-3 bg-light rounded mb-4"></div>
-                
+
                 <!-- Resolution Type -->
                 <div class="mb-4">
                     <label class="form-label fw-bold">¿Cómo se resolvió el ticket?</label>
                     <div class="d-grid gap-2">
                         <div class="form-check p-3 border rounded">
-                            <input class="form-check-input" type="radio" name="resolutionType" 
-                                   id="resolutionSuccess" value="success" checked>
+                            <input class="form-check-input" type="radio" name="resolutionType" id="resolutionSuccess"
+                                value="success" checked>
                             <label class="form-check-label w-100" for="resolutionSuccess">
                                 <i class="fas fa-check-circle text-success me-2"></i>
                                 <strong>Resuelto Exitosamente</strong>
@@ -272,8 +271,8 @@
                             </label>
                         </div>
                         <div class="form-check p-3 border rounded">
-                            <input class="form-check-input" type="radio" name="resolutionType" 
-                                   id="resolutionFailed" value="failed">
+                            <input class="form-check-input" type="radio" name="resolutionType" id="resolutionFailed"
+                                value="failed">
                             <label class="form-check-label w-100" for="resolutionFailed">
                                 <i class="fas fa-times-circle text-warning me-2"></i>
                                 <strong>Atendido pero No Resuelto</strong>
@@ -282,30 +281,51 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Resolution Notes -->
                 <div class="mb-4">
                     <label for="resolutionNotes" class="form-label fw-bold">
                         Notas de Resolución <span class="text-danger">*</span>
                     </label>
-                    <textarea class="form-control" id="resolutionNotes" rows="5" 
-                              placeholder="Describe detalladamente el trabajo realizado, pasos seguidos, soluciones aplicadas..." 
-                              required></textarea>
+                    <textarea class="form-control" id="resolutionNotes" rows="5"
+                        placeholder="Describe detalladamente el trabajo realizado, pasos seguidos, soluciones aplicadas..."
+                        required></textarea>
                     <small class="form-text text-muted">Mínimo 10 caracteres</small>
                 </div>
-                
+
                 <!-- Time Invested (Optional) -->
                 <div class="mb-3">
                     <label for="timeInvested" class="form-label">
                         <i class="fas fa-clock me-2"></i>Tiempo Invertido (opcional)
                     </label>
                     <div class="input-group">
-                        <input type="number" class="form-control" id="timeInvested" 
-                               min="0" step="15" placeholder="60">
+                        <input type="number" class="form-control" id="timeInvested" min="0" step="15" placeholder="60">
                         <span class="input-group-text">minutos</span>
                     </div>
                     <small class="form-text text-muted">
                         Tiempo real de trabajo (no incluye esperas)
+                    </small>
+                </div>
+                <!-- Collaborators Section (NUEVO) -->
+                <div class="mb-3">
+                    <label class="form-label">
+                        <i class="fas fa-users me-2"></i>
+                        ¿Quién trabajó en este ticket?
+                    </label>
+                    <small class="d-block text-muted mb-2">
+                        Selecciona a los técnicos que colaboraron en la resolución (opcional)
+                    </small>
+
+                    <div id="collaboratorsList" class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+                        <div class="text-center text-muted py-2">
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            Cargando técnicos disponibles...
+                        </div>
+                    </div>
+
+                    <small class="form-text text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        El técnico asignado siempre se registra automáticamente como principal
                     </small>
                 </div>
             </div>
@@ -317,8 +337,10 @@
                     <i class="fas fa-check-circle me-2"></i>Resolver Ticket
                 </button>
             </div>
+
         </div>
     </div>
+
 </div>
 
 <!-- Self-Assign Modal -->
@@ -356,7 +378,8 @@
 {% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ static_version }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}

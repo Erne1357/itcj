@@ -2,6 +2,8 @@ class ProfileManager {
     constructor() {
         this.apiBase = '/api/core/v1';
         this.currentFilter = 'all';
+        this.readStatusFilter = 'all';
+        this.dateRangeFilter = 'week';
         this.init();
     }
 
@@ -9,6 +11,9 @@ class ProfileManager {
         this.bindEvents();
         this.loadActivity();
         this.loadNotifications();
+
+        // Make instance globally accessible for SSE
+        window.profileManager = this;
     }
 
     bindEvents() {
@@ -17,7 +22,7 @@ class ProfileManager {
         tabTriggers.forEach(tab => {
             tab.addEventListener('shown.bs.tab', (e) => {
                 const targetId = e.target.getAttribute('data-bs-target');
-                
+
                 if (targetId === '#activity') {
                     this.loadActivity();
                 } else if (targetId === '#notifications') {
@@ -32,7 +37,7 @@ class ProfileManager {
             activityFilter.addEventListener('change', () => this.loadActivity());
         }
 
-        // Notification filters
+        // Notification filters - App filter
         const filterButtons = document.querySelectorAll('input[name="notifFilter"]');
         filterButtons.forEach(button => {
             button.addEventListener('change', (e) => {
@@ -40,6 +45,24 @@ class ProfileManager {
                 this.filterNotifications();
             });
         });
+
+        // Notification filters - Read/Unread status
+        const readStatusFilter = document.getElementById('readStatusFilter');
+        if (readStatusFilter) {
+            readStatusFilter.addEventListener('change', (e) => {
+                this.readStatusFilter = e.target.value;
+                this.filterNotifications();
+            });
+        }
+
+        // Notification filters - Date range
+        const dateRangeFilter = document.getElementById('dateRangeFilter');
+        if (dateRangeFilter) {
+            dateRangeFilter.addEventListener('change', (e) => {
+                this.dateRangeFilter = e.target.value;
+                this.filterNotifications();
+            });
+        }
 
         // Mark all as read
         const markAllBtn = document.getElementById('markAllReadBtn');
@@ -143,12 +166,12 @@ class ProfileManager {
         if (!container) return;
 
         try {
-            const response = await fetch(`${this.apiBase}/user/me/notifications?limit=50`);
+            const response = await fetch(`${this.apiBase}/notifications?limit=50`);
             const result = await response.json();
 
             if (response.ok && result.data) {
                 this.renderNotifications(result.data);
-                this.updateNotificationBadge(result.data.unread_count);
+                this.updateNotificationBadge(result.data.unread);
             } else {
                 this.renderNotificationsEmpty();
             }
@@ -162,8 +185,8 @@ class ProfileManager {
         const container = document.getElementById('notificationsContainer');
         if (!container) return;
 
-        const notifications = data.notifications || [];
-        
+        const notifications = data.items || [];
+
         if (notifications.length === 0) {
             this.renderNotificationsEmpty();
             return;
@@ -182,23 +205,28 @@ class ProfileManager {
         // Render notifications
         let html = '';
         notifications.forEach(notif => {
-            const unreadClass = notif.is_read ? '' : 'unread';
-            const appKey = this.getAppKey(notif.app_name);
-            
+            const unreadClass = notif.is_read ? 'read' : 'unread';
+            const appKey = this.getAppKeyFromName(notif.app_name);
+            const icon = notif.app_icon || 'bi-bell';
+            const color = notif.app_color || 'secondary';
+
             html += `
-                <div class="notification-item ${unreadClass}" data-app="${appKey}" data-notif-id="${notif.id}">
+                <div class="notification-item ${unreadClass}"
+                     data-app="${appKey}"
+                     data-notif-id="${notif.id}"
+                     data-created="${notif.created_at}">
                     ${!notif.is_read ? '<div class="notification-indicator"></div>' : ''}
-                    <div class="notification-icon app-icon-${appKey}">
-                        <i class="${this.getNotificationIcon(notif.notification_type)}"></i>
+                    <div class="notification-icon bg-${color}">
+                        <i class="${icon}"></i>
                     </div>
                     <div class="notification-content">
                         <div class="d-flex justify-content-between align-items-start mb-1">
                             <h6 class="mb-0 ${notif.is_read ? 'text-muted' : ''}">${notif.title}</h6>
                             <small class="text-muted">${this.formatTimeAgo(notif.created_at)}</small>
                         </div>
-                        <p class="text-muted small mb-2">${notif.message}</p>
+                        ${notif.body ? `<p class="text-muted small mb-2">${notif.body}</p>` : ''}
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="badge app-badge-${appKey}">${notif.app_name}</span>
+                            <span class="badge bg-${color}">${notif.app_name}</span>
                             <div class="notification-actions">
                                 ${notif.action_url ? `<a href="${notif.action_url}" class="btn btn-sm btn-primary">Ver</a>` : ''}
                                 ${!notif.is_read ? `
@@ -214,6 +242,9 @@ class ProfileManager {
         });
 
         container.innerHTML = html;
+
+        // Apply current filters
+        this.filterNotifications();
     }
 
     updateFilterButtons(appCounts, total) {
@@ -254,15 +285,48 @@ class ProfileManager {
 
     filterNotifications() {
         const notifications = document.querySelectorAll('.notification-item');
-        
+        const now = new Date();
+
         notifications.forEach(notif => {
             const app = notif.getAttribute('data-app');
-            
-            if (this.currentFilter === 'all') {
-                notif.style.display = 'flex';
-            } else {
-                notif.style.display = app === this.currentFilter ? 'flex' : 'none';
+            const isRead = notif.classList.contains('read') || !notif.classList.contains('unread');
+            const createdAt = new Date(notif.getAttribute('data-created'));
+
+            let showNotif = true;
+
+            // Filter by app
+            if (this.currentFilter !== 'all') {
+                showNotif = showNotif && (app === this.currentFilter);
             }
+
+            // Filter by read status
+            if (this.readStatusFilter === 'unread') {
+                showNotif = showNotif && !isRead;
+            } else if (this.readStatusFilter === 'read') {
+                showNotif = showNotif && isRead;
+            }
+
+            // Filter by date range
+            if (this.dateRangeFilter !== 'all' && createdAt) {
+                const daysDiff = Math.floor((now - createdAt) / (1000 * 60 * 60 * 24));
+
+                switch (this.dateRangeFilter) {
+                    case 'today':
+                        showNotif = showNotif && (daysDiff === 0);
+                        break;
+                    case 'week':
+                        showNotif = showNotif && (daysDiff <= 7);
+                        break;
+                    case 'month':
+                        showNotif = showNotif && (daysDiff <= 30);
+                        break;
+                    case '3months':
+                        showNotif = showNotif && (daysDiff <= 90);
+                        break;
+                }
+            }
+
+            notif.style.display = showNotif ? 'flex' : 'none';
         });
     }
 
@@ -299,7 +363,7 @@ class ProfileManager {
     async markAllAsRead() {
         try {
             const response = await fetch(`${this.apiBase}/notifications/mark-all-read`, {
-                method: 'POST'
+                method: 'PATCH'
             });
 
             if (response.ok) {
@@ -401,6 +465,11 @@ class ProfileManager {
             'Tickets': 'tickets'
         };
         return mapping[appName] || 'other';
+    }
+
+    getAppKeyFromName(appName) {
+        // Direct mapping since app_name now comes as 'agendatec', 'helpdesk', etc.
+        return appName || 'other';
     }
 
     getNotificationIcon(type) {

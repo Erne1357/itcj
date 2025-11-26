@@ -24,7 +24,7 @@ from itcj.apps.helpdesk.routes.api import (
     comments_api_bp,
     attachments_api_bp,
     categories_api_bp,
-    inventory_api_bp
+    inventory_api_bp,
 )
 
 helpdesk_api_bp.register_blueprint(tickets_api_bp, url_prefix='/tickets')

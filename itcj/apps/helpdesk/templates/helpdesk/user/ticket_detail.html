@@ -400,37 +400,95 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted mb-4">¿Cómo calificarías la atención recibida?</p>
-
-                <!-- Star Rating -->
-                <div class="d-flex justify-content-center gap-2 my-4">
-                    <button type="button" class="btn btn-outline-warning btn-lg star-btn" data-rating="1">
-                        <i class="fas fa-star"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-warning btn-lg star-btn" data-rating="2">
-                        <i class="fas fa-star"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-warning btn-lg star-btn" data-rating="3">
-                        <i class="fas fa-star"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-warning btn-lg star-btn" data-rating="4">
-                        <i class="fas fa-star"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-warning btn-lg star-btn" data-rating="5">
-                        <i class="fas fa-star"></i>
-                    </button>
-                </div>
-                <div class="text-center mb-4">
-                    <small class="text-muted">1 = Muy malo, 5 = Excelente</small>
-                </div>
-
-                <!-- Comment -->
-                <div class="mb-3">
-                    <label for="ratingCommentInput" class="form-label">
-                        Comentarios adicionales (opcional)
+                <!-- Pregunta 1: Atención -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">
+                        <i class="fas fa-user-tie me-2 text-primary"></i>Califique la atención que recibió
+                        <span class="text-danger">*</span>
                     </label>
-                    <textarea class="form-control" id="ratingCommentInput" rows="3"
-                        placeholder="Comparte tu experiencia..."></textarea>
+                    <div class="d-flex justify-content-center gap-2 my-3">
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="1">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="2">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="3">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="4">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="5">
+                            <i class="far fa-star"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pregunta 2: Rapidez -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">
+                        <i class="fas fa-tachometer-alt me-2 text-success"></i>La rapidez con la que se atendió su servicio fue...
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="d-flex justify-content-center gap-2 my-3">
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="1">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="2">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="3">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="4">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="5">
+                            <i class="far fa-star"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pregunta 3: Eficiencia -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">
+                        <i class="fas fa-check-circle me-2 text-info"></i>¿La eficiencia del servicio fue con base a lo solicitado?
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="d-flex justify-content-center gap-3 my-3">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="ratingEfficiencyDetail" id="efficiencyDetailYes" value="true">
+                            <label class="form-check-label" for="efficiencyDetailYes">
+                                <i class="fas fa-thumbs-up me-1 text-success"></i>Sí
+                            </label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="ratingEfficiencyDetail" id="efficiencyDetailNo" value="false">
+                            <label class="form-check-label" for="efficiencyDetailNo">
+                                <i class="fas fa-thumbs-down me-1 text-danger"></i>No
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pregunta 4: Comentarios -->
+                <div class="mb-3">
+                    <label for="ratingCommentInput" class="form-label fw-bold">
+                        <i class="fas fa-comment-dots me-2 text-secondary"></i>Sugerencias y/o comentarios
+                        <span class="text-muted small">(Opcional)</span>
+                    </label>
+                    <textarea class="form-control" 
+                              id="ratingCommentInput" 
+                              rows="3" 
+                              placeholder="Comparte tu experiencia o sugerencias..." 
+                              maxlength="500"></textarea>
+                    <small class="text-muted">Máximo 500 caracteres</small>
+                </div>
+
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <small><span class="text-danger">*</span> Campos obligatorios</small>
                 </div>
             </div>
             <div class="modal-footer">

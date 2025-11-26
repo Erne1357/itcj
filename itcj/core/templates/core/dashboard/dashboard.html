@@ -10,11 +10,14 @@
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/must_change.css')}}?v={{ static_version }}">
     <!-- ⭐ NUEVO: Profile Menu CSS -->
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard/profile-menu.css')}}?v={{ static_version }}">
-    
+    <!-- ⭐ NUEVO: Notifications CSS -->
+    <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/notifications/notifications.css')}}?v={{ static_version }}">
+
     <link rel="shortcut icon" href="{{url_for('static',filename = 'core/icon/favicon.ico')}}?v={{ static_version }}"
         type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <script src="https://unpkg.com/lucide@0.378.0/dist/umd/lucide.js"></script>
 </head>
 
@@ -25,16 +28,18 @@
         <div id="desktop-grid" class="desktop-grid" aria-label="Escritorio cuadriculado">
             <!-- Solo apps e icono de papelera -->
             <div class="desktop-icon" data-app="agendatec">
-                <div class="icon-container">
+                <div class="icon-container" style="position: relative;">
                     <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec"
                         style="width:45px;height:45px;">
+                    <span id="badge-agendatec" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
                 </div>
                 <span class="icon-label">AgendaTec</span>
             </div>
 
             <div class="desktop-icon" data-app="helpdesk">
-                <div class="icon-container">
+                <div class="icon-container" style="position: relative;">
                     <i data-lucide="ticket"></i>
+                    <span id="badge-helpdesk" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
                 </div>
                 <span class="icon-label">Help Desk</span>
             </div>
@@ -68,6 +73,12 @@
             <div id="open-apps" class="open-apps"></div>
 
             <div class="system-tray">
+                <!-- ⭐ NUEVO: Notification Bell -->
+                <button id="notificationBell" class="system-icon" title="Notificaciones" style="position: relative;">
+                    <i data-lucide="bell"></i>
+                    <span id="globalNotificationBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 9px; padding: 2px 4px; min-width: 16px;">0</span>
+                </button>
+
                 <button class="system-icon">
                     <i data-lucide="wifi"></i>
                 </button>
@@ -120,9 +131,64 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- ⭐ NUEVO: Notification System Scripts -->
+    <script src="{{url_for('static',filename = 'core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
+    <script src="{{url_for('static',filename = 'core/js/dashboard/notification-widget.js') }}?v={{ static_version }}"></script>
+
     <script src="{{url_for('static',filename = 'core/js/dashboard/profile-menu.js') }}?v={{ static_version }}"></script>
     <script src="{{url_for('static',filename = 'core/js/dashboard/dashboard.js') }}?v={{ static_version }}"></script>
     <script src="{{url_for('static',filename = 'core/js/must_change.js') }}?v={{ static_version }}"></script>
+
+    <!-- ⭐ NUEVO: Initialize Notification Widget -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.DashboardNotificationWidget) {
+                const notificationWidget = new DashboardNotificationWidget();
+                console.log('[Dashboard] Notification widget initialized');
+
+                // Listen for badge updates and update desktop icons
+                if (notificationWidget.sseClient) {
+                    notificationWidget.sseClient.on('connected', (data) => {
+                        if (data.counts) {
+                            updateDesktopBadges(data.counts);
+                        }
+                    });
+
+                    notificationWidget.sseClient.on('notification', () => {
+                        // Reload counts after new notification
+                        fetch('/api/core/v1/notifications/unread-counts', {
+                            credentials: 'include'
+                        })
+                        .then(res => res.json())
+                        .then(result => {
+                            if (result.data && result.data.counts) {
+                                updateDesktopBadges(result.data.counts);
+                            }
+                        })
+                        .catch(err => console.error('Error updating badges:', err));
+                    });
+                }
+            }
+        });
+
+        // Function to update desktop icon badges
+        function updateDesktopBadges(counts) {
+            const apps = ['agendatec', 'helpdesk'];
+            apps.forEach(app => {
+                const badge = document.getElementById(`badge-${app}`);
+                const count = counts[app] || 0;
+                if (badge) {
+                    if (count > 0) {
+                        badge.textContent = count > 99 ? '99+' : count;
+                        badge.style.display = 'inline';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+            });
+        }
+    </script>
 </body>
 
 </html>

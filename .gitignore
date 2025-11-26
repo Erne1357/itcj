@@ -54,6 +54,7 @@ logs/
 .cache/
 __cache__/
 .cache-*
+.claude/
 
 # --- Frontend ---
 node_modules/
@@ -66,3 +67,4 @@ build/
 *.code-workspace
 
 addStudents.py
+

@@ -124,11 +124,18 @@ def create_comment(ticket_id):
         )
         
         logger.info(f"Comentario {'interno' if is_internal else 'público'} agregado al ticket {ticket_id} por usuario {user_id}")
-        
-        # TODO: Emitir evento SSE
-        # from itcj.apps.helpdesk.services.notification_service import notify_comment_added
-        # notify_comment_added(ticket, comment)
-        
+
+        # Notificar stakeholders sobre el nuevo comentario
+        from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+        from itcj.core.models.user import User
+        try:
+            author = User.query.get(user_id)
+            if author:
+                HelpdeskNotificationHelper.notify_comment_added(ticket, comment, author)
+            db.session.commit()
+        except Exception as notif_error:
+            logger.error(f"Error al enviar notificación de comentario agregado: {notif_error}")
+
         return jsonify({
             'message': 'Comentario agregado exitosamente',
             'comment': comment.to_dict()

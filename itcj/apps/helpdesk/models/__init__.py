@@ -7,6 +7,7 @@ from itcj.apps.helpdesk.models.assignment import Assignment
 from itcj.apps.helpdesk.models.comment import Comment
 from itcj.apps.helpdesk.models.attachment import Attachment
 from itcj.apps.helpdesk.models.status_log import StatusLog
+from itcj.apps.helpdesk.models.collaborator import TicketCollaborator
 
 # NUEVOS MODELOS DE INVENTARIO
 from itcj.apps.helpdesk.models.inventory_category import InventoryCategory
@@ -28,4 +29,5 @@ __all__ = [
     'InventoryGroup',
     'InventoryGroupCapacity',
     'TicketInventoryItem',
+    'TicketCollaborator',
 ]

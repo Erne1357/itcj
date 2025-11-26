@@ -1,4 +1,4 @@
-from flask import request, jsonify, g, send_file
+from flask import current_app, request, jsonify, g, send_file
 from werkzeug.utils import secure_filename
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services import ticket_service
@@ -71,7 +71,7 @@ def compress_image(image_file, max_size=(1920, 1080), quality=85):
 
 # ==================== SUBIR ARCHIVO ====================
 @attachments_api_bp.post('/ticket/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def upload_attachment(ticket_id):
     """
     Sube un archivo adjunto a un ticket.
@@ -184,7 +184,7 @@ def upload_attachment(ticket_id):
 
 # ==================== LISTAR ARCHIVOS ====================
 @attachments_api_bp.get('/ticket/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def list_attachments(ticket_id):
     """
     Lista los archivos adjuntos de un ticket.
@@ -195,6 +195,7 @@ def list_attachments(ticket_id):
         404: Ticket no encontrado
     """
     user_id = int(g.current_user['sub'])
+    current_app.logger.error(f"Listando archivos para ticket {ticket_id} solicitado por usuario {user_id}")
     
     try:
         # Verificar que pueda acceder al ticket
@@ -215,7 +216,7 @@ def list_attachments(ticket_id):
 
 # ==================== DESCARGAR ARCHIVO ====================
 @attachments_api_bp.get('/<int:attachment_id>/download')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def download_attachment(attachment_id):
     """
     Descarga un archivo adjunto.
@@ -260,7 +261,7 @@ def download_attachment(attachment_id):
 
 # ==================== ELIMINAR ARCHIVO ====================
 @attachments_api_bp.delete('/<int:attachment_id>')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
 def delete_attachment(attachment_id):
     """
     Elimina un archivo adjunto (solo el uploader o admin).

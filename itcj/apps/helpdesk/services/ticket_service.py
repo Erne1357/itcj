@@ -522,17 +522,21 @@ def resolve_ticket(
 def rate_ticket(
     ticket_id: int,
     requester_id: int,
-    rating: int,
+    rating_attention: int,
+    rating_speed: int,
+    rating_efficiency: bool,
     comment: str = None
 ) -> Ticket:
     """
-    Usuario califica el servicio del ticket.
+    Usuario califica el servicio del ticket mediante encuesta.
     
     Args:
         ticket_id: ID del ticket
         requester_id: ID del usuario que califica (debe ser el requester)
-        rating: Calificación de 1 a 5
-        comment: Comentario opcional
+        rating_attention: Calificación de atención de 1 a 5
+        rating_speed: Calificación de rapidez de 1 a 5
+        rating_efficiency: Si/No - Eficiencia del servicio
+        comment: Comentario opcional (sugerencias)
     
     Returns:
         Ticket calificado
@@ -555,15 +559,26 @@ def rate_ticket(
         abort(400, description='Solo se pueden calificar tickets resueltos')
     
     # Validar que no haya sido calificado antes
-    if ticket.rating is not None:
+    if ticket.rating_attention is not None:
         abort(400, description='Este ticket ya fue calificado')
     
-    # Validar rango de calificación
-    if not isinstance(rating, int) or rating < 1 or rating > 5:
-        abort(400, description='La calificación debe ser entre 1 y 5')
+    # Validar rango de calificaciones
+    if not isinstance(rating_attention, int) or rating_attention < 1 or rating_attention > 5:
+        abort(400, description='La calificación de atención debe ser entre 1 y 5')
     
-    # Actualizar ticket
-    ticket.rating = rating
+    if not isinstance(rating_speed, int) or rating_speed < 1 or rating_speed > 5:
+        abort(400, description='La calificación de rapidez debe ser entre 1 y 5')
+    
+    if not isinstance(rating_efficiency, bool):
+        abort(400, description='La eficiencia debe ser un valor booleano')
+    
+    # Guardar estado anterior para el log
+    previous_status = ticket.status
+    
+    # Actualizar ticket con encuesta
+    ticket.rating_attention = rating_attention
+    ticket.rating_speed = rating_speed
+    ticket.rating_efficiency = rating_efficiency
     ticket.rating_comment = comment
     ticket.rated_at = now_local()
     ticket.status = 'CLOSED'
@@ -573,16 +588,16 @@ def rate_ticket(
     # Registrar en log
     status_log = StatusLog(
         ticket_id=ticket_id,
-        from_status='RESOLVED_SUCCESS' if ticket.status == 'CLOSED' else 'RESOLVED_FAILED',
+        from_status=previous_status,
         to_status='CLOSED',
         changed_by_id=requester_id,
-        notes=f'Ticket calificado con {rating} estrellas'
+        notes=f'Ticket calificado - Atención: {rating_attention}/5, Rapidez: {rating_speed}/5, Eficiencia: {"Sí" if rating_efficiency else "No"}'
     )
     db.session.add(status_log)
     
     try:
         db.session.commit()
-        logger.info(f"Ticket {ticket.ticket_number} calificado con {rating} estrellas")
+        logger.info(f"Ticket {ticket.ticket_number} calificado - Atención: {rating_attention}/5, Rapidez: {rating_speed}/5, Eficiencia: {'Sí' if rating_efficiency else 'No'}")
         return ticket
     except Exception as e:
         db.session.rollback()
