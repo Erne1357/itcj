@@ -59,15 +59,21 @@ def init_database_command():
             
             click.echo(f'\n📁 Procesando directorio: {directory}')
             
+            # Verificar si existe la ruta original
             if not os.path.exists(directory_path):
                 # Intentar sin el prefijo 'app/'
-                alternative_path = os.path.join(project_root, directory.replace('app/', ''))
+                alternative_directory = directory.replace('app/', '')
+                alternative_path = os.path.join(project_root, alternative_directory)
+                
                 if os.path.exists(alternative_path):
                     directory_path = alternative_path
-                    click.echo(f'   ℹ️  Usando ruta alternativa: {directory.replace("app/", "")}')
+                    click.echo(f'   ℹ️  Ruta original no encontrada, usando: {alternative_directory}')
                 else:
-                    click.echo(f'⚠️  Directorio no encontrado: {directory_path}')
+                    click.echo(f'   ⚠️  No se encontró: {directory_path}')
+                    click.echo(f'   ⚠️  Tampoco encontrado: {alternative_path}')
                     continue
+            else:
+                click.echo(f'   ✓ Directorio encontrado')
             
             for sql_file in files:
                 file_path = os.path.join(directory_path, sql_file)
