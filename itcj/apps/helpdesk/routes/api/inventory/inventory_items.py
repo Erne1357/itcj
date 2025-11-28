@@ -68,7 +68,11 @@ def get_items():
                 }), 200
         else:
             # Usuario normal: solo sus equipos asignados
-            query = query.filter(InventoryItem.assigned_to_user_id == user_id)
+            department_id = request.args.get('department_id', type=int)
+            if department_id:
+                query = query.filter(InventoryItem.department_id == department_id)
+            else:
+                query = query.filter(InventoryItem.assigned_to_user_id == user_id)
     
     # Filtros
     category_id = request.args.get('category_id', type=int)
