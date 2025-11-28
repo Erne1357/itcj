@@ -2,7 +2,7 @@
 from itcj.core.extensions import db
 
 class App(db.Model):
-    __tablename__ = "apps"
+    __tablename__ = "core_apps"
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(50), unique=True, nullable=False, index=True)  # p.ej. 'agendatec'
     name = db.Column(db.String(120), nullable=False)

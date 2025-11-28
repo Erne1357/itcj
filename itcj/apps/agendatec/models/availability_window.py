@@ -4,7 +4,7 @@ class AvailabilityWindow(db.Model):
     __tablename__ = "agendatec_availability_windows"
 
     id = db.Column(db.Integer, primary_key=True)
-    coordinator_id = db.Column(db.Integer, db.ForeignKey("coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    coordinator_id = db.Column(db.Integer, db.ForeignKey("core_coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
     day = db.Column(db.Date, nullable=False)
     start_time = db.Column(db.Time, nullable=False)

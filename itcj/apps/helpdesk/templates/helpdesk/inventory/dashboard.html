@@ -1,0 +1,199 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Dashboard de Inventario - Help-Desk ITCJ{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0 text-gray-800">
+                <i class="fas fa-boxes fa-fw"></i> Dashboard de Inventario
+            </h1>
+            <p class="text-muted mb-0">Visión general del inventario institucional</p>
+        </div>
+        <div>
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" class="btn btn-primary">
+                <i class="fas fa-plus-circle"></i> Registrar Equipo
+            </a>
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-list"></i> Ver Inventario
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Rápidas -->
+    <div class="row mb-4" id="quick-stats">
+        <!-- Se llenarán con JavaScript -->
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                                Total Equipos
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-total">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-boxes fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-success shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                                Activos
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-active">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-check-circle fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                                En Mantenimiento
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-maintenance">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-tools fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6 mb-4">
+            <div class="card border-left-info shadow h-100 py-2">
+                <div class="card-body">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                                Asignados a Usuarios
+                            </div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-assigned">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <i class="fas fa-user-check fa-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alertas y Gráficas -->
+    <div class="row">
+        <!-- Alertas -->
+        <div class="col-lg-4 mb-4">
+            <div class="card shadow h-100">
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-danger">
+                        <i class="fas fa-exclamation-triangle"></i> Alertas
+                    </h6>
+                    <span class="badge badge-danger" id="alerts-count">0</span>
+                </div>
+                <div class="card-body" id="alerts-container" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                        <p>Cargando alertas...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gráfica por Categoría -->
+        <div class="col-lg-4 mb-4">
+            <div class="card shadow h-100">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-chart-pie"></i> Por Categoría
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="categoryChart" height="280"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gráfica por Estado -->
+        <div class="col-lg-4 mb-4">
+            <div class="card shadow h-100">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-success">
+                        <i class="fas fa-chart-pie"></i> Por Estado
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="statusChart" height="280"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Actividad Reciente -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card shadow">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-history"></i> Actividad Reciente
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="recent-activity-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Evento</th>
+                                    <th>Equipo</th>
+                                    <th>Realizado por</th>
+                                    <th>Notas</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted py-4">
+                                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                                        <p>Cargando actividad...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/dashboard.js') }}?v={{static_version}}"></script>
+{% endblock %}

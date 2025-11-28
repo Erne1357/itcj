@@ -1,0 +1,348 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Detalle de Equipo - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/item_detail.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid" id="item-detail-container">
+    <!-- Loading State -->
+    <div id="loading-state" class="text-center py-5">
+        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <p class="text-muted">Cargando información del equipo...</p>
+    </div>
+
+    <!-- Main Content (Se llenará con JavaScript) -->
+    <div id="main-content" style="display: none;">
+        
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-start mb-4">
+            <div>
+                <div class="mb-2">
+                    <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="text-muted">
+                        <i class="fas fa-arrow-left"></i> Volver a Inventario
+                    </a>
+                </div>
+                <h1 class="h3 mb-1 text-gray-800" id="item-title">
+                    <i class="fas fa-desktop"></i>
+                    <span id="header-inventory-number"></span>
+                </h1>
+                <p class="text-muted mb-0" id="header-description"></p>
+            </div>
+            <div id="header-actions">
+                <!-- Botones de acción -->
+            </div>
+        </div>
+
+        <!-- Status Badge -->
+        <div class="mb-4" id="status-badge-container"></div>
+
+        <!-- Cards de Información Principal -->
+        <div class="row mb-4">
+            <!-- Card: Información General -->
+            <div class="col-lg-6 mb-4">
+                <div class="card shadow h-100 info-card">
+                    <div class="card-header py-3">
+                        <h6 class="m-0 font-weight-bold text-primary">
+                            <i class="fas fa-info-circle"></i> Información General
+                        </h6>
+                    </div>
+                    <div class="card-body" id="general-info">
+                        <!-- Se llenará con JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card: Ubicación y Asignación -->
+            <div class="col-lg-6 mb-4">
+                <div class="card shadow h-100 info-card">
+                    <div class="card-header py-3">
+                        <h6 class="m-0 font-weight-bold text-primary">
+                            <i class="fas fa-map-marker-alt"></i> Ubicación y Asignación
+                        </h6>
+                    </div>
+                    <div class="card-body" id="location-info">
+                        <!-- Se llenará con JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card: Garantía y Mantenimiento -->
+        <div class="row mb-4">
+            <div class="col-lg-6 mb-4">
+                <div class="card shadow h-100" id="warranty-card">
+                    <div class="card-header py-3">
+                        <h6 class="m-0 font-weight-bold text-success">
+                            <i class="fas fa-shield-alt"></i> Garantía
+                        </h6>
+                    </div>
+                    <div class="card-body" id="warranty-info">
+                        <!-- Se llenará con JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6 mb-4">
+                <div class="card shadow h-100">
+                    <div class="card-header py-3">
+                        <h6 class="m-0 font-weight-bold text-info">
+                            <i class="fas fa-tools"></i> Mantenimiento
+                        </h6>
+                    </div>
+                    <div class="card-body" id="maintenance-info">
+                        <!-- Se llenará con JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs de Contenido -->
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <ul class="nav nav-tabs card-header-tabs" id="detail-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="specs-tab" data-toggle="tab" href="#specs-content" role="tab">
+                            <i class="fas fa-microchip"></i> Especificaciones
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="history-tab" data-toggle="tab" href="#history-content" role="tab">
+                            <i class="fas fa-history"></i> Historial
+                            <span class="badge badge-secondary ml-1" id="history-count">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="tickets-tab" data-toggle="tab" href="#tickets-content" role="tab">
+                            <i class="fas fa-ticket-alt"></i> Tickets
+                            <span class="badge badge-info ml-1" id="tickets-count">0</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="notes-tab" data-toggle="tab" href="#notes-content" role="tab">
+                            <i class="fas fa-sticky-note"></i> Notas
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="detail-tab-content">
+                    
+                    <!-- Tab: Especificaciones -->
+                    <div class="tab-pane fade show active" id="specs-content" role="tabpanel">
+                        <div id="specs-container">
+                            <p class="text-muted">Cargando especificaciones...</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Historial -->
+                    <div class="tab-pane fade" id="history-content" role="tabpanel">
+                        <div id="history-container">
+                            <p class="text-muted">Cargando historial...</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Tickets -->
+                    <div class="tab-pane fade" id="tickets-content" role="tabpanel">
+                        <div id="tickets-container">
+                            <p class="text-muted">Cargando tickets relacionados...</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Notas -->
+                    <div class="tab-pane fade" id="notes-content" role="tabpanel">
+                        <div id="notes-container">
+                            <p class="text-muted">Cargando notas...</p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Modal: Editar Información Básica -->
+<div class="modal fade" id="editBasicInfoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit"></i> Editar Información
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="edit-basic-form">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Marca</label>
+                                <input type="text" class="form-control" id="edit-brand" name="brand">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Modelo</label>
+                                <input type="text" class="form-control" id="edit-model" name="model">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Ubicación Específica</label>
+                        <input type="text" class="form-control" id="edit-location" name="location_detail">
+                    </div>
+                    <div class="form-group">
+                        <label>Vencimiento de Garantía</label>
+                        <input type="date" class="form-control" id="edit-warranty" name="warranty_expiration">
+                    </div>
+                    <div class="form-group">
+                        <label>Frecuencia de Mantenimiento (días)</label>
+                        <input type="number" class="form-control" id="edit-maintenance-freq" name="maintenance_frequency_days" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Notas</label>
+                        <textarea class="form-control" id="edit-notes" name="notes" rows="4"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Asignar a Usuario -->
+<div class="modal fade" id="assignUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-plus"></i> Asignar Equipo
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="assign-user-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Usuario *</label>
+                        <select class="form-control" id="assign-user-select" required>
+                            <option value="">Cargando usuarios...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Ubicación Específica</label>
+                        <input type="text" class="form-control" id="assign-location" placeholder="Ej: Oficina 205">
+                    </div>
+                    <div class="form-group">
+                        <label>Notas</label>
+                        <textarea class="form-control" id="assign-notes" rows="3" placeholder="Razón de la asignación..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-check"></i> Asignar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Cambiar Estado -->
+<div class="modal fade" id="changeStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-toggle-on"></i> Cambiar Estado
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="change-status-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Nuevo Estado *</label>
+                        <select class="form-control" id="new-status" required>
+                            <option value="">Seleccionar...</option>
+                            <option value="ACTIVE">Activo</option>
+                            <option value="MAINTENANCE">En Mantenimiento</option>
+                            <option value="DAMAGED">Dañado</option>
+                            <option value="LOST">Extraviado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Observaciones *</label>
+                        <textarea class="form-control" id="status-notes" rows="3" required placeholder="Razón del cambio de estado..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Cambiar Estado
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Dar de Baja -->
+<div class="modal fade" id="deactivateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle"></i> Dar de Baja Equipo
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="deactivate-form">
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Atención:</strong> Esta acción marcará el equipo como dado de baja. 
+                        No podrá ser usado hasta que se reactive.
+                    </div>
+                    <div class="form-group">
+                        <label>Razón de la Baja *</label>
+                        <textarea class="form-control" id="deactivation-reason" rows="4" required 
+                            placeholder="Explique detalladamente la razón (mínimo 10 caracteres)..."></textarea>
+                        <small class="form-text text-muted">Este registro quedará en el historial permanentemente</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash-alt"></i> Confirmar Baja
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Pasar el item_id desde Flask a JavaScript
+    const ITEM_ID = {{ item_id }};
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_detail.js') }}?v={{ static_version }}"></script>
+{% endblock %}

@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ user.full_name }} - Detalle de Usuario</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/user_detail.css') }}?v={{ static_version }}">
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb mb-2">
+                        <li class="breadcrumb-item">
+                            <a href="{{ url_for('pages_core.pages_config.settings') }}" class="text-decoration-none">
+                                <i class="bi bi-gear me-1"></i>Configuración
+                            </a>
+                        </li>
+                        <li class="breadcrumb-item">
+                            <a href="{{ url_for('pages_core.pages_config.users_management') }}" class="text-decoration-none">
+                                Usuarios
+                            </a>
+                        </li>
+                        <li class="breadcrumb-item active">{{ user.full_name }}</li>
+                    </ol>
+                </nav>
+            </div>
+        </div>
+
+        <!-- User Info -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-auto">
+                                <div class="user-avatar rounded-circle d-flex align-items-center justify-content-center text-white">
+                                    {{ user.full_name[0].upper() }}
+                                </div>
+                            </div>
+                            <div class="col">
+                                <h3 class="mb-1">{{ user.full_name }}</h3>
+                                <div class="d-flex align-items-center gap-3 text-muted">
+                                    {% if user.username %}
+                                    <span><i class="bi bi-person me-1"></i>@{{ user.username }}</span>
+                                    {% endif %}
+                                    {% if user.control_number %}
+                                    <span><i class="bi bi-hash me-1"></i>{{ user.control_number }}</span>
+                                    {% endif %}
+                                    {% if user.email %}
+                                    <span><i class="bi bi-envelope me-1"></i>{{ user.email }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="mt-2">
+                                    <span class="badge bg-primary me-2">{{ user.role.name }}</span>
+                                    {% if user.is_active %}
+                                        <span class="badge bg-success">Activo</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inactivo</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <div class="text-muted small">
+                                    <div>Creado: {{ user.created_at.strftime('%d/%m/%Y') }}</div>
+                                    <div>ID: {{ user.id }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <ul class="nav nav-tabs" id="userDetailTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="positions-tab" data-bs-toggle="tab" 
+                                data-bs-target="#positions-pane" type="button" role="tab">
+                            <i class="bi bi-briefcase me-1"></i>Puestos Organizacionales
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="apps-tab" data-bs-toggle="tab" 
+                                data-bs-target="#apps-pane" type="button" role="tab">
+                            <i class="bi bi-apps me-1"></i>Asignaciones por App
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="activity-tab" data-bs-toggle="tab" 
+                                data-bs-target="#activity-pane" type="button" role="tab">
+                            <i class="bi bi-clock-history me-1"></i>Actividad Reciente
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content" id="userDetailTabContent">
+            <!-- Puestos Tab -->
+            <div class="tab-pane fade show active" id="positions-pane" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4><i class="bi bi-briefcase me-2"></i>Puestos Organizacionales</h4>
+                        <p class="text-muted">Puestos que ocupa actualmente este usuario en la organización</p>
+                    </div>
+                </div>
+
+                <div class="row g-4" id="userPositionsContainer">
+                    <!-- Se carga dinámicamente -->
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Cargando puestos...</span>
+                            </div>
+                            <p class="text-muted mt-2">Cargando puestos organizacionales...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Apps Tab -->
+            <div class="tab-pane fade" id="apps-pane" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4><i class="bi bi-apps me-2"></i>Asignaciones por Aplicación</h4>
+                        <p class="text-muted">Roles y permisos específicos que tiene este usuario en cada aplicación</p>
+                    </div>
+                </div>
+
+                <div class="row g-4" id="userAppsContainer">
+                    {% for app in apps %}
+                    <div class="col-12 col-lg-6">
+                        <div class="card app-card h-100 shadow-sm" data-app-key="{{ app.key }}">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-app me-2 text-primary"></i>
+                                    <div>
+                                        <h6 class="mb-0">{{ app.name }}</h6>
+                                        <small class="text-muted">{{ app.key }}</small>
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary manage-app-btn" 
+                                        data-app-key="{{ app.key }}" data-app-name="{{ app.name }}">
+                                    <i class="bi bi-gear me-1"></i>Gestionar
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <!-- Roles en esta app -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary mb-2">
+                                        <i class="bi bi-people me-1"></i>Roles Asignados
+                                    </h6>
+                                    <div id="roles_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted">Cargando...</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Permisos directos -->
+                                <div class="mb-3">
+                                    <h6 class="text-success mb-2">
+                                        <i class="bi bi-key me-1"></i>Permisos Directos
+                                    </h6>
+                                    <div id="perms_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted">Cargando...</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Permisos efectivos -->
+                                <div>
+                                    <h6 class="text-info mb-2">
+                                        <i class="bi bi-shield-check me-1"></i>Permisos Efectivos
+                                    </h6>
+                                    <div id="effective_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                        <span class="badge bg-light text-muted">Cargando...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    {% if apps|length == 0 %}
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <i class="bi bi-apps display-1 text-muted"></i>
+                            <h5 class="text-muted mt-3">No hay aplicaciones disponibles</h5>
+                            <p class="text-muted">Crea aplicaciones desde la configuración del sistema</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Actividad Reciente Tab -->
+            <div class="tab-pane fade" id="activity-pane" role="tabpanel">
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h4><i class="bi bi-clock-history me-2"></i>Actividad Reciente</h4>
+                        <p class="text-muted">Historial de acciones y cambios realizados por este usuario</p>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <i class="bi bi-clock-history display-1 text-muted"></i>
+                            <h5 class="text-muted mt-3">Funcionalidad en desarrollo</h5>
+                            <p class="text-muted">La actividad reciente se implementará próximamente</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Gestionar Asignaciones -->
+    <div class="modal fade" id="manageAssignmentsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-gear me-2"></i>Gestionar: <span id="modalAppName"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Contenido del modal igual al de users.html -->
+                    <div class="mb-4">
+                        <h6 class="text-primary">Roles Asignados</h6>
+                        <div id="modalUserRoles" class="d-flex flex-wrap gap-2 mb-2"></div>
+                        <div class="input-group input-group-sm">
+                            <select class="form-select" id="modalRoleToAssign">
+                                <option value="">Seleccionar rol...</option>
+                                {% for role in roles %}
+                                <option value="{{ role.name }}">{{ role.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-primary" id="modalAssignRole">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h6 class="text-success">Permisos Directos</h6>
+                        <div id="modalUserPerms" class="d-flex flex-wrap gap-2 mb-2"></div>
+                        <div class="input-group input-group-sm">
+                            <select class="form-select" id="modalPermToAssign">
+                                <option value="">Seleccionar permiso...</option>
+                            </select>
+                            <button class="btn btn-success" id="modalAssignPerm">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="border-top pt-3">
+                        <h6 class="text-info">Permisos Efectivos</h6>
+                        <div id="modalEffectivePerms" class="d-flex flex-wrap gap-1"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">Éxito</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successMessage"></div>
+        </div>
+        
+        <div id="errorToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorMessage"></div>
+        </div>
+    </div>
+
+    <script>
+        window.userId = {{ user.id }};
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='core/js/config/user_detail.js')}}?v={{static_version}}"></script>
+</body>
+</html>

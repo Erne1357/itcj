@@ -1,0 +1,351 @@
+<!-- itcj/core/templates/config/department_detail.html -->
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Puestos del Departamento - ITCJ</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+</head>
+
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12 d-flex justify-content-between align-items-center">
+                <div>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-2">
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('pages_core.pages_config.settings') }}"
+                                    class="text-decoration-none">
+                                    <i class="bi bi-gear me-1"></i>Configuración
+                                </a>
+                            </li>
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('pages_core.pages_config.positions_management') }}"
+                                    class="text-decoration-none">
+                                    Departamentos
+                                </a>
+                            </li>
+                            <li class="breadcrumb-item active" id="deptNameBreadcrumb">Cargando...</li>
+                        </ol>
+                    </nav>
+                    <h2><i class="bi bi-buildings me-2"></i><span id="deptNameTitle">Cargando...</span></h2>
+                    <p class="text-muted" id="deptDescription">Descripción del departamento</p>
+
+                    <!-- Info del jefe -->
+                    <div class="alert alert-info" id="deptHeadInfo" style="display: none;">
+                        <i class="bi bi-person-badge me-2"></i><strong>Jefe:</strong> <span id="headName"></span>
+                    </div>
+                </div>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPositionModal">
+                    <i class="bi bi-plus-lg me-1"></i>Nuevo Puesto
+                </button>
+            </div>
+        </div>
+
+        <!-- Positions Cards -->
+        <div class="row g-4" id="positionsContainer">
+            <!-- Se llenarán dinámicamente -->
+        </div>
+    </div>
+
+
+    <!-- Modal: Crear Puesto -->
+    <div class="modal fade" id="createPositionModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Nuevo Puesto</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="createPositionForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="positionCode" class="form-label">Código del Puesto *</label>
+                            <input type="text" class="form-control" id="positionCode" name="code"
+                                placeholder="ej: coord_sistemas" pattern="[a-z0-9_]+" required>
+                            <div class="form-text">Solo letras minúsculas, números y guiones bajos</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="positionTitle" class="form-label">Título del Puesto *</label>
+                            <input type="text" class="form-control" id="positionTitle" name="title"
+                                placeholder="ej: Coordinador de Sistemas" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="positionDescription" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="positionDescription" name="description" rows="3"
+                                placeholder="Descripción de las responsabilidades del puesto"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="positionEmail" class="form-label">Email Oficial del Puesto</label>
+                            <input type="email" class="form-control" id="positionEmail" name="email"
+                                placeholder="ej: coord.sistemas@itcj.edu.mx">
+                            <div class="form-text">Email oficial para el puesto (opcional). Solo para puestos únicos.</div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="allowsMultiple"
+                                    name="allows_multiple" checked>
+                                <label class="form-check-label" for="allowsMultiple">
+                                    Permitir múltiples usuarios simultáneamente
+                                </label>
+                                <div class="form-text">Útil para puestos generales como "Maestro" o "Personal de Apoyo"
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="isActive"
+                                    name="is_active" checked>
+                                <label class="form-check-label" for="isActive">
+                                    Puesto activo
+                                </label>
+                                <div class="form-text">Desmarcar para crear un puesto inactivo</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i>Crear Puesto
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Gestionar Puesto -->
+    <div class="modal fade" id="managePositionModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-buildings me-2"></i>Gestionar: <span id="modalPositionTitle"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Usuario Asignado -->
+                        <div class="col-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Usuario Asignado</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="currentUserInfo">
+                                        <!-- Se llena dinámicamente -->
+                                    </div>
+                                    <div class="mt-3">
+                                        <button class="btn btn-sm btn-primary" id="assignUserBtn">
+                                            <i class="bi bi-person-plus me-1"></i>Asignar Usuario
+                                        </button>
+                                        <button class="btn btn-sm btn-warning" id="transferPositionBtn"
+                                            style="display:none;">
+                                            <i class="bi bi-arrow-repeat me-1"></i>Transferir
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" id="removeUserBtn" style="display:none;">
+                                            <i class="bi bi-person-dash me-1"></i>Remover
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Permisos por App -->
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Permisos por Aplicación</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="positionAppsPermissions">
+                                        <!-- Se llena dinámicamente -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                        <!-- Permisos por App -->
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">Permisos por Aplicación</h6>
+                                    <button class="btn btn-sm btn-primary" id="manageAppsBtn">
+                                        <i class="bi bi-gear me-1"></i>Gestionar Apps
+                                    </button>
+                                </div>
+                                <div class="card-body">
+                                    <div id="positionAppsList">
+                                        <!-- Se llena dinámicamente -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Gestionar Apps/Roles del Puesto -->
+    <div class="modal fade" id="managePositionAppsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-apps me-2"></i>Gestionar Aplicaciones: <span id="modalPositionName"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Lista de Apps -->
+                        <div class="col-12 col-md-4">
+                            <h6>Aplicaciones Disponibles</h6>
+                            <div class="list-group" id="appsListPosition">
+                                <!-- Se llena dinámicamente -->
+                            </div>
+                        </div>
+                        
+                        <!-- Panel de Asignaciones -->
+                        <div class="col-12 col-md-8" id="appAssignmentPanelPosition" style="display: none;">
+                            <h6>Asignaciones para: <span id="selectedAppNamePosition"></span></h6>
+
+                            <!-- Roles del Puesto -->
+                            <div class="mb-4">
+                                <h6 class="text-primary">
+                                    <i class="bi bi-people me-1"></i>Roles Asignados al Puesto
+                                </h6>
+                                <div id="positionRolesList" class="d-flex flex-wrap gap-2 mb-2">
+                                    <small class="text-muted">Cargando...</small>
+                                </div>
+                                <div class="input-group input-group-sm">
+                                    <select class="form-select" id="roleToAssignPosition">
+                                        <option value="">Seleccionar rol...</option>
+                                        <!-- Roles se llenan dinámicamente según la app -->
+                                    </select>
+                                    <button class="btn btn-primary" id="assignRoleBtnPosition">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Permisos Directos del Puesto -->
+                            <div class="mb-4">
+                                <h6 class="text-success">
+                                    <i class="bi bi-key me-1"></i>Permisos Directos del Puesto
+                                </h6>
+                                <div id="positionPermsList" class="d-flex flex-wrap gap-2 mb-2">
+                                    <small class="text-muted">Cargando...</small>
+                                </div>
+                                <div class="input-group input-group-sm">
+                                    <select class="form-select" id="permToAssignPosition">
+                                        <option value="">Seleccionar permiso...</option>
+                                        <!-- Permisos se llenan dinámicamente -->
+                                    </select>
+                                    <button class="btn btn-success" id="assignPermBtnPosition">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Permisos Efectivos -->
+                            <div class="border-top pt-3">
+                                <h6 class="text-info">
+                                    <i class="bi bi-shield-check me-1"></i>Permisos Efectivos del Puesto
+                                </h6>
+                                <div id="effectivePermsListPosition" class="d-flex flex-wrap gap-1">
+                                    <small class="text-muted">Calculando...</small>
+                                </div>
+                                <small class="text-muted">
+                                    Los permisos efectivos incluyen todos los permisos otorgados por roles y permisos directos
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Asignar Usuario -->
+    <div class="modal fade" id="assignUserModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Asignar Usuario al Puesto</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="assignUserForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="userSelect" class="form-label">Usuario *</label>
+                            <select class="form-select" id="userSelect" name="user_id" required>
+                                <option value="">Seleccionar usuario...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="startDate" class="form-label">Fecha de Inicio</label>
+                            <input type="date" class="form-control" id="startDate" name="start_date">
+                        </div>
+                        <div class="mb-3">
+                            <label for="assignmentNotes" class="form-label">Notas</label>
+                            <textarea class="form-control" id="assignmentNotes" name="notes" rows="2"
+                                placeholder="Notas sobre la asignación"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i>Asignar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">Éxito</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successMessage">
+                Operación completada correctamente
+            </div>
+        </div>
+
+        <div id="errorToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorMessage">
+                Ha ocurrido un error
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Pasar el department_id desde la URL
+        const DEPARTMENT_ID = {{ department_id }};
+    </script>
+    <script src="{{ url_for('static', filename='core/js/config/department_detail.js') }}?v={{ static_version }}"></script>
+</body>
+
+</html>

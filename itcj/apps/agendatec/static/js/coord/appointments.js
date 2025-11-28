@@ -23,11 +23,9 @@ function getCoordId() {
       s.off?.("request_status_changed");
 
       s.on("appointment_created", (p) => {
-        console.log("[WS req] appointment_created", p);
         refreshIfMatches({ type: "APPOINTMENT", day: p?.slot_day });
       });
       s.on("request_status_changed", (p) => {
-        console.log("[WS req] request_status_changed", p);
         refreshIfMatches(p);
       });
     };

@@ -31,8 +31,8 @@ services:
     depends_on:
       - postgres
       - redis
-    ports:
-      - "8000:8000"  # Para desarrollo directo
+    #ports:
+    #  - "8000:8000"  # Para desarrollo directo
 
   nginx:
     restart: always
@@ -44,7 +44,7 @@ services:
       # Monta todos los directorios static de las apps
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
-      - ../../itcj/apps/tickets/static:/www/static/tickets:ro
+      - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
       # Para futuras apps:
       # - ../../itcj/apps/tickets/static:/www/static/tickets:ro
     depends_on:

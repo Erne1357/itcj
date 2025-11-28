@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List, Dict, Optional, Set
 from datetime import date, datetime
+from flask import current_app
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_
 from itcj.core.extensions import db
@@ -10,22 +11,31 @@ from itcj.core.models.app import App
 from itcj.core.models.role import Role
 from itcj.core.models.permission import Permission
 from itcj.core.models.user import User
+import logging
 
 # ---------------------------
 # CRUD de Puestos
 # ---------------------------
 
-def create_position(code: str, title: str, description: str = None, department_id: int = None) -> Position:
+def create_position(code: str, title: str, description: str = None, department_id: int = None, allows_multiple: bool = False, is_active: bool = True, email: str = None) -> Position:
     """Crea un nuevo puesto organizacional"""
     if db.session.query(Position).filter_by(code=code).first():
         raise ValueError(f"Position code '{code}' already exists")
+    
+    # Verificar email único si se proporciona
+    if email and db.session.query(Position).filter_by(email=email).first():
+        raise ValueError(f"Position email '{email}' already exists")
     
     position = Position(
         code=code,
         title=title,
         description=description,
-        department_id=department_id 
+        email=email,
+        department_id=department_id,
+        allows_multiple=allows_multiple,
+        is_active=is_active
     )
+    current_app.logger.info(f"Creating position: {position}")
     db.session.add(position)
     db.session.commit()
     return position
@@ -34,11 +44,22 @@ def get_position_by_code(code: str) -> Optional[Position]:
     """Obtiene un puesto por su código"""
     return db.session.query(Position).filter_by(code=code, is_active=True).first()
 
-def list_positions(department: str = None) -> List[Position]:
+def list_positions(department=None) -> List[Position]:
     """Lista todos los puestos activos, opcionalmente filtrados por departamento"""
     query = db.session.query(Position).filter_by(is_active=True)
     if department:
-        query = query.filter_by(department=department)
+        # department puede ser un ID (int) o un objeto Department
+        if hasattr(department, 'id'):
+            query = query.filter_by(department_id=department.id)
+        elif isinstance(department, int):
+            query = query.filter_by(department_id=department)
+        else:
+            # Si es string, asumir que es department_id como int
+            try:
+                dept_id = int(department)
+                query = query.filter_by(department_id=dept_id)
+            except (ValueError, TypeError):
+                pass
     return query.order_by(Position.title.asc()).all()
 
 def update_position(position_id: int, **kwargs) -> Position:
@@ -168,7 +189,11 @@ def get_user_active_positions(user_id: int) -> List[Dict]:
         'position_id': pos.id,
         'code': pos.code,
         'title': pos.title,
-        'department': pos.department,
+        'department': {
+            'id': pos.department.id,
+            'name': pos.department.name,
+            'code': pos.department.code
+        } if pos.department else None,
         'start_date': assignment.start_date,
         'notes': assignment.notes
     } for assignment, pos in assignments]
@@ -343,16 +368,34 @@ def get_position_assignments(position_id: int) -> Dict:
     
     apps_data = {}
     
-    # Obtener todas las apps donde el puesto tiene asignaciones
+    # Método más simple: obtener IDs de apps por separado y luego hacer query
+    # Obtener app_ids únicos de roles
+    role_app_ids = set(
+        row[0] for row in db.session.query(PositionAppRole.app_id)
+        .filter_by(position_id=position_id)
+        .distinct()
+        .all()
+    )
+    
+    # Obtener app_ids únicos de permisos
+    perm_app_ids = set(
+        row[0] for row in db.session.query(PositionAppPerm.app_id)
+        .filter_by(position_id=position_id)
+        .distinct()
+        .all()
+    )
+    
+    # Combinar IDs únicos
+    all_app_ids = role_app_ids.union(perm_app_ids)
+    
+    # Si no hay asignaciones, devolver diccionario vacío
+    if not all_app_ids:
+        return {}
+    
+    # Obtener las aplicaciones
     apps_with_assignments = (
         db.session.query(App)
-        .join(
-            db.union(
-                db.session.query(PositionAppRole.app_id).filter_by(position_id=position_id),
-                db.session.query(PositionAppPerm.app_id).filter_by(position_id=position_id)
-            ).alias('app_assignments'),
-            App.id == db.text('app_assignments.app_id')
-        )
+        .filter(App.id.in_(all_app_ids))
         .all()
     )
     
@@ -391,8 +434,90 @@ def get_position_assignments(position_id: int) -> Dict:
             'id': position.id,
             'code': position.code,
             'title': position.title,
-            'department': position.department
+            'department': {
+                'id': position.department.id,
+                'name': position.department.name,
+                'code': position.department.code
+            } if position.department else None
         },
         'current_user': get_position_current_user(position_id),
         'apps': apps_data
     }
+
+def get_position_by_id(position_id):
+    """Obtiene un puesto por ID"""
+    from itcj.core.models.position import Position
+    return Position.query.get(position_id)
+
+def delete_position(position_id):
+    """Elimina un puesto completamente (CASCADE)"""
+    from itcj.core.models.position import Position
+    
+    position = Position.query.get(position_id)
+    if not position:
+        return False
+    
+    db.session.delete(position)
+    db.session.commit()
+    return True
+
+def update_position(position_id, **kwargs):
+    """Actualiza un puesto organizacional"""
+    position = get_position_by_id(position_id)
+    if not position:
+        raise ValueError("not_found")
+    
+    # Campos permitidos para actualización
+    allowed_fields = ['title', 'description', 'email', 'is_active', 'allows_multiple']
+    
+    for key, value in kwargs.items():
+        if key in allowed_fields and hasattr(position, key):
+            setattr(position, key, value)
+    
+    db.session.commit()
+    return position
+
+def get_user_managed_departments(user_id: int) -> List[Dict]:
+    """Obtiene los departamentos que maneja un usuario como jefe"""
+    from itcj.core.models.department import Department
+    
+    # Buscar asignaciones activas del usuario que sean de jefe de departamento
+    head_assignments = (
+        db.session.query(UserPosition, Position, Department)
+        .join(Position, UserPosition.position_id == Position.id)
+        .join(Department, Position.department_id == Department.id)
+        .filter(
+            UserPosition.user_id == user_id,
+            UserPosition.is_active == True,
+            Position.is_active == True,
+            or_(Position.code.like('head_%'),Position.code.like('subdirector_%'),Position.code.like('director')),  # Filtrar solo puestos de jefe
+            Department.is_active == True
+        )
+        .all()
+    )
+    
+    return [{
+        'department': {
+            'id': department.id,
+            'code': department.code,
+            'name': department.name,
+            'description': department.description,
+            'icon_class': department.icon_class,
+            'is_active': department.is_active,
+            'parent_id': department.parent_id
+        },
+        'position': {
+            'id': position.id,
+            'code': position.code,
+            'title': position.title
+        },
+        'assignment': {
+            'start_date': assignment.start_date,
+            'notes': assignment.notes
+        }
+    } for assignment, position, department in head_assignments]
+
+def get_user_primary_managed_department(user_id: int) -> Optional[Dict]:
+    """Obtiene el departamento principal que maneja un usuario como jefe (el primero si hay varios)"""
+    departments = get_user_managed_departments(user_id)
+    return departments[0] if departments else None

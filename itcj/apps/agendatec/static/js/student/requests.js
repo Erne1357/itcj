@@ -16,7 +16,6 @@
     const t = e?.detail?.type;
     if (RELEVANT_TYPES.has(t)) {
       // Opcional: feedback mínimo en consola
-      console.log("[Mis solicitudes] notif -> reload:", t, e.detail);
       scheduleReload();
     }
   });

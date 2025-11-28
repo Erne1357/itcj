@@ -1,0 +1,151 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: #c41e3a;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.error-container {
+  width: 100%;
+  max-width: 42rem;
+}
+
+.error-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.error-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.error-code {
+  color: white;
+  font-size: 9rem;
+  font-weight: 300;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.divider {
+  height: 8rem;
+  width: 1px;
+  background-color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.error-info {
+  flex: 1;
+}
+
+.error-title {
+  color: white;
+  font-size: 2.25rem;
+  font-weight: 300;
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+.error-description {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 1.125rem;
+  font-weight: 300;
+  line-height: 1.6;
+}
+
+.error-details {
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.alert-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.alert-icon {
+  color: rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+  margin-top: 0.25rem;
+}
+
+.alert-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.alert-text {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.error-reference {
+  color: rgba(255, 255, 255, 0.9);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.875rem;
+}
+
+.footer {
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.footer-text {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .error-code {
+    font-size: 6rem;
+  }
+
+  .divider {
+    height: 6rem;
+  }
+
+  .error-title {
+    font-size: 1.75rem;
+  }
+
+  .error-description {
+    font-size: 1rem;
+  }
+
+  .error-header {
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .error-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .divider {
+    width: 100%;
+    height: 1px;
+  }
+
+  .error-code {
+    font-size: 5rem;
+  }
+}

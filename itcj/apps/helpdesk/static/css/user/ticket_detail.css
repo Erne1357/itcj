@@ -1,0 +1,294 @@
+/* Timeline Styles */
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 9px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e9ecef;
+}
+
+.timeline-item {
+    position: relative;
+    padding-bottom: 20px;
+}
+
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -26px;
+    top: 4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #6c757d;
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px #e9ecef;
+}
+
+.timeline-item.active::before {
+    background: var(--sitec-primary);
+    box-shadow: 0 0 0 2px var(--sitec-primary), 0 0 0 4px rgba(5, 150, 105, 0.2);
+}
+
+.timeline-item-content {
+    background: #f8f9fa;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+}
+
+.timeline-item.active .timeline-item-content {
+    background: rgba(5, 150, 105, 0.1);
+    border-left: 3px solid var(--sitec-primary);
+}
+
+/* Star Buttons */
+.star-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.star-btn:hover {
+    transform: scale(1.1);
+}
+
+.star-btn.active {
+    background-color: #ffc107 !important;
+    border-color: #ffc107 !important;
+    color: white !important;
+}
+
+/* Comment Bubble */
+.comment-bubble {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 12px 16px;
+    position: relative;
+    margin-bottom: 12px;
+}
+
+.comment-bubble.own {
+    background: rgba(5, 150, 105, 0.1);
+    border-left: 3px solid var(--sitec-primary);
+}
+
+.comment-author {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+
+.comment-time {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.comment-text {
+    margin-top: 8px;
+    white-space: pre-wrap;
+}
+
+/* Action Buttons Hover */
+.btn-action {
+    transition: all 0.2s ease;
+}
+
+.btn-action:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Assignment Card */
+.assignment-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+/* Equipment Icon Detail */
+.equipment-icon-detail {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+    border-radius: 12px;
+    color: white;
+    font-size: 1.75rem;
+    flex-shrink: 0;
+}
+
+/* Photo Thumbnail */
+.photo-thumbnail-container {
+    max-width: 300px;
+}
+
+.photo-thumbnail {
+    position: relative;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.photo-thumbnail:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.photo-thumbnail img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.photo-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    color: white;
+}
+
+.photo-thumbnail:hover .photo-overlay {
+    opacity: 1;
+}
+
+/* Photo Modal */
+#photoModalImage {
+    max-width: 100%;
+    max-height: 85vh;
+    object-fit: contain;
+}
+
+/* Multiple Equipment Preview */
+.multiple-equipment-preview {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 8px;
+    border-radius: 8px;
+}
+
+.multiple-equipment-preview:hover {
+    background: rgba(5, 150, 105, 0.05);
+    transform: translateX(5px);
+}
+
+.multiple-equipment-preview:hover .fa-chevron-right {
+    color: var(--sitec-primary) !important;
+    transform: translateX(5px);
+}
+
+/* Equipment Modal Items */
+.equipment-modal-item {
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.3s ease;
+}
+
+.equipment-modal-item:hover {
+    border-color: var(--sitec-primary);
+    background: rgba(5, 150, 105, 0.03);
+    transform: translateX(5px);
+}
+
+.equipment-modal-item:last-child {
+    margin-bottom: 0;
+}
+
+.equipment-modal-icon {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+    border-radius: 10px;
+    color: white;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+/* Modal de equipos - ajustes para lista */
+#equipment-modal-list {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* Scrollbar personalizado para modal de equipos */
+#equipment-modal-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+#equipment-modal-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#equipment-modal-list::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+#equipment-modal-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Animación de entrada para items */
+.equipment-modal-item {
+    animation: slideInFromLeft 0.3s ease;
+}
+
+@keyframes slideInFromLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Responsivo para modal de equipos */
+@media (max-width: 768px) {
+    .equipment-modal-item {
+        padding: 12px;
+    }
+    
+    .equipment-modal-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 1.2rem;
+    }
+}

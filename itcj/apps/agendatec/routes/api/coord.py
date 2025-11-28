@@ -153,7 +153,7 @@ def coord_dashboard_summary():
 # ----------------- DAY CONFIG -----------------
 @api_coord_bp.get("/day-config")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.read"])
 def get_day_config():
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -180,7 +180,7 @@ def get_day_config():
 
 @api_coord_bp.post("/day-config")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.create"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.create"])
 def set_day_config():
     """
     Agrega/actualiza una ventana de disponibilidad para UN día:
@@ -325,7 +325,7 @@ def set_day_config():
     })
 @api_coord_bp.delete("/day-config")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.delete"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.delete"])
 def delete_day_range():
     """
     Borra el rango [start, end) de un día:
@@ -411,7 +411,7 @@ def delete_day_range():
 # ----------------- APPOINTMENTS LIST -----------------
 @api_coord_bp.get("/appointments")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.appointments.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.appointments.api.read.own"])
 def coord_appointments():
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -512,7 +512,7 @@ def coord_appointments():
 # ----------------- APPOINTMENT STATUS UPDATE -----------------
 @api_coord_bp.patch("/appointments/<int:ap_id>")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.appointments.edit"])
+@api_app_required(app_key="agendatec", perms=["agendatec.appointments.api.update.own"])
 def update_appointment(ap_id: int):
     coord_id = _current_coordinator_id()
     socketio = current_app.extensions.get('socketio')
@@ -562,7 +562,7 @@ def update_appointment(ap_id: int):
 # ----------------- DROPS -----------------
 @api_coord_bp.get("/drops")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.drops.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.drops.api.read.own"])
 def coord_drops():
     # ¿es admin?
     role = (g.current_user or {}).get("role")

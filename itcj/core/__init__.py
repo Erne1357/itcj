@@ -11,15 +11,21 @@ from .routes.api.user import api_user_bp
 from .routes.api.authz import api_authz_bp
 from .routes.api.positions import api_positions_bp
 from .routes.api.departments import api_departments_bp
+from .routes.api.users import api_users_bp
+from .routes.api.notifications import api_notifications_bp
 api_core_bp.register_blueprint(api_departments_bp, url_prefix="/departments")
 api_core_bp.register_blueprint(api_positions_bp, url_prefix="/positions")
 api_core_bp.register_blueprint(api_auth_bp, url_prefix="/auth")
 api_core_bp.register_blueprint(api_user_bp, url_prefix="/user")
 api_core_bp.register_blueprint(api_authz_bp, url_prefix="/authz")
+api_core_bp.register_blueprint(api_users_bp, url_prefix="/users")
+api_core_bp.register_blueprint(api_notifications_bp, url_prefix="/notifications")
 
 from .routes.pages.auth import pages_auth_bp
 from .routes.pages.dashboard import pages_dashboard_bp
 from .routes.pages.config import pages_config_bp
+from .routes.pages.profile import pages_profile_bp
 pages_core_bp.register_blueprint(pages_auth_bp)
 pages_core_bp.register_blueprint(pages_dashboard_bp)
 pages_core_bp.register_blueprint(pages_config_bp)
+pages_core_bp.register_blueprint(pages_profile_bp)

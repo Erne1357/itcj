@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}AgendaTec{% endblock %}</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/notify.css') }}?v={{ static_version }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/base.css') }}?v={{ static_version }}">
+  <link rel="shortcut icon" href="{{url_for('static',filename = 'agendatec/icon/favicon.ico')}}?v={{ static_version }}" type="image/x-icon">
+  {% block extra_css %}{% endblock %}
+</head>
+
+{% if current_user and current_user.role in ['coordinator','admin'] %}
+
+<body class="bg-light" data-coord-id="{{ current_user.sub }}">
+  {% else %}
+
+  <body class="bg-light">
+    {% endif %}
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top" >
+      <div class="container-fluid">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="/agendatec/">
+          <img src="{{ url_for('static', filename='agendatec/images/Liebre_Solida.png') }}" alt="Logo" height="24" width="24"
+            style="filter: brightness(0) invert(1);" />
+          <span class="fw-semibold">AgendaTec</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="mainNav">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            {% if current_user %}
+            {% for it in agendatec_nav_items %}
+            <li class="nav-item">
+              <a class="nav-link d-flex align-items-center gap-2 {% if is_active(it.url) %}active{% endif %}"
+                href="{{ it.url }}">
+                <i class="bi {{ it.icon }}"></i>
+                <span>{{ it.label }}</span>
+              </a>
+            </li>
+            {% endfor %}
+            {% endif %}
+          </ul>
+          <div class="d-flex">
+            {% if current_user %}
+            <!--Bloque de nombre con los colores al revez, nombre en azul y fondo en blanco-->
+            <span class="navbar-text text-white bg-primary px-3 py-1 rounded-3 me-2">
+              {{ current_user.name }}
+            </span>
+            <button id="btnLogout" class="btn btn-outline-light btn-sm">Cerrar sesión</button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="container py-3">
+      {% block content %}{% endblock %}
+    </main>
+
+    <div id="toastContainer"></div>
+
+    <div id="notifFab" class="d-flex align-items-center justify-content-center">
+      <i class="bi bi-bell-fill fs-4"></i>
+      <span id="notifBadge" class="badge rounded-pill text-bg-danger" hidden>0</span>
+    </div>
+
+    <div id="notifPanel" class="shadow-sm">
+      <div class="head">
+        <div class="fw-semibold">Notificaciones</div>
+        <div class="tabs">
+          <div id="notifTabRecent" class="tab active">Recientes</div>
+          <div id="notifTabHistory" class="tab">Historial</div>
+        </div>
+        <button id="notifMarkAll" class="btn bg-primary btn-outline-white btn-icon ms-2" type="button"
+          aria-label="Marcar todas como leídas" title="Marcar todas como leídas">
+          <i class="bi bi-check2-all" style = "color: white"></i>
+        </button>
+      </div>
+      <div id="notifList" class="list small"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='agendatec/js/toast.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='agendatec/js/logout.js') }}?v={{ static_version }}"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='agendatec/js/sockets/notify_client.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='agendatec/js/notify/widget.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ static_version }}"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+
+</html>

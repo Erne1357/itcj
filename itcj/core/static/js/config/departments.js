@@ -2,14 +2,59 @@
 class DepartmentsManager {
     constructor() {
         this.apiBase = '/api/core/v1';
+        this.currentView = 'direction'; // 'direction' | 'subdirections' | 'departments'
+        this.selectedDirection = null;
+        this.selectedSubdirection = null;
+        this.direction = null;
+        this.subdirections = [];
         this.departments = [];
+        this.navigationStack = [];
+        
+        // Mapeo de iconos por código
+        this.ICON_MAP = {
+            // Dirección
+            'direction': 'bi-briefcase',
+            
+            // Subdirecciones
+            'sub_planning': 'bi-diagram-3',
+            'sub_academic': 'bi-mortarboard',
+            'sub_admin_services': 'bi-gear',
+            
+            // Departamentos - Planeación
+            'planning': 'bi-bar-chart-line',
+            'comms_diffusion': 'bi-megaphone',
+            'school_services': 'bi-person-badge',
+            'extracurricular_act': 'bi-palette',
+            'tech_management': 'bi-handshake',
+            'info_resources': 'bi-book',
+            
+            // Departamentos - Académica
+            'basic_sciences': 'bi-calculator',
+            'metal_mechanics': 'bi-tools',
+            'elec_electronics': 'bi-lightning',
+            'academic_dev': 'bi-journal-check',
+            'sys_computing': 'bi-code-slash',
+            'industrial_eng': 'bi-factory',
+            'eco_admin_sci': 'bi-cash-coin',
+            'prof_studies_div': 'bi-briefcase',
+            'postgrad_research': 'bi-flask',
+            
+            // Departamentos - Servicios Admin
+            'human_resources': 'bi-people',
+            'financial_resources': 'bi-wallet',
+            'mat_services': 'bi-box-seam',
+            'equipment_maint': 'bi-wrench',
+            'comp_center': 'bi-hdd-stack'
+        };
+        
         this.init();
     }
 
     async init() {
         this.bindEvents();
         this.initModals();
-        await this.loadDepartments();
+        await this.loadDirection();
+        this.renderDirectionView();
     }
 
     bindEvents() {
@@ -17,20 +62,85 @@ class DepartmentsManager {
         if (createForm) {
             createForm.addEventListener('submit', (e) => this.handleCreateDepartment(e));
         }
+
+        const backBtn = document.getElementById('backBtn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => this.goBack());
+        }
     }
 
     initModals() {
         this.createModal = new bootstrap.Modal(document.getElementById('createDepartmentModal'));
+        
+        // Cargar subdirecciones en el select del modal
+        const parentSelect = document.getElementById('deptParent');
+        if (parentSelect) {
+            this.loadParentOptions();
+        }
     }
 
-    async loadDepartments() {
+    async loadParentOptions() {
         try {
-            const response = await fetch(`${this.apiBase}/departments`);
+            const response = await fetch(`${this.apiBase}/departments/parent-options`);
+            const result = await response.json();
+            
+            if (response.ok && result.data) {
+                const select = document.getElementById('deptParent');
+                // Preservar la primera opción
+                const firstOption = select.querySelector('option[value=""]');
+                select.innerHTML = '';
+                if (firstOption) {
+                    select.appendChild(firstOption);
+                }
+                
+                result.data.forEach(dept => {
+                    const option = document.createElement('option');
+                    option.value = dept.id;
+                    const level = dept.parent_id ? '├─ ' : '📁 ';
+                    option.textContent = level + dept.name;
+                    select.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading parent options:', error);
+        }
+    }
+
+    async loadDirection() {
+        try {
+            const response = await fetch(`${this.apiBase}/departments/direction`);
+            const result = await response.json();
+            
+            if (response.ok && result.data) {
+                this.direction = result.data;
+            }
+        } catch (error) {
+            console.error('Error loading direction:', error);
+            this.showError('Error al cargar la dirección');
+        }
+    }
+
+    async loadSubdirections() {
+        try {
+            const response = await fetch(`${this.apiBase}/departments/subdirections`);
+            const result = await response.json();
+            
+            if (response.ok && result.data) {
+                this.subdirections = result.data;
+            }
+        } catch (error) {
+            console.error('Error loading subdirections:', error);
+            this.showError('Error al cargar las subdirecciones');
+        }
+    }
+
+    async loadDepartmentsByParent(parentId) {
+        try {
+            const response = await fetch(`${this.apiBase}/departments/by-parent?parent_id=${parentId}`);
             const result = await response.json();
             
             if (response.ok && result.data) {
                 this.departments = result.data;
-                this.renderDepartments();
             }
         } catch (error) {
             console.error('Error loading departments:', error);
@@ -38,24 +148,235 @@ class DepartmentsManager {
         }
     }
 
-    renderDepartments() {
-        const container = document.getElementById('departmentsContainer');
-        if (!container) return;
+    renderDirectionView() {
+        this.currentView = 'direction';
+        const container = document.getElementById('mainContainer');
+        
+        // Update header
+        document.getElementById('currentBreadcrumb').textContent = 'Dirección';
+        document.getElementById('pageTitle').innerHTML = '<i class="bi bi-briefcase me-2"></i>Dirección';
+        document.getElementById('pageSubtitle').textContent = 'Estructura organizacional del instituto';
+        document.getElementById('backBtn').style.display = 'none';
+        this.navigationStack = [];
 
-        if (this.departments.length === 0) {
+        if (!this.direction) {
             container.innerHTML = `
-                <div class="col-12">
-                    <div class="text-center py-5">
-                        <i class="bi bi-diagram-3 display-1 text-muted"></i>
-                        <h5 class="text-muted mt-3">No hay departamentos registrados</h5>
-                        <p class="text-muted">Crea el primer departamento organizacional</p>
-                    </div>
+                <div class="text-center py-5">
+                    <i class="bi bi-briefcase display-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No hay dirección registrada</h5>
+                    <p class="text-muted">Crea la dirección institucional</p>
                 </div>
             `;
             return;
         }
 
-        container.innerHTML = this.departments.map(dept => this.createDepartmentCard(dept)).join('');
+        // Renderizar dirección como card principal
+        container.innerHTML = `
+            <div class="row justify-content-center">
+                <div class="col-12 col-lg-8">
+                    ${this.createDirectionCard(this.direction)}
+                </div>
+            </div>
+        `;
+
+        // Bind click events
+        document.querySelectorAll('.direction-card').forEach(card => {
+            card.addEventListener('click', async (e) => {
+                if (e.target.closest('.admin-btn')) {
+                    e.stopPropagation();
+                    return;
+                }
+                await this.selectDirection();
+            });
+        });
+
+        // Bind admin button events
+        document.querySelectorAll('.admin-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const deptId = parseInt(btn.dataset.deptId);
+                window.location.href = `/itcj/config/departments/${deptId}`;
+            });
+        });
+    }
+
+    renderSubdirectionsView() {
+        this.currentView = 'subdirections';
+        const container = document.getElementById('mainContainer');
+        
+        // Update header
+        document.getElementById('currentBreadcrumb').textContent = this.direction.name;
+        document.getElementById('pageTitle').innerHTML = `
+            <i class="${this.getIcon(this.direction.code, this.direction.icon_class)} me-2"></i>${this.direction.name}
+        `;
+        document.getElementById('pageSubtitle').textContent = 'Selecciona una subdirección para ver sus departamentos';
+        document.getElementById('backBtn').style.display = 'inline-block';
+
+        if (this.subdirections.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-5 fade-in">
+                    <i class="bi bi-diagram-3 display-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No hay subdirecciones registradas</h5>
+                    <p class="text-muted">Crea la primera subdirección organizacional</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Renderizar subdirecciones centradas
+        container.innerHTML = `
+            <div class="row justify-content-center g-4">
+                ${this.subdirections.map(sub => this.createSubdirectionCard(sub)).join('')}
+            </div>
+        `;
+
+        // Bind click events
+        document.querySelectorAll('.subdirection-card').forEach(card => {
+            card.addEventListener('click', async (e) => {
+                if (e.target.closest('.admin-btn')) {
+                    e.stopPropagation();
+                    return;
+                }
+                const subdirId = parseInt(card.dataset.subdirId);
+                await this.selectSubdirection(subdirId, card);
+            });
+        });
+
+        // Bind admin button events
+        document.querySelectorAll('.admin-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const deptId = parseInt(btn.dataset.deptId);
+                window.location.href = `/itcj/config/departments/${deptId}`;
+            });
+        });
+    }
+
+    createDirectionCard(direction) {
+        const icon = this.getIcon(direction.code, direction.icon_class);
+        
+        return `
+            <div class="card direction-card shadow-lg border-0 fade-in" data-dir-id="${direction.id}">
+                <div class="card-body text-center p-5 position-relative">
+                    <!-- Botón de administración discreto -->
+                    <button class="btn btn-sm btn-outline-secondary admin-btn position-absolute top-0 end-0 m-3" 
+                            data-dept-id="${direction.id}" title="Administrar dirección">
+                        <i class="bi bi-gear"></i>
+                    </button>
+                    
+                    <div class="direction-icon mb-4">
+                        <i class="${icon}" style="font-size: 4rem; color: #0d6efd;"></i>
+                    </div>
+                    <h2 class="card-title mb-3">${direction.name}</h2>
+                    ${direction.description ? 
+                        `<p class="card-text text-muted mb-4">${direction.description}</p>` : 
+                        ''
+                    }
+                    <div class="mt-4">
+                        <span class="badge bg-primary fs-5">
+                            <i class="bi bi-diagram-3 me-1"></i>${direction.children_count} Subdirecciones
+                        </span>
+                    </div>
+                    <div class="mt-4">
+                        <p class="text-muted small">Haz clic para explorar la estructura organizacional</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    createSubdirectionCard(subdirection) {
+        const icon = this.getIcon(subdirection.code, subdirection.icon_class);
+        
+        return `
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="card subdirection-card h-100 shadow-sm fade-in position-relative" data-subdir-id="${subdirection.id}">
+                    <!-- Botón de administración discreto -->
+                    <button class="btn btn-sm btn-outline-secondary admin-btn position-absolute top-0 end-0 m-2" 
+                            data-dept-id="${subdirection.id}" title="Administrar subdirección">
+                        <i class="bi bi-gear" style="font-size: 0.8rem;"></i>
+                    </button>
+                    
+                    <div class="card-body text-center p-4">
+                        <div class="subdirection-icon mb-3">
+                            <i class="${icon}" style="font-size: 2.5rem; color: #0d6efd;"></i>
+                        </div>
+                        <h4 class="card-title mb-3">${subdirection.name}</h4>
+                        ${subdirection.description ? 
+                            `<p class="card-text text-muted small">${subdirection.description}</p>` : 
+                            ''
+                        }
+                        <div class="mt-3">
+                            <span class="badge bg-primary">
+                                <i class="bi bi-building me-1"></i>${subdirection.children_count} Departamentos
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async selectDirection() {
+        // Animación de expansión para la dirección
+        const directionCard = document.querySelector('.direction-card');
+        if (directionCard) {
+            directionCard.classList.add('expand-direction');
+            await new Promise(resolve => setTimeout(resolve, 400));
+        }
+        
+        this.navigationStack.push({view: 'direction'});
+        this.selectedDirection = this.direction;
+        await this.loadSubdirections();
+        this.renderSubdirectionsView();
+    }
+
+    async selectSubdirection(subdirId, cardElement) {
+        // Animación de expansión
+        if (cardElement) {
+            cardElement.classList.add('expand-out');
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        // Cargar departamentos
+        const subdirection = this.subdirections.find(s => s.id === subdirId);
+        if (!subdirection) return;
+        
+        this.navigationStack.push({view: 'subdirections'});
+        this.selectedSubdirection = subdirection;
+        await this.loadDepartmentsByParent(subdirId);
+        this.renderDepartmentsView();
+    }
+
+    renderDepartmentsView() {
+        this.currentView = 'departments';
+        const container = document.getElementById('mainContainer');
+        const sub = this.selectedSubdirection;
+        
+        // Update header
+        document.getElementById('currentBreadcrumb').textContent = sub.name;
+        document.getElementById('pageTitle').innerHTML = `
+            <i class="${this.getIcon(sub.code, sub.icon_class)} me-2"></i>${sub.name}
+        `;
+        document.getElementById('pageSubtitle').textContent = sub.description || 'Departamentos de esta subdirección';
+        document.getElementById('backBtn').style.display = 'inline-block';
+
+        if (this.departments.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-5 fade-in">
+                    <i class="bi bi-building display-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No hay departamentos en esta subdirección</h5>
+                    <p class="text-muted">Crea el primer departamento</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="row g-4">
+                ${this.departments.map(dept => this.createDepartmentCard(dept)).join('')}
+            </div>
+        `;
 
         // Bind click events
         document.querySelectorAll('.view-dept-btn').forEach(btn => {
@@ -67,23 +388,32 @@ class DepartmentsManager {
     }
 
     createDepartmentCard(dept) {
+        const icon = this.getIcon(dept.code, dept.icon_class);
         const statusBadge = dept.is_active ? 
             '<span class="badge bg-success">Activo</span>' : 
             '<span class="badge bg-secondary">Inactivo</span>';
 
         return `
-            <div class="col-12 col-md-6 col-lg-4" data-dept-id="${dept.id}">
-                <div class="card h-100 shadow-sm">
+            <div class="col-12 col-md-6 col-lg-4 fade-in" data-dept-id="${dept.id}">
+                <div class="card department-card h-100 shadow-sm">
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h5 class="card-title mb-1">${dept.name}</h5>
-                                <small class="text-muted">${dept.code}</small>
+                            <div class="d-flex align-items-center">
+                                <div class="department-icon text-primary me-3">
+                                    <i class="bi ${icon}"></i>
+                                </div>
+                                <div>
+                                    <h5 class="card-title mb-1">${dept.name}</h5>
+                                    <small class="text-muted">${dept.code}</small>
+                                </div>
                             </div>
                             ${statusBadge}
                         </div>
                         
-                        ${dept.description ? `<p class="card-text text-muted small">${dept.description}</p>` : ''}
+                        ${dept.description ? 
+                            `<p class="card-text text-muted small">${dept.description}</p>` : 
+                            ''
+                        }
                         
                         <div class="border-top pt-3 mt-3">
                             <div class="row text-center">
@@ -113,6 +443,50 @@ class DepartmentsManager {
         `;
     }
 
+    async goBack() {
+        const previousView = this.navigationStack.pop();
+        
+        if (!previousView) {
+            // Si no hay vista anterior, ir a la dirección
+            await this.goToDirection();
+            return;
+        }
+        
+        switch (previousView.view) {
+            case 'direction':
+                await this.goToDirection();
+                break;
+            case 'subdirections':
+                await this.goToSubdirections();
+                break;
+            default:
+                await this.goToDirection();
+        }
+    }
+
+    async goToDirection() {
+        this.selectedDirection = null;
+        this.selectedSubdirection = null;
+        this.departments = [];
+        this.navigationStack = [];
+        await this.loadDirection();
+        this.renderDirectionView();
+    }
+
+    async goToSubdirections() {
+        this.selectedSubdirection = null;
+        this.departments = [];
+        await this.loadSubdirections();
+        this.renderSubdirectionsView();
+    }
+
+    getIcon(code, iconClass) {
+        // Prioridad: iconClass en BD > mapeo por código > icono por defecto
+        if (iconClass) return iconClass;
+        if (this.ICON_MAP[code]) return this.ICON_MAP[code];
+        return 'bi-building'; // Icono por defecto
+    }
+
     async handleCreateDepartment(e) {
         e.preventDefault();
         
@@ -120,7 +494,9 @@ class DepartmentsManager {
         const data = {
             code: formData.get('code'),
             name: formData.get('name'),
-            description: formData.get('description') || null
+            description: formData.get('description') || null,
+            parent_id: formData.get('parent_id') || null,
+            icon_class: formData.get('icon_class') || null
         };
 
         try {
@@ -131,12 +507,28 @@ class DepartmentsManager {
             });
 
             const result = await response.json();
-
             if (response.ok) {
                 this.showSuccess('Departamento creado correctamente');
                 this.createModal.hide();
                 e.target.reset();
-                await this.loadDepartments();
+                
+                // Recargar vista actual
+                switch (this.currentView) {
+                    case 'direction':
+                        await this.loadDirection();
+                        this.renderDirectionView();
+                        break;
+                    case 'subdirections':
+                        await this.loadSubdirections();
+                        this.renderSubdirectionsView();
+                        break;
+                    case 'departments':
+                        if (this.selectedSubdirection) {
+                            await this.loadDepartmentsByParent(this.selectedSubdirection.id);
+                            this.renderDepartmentsView();
+                        }
+                        break;
+                }
             } else {
                 this.showError(result.error || 'Error al crear el departamento');
             }

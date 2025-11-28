@@ -4,12 +4,15 @@ from .core.extensions import db, migrate
 from werkzeug.exceptions import HTTPException
 from .core.utils.jwt_tools import encode_jwt, decode_jwt
 from itcj.core.utils.role_home import role_home
+from itcj.core.services.authz_service import user_roles_in_app
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 def create_app():
-    # Crea la app Flask
-    app = Flask(__name__, instance_relative_config=True)
+    # Crea la app Flask con template folder personalizado
+    app = Flask(__name__, 
+                instance_relative_config=True,
+                template_folder='core/templates')
     
     # Configuración de la aplicación
     app.config.from_object('itcj.config.Config')
@@ -28,6 +31,12 @@ def create_app():
     register_blueprints(app)
     register_error_handlers(app)
 
+    #Registrar comandos 
+    from itcj.apps.helpdesk.commands import register_helpdesk_commands
+    from itcj.core.commands import register_commands
+    register_helpdesk_commands(app)
+    register_commands(app)
+
     @app.before_request
     def load_current_user():
         g.current_user = None
@@ -45,7 +54,7 @@ def create_app():
     def maybe_refresh_cookie(resp):
         if getattr(g, "_refresh_token", False) and g.current_user:
             new_token = encode_jwt(
-                {"sub": g.current_user["sub"], "role": g.current_user["role"],
+                {"sub": g.current_user["sub"], "role": user_roles_in_app(int(g.current_user["sub"]), 'itcj'),
                  "cn": g.current_user.get("cn"), "name": g.current_user.get("name")},
                 hours=current_app.config["JWT_EXPIRES_HOURS"]
             )
@@ -77,7 +86,7 @@ def create_app():
     @app.get("/")
     def home():
         if g.current_user:
-            return redirect(role_home(g.current_user.get("role")))
+            return redirect(role_home(user_roles_in_app(int(g.current_user["sub"]), 'itcj')))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor
@@ -139,46 +148,89 @@ def register_blueprints(app):
     
     # Apps específicas
     from itcj.apps.agendatec import agendatec_api_bp, agendatec_pages_bp
-    from itcj.apps.tickets import tickets_api_bp, tickets_pages_bp
+    from itcj.apps.helpdesk import helpdesk_api_bp, helpdesk_pages_bp
     
     # APIs de apps
     app.register_blueprint(agendatec_api_bp, url_prefix="/api/agendatec/v1")
-    app.register_blueprint(tickets_api_bp, url_prefix="/api/tickets/v1")
+    app.register_blueprint(helpdesk_api_bp, url_prefix="/api/help-desk/v1")
     
     # Páginas de apps
     app.register_blueprint(agendatec_pages_bp, url_prefix="/agendatec")
-    app.register_blueprint(tickets_pages_bp, url_prefix="/tickets")
+    app.register_blueprint(helpdesk_pages_bp, url_prefix="/help-desk")
 
 def register_error_handlers(app):
     """Manejo centralizado de errores"""
-    MESSAGES = {
-        400: "Solicitud inválida",
-        401: "No autenticado", 
-        403: "Acceso prohibido",
-        404: "Recurso no encontrado",
-        405: "Método no permitido",
-        409: "Conflicto de recurso",
-        413: "Carga demasiado grande",
-        415: "Tipo de contenido no soportado",
-        429: "Demasiadas solicitudes",
-        500: "Error interno del servidor",
-        502: "Puerta de enlace inválida",
-        503: "Servicio no disponible",
-        504: "Tiempo de espera agotado",
+    ERROR_MESSAGES = {
+        400: {
+            'title': 'Solicitud Incorrecta',
+            'message': 'La solicitud no pudo ser procesada debido a un error del cliente.'
+        },
+        401: {
+            'title': 'No Autorizado',
+            'message': 'Necesitas autenticarte para acceder a este recurso.'
+        },
+        403: {
+            'title': 'Acceso Prohibido',
+            'message': 'No tienes permisos para acceder a este recurso.'
+        },
+        404: {
+            'title': 'Página No Encontrada',
+            'message': 'El recurso que buscas no existe o ha sido movido.'
+        },
+        405: {
+            'title': 'Método No Permitido',
+            'message': 'El método HTTP utilizado no está permitido para este recurso.'
+        },
+        409: {
+            'title': 'Conflicto de Recurso',
+            'message': 'La solicitud no pudo completarse debido a un conflicto con el estado actual del recurso.'
+        },
+        413: {
+            'title': 'Carga Demasiado Grande',
+            'message': 'El archivo o datos enviados superan el tamaño máximo permitido.'
+        },
+        415: {
+            'title': 'Tipo de Contenido No Soportado',
+            'message': 'El formato de los datos enviados no es compatible con este servicio.'
+        },
+        429: {
+            'title': 'Demasiadas Solicitudes',
+            'message': 'Has excedido el límite de solicitudes permitidas. Intenta de nuevo más tarde.'
+        },
+        500: {
+            'title': 'Error Interno del Servidor',
+            'message': 'Algo salió mal en nuestros servidores. Estamos trabajando para solucionarlo.'
+        },
+        502: {
+            'title': 'Puerta de Enlace Incorrecta',
+            'message': 'El servidor recibió una respuesta inválida del servidor upstream.'
+        },
+        503: {
+            'title': 'Servicio No Disponible',
+            'message': 'El servidor no está disponible temporalmente. Intenta de nuevo más tarde.'
+        },
+        504: {
+            'title': 'Tiempo de Espera Agotado',
+            'message': 'El servidor tardó demasiado tiempo en responder. Intenta de nuevo más tarde.'
+        }
     }
 
     def wants_json():
         return request.path.startswith("/api/")
 
-    def render_error_page(status_code, message):
-        return render_template("errors/error_page.html",
-                             code=status_code,
-                             message=message), status_code
+    def render_error_page(status_code, error_info):
+        return render_template("core/errors/core_error.html",
+                             error_code=status_code,
+                             error_title=error_info['title'],
+                             error_message=error_info['message']), status_code
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(e: HTTPException):
         code = e.code or 500
-        msg = MESSAGES.get(code, e.name or "Error")
+        error_info = ERROR_MESSAGES.get(code, {
+            'title': e.name or "Error",
+            'message': e.description or "Ha ocurrido un error inesperado."
+        })
         
         if wants_json():
             payload = {"error": getattr(e, "name", "error"), "status": code}
@@ -188,15 +240,16 @@ def register_error_handlers(app):
 
         if code == 401:
             return redirect(url_for("pages_core.pages_auth.login_page"))
-        page_code = code if code in MESSAGES else 500
-        return render_error_page(page_code, msg)
+        page_code = code if code in ERROR_MESSAGES else 500
+        error_data = ERROR_MESSAGES.get(page_code, ERROR_MESSAGES[500])
+        return render_error_page(page_code, error_data)
 
     @app.errorhandler(Exception)
     def handle_unexpected(e: Exception):
         app.logger.exception("Unhandled exception")
         if wants_json():
             return jsonify({"error": "internal_error", "status": 500}), 500
-        return render_error_page(500, MESSAGES[500])
+        return render_error_page(500, ERROR_MESSAGES[500])
 
     # Handlers explícitos para códigos comunes
     for code in [400, 401, 403, 404, 405, 409, 413, 415, 429, 500, 502, 503, 504]:
@@ -206,6 +259,10 @@ def register_error_handlers(app):
                     return jsonify({"error": _e.name if isinstance(_e, HTTPException) else "error", "status": c}), c
                 if c == 401:
                     return redirect(url_for("pages_core.pages_auth.login_page"))
-                return render_error_page(c, MESSAGES.get(c, "Error"))
+                error_data = ERROR_MESSAGES.get(c, {
+                    'title': 'Error',
+                    'message': 'Ha ocurrido un error inesperado.'
+                })
+                return render_error_page(c, error_data)
             return _h
         app.register_error_handler(code, _factory(code))

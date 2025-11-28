@@ -1,0 +1,148 @@
+{% extends "agendatec/base.html" %}
+{% block title %}Coordinador - Horario{% endblock %}
+{% block extra_css %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/coord/slots.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Configurar horario del día</h5>
+                <form id="dayConfigForm" class="row g-2 align-items-end">
+                    <div class="col-12 col-sm-4">
+                        <label class="form-label">Día</label>
+                        <select class="form-select" id="cfgDay" required>
+                            <option value="2025-08-25">Lun 25 Ago</option>
+                            <option value="2025-08-26">Mar 26 Ago</option>
+                            <option value="2025-08-27">Mié 27 Ago</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-sm-2">
+                        <label class="form-label">Inicio</label>
+                        <input type="time" class="form-control" id="cfgStart" value="09:00" required>
+                    </div>
+                    <div class="col-6 col-sm-2">
+                        <label class="form-label">Fin</label>
+                        <input type="time" class="form-control" id="cfgEnd" value="13:00" required>
+                    </div>
+                    <div class="col-6 col-sm-2">
+                        <label class="form-label">Min/cita</label>
+                        <select class="form-select" id="cfgMinutes">
+                            <option>5</option>
+                            <option>10</option>
+                            <option>15</option>
+                            <option>20</option>
+                            <option>30</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-sm-2 d-grid">
+                        <button class="btn btn-primary" id="btnSaveCfg">Guardar y generar</button>
+                    </div>
+                </form>
+                <div id="cfgResult" class="mt-2 small text-muted"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card shadow-sm mt-3">
+    <div class="card-body">
+        <h5 class="card-title mb-3 " id = "tittleView">Vista del día seleccionado</h5>
+
+        <!-- KPIs -->
+        <div class="row g-3 mb-3" id="daySummary">
+            <div class="col-6 col-lg-3">
+                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small">Horarios totales</div>
+                    <div class="fs-4 fw-semibold" id="kpiTotal">—</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small">Horarios libres</div>
+                    <div class="fs-4 fw-semibold text-success" id="kpiFree">—</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small">Horarios reservados</div>
+                    <div class="fs-4 fw-semibold text-primary" id="kpiBooked">—</div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small">Ventanas definidas</div>
+                    <div class="fs-4 fw-semibold" id="kpiWindows">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tira de slots (heat-bar) -->
+        <div>
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="text-muted small">Tira de horarios</div>
+                <div class="d-flex align-items-center gap-3 small">
+                    <span><span class="legend legend-free"></span> Libre</span>
+                    <span><span class="legend legend-booked"></span> Reservado</span>
+                </div>
+            </div>
+            <div id="dayStrip" class="slot-strip"></div>
+        </div>
+
+        <!-- Tabla compacta -->
+        <div class="table-responsive mt-3">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:120px">Hora</th>
+                        <th>Estado</th>
+                        <th>Alumno</th>
+                        <th>Carrera</th>
+                    </tr>
+                </thead>
+                <tbody id="dayTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
+<div class="card shadow-sm mt-3">
+    <div class="card-body">
+        <h6 class="card-title">Eliminar horas</h6>
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-sm-4">
+                <label class="form-label">Día</label>
+                <select class="form-select" id="cfgDayDel" required>
+                    <option value="2025-08-25">Lun 25 Ago</option>
+                    <option value="2025-08-26">Mar 26 Ago</option>
+                    <option value="2025-08-27">Mié 27 Ago</option>
+                </select>
+            </div>
+            <div class="col-6 col-sm-2">
+                <label class="form-label">Inicio</label>
+                <input id="delStart" type="time" class="form-control" value="09:00" required />
+            </div>
+            <div class="col-6 col-sm-2">
+                <label class="form-label">Fin</label>
+                <input id="delEnd" type="time" class="form-control" value="13:00" required />
+            </div>
+            <div class="col-12 col-sm-3 d-grid">
+                <button id="btnDeleteRange" class="btn btn-outline-danger">Eliminar rango</button>
+            </div>
+        </div>
+        <div class="form-text mt-2">
+            Solo se eliminan horarios <strong>no reservados</strong>. Si existen reservados en el rango, se aborta con
+            aviso.
+        </div>
+    </div>
+</div>
+{%endblock%}
+{% block extra_js %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_view.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_delete.js') }}?v={{ static_version }}"></script>
+{% endblock %}

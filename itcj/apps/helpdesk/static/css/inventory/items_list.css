@@ -1,0 +1,38 @@
+.filter-chip {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    margin: 0.25rem;
+    background: #e9ecef;
+    border-radius: 1rem;
+    font-size: 0.875rem;
+}
+.filter-chip .close {
+    margin-left: 0.5rem;
+    cursor: pointer;
+    opacity: 0.6;
+}
+.filter-chip .close:hover {
+    opacity: 1;
+}
+.table-actions {
+    white-space: nowrap;
+}
+.status-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+.item-thumbnail {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+}
+.warranty-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+}
+.warranty-indicator.active { background: #28a745; }
+.warranty-indicator.expiring { background: #ffc107; }
+.warranty-indicator.expired { background: #dc3545; }

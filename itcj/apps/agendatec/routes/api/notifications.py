@@ -3,14 +3,14 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from itcj.core.utils.decorators import api_auth_required
 from itcj.apps.agendatec.models import db
-from itcj.apps.agendatec.models.notification import Notification
+from itcj.core.models.notification import Notification
 
 api_notifications_bp = Blueprint("api_notifications", __name__)
 
 def _current_uid() -> int:
     return int(g.current_user["sub"])
 
-@api_notifications_bp.get("/")
+@api_notifications_bp.get("")
 @api_auth_required
 def list_notifications():
     """
@@ -47,7 +47,7 @@ def mark_read(notif_id: int):
         return jsonify({"error":"not_found"}), 404
     if not n.is_read:
         n.is_read = True
-        n.read_at = datetime.utcnow()
+        n.read_at = datetime.now()
         db.session.commit()
     return jsonify({"ok": True})
 
@@ -56,6 +56,6 @@ def mark_read(notif_id: int):
 def mark_all_read():
     uid = _current_uid()
     db.session.query(Notification).filter_by(user_id=uid, is_read=False)\
-        .update({"is_read": True, "read_at": datetime.utcnow()}, synchronize_session=False)
+        .update({"is_read": True, "read_at": datetime.now()}, synchronize_session=False)
     db.session.commit()
     return jsonify({"ok": True})

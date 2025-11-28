@@ -13,8 +13,8 @@ class Request(db.Model):
 
     id = db.Column(db.BigInteger, primary_key=True)
 
-    student_id = db.Column(db.BigInteger, db.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    program_id = db.Column(db.Integer, db.ForeignKey("programs.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    student_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    program_id = db.Column(db.Integer, db.ForeignKey("core_programs.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
     type = db.Column(request_type_pg_enum, nullable=False)
     description = db.Column(db.Text)

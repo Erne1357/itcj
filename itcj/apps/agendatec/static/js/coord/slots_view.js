@@ -152,7 +152,6 @@
         s.off?.("slot_released");
 
         const refreshIfDay = (payloadDay) => {
-            console.log("Se refresco el día");
             const d = currentDay();
             if (!d || payloadDay !== d) return;
             loadAndRender(d);

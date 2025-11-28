@@ -1,24 +1,43 @@
 # itcj/core/models/department.py
 from itcj.core.extensions import db
-from datetime import datetime
 
 class Department(db.Model):
-    __tablename__ = 'departments'
+    __tablename__ = 'core_departments'
     
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
+    icon_class = db.Column(db.String(50), nullable=True)  # ⭐ NUEVO
+    parent_id = db.Column(db.Integer, db.ForeignKey('core_departments.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.text("NOW()"), nullable=False)
     
     # Relaciones
     positions = db.relationship('Position', back_populates='department', lazy='dynamic')
+    parent = db.relationship('Department', remote_side=[id], backref='subdepartments')
+
+    def is_direction(self):
+        """Verifica si es la dirección (departamento raíz sin padre)"""
+        return self.parent_id is None
     
+    def is_subdirection(self):
+        """Verifica si es una subdirección (hijo directo de la dirección)"""
+        if self.parent_id is None:
+            return False  # Es la dirección, no una subdirección
+        
+        # Obtener el departamento padre
+        parent = Department.query.get(self.parent_id)
+        return parent and parent.parent_id is None  # El padre no tiene padre (es la dirección)
+    
+    def get_children_count(self):
+        """Obtiene cantidad de departamentos hijos"""
+        return Department.query.filter_by(parent_id=self.id, is_active=True).count()
+
     def get_head_position(self):
         """Obtiene el puesto de jefe del departamento"""
         return self.positions.filter_by(
-            code=f'jefe_{self.code}',
+            code=f'head_{self.code}',
             is_active=True
         ).first()
     
@@ -36,17 +55,29 @@ class Department(db.Model):
         
         return assignment.user if assignment else None
     
-    def to_dict(self):
+    def to_dict(self, include_children=False):
         head_user = self.get_head_user()
-        return {
+        data = {
             'id': self.id,
             'code': self.code,
             'name': self.name,
             'description': self.description,
+            'icon_class': self.icon_class or 'bi-building',  # ⭐ NUEVO
             'is_active': self.is_active,
+            'is_subdirection': self.is_subdirection(),  # ⭐ NUEVO
+            'parent_id': self.parent_id,  # ⭐ NUEVO
             'positions_count': self.positions.filter_by(is_active=True).count(),
+            'children_count': self.get_children_count(),  # ⭐ NUEVO
             'head': {
                 'full_name': head_user.full_name,
                 'email': head_user.email
             } if head_user else None
         }
+        
+        if include_children and (self.is_direction() or self.is_subdirection()):
+            data['children'] = [
+                child.to_dict() for child in 
+                Department.query.filter_by(parent_id=self.id, is_active=True).all()
+            ]
+        
+        return data

@@ -1,0 +1,29 @@
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.user-row {
+    transition: background-color 0.2s;
+}
+
+.user-row:hover {
+    background-color: #f8f9fa;
+}
+
+.badge-role {
+    font-size: 0.75em;
+}
+
+.bg-agendatec {
+    background-color: #0d6efd !important;
+}
+
+.bg-helpdesk {
+    background-color: #198754 !important;
+}
+
+.bg-itcj {
+    background-color: #e61d1d !important;
+}

@@ -32,7 +32,8 @@ services:
       - ../../itcj:/app/itcj:ro
       - ../../wsgi.py:/app/wsgi.py:ro
       - ../../requirements.txt:/app/requirements.txt:ro
-      - ../../migrations:/app/migrations:ro  # Agregar esta línea
+      - ../../migrations:/app/migrations:ro 
+      - ../../instance:/app/instance:ro
       # CSV si lo necesitas
       - ../../database/CSV:/app/database/CSV:ro
     depends_on:
@@ -55,7 +56,7 @@ services:
       # Montamos solo los static (read-only)
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
-      - ../../itcj/apps/tickets/static:/www/static/tickets:ro
+      - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
     depends_on:
       - backend
     ports:

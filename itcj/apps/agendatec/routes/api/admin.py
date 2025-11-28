@@ -17,7 +17,7 @@ from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.request import Request as Req
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.apps.agendatec.models.notification import Notification
+from itcj.core.models.notification import Notification
 from itcj.apps.agendatec.models.audit_log import AuditLog
 from itcj.apps.agendatec.models.survey_dispatches import SurveyDispatch
 
@@ -50,12 +50,12 @@ def _parse_dt(s: Optional[str], default: Optional[datetime] = None) -> datetime:
             return datetime.fromisoformat(s)
         except ValueError:
             pass
-    return default or datetime.utcnow()
+    return default or datetime.now()
 
 def _range_from_query() -> tuple[datetime, datetime]:
     qf = request.args.get("from")
     qt = request.args.get("to")
-    end = _parse_dt(qt, datetime.utcnow())
+    end = _parse_dt(qt, datetime.now())
     start = _parse_dt(qf, end - timedelta(days=7))
     # normaliza para incluir el día 'to' completo si vino solo fecha
     if qf and len(qf) == 10:
@@ -283,7 +283,7 @@ def stats_overview():
 
 @api_admin_bp.get("/requests")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.requests_all.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.requests.api.read.all"])
 def admin_list_requests():
     start, end = _range_from_query()
     status = request.args.get("status")
@@ -342,7 +342,7 @@ def admin_list_requests():
 
 @api_admin_bp.patch("/requests/<int:req_id>/status")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.requests_all.edit"])
+@api_app_required(app_key="agendatec", perms=["agendatec.requests.api.update.all"])
 def admin_change_request_status(req_id: int):
     data = request.get_json(silent=True) or {}
     new_status: str = data.get("status")
@@ -355,7 +355,7 @@ def admin_change_request_status(req_id: int):
 
 @api_admin_bp.post("/users/coordinators")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.users.create"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.api.create"])
 def create_coordinator():
     data = request.get_json(silent=True) or {}
     name: str = data.get("name", "").strip()
@@ -408,7 +408,7 @@ def create_coordinator():
 
 @api_admin_bp.patch("/users/coordinators/<int:coord_id>")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.users.edit"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.api.update"])
 def update_coordinator(coord_id: int):
     data = request.get_json(silent=True) or {}
     name: Optional[str] = data.get("name")
@@ -455,7 +455,7 @@ def update_coordinator(coord_id: int):
 
 @api_admin_bp.get("/users/coordinators")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.users.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.api.read"])
 def list_coordinators():
     """
     Lista coordinadores con sus programas (para usar en Admin · Usuarios y combos).
@@ -510,7 +510,7 @@ def list_coordinators():
 
 @api_admin_bp.post("/reports/requests.xlsx")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.reports.generate"])
+@api_app_required(app_key="agendatec", perms=["agendatec.reports.api.generate"])
 def export_requests_xlsx():
     start, end = _range_from_query()
     status = request.args.get("status")
@@ -565,7 +565,7 @@ def export_requests_xlsx():
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Solicitudes")
     buf.seek(0)
-    filename = f"solicitudes_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filename = f"solicitudes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return send_file(
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -788,7 +788,7 @@ def stats_coordinators():
 #-----------------Email ---------------------
 @api_admin_bp.post("/surveys/send")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.surveys.manage"])
+@api_app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def send_surveys():
     """
     Envía correos de encuesta:
