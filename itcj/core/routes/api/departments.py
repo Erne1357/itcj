@@ -1,13 +1,13 @@
 # itcj/core/routes/api/departments.py
 from flask import Blueprint, request, jsonify
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.core.services import departments_service as dept_svc
 
 api_departments_bp = Blueprint("api_departments_bp", __name__)
 
 @api_departments_bp.get("/direction")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.read.hierarchy"])
 def get_direction():
     """Obtiene la dirección (departamento raíz sin padre)"""
     direction = dept_svc.get_direction()
@@ -18,7 +18,7 @@ def get_direction():
 
 @api_departments_bp.get("/subdirections")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.read.hierarchy"])
 def list_subdirections():
     """Lista solo las subdirecciones (departamentos padres)"""
     subdirs = dept_svc.list_subdirections()
@@ -29,7 +29,7 @@ def list_subdirections():
 
 @api_departments_bp.get("/parent-options")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.read"])
 def list_parent_options():
     """Lista departamentos que pueden ser padres (dirección y subdirecciones)"""
     options = dept_svc.list_parent_options()
@@ -40,7 +40,7 @@ def list_parent_options():
 
 @api_departments_bp.get("/by-parent")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.read"])
 def list_by_parent():
     """Lista departamentos filtrados por parent_id"""
     parent_id = request.args.get('parent_id', type=int)
@@ -52,7 +52,7 @@ def list_by_parent():
 
 @api_departments_bp.get("")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.read"])
 def list_departments():
     """Lista todos los departamentos"""
     depts = dept_svc.list_departments()
@@ -63,7 +63,7 @@ def list_departments():
 
 @api_departments_bp.get("/<int:dept_id>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.read"])
 def get_department_detail(dept_id):
     """Obtiene detalle completo de un departamento"""
     dept = dept_svc.get_department(dept_id)
@@ -100,7 +100,7 @@ def get_department_detail(dept_id):
 
 @api_departments_bp.post("")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.create"])
 def create_department():
     """Crea un nuevo departamento"""
     payload = request.get_json() or {}
@@ -121,7 +121,7 @@ def create_department():
 
 @api_departments_bp.patch("/<int:dept_id>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.departments.api.update"])
 def update_department(dept_id):
     """Actualiza un departamento"""
     payload = request.get_json() or {}
@@ -136,6 +136,7 @@ def update_department(dept_id):
 
 @api_departments_bp.get("/<int:dept_id>/users")
 @api_auth_required
+@api_app_required("itcj", perms=["core.departments.api.read"])
 def get_department_users(dept_id):
     """Obtiene todos los usuarios asignados a un departamento como jefes o personal"""
     try:

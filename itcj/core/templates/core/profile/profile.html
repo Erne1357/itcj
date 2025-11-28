@@ -150,7 +150,9 @@
                                         {% endif %}
                                         <div class="info-item">
                                             <label>Rol del Sistema</label>
-                                            <p><span class="badge bg-primary">{{ profile.role }}</span></p>
+                                            {% for role in profile.roles %}
+                                            <p><span class="badge bg-primary">{{ role }}</span></p>
+                                            {% endfor %}
                                         </div>
                                         <div class="info-item mb-0">
                                             <label>Fecha de Registro</label>

@@ -57,7 +57,33 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.dashboard.department",
             "group": "department"
         },
-
+        {
+            "label": "Inventario",
+            "endpoint": "#",
+            "icon": "fa-boxes",
+            "permission": "helpdesk.inventory.page.list.own_dept",
+            "group": "department",
+            "dropdown": [
+                {
+                    "label": "Ver Inventario",
+                    "endpoint": "helpdesk_pages.inventory_pages.items_list",
+                    "icon": "fa-list",
+                    "permission": "helpdesk.inventory.api.read.own_dept"
+                },
+                {
+                    "label": "Asignar Equipos",
+                    "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
+                    "icon": "fa-user-plus",
+                    "permission": "helpdesk.inventory.api.assign"
+                },
+                {
+                    "label": "Grupos/Salones",
+                    "endpoint": "helpdesk_pages.inventory_pages.groups_list",
+                    "icon": "fa-door-open",
+                    "permission": "helpdesk.inventory_groups.page.list"
+                }
+            ]
+        },
         # ==================== ADMIN ====================
         {
             "label": "Asignar Tickets",

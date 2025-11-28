@@ -113,9 +113,9 @@
                     </div>
                     <div class="card-body">
                         <div class="d-grid gap-3">
-                            <button class="btn btn-primary btn-lg" onclick="openCreateTicketModal()">
+                            <a class="btn btn-primary btn-lg" href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" >
                                 <i class="fas fa-ticket-alt me-2"></i>Crear Ticket de Soporte
-                            </button>
+                            </a>
                             <button class="btn btn-outline-primary btn-lg" onclick="openCreateUserModal()">
                                 <i class="fas fa-user-plus me-2"></i>Crear Usuario del Departamento
                             </button>
@@ -360,45 +360,20 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    <small>Este usuario tendrá acceso <strong>solo</strong> al sistema de tickets.</small>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <h6 class="alert-heading">Función en Desarrollo</h6>
+                    <p class="mb-0">La creación de usuarios está actualmente en desarrollo. Si desea dar de alta un usuario, favor de contactarse con el <strong>Centro de Cómputo</strong>.</p>
                 </div>
                 
-                <form id="createUserForm">
-                    <div class="mb-3">
-                        <label for="userName" class="form-label fw-bold">Nombre Completo</label>
-                        <input type="text" class="form-control" id="userName" 
-                               placeholder="Ej: Juan Pérez García" required>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="userUsername" class="form-label fw-bold">Usuario (Username)</label>
-                        <input type="text" class="form-control" id="userUsername" 
-                               placeholder="ej: juan.perez" required>
-                        <small class="form-text text-muted">Sin espacios ni caracteres especiales</small>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="userEmail" class="form-label fw-bold">Correo Electrónico</label>
-                        <input type="email" class="form-control" id="userEmail" 
-                               placeholder="juan.perez@itcj.edu.mx" required>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="userNIP" class="form-label fw-bold">NIP Temporal (4 dígitos)</label>
-                        <input type="text" class="form-control" id="userNIP" 
-                               placeholder="1234" maxlength="4" pattern="\d{4}" required>
-                        <small class="form-text text-muted">El usuario deberá cambiarlo en su primer acceso</small>
-                    </div>
-                </form>
+                <div class="text-center py-4">
+                    <i class="fas fa-tools fa-4x text-muted mb-3"></i>
+                    <p class="text-muted">Esta funcionalidad estará disponible próximamente.</p>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                    Cancelar
-                </button>
-                <button type="button" class="btn btn-primary" id="btnSubmitUser">
-                    <i class="fas fa-user-plus me-2"></i>Crear Usuario
+                    Cerrar
                 </button>
             </div>
         </div>

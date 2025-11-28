@@ -1,7 +1,7 @@
 # itcj/core/routes/api/users.py
 from flask import Blueprint, jsonify, request, current_app,g
 from itcj.core.models.user import User
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.core.extensions import db
 from sqlalchemy.exc import IntegrityError
 from itcj.core.utils.security import hash_nip
@@ -19,7 +19,7 @@ def _bad(msg="bad_request", status=400):
 # Endpoint para listar usuarios (para asignación a puestos)
 @api_users_bp.get("")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.users.api.read"])
 def list_users():
     """Lista todos los usuarios del sistema con filtros y paginación"""
     try:
@@ -111,7 +111,7 @@ def list_users():
 
 @api_users_bp.post("")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.users.api.create"])
 def create_user():
     """Crea un nuevo usuario (estudiante o personal)"""
     data = request.get_json()

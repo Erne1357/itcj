@@ -195,11 +195,13 @@ async function loadDepartmentInventory() {
     
     try {
         // Load inventory for this department (read-only)
-        const response = await HelpdeskUtils.api.request('/inventory', {
-            params: { department_id: DEPARTMENT_ID, per_page: 50 }
+        const params = new URLSearchParams({
+            department_id: DEPARTMENT_ID,
+            per_page: 50
         });
-        
-        allInventoryItems = response.items || [];
+        const response = await HelpdeskUtils.api.request(`/inventory/items?${params}`);
+        console.log('Inventory response:', response);
+        allInventoryItems = response.data || [];
         
         renderInventory(allInventoryItems);
         
@@ -231,7 +233,7 @@ function renderInventory(items) {
         <div class="border-bottom p-3">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h6 class="mb-1">${item.name}</h6>
+                    <h6 class="mb-1">${item.model}</h6>
                     <small class="text-muted">
                         ${item.category?.name || 'Sin categoría'} - 
                         ${item.inventory_number || 'N/A'}

@@ -24,7 +24,7 @@ def get_user_profile_data(user_id: int) -> dict:
         'email': user.email,
         'username': user.username,
         'control_number': user.control_number,
-        'role': user.role.name if user.role else None,
+        'roles': user_roles_in_app(user_id, 'itcj'),
         'is_active': user.is_active,
         'created_at': user.created_at,
         'last_login': user.last_login if hasattr(user, 'last_login') else None

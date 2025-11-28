@@ -4,6 +4,10 @@ services:
   redis:
     restart: always
     image: redis:7
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     # No exponemos puerto en prod, solo red interna
 
   postgres:
@@ -39,6 +43,10 @@ services:
     depends_on:
       - postgres
       - redis
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     # No exponemos puerto, nginx lo maneja
     logging:
       driver: json-file

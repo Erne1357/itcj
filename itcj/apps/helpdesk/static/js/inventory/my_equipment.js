@@ -2,7 +2,7 @@
 (function() {
     'use strict';
 
-    const API_BASE = '/api/helpdesk/inventory';
+    const API_BASE = '/api/help-desk/v1/inventory';
     let myEquipment = [];
     let currentEquipment = null;
 
@@ -17,7 +17,7 @@
             showLoading();
 
             // Llamar al endpoint que obtiene equipos del usuario actual
-            const response = await fetch(`${API_BASE}/my-equipment`, {
+            const response = await fetch(`${API_BASE}/items/my-equipment`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
@@ -149,12 +149,22 @@
             return;
         }
 
-        // Abrir modal
-        $('#equipmentDetailModal').modal('show');
-
-        // Mostrar loading
+        // Mostrar loading primero
         document.getElementById('modal-loading').style.display = 'block';
         document.getElementById('modal-content').style.display = 'none';
+        
+        // Abrir modal (compatible con iframe y navegación normal)
+        const $modal = $('#equipmentDetailModal');
+        
+        // Verificar si estamos en iframe
+        const inIframe = window.self !== window.top;
+        
+        $modal.modal({
+            backdrop: inIframe ? true : true,  // Permitir cerrar con click fuera
+            keyboard: true,                     // Permitir cerrar con ESC
+            focus: true                         // Auto-foco en el modal
+        });
+        $modal.modal('show');
 
         try {
             // Cargar información detallada
@@ -191,10 +201,15 @@
             document.getElementById('modal-loading').style.display = 'none';
             document.getElementById('modal-content').style.display = 'block';
 
+            // Activar el primer tab
+            setTimeout(() => {
+                $('#equipmentTabs a[href="#info-content"]').tab('show');
+            }, 100);
+
         } catch (error) {
             console.error('Error loading equipment detail:', error);
             showError('Error al cargar los detalles del equipo');
-            $('#equipmentDetailModal').modal('hide');
+            $modal.modal('hide');
         }
     };
 
@@ -342,7 +357,7 @@
         const container = document.getElementById('history-container');
 
         try {
-            const response = await fetch(`${API_BASE}/items/${itemId}/history`, {
+            const response = await fetch(`${API_BASE}/history/item/${itemId}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
@@ -402,7 +417,7 @@
         const countBadge = document.getElementById('tickets-count');
 
         try {
-            const response = await fetch(`/api/helpdesk/tickets/equipment/${itemId}`, {
+            const response = await fetch(`/api/help-desk/v1/tickets/equipment/${itemId}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'

@@ -179,7 +179,7 @@ function renderGroupHeader() {
     document.getElementById('group-name').textContent = currentGroup.name;
     document.getElementById('group-description').textContent = currentGroup.description || '';
     document.getElementById('group-type-badge').textContent = typeInfo.label;
-    document.getElementById('group-type-badge').className = `badge badge-${typeInfo.color} mr-2`;
+    document.getElementById('group-type-badge').className = `badge bg-${typeInfo.color} text-white mr-2`;
     document.getElementById('group-department').textContent = currentGroup.department?.name || 'N/A';
 
     // Ubicación
@@ -230,7 +230,7 @@ function renderCapacities() {
                         <strong>${category?.name || 'N/A'}</strong>
                     </div>
                     <div>
-                        <span class="badge badge-${progressClass}">
+                        <span class="badge bg-${progressClass} text-white">
                             ${cap.current_count} / ${cap.max_capacity}
                         </span>
                     </div>
@@ -289,7 +289,7 @@ function renderGroupEquipment(equipment) {
                     <small class="text-muted">${item.model || ''}</small>
                 </td>
                 <td>
-                    <span class="badge badge-${statusBadge.color}">
+                    <span class="badge bg-${statusBadge.color} text-white">
                         ${statusBadge.text}
                     </span>
                 </td>
@@ -351,7 +351,7 @@ function renderAvailableEquipment(equipment) {
                     ${item.brand || 'N/A'} ${item.model || ''}
                 </td>
                 <td>
-                    <span class="badge badge-${statusBadge.color} badge-sm">
+                    <span class="badge bg-${statusBadge.color} text-white badge-sm">
                         ${statusBadge.text}
                     </span>
                 </td>

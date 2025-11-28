@@ -2,7 +2,7 @@
 API para gestión de grupos de inventario (salones, laboratorios, etc.)
 """
 from flask import Blueprint, request, jsonify, g
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 from itcj.apps.helpdesk.models import InventoryGroup, InventoryCategory
@@ -21,9 +21,10 @@ def get_all_groups():
     try:
         user_id = int(g.current_user['sub'])
         user_roles = user_roles_in_app(user_id, 'helpdesk')
+        secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
         
-        # Solo admin puede ver todos los grupos sin restricción
-        if 'admin' not in user_roles:
+        # Solo admin o secretaría puede ver todos los grupos sin restricción
+        if 'admin' not in user_roles and user_id not in secretary_comp_center:
             return jsonify({
                 'success': False,
                 'error': 'No tiene permisos para ver todos los grupos'
@@ -59,9 +60,10 @@ def get_groups_by_department(department_id):
     try:
         user_id = int(g.current_user['sub'])
         user_roles = user_roles_in_app(user_id, 'helpdesk')
+        secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
         
-        # Validar acceso: solo puede ver su departamento a menos que sea admin
-        if 'admin' not in user_roles:
+        # Validar acceso: solo puede ver su departamento a menos que sea admin o secretaría
+        if 'admin' not in user_roles and user_id not in secretary_comp_center:
             # Si no es admin, validar que sea su departamento
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)

@@ -221,7 +221,7 @@ def _get_users_with_roles_in_app(app_key: str, role_names: list[str]) -> list[in
         combined_query = union(direct_roles, position_roles)
         result = db.session.execute(combined_query).fetchall()
         
-        return result
+        return [r[0] for r in result]
         
     except Exception as e:
         from flask import current_app
@@ -263,7 +263,7 @@ def _get_users_with_position(position_codes: list[str]) -> list[int]:
             .all()
         )
         
-        return result
+        return [r[0] for r in result]
         
     except Exception as e:
         from flask import current_app

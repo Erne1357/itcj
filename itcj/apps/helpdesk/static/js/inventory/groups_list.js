@@ -162,7 +162,7 @@ function renderGroups(groups) {
                                     ${group.department?.name || 'Sin departamento'}
                                 </small>
                             </div>
-                            <span class="badge badge-${typeInfo.color}">
+                            <span class="badge bg-${typeInfo.color} text-white">
                                 ${typeInfo.label}
                             </span>
                         </div>
@@ -219,14 +219,14 @@ function renderGroups(groups) {
                                     ${group.capacities.slice(0, 3).map(cap => {
             const cat = allCategories.find(c => c.id === cap.category_id);
             return `
-                                            <span class="capacity-badge badge badge-light">
+                                            <span class="capacity-badge badge bg-light text-dark">
                                                 <i class="${cat?.icon || 'fas fa-box'} mr-1"></i>
                                                 ${cat?.name || 'N/A'}: ${cap.current_count}/${cap.max_capacity}
                                             </span>
                                         `;
         }).join('')}
                                     ${group.capacities.length > 3 ? `
-                                        <span class="capacity-badge badge badge-secondary">
+                                        <span class="capacity-badge badge bg-secondary text-white">
                                             +${group.capacities.length - 3} más
                                         </span>
                                     ` : ''}

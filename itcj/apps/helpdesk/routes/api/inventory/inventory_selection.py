@@ -4,7 +4,7 @@ API para selección de equipos en tickets (selección múltiple, por grupos, etc
 from flask import Blueprint, request, jsonify, g
 from itcj.core.extensions import db
 from itcj.core.utils.decorators import api_app_required
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
 from itcj.apps.helpdesk.models import InventoryItem, InventoryGroup, InventoryCategory
 from sqlalchemy import and_, or_
 
@@ -153,7 +153,8 @@ def get_items_by_group(group_id):
     user_dept = get_user_department(user_id)
     
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    if 'admin' not in user_roles:
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+    if 'admin' not in user_roles and user_id not in secretary_comp_center:
         if not user_dept or user_dept.id != group.department_id:
             return jsonify({
                 'success': False,

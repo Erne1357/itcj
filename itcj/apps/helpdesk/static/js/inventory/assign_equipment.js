@@ -30,6 +30,25 @@ function setupEventListeners() {
     // Forms
     document.getElementById('assign-form').addEventListener('submit', handleAssign);
     document.getElementById('unassign-form').addEventListener('submit', handleUnassign);
+    
+    // Tabs - Forzar compatibilidad Bootstrap 4/5
+    setupTabs();
+}
+
+function setupTabs() {
+    // Manejar tabs manualmente para asegurar compatibilidad
+    $('#equipmentTabs a[data-toggle="tab"]').on('click', function(e) {
+        e.preventDefault();
+        const target = $(this).attr('href');
+        
+        // Remover active de todos
+        $('#equipmentTabs .nav-link').removeClass('active');
+        $('.tab-pane').removeClass('show active');
+        
+        // Activar el seleccionado
+        $(this).addClass('active');
+        $(target).addClass('show active');
+    });
 }
 
 // ==================== CARGAR DATOS ====================
@@ -366,12 +385,12 @@ function renderGroupsList() {
                             ${group.description || 'Sin descripción'}
                         </small>
                         <br>
-                        <span class="badge badge-success mt-1">
+                        <span class="badge bg-success text-white mt-1">
                             <i class="fas fa-laptop mr-1"></i>
                             ${groupEquipment.length} equipos disponibles
                         </span>
                         ${group.building || group.floor ? `
-                            <span class="badge badge-light text-dark mt-1">
+                            <span class="badge bg-light text-dark mt-1">
                                 <i class="fas fa-map-marker-alt mr-1"></i>
                                 ${[group.building, group.floor ? `Piso ${group.floor}` : ''].filter(Boolean).join(' - ')}
                             </span>
@@ -396,7 +415,7 @@ function renderEquipmentItem(item, type) {
     let groupBadge = '';
     if (item.is_in_group && item.group) {
         groupBadge = `
-            <br><small class="badge badge-info mt-1">
+            <br><small class="badge bg-info text-white mt-1">
                 <i class="fas fa-layer-group mr-1"></i>${item.group.name}
             </small>
         `;

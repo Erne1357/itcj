@@ -3,7 +3,7 @@ API para gestión de items del inventario (equipos)
 """
 from flask import Blueprint, request, jsonify, g,current_app
 from itcj.core.extensions import db
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models import InventoryItem, InventoryCategory
 from itcj.apps.helpdesk.services.inventory_service import InventoryService
@@ -40,13 +40,15 @@ def get_items():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     user_dept = None
+
     
     # Query base
     query = InventoryItem.query.filter_by(is_active=True)
     
     # Permisos: restringir por rol
-    if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center:
         # Jefe de departamento: solo su departamento
         if 'department_head' in user_roles:
             # Obtener departamento del usuario
@@ -89,7 +91,10 @@ def get_items():
         elif assigned.lower() == 'no':
             query = query.filter(InventoryItem.assigned_to_user_id.is_(None))
 
-    current_app.logger.warning("Búsqueda de items de inventario", extra={"query": str(query)})
+    department_id = request.args.get('department_id', type=int)
+    current_app.logger.warning(f"Department ID filter: {department_id}")
+    if department_id:
+        query = query.filter(InventoryItem.department_id == department_id)
 
     # Búsqueda
     search = request.args.get('search')
@@ -136,6 +141,7 @@ def get_item(item_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     item = InventoryItem.query.get(item_id)
     
@@ -146,7 +152,7 @@ def get_item(item_id):
         }), 404
     
     # Verificar permisos
-    if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center:
         # Jefe de depto: solo su departamento
         if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
@@ -453,9 +459,11 @@ def get_department_equipment(department_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+
     
     # Verificar permiso si no es admin
-    if 'admin' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:

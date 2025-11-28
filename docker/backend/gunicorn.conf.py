@@ -9,7 +9,7 @@ worker_class = "eventlet"
 workers = 1  # Eventlet es single-threaded pero maneja múltiples conexiones
 
 # Conexiones simultáneas por worker
-worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "2000"))
+worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "5000"))
 
 # Timeouts - AUMENTADOS para SSE (conexiones de larga duración)
 timeout = 7200  # 2 horas - necesario para SSE

@@ -185,11 +185,11 @@ function renderTable(items) {
                             <small>${item.assigned_to_user.full_name}</small>
                         </div>
                     ` : `
-                        <span class="badge badge-secondary">Global</span>
+                        <span class="badge bg-secondary text-white">Global</span>
                     `}
                 </td>
                 <td>
-                    <span class="badge badge-${statusBadge.color} status-badge">
+                    <span class="badge bg-${statusBadge.color} text-white status-badge">
                         ${statusBadge.text}
                     </span>
                 </td>

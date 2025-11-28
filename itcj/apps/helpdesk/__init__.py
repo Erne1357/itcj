@@ -123,7 +123,7 @@ def redirect_by_role():
         return jsonify({'redirect': url_for('helpdesk_pages.admin_pages.home')}), 200
 
     elif 'secretary' in user_roles:
-        return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
+        return jsonify({'redirect': url_for('helpdesk_pages.user_pages.create_ticket')}), 200
 
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.technician_pages.dashboard')}), 200
@@ -145,7 +145,7 @@ def role_home(role: str) -> str:
     """
     role_map = {
         "staff": "/help-desk/user/create",
-        "secretary": "/help-desk/secretary",
+        "secretary": "/help-desk/user/create",
         "tech_desarrollo": "/help-desk/technician",
         "tech_soporte": "/help-desk/technician",
         "department_head": "/help-desk/department",

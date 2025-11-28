@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 @user_pages_bp.get('/create')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.api.create'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.create'])
 def create_ticket():
     """Página para crear un nuevo ticket"""
     user_id = int(g.current_user['sub'])
@@ -39,7 +39,7 @@ def my_tickets():
 
 
 @user_pages_bp.get('/tickets/<int:ticket_id>')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.own.read','helpdesk.tickets.all.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own','helpdesk.tickets.api.read.all'])
 def ticket_detail(ticket_id):
     """Vista de detalle de un ticket específico"""
     user_id = int(g.current_user['sub'])

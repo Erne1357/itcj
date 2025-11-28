@@ -17,7 +17,7 @@ class HelpdeskAPI {
                 'Content-Type': 'application/json',
                 ...options.headers
             },
-            ...options
+            ...options,
         };
 
         try {
