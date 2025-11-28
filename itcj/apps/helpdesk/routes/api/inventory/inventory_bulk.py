@@ -12,7 +12,7 @@ inventory_bulk_api_bp = Blueprint('inventory_bulk_api', __name__)
 
 
 @inventory_bulk_api_bp.post('/validate-serials')
-@api_app_required('helpdesk', perms=['helpdesk.inventory.bulk_create'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.bulk.create'])
 def validate_serial_numbers():
     """
     Valida que los números de serie no estén duplicados.
@@ -37,7 +37,7 @@ def validate_serial_numbers():
 
 
 @inventory_bulk_api_bp.get('/next-inventory-number/<int:category_id>')
-@api_app_required('helpdesk', perms=['helpdesk.inventory.bulk_create'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.bulk.create'])
 def get_next_inventory_number(category_id):
     """Obtiene el siguiente número de inventario para una categoría"""
     try:
@@ -58,7 +58,7 @@ def get_next_inventory_number(category_id):
 
 
 @inventory_bulk_api_bp.post('/create')
-@api_app_required('helpdesk', perms=['helpdesk.inventory.bulk_create'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.bulk.create'])
 def bulk_create_items():
     """
     Crea múltiples equipos con las mismas especificaciones.

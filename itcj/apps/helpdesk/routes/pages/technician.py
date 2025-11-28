@@ -26,7 +26,7 @@ def dashboard():
 
 
 @bp.route('/my-assignments')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.assigned.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.my_tickets'])
 def my_assignments():
     """
     Tickets asignados al técnico actual
@@ -42,7 +42,7 @@ def my_assignments():
 
 
 @bp.route('/team')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.team.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.team'])
 def team():
     """
     Vista de tickets del equipo técnico
@@ -58,7 +58,7 @@ def team():
 
 
 @bp.route('/tickets/<int:ticket_id>')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.assigned.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.my_tickets'])
 def ticket_detail(ticket_id):
     """
     Vista detallada de un ticket para técnico

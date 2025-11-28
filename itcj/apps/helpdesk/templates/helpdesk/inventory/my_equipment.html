@@ -1,0 +1,254 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Mi Equipo - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+    <style>
+        .equipment-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            border-left: 4px solid #4e73df;
+        }
+
+        .equipment-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+        }
+
+        .equipment-icon {
+            font-size: 3rem;
+            color: #4e73df;
+            margin-bottom: 1rem;
+        }
+
+        .warranty-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .warranty-indicator.active {
+            background-color: #1cc88a;
+        }
+
+        .warranty-indicator.expiring {
+            background-color: #f6c23e;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .warranty-indicator.expired {
+            background-color: #e74a3b;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #858796;
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .info-value {
+            font-size: 1rem;
+            color: #5a5c69;
+        }
+
+        .empty-state {
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+
+        .empty-state-icon {
+            font-size: 5rem;
+            color: #d1d3e2;
+            margin-bottom: 1.5rem;
+        }
+
+        .detail-row {
+            border-bottom: 1px solid #e3e6f0;
+            padding: 0.75rem 0;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .equipment-detail-modal .modal-lg {
+            max-width: 900px;
+        }
+
+        .spec-item {
+            background-color: #f8f9fc;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .history-item {
+            position: relative;
+            padding-left: 2rem;
+            padding-bottom: 1.5rem;
+            border-left: 2px solid #e3e6f0;
+        }
+
+        .history-item:last-child {
+            border-left: none;
+        }
+
+        .history-icon {
+            position: absolute;
+            left: -0.75rem;
+            background-color: #fff;
+            border: 2px solid #4e73df;
+            border-radius: 50%;
+            width: 1.5rem;
+            height: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            color: #4e73df;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0 text-gray-800">
+                <i class="fas fa-laptop-house fa-fw"></i> Mi Equipo Asignado
+            </h1>
+            <p class="text-muted mb-0">Equipos de cómputo asignados a tu nombre</p>
+        </div>
+        <button class="btn btn-outline-primary" onclick="refreshEquipment()">
+            <i class="fas fa-sync-alt"></i> Actualizar
+        </button>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="text-center py-5">
+        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <p class="text-muted">Cargando información de tus equipos...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="card shadow" style="display: none;">
+        <div class="card-body empty-state">
+            <div class="empty-state-icon">
+                <i class="fas fa-laptop-slash"></i>
+            </div>
+            <h4 class="text-gray-600 mb-3">No tienes equipos asignados</h4>
+            <p class="text-muted mb-4">
+                Actualmente no hay ningún equipo de cómputo registrado a tu nombre.<br>
+                Si crees que esto es un error, contacta al departamento de Sistemas.
+            </p>
+            <a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" class="btn btn-primary">
+                <i class="fas fa-ticket-alt"></i> Crear Ticket de Soporte
+            </a>
+        </div>
+    </div>
+
+    <!-- Equipment Cards -->
+    <div id="equipment-container" class="row" style="display: none;">
+        <!-- Se llenará dinámicamente con JavaScript -->
+    </div>
+</div>
+
+<!-- Modal: Equipment Detail -->
+<div class="modal fade equipment-detail-modal" id="equipmentDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-info-circle"></i>
+                    <span id="modal-title">Detalle del Equipo</span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Loading -->
+                <div id="modal-loading" class="text-center py-5">
+                    <i class="fas fa-spinner fa-spin fa-2x text-primary mb-3"></i>
+                    <p class="text-muted">Cargando información detallada...</p>
+                </div>
+
+                <!-- Content -->
+                <div id="modal-content" style="display: none;">
+                    <!-- Tabs -->
+                    <ul class="nav nav-tabs mb-3" id="equipmentTabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="info-tab" data-toggle="tab" href="#info-content" role="tab">
+                                <i class="fas fa-info-circle"></i> Información
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="specs-tab" data-toggle="tab" href="#specs-content" role="tab">
+                                <i class="fas fa-microchip"></i> Especificaciones
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="history-tab" data-toggle="tab" href="#history-content" role="tab">
+                                <i class="fas fa-history"></i> Historial
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="tickets-tab" data-toggle="tab" href="#tickets-content" role="tab">
+                                <i class="fas fa-ticket-alt"></i> Tickets
+                                <span class="badge badge-info ml-1" id="tickets-count">0</span>
+                            </a>
+                        </li>
+                    </ul>
+
+                    <!-- Tab Content -->
+                    <div class="tab-content" id="equipmentTabContent">
+                        <!-- Info Tab -->
+                        <div class="tab-pane fade show active" id="info-content" role="tabpanel">
+                            <div id="info-container">
+                                <!-- Se llenará dinámicamente -->
+                            </div>
+                        </div>
+
+                        <!-- Specs Tab -->
+                        <div class="tab-pane fade" id="specs-content" role="tabpanel">
+                            <div id="specs-container">
+                                <p class="text-muted">No hay especificaciones registradas</p>
+                            </div>
+                        </div>
+
+                        <!-- History Tab -->
+                        <div class="tab-pane fade" id="history-content" role="tabpanel">
+                            <div id="history-container">
+                                <p class="text-muted">Cargando historial...</p>
+                            </div>
+                        </div>
+
+                        <!-- Tickets Tab -->
+                        <div class="tab-pane fade" id="tickets-content" role="tabpanel">
+                            <div id="tickets-container">
+                                <p class="text-muted">Cargando tickets relacionados...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/my_equipment.js') }}?v={{ static_version }}"></script>
+{% endblock %}

@@ -437,8 +437,10 @@ class WindowsDesktop {
 
 document.addEventListener("DOMContentLoaded", () => {
   const desktop = new WindowsDesktop()
+  // Exponer desktop globalmente para que otros componentes puedan accederlo
+  window.desktop = desktop;
+  
   if (typeof ProfileMenu !== 'undefined') {
     const profileMenu = new ProfileMenu(desktop);
   }
-
 })

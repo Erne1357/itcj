@@ -69,9 +69,9 @@ class DashboardNotificationWidget {
                     </div>
                 </div>
                 <div class="notification-panel-footer">
-                    <a href="/profile?tab=notifications" class="btn btn-sm btn-primary w-100">
+                    <button id="view-all-notifications-btn" class="btn btn-sm btn-primary w-100">
                         Ver todas las notificaciones
-                    </a>
+                    </button>
                 </div>
             </div>
         `;
@@ -102,6 +102,14 @@ class DashboardNotificationWidget {
         if (markAllBtn) {
             markAllBtn.addEventListener('click', () => {
                 this.markAllAsRead();
+            });
+        }
+
+        // Ver todas las notificaciones
+        const viewAllBtn = document.getElementById('view-all-notifications-btn');
+        if (viewAllBtn) {
+            viewAllBtn.addEventListener('click', () => {
+                this.openProfileNotifications();
             });
         }
 
@@ -334,7 +342,7 @@ class DashboardNotificationWidget {
                 }
 
                 if (url) {
-                    window.location.href = url;
+                    this.handleNotificationClick(url);
                 }
             });
         });
@@ -401,6 +409,93 @@ class DashboardNotificationWidget {
     }
 
     /**
+     * Maneja el click en una notificación
+     * Si está en dashboard, abre iframe de la app. Si está en iframe, navega directamente.
+     */
+    handleNotificationClick(url) {
+        this.closePanel();
+
+        // Detectar si estamos en el dashboard principal o dentro de un iframe
+        const isInDashboard = window.self === window.top;
+
+        if (isInDashboard) {
+            // Estamos en el dashboard - abrir como iframe
+            this.openUrlInDesktop(url);
+        } else {
+            // Estamos dentro de un iframe - navegar directamente
+            window.location.href = url;
+        }
+    }
+
+    /**
+     * Abre una URL en el dashboard como iframe
+     * Detecta la aplicación basándose en la URL y usa WindowsDesktop.openApplication()
+     */
+    openUrlInDesktop(url) {
+        // Extraer la aplicación de la URL
+        let appId = null;
+
+        if (url.includes('/agendatec')) {
+            appId = 'agendatec';
+        } else if (url.includes('/help-desk')) {
+            appId = 'helpdesk';
+        } else if (url.includes('/compras')) {
+            appId = 'compras';
+        } else if (url.includes('/itcj/profile')) {
+            appId = 'profile';
+        } else if (url.includes('/itcj/config')) {
+            appId = 'settings';
+        }
+
+        if (appId && window.desktop && typeof window.desktop.openApplication === 'function') {
+            window.desktop.openApplication(appId);
+            
+            // Si la URL es más específica que la raíz de la app, esperar a que cargue
+            // y luego navegar dentro del iframe
+            if (!url.endsWith(`/${appId}/`) && !url.endsWith(`/${appId}`)) {
+                setTimeout(() => {
+                    const iframe = document.querySelector(`[data-app-id="${appId}"] .window-iframe`);
+                    if (iframe) {
+                        try {
+                            iframe.contentWindow.location.href = url;
+                        } catch (e) {
+                            // Si falla el acceso directo, intentar cambiar el src
+                            iframe.src = url;
+                        }
+                    }
+                }, 500);
+            }
+        } else {
+            // Fallback: abrir en la misma ventana
+            window.location.href = url;
+        }
+    }
+
+    /**
+     * Abre la página de perfil con notificaciones
+     * Si está en dashboard, abre iframe. Si está en iframe, navega directamente.
+     */
+    openProfileNotifications() {
+        this.closePanel();
+
+        // Detectar si estamos en el dashboard principal o dentro de un iframe
+        const isInDashboard = window.self === window.top;
+
+        if (isInDashboard) {
+            // Estamos en el dashboard - abrir como iframe usando WindowsDesktop
+            if (window.desktop && typeof window.desktop.openApplication === 'function') {
+                window.desktop.openApplication('profile');
+            } else {
+                // Fallback si desktop no está disponible
+                window.location.href = '/itcj/profile';
+            }
+        } else {
+            // Estamos dentro de un iframe - navegar directamente
+            window.location.href = '/itcj/profile';
+        }
+    }
+
+    /**
      * Marca todas las notificaciones como leídas
      */
     async markAllAsRead() {
@@ -423,6 +518,30 @@ class DashboardNotificationWidget {
             }
         } catch (error) {
             console.error('[NotificationWidget] Error marking all as read:', error);
+        }
+    }
+
+    /**
+     * Abre la página de perfil con notificaciones
+     * Si está en dashboard, abre iframe. Si está en iframe, navega directamente.
+     */
+    openProfileNotifications() {
+        this.closePanel();
+
+        // Detectar si estamos en el dashboard principal o dentro de un iframe
+        const isInDashboard = window.self === window.top;
+
+        if (isInDashboard) {
+            // Estamos en el dashboard - abrir como iframe usando WindowsDesktop
+            if (window.desktop && typeof window.desktop.openApplication === 'function') {
+                window.desktop.openApplication('profile');
+            } else {
+                // Fallback si desktop no está disponible
+                window.location.href = '/itcj/profile';
+            }
+        } else {
+            // Estamos dentro de un iframe - navegar directamente
+            window.location.href = '/itcj/profile';
         }
     }
 

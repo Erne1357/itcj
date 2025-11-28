@@ -171,7 +171,7 @@ def get_item(item_id):
 
 
 @bp.route('', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.create'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.create'])
 def create_item():
     """
     Registrar nuevo equipo en el inventario
@@ -260,7 +260,7 @@ def create_item():
 
 
 @bp.route('/<int:item_id>', methods=['PATCH'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.edit'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.update'])
 def update_item(item_id):
     """
     Actualizar información de un equipo
@@ -316,7 +316,7 @@ def update_item(item_id):
 
 
 @bp.route('/<int:item_id>/status', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.edit'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.update'])
 def change_item_status(item_id):
     """
     Cambiar estado de un equipo
@@ -371,7 +371,7 @@ def change_item_status(item_id):
 
 
 @bp.route('/<int:item_id>/deactivate', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.deactivate'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.delete'])
 def deactivate_item(item_id):
     """
     Dar de baja un equipo (soft delete)
@@ -439,7 +439,7 @@ def get_my_equipment():
 
 
 @bp.route('/department/<int:department_id>', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.own_dept'])
 def get_department_equipment(department_id):
     """
     Obtener equipos de un departamento

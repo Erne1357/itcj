@@ -95,12 +95,6 @@
                                     </li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li>
-                                        <a class="dropdown-item" href="/dashboard">
-                                            <i class="fas fa-home me-2"></i>Dashboard Principal
-                                        </a>
-                                    </li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li>
                                         <button class="dropdown-item text-danger" id="btnLogout">
                                             <i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión
                                         </button>
@@ -146,12 +140,35 @@
     <script src="{{ url_for('static', filename='core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
     <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ static_version }}"></script>
 
+    <!-- iframe bridge for logout detection -->
+    <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ static_version }}"></script>
+
     <script>
         // Logout handler
         document.getElementById('btnLogout')?.addEventListener('click', async () => {
             try {
-                const res = await fetch('api/auth/v1/logout', { method: 'POST' });
-                if (res.ok) window.location.href = '/auth/login';
+                const res = await fetch('/api/core/v1/auth/logout', { 
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                
+                if (res.ok) {
+                    // Si estamos en iframe, notificar al parent (dashboard)
+                    if (window.self !== window.top) {
+                        try {
+                            window.parent.postMessage({
+                                type: 'LOGOUT',
+                                source: 'helpdesk',
+                                reason: 'manual_logout'
+                            }, window.location.origin);
+                        } catch (e) {
+                            console.warn('No se pudo notificar logout al parent:', e);
+                        }
+                    }
+                    
+                    // Redirigir al login
+                    window.location.href = '/itcj/login';
+                }
             } catch (error) {
                 console.error('Error logging out:', error);
             }

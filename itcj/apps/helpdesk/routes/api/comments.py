@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== LISTAR COMENTARIOS ====================
 @comments_api_bp.get('/ticket/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def get_ticket_comments(ticket_id):
     """
     Obtiene los comentarios de un ticket.
@@ -60,7 +60,7 @@ def get_ticket_comments(ticket_id):
 
 # ==================== AGREGAR COMENTARIO ====================
 @comments_api_bp.post('/ticket/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.comment'])
+@api_app_required('helpdesk', perms=['helpdesk.comments.api.create'])
 def create_comment(ticket_id):
     """
     Agrega un comentario a un ticket.
@@ -148,7 +148,7 @@ def create_comment(ticket_id):
 
 # ==================== EDITAR COMENTARIO ====================
 @comments_api_bp.patch('/<int:comment_id>')
-@api_app_required('helpdesk', perms=['helpdesk.comment'])
+@api_app_required('helpdesk', perms=['helpdesk.comments.api.create'])
 def update_comment(comment_id):
     """
     Edita un comentario (solo el autor, dentro de 5 minutos).
@@ -227,7 +227,7 @@ def update_comment(comment_id):
 
 # ==================== ELIMINAR COMENTARIO ====================
 @comments_api_bp.delete('/<int:comment_id>')
-@api_app_required('helpdesk', perms=['helpdesk.comment'])
+@api_app_required('helpdesk', perms=['helpdesk.comments.api.create'])
 def delete_comment(comment_id):
     """
     Elimina un comentario (solo el autor, dentro de 5 minutos, o admin).

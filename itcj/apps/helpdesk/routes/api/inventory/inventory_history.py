@@ -144,7 +144,7 @@ def get_recent_events():
 
 
 @bp.route('/user/<int:user_id>', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.all'])
 def get_user_assignment_history(user_id):
     """
     Obtener historial de asignaciones de un usuario
@@ -226,7 +226,7 @@ def get_maintenance_history(item_id):
 
 
 @bp.route('/transfers', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.all'])
 def get_transfers():
     """
     Obtener transferencias entre departamentos

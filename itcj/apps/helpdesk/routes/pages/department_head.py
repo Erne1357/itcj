@@ -28,13 +28,13 @@ def tickets():
                          active_page='dashboard')
 
 @department_pages_bp.get('/inventory')
-@app_required('helpdesk', perms=['helpdesk.inventory.view_own_dept'])
+@app_required('helpdesk', perms=['helpdesk.inventory.page.list.own_dept'])
 def inventory():
     """Vista de inventario del departamento"""
     return redirect(url_for('helpdesk_pages.inventory_pages.items_list'))
 
 @department_pages_bp.get('/tickets/<int:ticket_id>')
-@app_required('helpdesk', perms=['helpdesk.tickets.department.read'])
+@app_required('helpdesk', perms=['helpdesk.tickets.page.my_tickets'])
 def ticket_detail(ticket_id):
     """Vista de detalle de ticket del departamento"""
     # Obtener el departamento del cual el usuario es jefe

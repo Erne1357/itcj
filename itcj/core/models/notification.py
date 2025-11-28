@@ -23,6 +23,7 @@ class Notification(db.Model):
     is_read = db.Column(db.Boolean, nullable=False, default=False, index=True)
     read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now(), index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now(), server_onupdate=db.func.now())
     
     # AgendaTec
     source_request_id = db.Column(db.BigInteger, db.ForeignKey("agendatec_requests.id", ondelete="SET NULL"))
@@ -54,6 +55,7 @@ class Notification(db.Model):
             'is_read': self.is_read,
             'read_at': self.read_at.isoformat() if self.read_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'action_url': self._get_action_url(),
             'app_icon': self._get_app_icon(),
             'app_color': self._get_app_color(),

@@ -9,7 +9,7 @@ from flask import current_app
 from itcj.core.services.notification_service import NotificationService
 from itcj.core.extensions import db
 from itcj.core.models.user import User
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import _get_users_with_roles_in_app, user_roles_in_app, _get_users_with_position
 
 
 class HelpdeskNotificationHelper:
@@ -26,13 +26,24 @@ class HelpdeskNotificationHelper:
         try:
             # Obtener todos los usuarios con rol 'secretary' o 'admin' en helpdesk
             # Buscar usuarios con esos roles
-            all_users = db.session.query(User).filter(User.is_active == True).all()
+            recipients = set()
 
-            recipients = []
-            for user in all_users:
-                roles = user_roles_in_app(user.id, 'helpdesk')
-                if 'secretary' in roles or 'admin' in roles:
-                    recipients.append(user.id)
+            # Usuarios con roles 'secretary' o 'admin' en la app helpdesk
+            #users_by_role = _get_users_with_roles_in_app('helpdesk', ['admin']) or []
+            #for u in users_by_role:
+            #    if getattr(u, 'id', None):
+            #        recipients.add(u.id)
+
+            # Usuarios con la posición 'secretary_comp_center'
+            users_by_position = _get_users_with_position(['secretary_comp_center']) or []
+            for u in users_by_position:
+                if getattr(u, 'id', None):
+                    recipients.add(u.id)
+                    
+            current_app.logger.warning(f"Recipients for TICKET_CREATED: {users_by_position}")
+
+            # Convertir a lista para iterar luego
+            recipients = list(recipients)
 
             # Enviar notificación a cada destinatario
             for user_id in recipients:

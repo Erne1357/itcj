@@ -10,7 +10,7 @@ from . import inventory_pages_bp as bp
 
 
 @bp.route('/dashboard')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.view'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.page.list'])
 def dashboard():
     """
     Dashboard principal de inventario (Admin/Secretaría)
@@ -49,7 +49,7 @@ def items_list():
 
 
 @bp.route('/items/create')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.create'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.create'])
 def item_create():
     """
     Formulario para registrar nuevo equipo (Admin/Secretaría)
@@ -99,7 +99,7 @@ def my_equipment():
 
 
 @bp.route('/assign')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.assign'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.assign'])
 def assign_equipment():
     """
     Interfaz para asignar equipos a usuarios (Jefe Depto/Admin)
@@ -115,7 +115,7 @@ def assign_equipment():
 
 
 @bp.route('/reports/warranty')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def warranty_report():
     """
     Reporte de garantías
@@ -131,7 +131,7 @@ def warranty_report():
 
 
 @bp.route('/reports/maintenance')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def maintenance_report():
     """
     Reporte de mantenimientos
@@ -147,7 +147,7 @@ def maintenance_report():
 
 
 @bp.route('/reports/lifecycle')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def lifecycle_report():
     """
     Reporte de ciclo de vida (antigüedad)
@@ -162,7 +162,7 @@ def lifecycle_report():
     )
 
 @bp.route('/groups')
-@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.page.list'])
 def groups_list():
     """
     Lista de grupos de equipos (salones, laboratorios)
@@ -185,7 +185,7 @@ def groups_list():
 
 
 @bp.route('/groups/<int:group_id>')
-@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.page.list'])
 def group_detail(group_id):
     """
     Detalle de un grupo con sus equipos
@@ -205,7 +205,7 @@ def group_detail(group_id):
 
 
 @bp.route('/pending')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.view_pending'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.pending'])
 def pending_items():
     """
     Equipos pendientes de asignación (limbo del CC)
@@ -222,7 +222,7 @@ def pending_items():
 
 
 @bp.route('/bulk-register')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.bulk_create'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.bulk.create'])
 def bulk_register():
     """
     Registro masivo de equipos

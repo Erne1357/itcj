@@ -11,7 +11,7 @@ bp = Blueprint('inventory_categories', __name__)
 
 
 @bp.route('', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.view'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.api.read'])
 def get_categories():
     """
     Obtener todas las categorías de inventario
@@ -63,7 +63,7 @@ def get_categories():
 
 
 @bp.route('/<int:category_id>', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.view'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.api.read'])
 def get_category(category_id):
     """
     Obtener una categoría específica
@@ -87,7 +87,7 @@ def get_category(category_id):
 
 
 @bp.route('', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.api.update'])
 def create_category():
     """
     Crear nueva categoría de inventario
@@ -168,7 +168,7 @@ def create_category():
 
 
 @bp.route('/<int:category_id>', methods=['PATCH'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.api.update'])
 def update_category(category_id):
     """
     Actualizar categoría existente
@@ -225,7 +225,7 @@ def update_category(category_id):
 
 
 @bp.route('/<int:category_id>/toggle', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.api.update'])
 def toggle_category(category_id):
     """
     Activar/desactivar categoría
@@ -259,7 +259,7 @@ def toggle_category(category_id):
 
 
 @bp.route('/reorder', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_categories.api.update'])
 def reorder_categories():
     """
     Reordenar categorías (drag & drop)

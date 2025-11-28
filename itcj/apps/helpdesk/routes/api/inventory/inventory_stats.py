@@ -10,7 +10,7 @@ bp = Blueprint('inventory_stats', __name__)
 
 
 @bp.route('/overview', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_overview():
     """
     Obtener estadísticas generales del inventario
@@ -27,7 +27,7 @@ def get_overview():
 
 
 @bp.route('/by-category', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_by_category():
     """
     Obtener estadísticas por categoría
@@ -45,7 +45,7 @@ def get_by_category():
 
 
 @bp.route('/by-department', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_by_department():
     """
     Obtener estadísticas por departamento
@@ -63,7 +63,7 @@ def get_by_department():
 
 
 @bp.route('/problematic', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_problematic_items():
     """
     Obtener equipos problemáticos (muchas fallas)
@@ -105,7 +105,7 @@ def get_problematic_items():
 
 
 @bp.route('/warranty', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_warranty_report():
     """
     Reporte de garantías
@@ -122,7 +122,7 @@ def get_warranty_report():
 
 
 @bp.route('/maintenance', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_maintenance_report():
     """
     Reporte de mantenimientos
@@ -139,7 +139,7 @@ def get_maintenance_report():
 
 
 @bp.route('/lifecycle', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_lifecycle_report():
     """
     Reporte de ciclo de vida (antigüedad de equipos)
@@ -156,7 +156,7 @@ def get_lifecycle_report():
 
 
 @bp.route('/department/<int:department_id>', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.own_dept'])
 def get_department_stats(department_id):
     """
     Estadísticas de un departamento específico

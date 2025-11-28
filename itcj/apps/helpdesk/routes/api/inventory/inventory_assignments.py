@@ -13,7 +13,7 @@ bp = Blueprint('inventory_assignments', __name__)
 
 
 @bp.route('/assign', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.assign'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.assign'])
 def assign_to_user():
     """
     Asignar equipo a un usuario específico
@@ -90,7 +90,7 @@ def assign_to_user():
 
 
 @bp.route('/unassign', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.unassign'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.unassign'])
 def unassign_from_user():
     """
     Liberar equipo (volverlo global del departamento)
@@ -159,7 +159,7 @@ def unassign_from_user():
 
 
 @bp.route('/transfer', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.transfer'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.transfer'])
 def transfer_between_departments():
     """
     Transferir equipo entre departamentos (SOLO ADMIN)
@@ -265,7 +265,7 @@ def transfer_between_departments():
 
 
 @bp.route('/bulk-assign', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.assign'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.assign'])
 def bulk_assign():
     """
     Asignar múltiples equipos a un usuario
@@ -335,7 +335,7 @@ def bulk_assign():
 
 
 @bp.route('/update-location', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.update_location'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.update.location'])
 def update_location():
     """
     Actualizar ubicación física de un equipo

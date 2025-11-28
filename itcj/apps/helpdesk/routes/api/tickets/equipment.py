@@ -15,7 +15,7 @@ tickets_equipment_bp = Blueprint('tickets_equipment', __name__)
 
 # ==================== GESTIÓN DE EQUIPOS EN TICKET ====================
 @tickets_equipment_bp.post('/<int:ticket_id>/equipment')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def add_equipment_to_ticket(ticket_id):
     """
     Agrega equipos a un ticket existente.
@@ -79,7 +79,7 @@ def add_equipment_to_ticket(ticket_id):
 
 
 @tickets_equipment_bp.delete('/<int:ticket_id>/equipment/<int:item_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def remove_equipment_from_ticket(ticket_id, item_id):
     """
     Remueve un equipo de un ticket.
@@ -133,7 +133,7 @@ def remove_equipment_from_ticket(ticket_id, item_id):
 
 
 @tickets_equipment_bp.put('/<int:ticket_id>/equipment')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def replace_ticket_equipment(ticket_id):
     """
     Reemplaza todos los equipos de un ticket.
@@ -197,7 +197,7 @@ def replace_ticket_equipment(ticket_id):
 
 
 @tickets_equipment_bp.get('/<int:ticket_id>/equipment')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def get_ticket_equipment(ticket_id):
     """
     Obtiene la lista de equipos asociados a un ticket.

@@ -162,7 +162,7 @@ def release_slot():
 # --------------------------------------------------------------------
 @api_slots_bp.get("/<int:slot_id>/status")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.read"])
 def slot_status(slot_id: int):
     rds = get_redis()
     slot = db.session.query(TimeSlot).get(slot_id)
@@ -193,7 +193,7 @@ def slot_status(slot_id: int):
 # --------------------------------------------------------------------
 @api_slots_bp.get("/holds")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.read"])
 def list_holds():
     """
     Devuelve lista de holds actuales (solo claves activas).

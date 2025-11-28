@@ -7,6 +7,7 @@ from itcj.core.models.app import App
 from itcj.core.models.role import Role
 from itcj.core.models.permission import Permission
 from itcj.core.models.role_permission import RolePermission
+from itcj.core.models.user import User
 from itcj.core.models.user_app_role import UserAppRole
 from itcj.core.models.user_app_perm import UserAppPerm
 from itcj.core.models.position import Position, UserPosition, PositionAppRole, PositionAppPerm
@@ -170,6 +171,107 @@ def user_perms_via_position_roles(user_id: int, app_key: str) -> Set[str]:
 # ---------------------------
 # Lecturas (MEJORADAS con puestos)
 # ---------------------------
+
+def _get_users_with_roles_in_app(app_key: str, role_names: list[str]) -> list[int]:
+    """
+    Obtiene usuarios con roles específicos en una app de forma eficiente.
+    Considera roles directos Y roles heredados por puestos organizacionales.
+    
+    Args:
+        app_key: Key de la aplicación ('helpdesk', 'itcj', etc.)
+        role_names: Lista de nombres de roles a buscar (['secretary', 'admin'])
+        
+    Returns:
+        Lista de user_ids que tienen alguno de los roles especificados
+    """
+    from sqlalchemy import union
+    
+    try:
+        app = get_app_by_key(app_key)
+        if not app:
+            return []
+        
+        # Subquery 1: Usuarios con roles directos
+        direct_roles = (
+            db.session.query(User.id.label('user_id'))
+            .join(UserAppRole, User.id == UserAppRole.user_id)
+            .join(Role, UserAppRole.role_id == Role.id)
+            .filter(
+                User.is_active == True,
+                UserAppRole.app_id == app.id,
+                Role.name.in_(role_names)
+            )
+        )
+        
+        # Subquery 2: Usuarios con roles vía puestos
+        position_roles = (
+            db.session.query(User.id.label('user_id'))
+            .join(UserPosition, User.id == UserPosition.user_id)
+            .join(PositionAppRole, UserPosition.position_id == PositionAppRole.position_id)
+            .join(Role, PositionAppRole.role_id == Role.id)
+            .filter(
+                User.is_active == True,
+                UserPosition.is_active == True,
+                PositionAppRole.app_id == app.id,
+                Role.name.in_(role_names)
+            )
+        )
+        
+        # UNION de ambas subqueries (elimina duplicados automáticamente)
+        combined_query = union(direct_roles, position_roles)
+        result = db.session.execute(combined_query).fetchall()
+        
+        return result
+        
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(
+            f"Error obteniendo usuarios con roles {role_names} en app {app_key}: {e}",
+            exc_info=True
+        )
+        return []
+
+
+def _get_users_with_position(position_codes: list[str]) -> list[int]:
+    """
+    Obtiene usuarios que tienen puestos organizacionales específicos activos.
+    
+    Args:
+        position_codes: Lista de códigos de puestos (['secretary_cc', 'director_rh'])
+        
+    Returns:
+        Lista de user_ids que tienen alguno de los puestos especificados activos
+        
+    Example:
+        >>> # Notificar solo a la secretaria del Centro de Cómputo
+        >>> users = _get_users_with_position(['secretary_cc'])
+        >>> # Notificar a múltiples puestos
+        >>> users = _get_users_with_position(['secretary_cc', 'director_cc'])
+    """
+    try:
+        result = (
+            db.session.query(User.id)
+            .distinct()
+            .join(UserPosition, User.id == UserPosition.user_id)
+            .join(Position, UserPosition.position_id == Position.id)
+            .filter(
+                User.is_active == True,
+                UserPosition.is_active == True,
+                Position.is_active == True,
+                Position.code.in_(position_codes)
+            )
+            .all()
+        )
+        
+        return result
+        
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(
+            f"Error obteniendo usuarios con puestos {position_codes}: {e}",
+            exc_info=True
+        )
+        return []
 
 def user_roles_in_app(user_id: int, app_key: str, include_positions: bool = True) -> Set[str]:
     """

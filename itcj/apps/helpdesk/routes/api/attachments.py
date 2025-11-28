@@ -71,7 +71,7 @@ def compress_image(image_file, max_size=(1920, 1080), quality=85):
 
 # ==================== SUBIR ARCHIVO ====================
 @attachments_api_bp.post('/ticket/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def upload_attachment(ticket_id):
     """
     Sube un archivo adjunto a un ticket.
@@ -184,7 +184,7 @@ def upload_attachment(ticket_id):
 
 # ==================== LISTAR ARCHIVOS ====================
 @attachments_api_bp.get('/ticket/<int:ticket_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def list_attachments(ticket_id):
     """
     Lista los archivos adjuntos de un ticket.
@@ -216,7 +216,7 @@ def list_attachments(ticket_id):
 
 # ==================== DESCARGAR ARCHIVO ====================
 @attachments_api_bp.get('/<int:attachment_id>/download')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def download_attachment(attachment_id):
     """
     Descarga un archivo adjunto.
@@ -261,7 +261,7 @@ def download_attachment(attachment_id):
 
 # ==================== ELIMINAR ARCHIVO ====================
 @attachments_api_bp.delete('/<int:attachment_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def delete_attachment(attachment_id):
     """
     Elimina un archivo adjunto (solo el uploader o admin).

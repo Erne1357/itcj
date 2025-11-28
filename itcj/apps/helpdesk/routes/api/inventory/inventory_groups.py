@@ -15,7 +15,7 @@ inventory_groups_api_bp = Blueprint('inventory_groups_api', __name__)
 
 
 @inventory_groups_api_bp.get('/')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.view'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.read.all'])
 def get_all_groups():
     """Obtiene todos los grupos de inventario (solo admin)"""
     try:
@@ -53,7 +53,7 @@ def get_all_groups():
 
 
 @inventory_groups_api_bp.get('/department/<int:department_id>')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.read.own_dept'])
 def get_groups_by_department(department_id):
     """Obtiene grupos de un departamento específico"""
     try:
@@ -85,7 +85,7 @@ def get_groups_by_department(department_id):
 
 
 @inventory_groups_api_bp.get('/<int:group_id>')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.read.own_dept'])
 def get_group_detail(group_id):
     """Obtiene detalle completo de un grupo"""
     try:
@@ -107,7 +107,7 @@ def get_group_detail(group_id):
 
 
 @inventory_groups_api_bp.get('/<int:group_id>/items')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.read.own_dept'])
 def get_group_items(group_id):
     """Obtiene los equipos asignados a un grupo"""
     try:
@@ -126,7 +126,7 @@ def get_group_items(group_id):
 
 
 @inventory_groups_api_bp.post('/')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.create'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.create'])
 def create_group():
     """Crea un nuevo grupo"""
     try:
@@ -156,7 +156,7 @@ def create_group():
 
 
 @inventory_groups_api_bp.put('/<int:group_id>')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.edit'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.update'])
 def update_group(group_id):
     """Actualiza información de un grupo"""
     try:
@@ -178,7 +178,7 @@ def update_group(group_id):
 
 
 @inventory_groups_api_bp.put('/<int:group_id>/capacities')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.manage_capacity'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.update.capacity'])
 def update_capacities(group_id):
     """Actualiza las capacidades de un grupo"""
     try:
@@ -203,7 +203,7 @@ def update_capacities(group_id):
 
 
 @inventory_groups_api_bp.delete('/<int:group_id>')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.delete'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.delete'])
 def delete_group(group_id):
     """Elimina un grupo (solo si está vacío)"""
     try:
@@ -222,7 +222,7 @@ def delete_group(group_id):
 
 
 @inventory_groups_api_bp.post('/<int:group_id>/assign-item')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.assign_items'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.assign.items'])
 def assign_item_to_group(group_id):
     """Asigna un equipo a un grupo"""
     try:
@@ -252,7 +252,7 @@ def assign_item_to_group(group_id):
 
 
 @inventory_groups_api_bp.post('/unassign-item/<int:item_id>')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.assign_items'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.assign.items'])
 def unassign_item_from_group(item_id):
     """Remueve un equipo de su grupo"""
     try:
@@ -274,7 +274,7 @@ def unassign_item_from_group(item_id):
 
 
 @inventory_groups_api_bp.post('/<int:group_id>/bulk-assign')
-@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.assign_items'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory_groups.api.assign.items'])
 def bulk_assign_items_to_group(group_id):
     """Asigna múltiples equipos a un grupo de una vez"""
     try:

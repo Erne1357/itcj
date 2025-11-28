@@ -108,7 +108,7 @@ def get_quick_stats():
 
 
 @bp.route('/widgets/alerts', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_alerts():
     """
     Alertas del inventario (garantías, mantenimiento, etc.)

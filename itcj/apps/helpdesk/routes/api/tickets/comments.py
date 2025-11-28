@@ -15,7 +15,7 @@ tickets_comments_bp = Blueprint('tickets_comments', __name__)
 
 # ==================== OBTENER COMENTARIOS ====================
 @tickets_comments_bp.get('/<int:ticket_id>/comments')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def get_comments(ticket_id):
     """
     Obtiene los comentarios de un ticket.
@@ -59,7 +59,7 @@ def get_comments(ticket_id):
 
 # ==================== AGREGAR COMENTARIO ====================
 @tickets_comments_bp.post('/<int:ticket_id>/comments')
-@api_app_required('helpdesk', perms=['helpdesk.comments.create'])
+@api_app_required('helpdesk', perms=['helpdesk.comments.api.create'])
 def add_comment(ticket_id):
     """
     Agrega un comentario a un ticket.

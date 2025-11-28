@@ -12,7 +12,7 @@ inventory_pending_api_bp = Blueprint('inventory_pending_api', __name__)
 
 
 @inventory_pending_api_bp.get('/')
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view_pending'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.pending'])
 def get_pending_items():
     """Obtiene todos los equipos pendientes de asignación"""
     try:
@@ -31,7 +31,7 @@ def get_pending_items():
 
 
 @inventory_pending_api_bp.get('/stats')
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view_pending'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.pending'])
 def get_pending_stats():
     """Obtiene estadísticas de equipos pendientes"""
     try:
@@ -48,7 +48,7 @@ def get_pending_stats():
 
 
 @inventory_pending_api_bp.post('/assign-to-department')
-@api_app_required('helpdesk', perms=['helpdesk.inventory.assign_pending'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.assign.pending'])
 def assign_to_department():
     """
     Asigna equipos pendientes a un departamento.

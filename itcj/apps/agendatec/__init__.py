@@ -107,24 +107,24 @@ def agendatec_role_home(role: str) -> str:
 # Función para obtener navegación de AgendaTec
 def get_agendatec_navigation(user_permissions: set[str], student_window_open: bool = True):
     """Devuelve la navegación específica de AgendaTec basada en los permisos del usuario."""
-    
+
     # Define la estructura completa de navegación con el permiso requerido para cada item
     full_nav_structure = [
         # Coordinador
-        {"label": "Dashboard", "endpoint": "agendatec_pages.coord_pages.coord_home_page", "permission": "agendatec.coord_dashboard.view", "icon": "bi-speedometer2"},
-        {"label": "Horario", "endpoint": "agendatec_pages.coord_pages.coord_slots_page", "permission": "agendatec.slots.view", "icon": "bi-calendar-week"},
-        {"label": "Citas del día", "endpoint": "agendatec_pages.coord_pages.coord_appointments_page", "permission": "agendatec.appointments.view", "icon": "bi-calendar-event"},
-        {"label": "Bajas", "endpoint": "agendatec_pages.coord_pages.coord_drops_page", "permission": "agendatec.drops.view", "icon": "bi-person-dash"},
+        {"label": "Dashboard", "endpoint": "agendatec_pages.coord_pages.coord_home_page", "permission": "agendatec.coord_dashboard.page.view", "icon": "bi-speedometer2"},
+        {"label": "Horario", "endpoint": "agendatec_pages.coord_pages.coord_slots_page", "permission": "agendatec.slots.page.list", "icon": "bi-calendar-week"},
+        {"label": "Citas del día", "endpoint": "agendatec_pages.coord_pages.coord_appointments_page", "permission": "agendatec.appointments.page.list", "icon": "bi-calendar-event"},
+        {"label": "Bajas", "endpoint": "agendatec_pages.coord_pages.coord_drops_page", "permission": "agendatec.drops.page.list", "icon": "bi-person-dash"},
         # Admin
-        {"label": "Dashboard Admin", "endpoint": "agendatec_pages.admin_pages.admin_home", "permission": "agendatec.admin_dashboard.view", "icon": "bi-bar-chart-fill"},
-        {"label": "Usuarios", "endpoint": "agendatec_pages.admin_pages.admin_users", "permission": "agendatec.users.view", "icon": "bi-people"},
-        {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests_all.view", "icon": "bi-clipboard-data"},
-        {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.view", "icon": "bi-graph-up"},
-        {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.view", "icon": "bi-list-check"},
+        {"label": "Dashboard Admin", "endpoint": "agendatec_pages.admin_pages.admin_home", "permission": "agendatec.admin_dashboard.page.view", "icon": "bi-bar-chart-fill"},
+        {"label": "Usuarios", "endpoint": "agendatec_pages.admin_pages.admin_users", "permission": "agendatec.users.page.list", "icon": "bi-people"},
+        {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests.page.list", "icon": "bi-clipboard-data"},
+        {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.page.view", "icon": "bi-graph-up"},
+        {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.page.list", "icon": "bi-list-check"},
         # Servicio Social
-        {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home", "permission": "agendatec.social_home.view", "icon": "bi-calendar-heart"}
+        {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home", "permission": "agendatec.social.page.home", "icon": "bi-calendar-heart"}
     ]
-    
+
     # Filtra la lista: incluye un item solo si el usuario tiene el permiso requerido
     return [item for item in full_nav_structure if item["permission"] in user_permissions]
 

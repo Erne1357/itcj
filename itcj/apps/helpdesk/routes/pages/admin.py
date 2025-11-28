@@ -25,7 +25,7 @@ def home():
 
 
 @bp.route('/assign-tickets')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.assign'])
+@web_app_required('helpdesk', perms=['helpdesk.assignments.page.list'])
 def assign_tickets():
     """
     Vista para asignar y gestionar tickets (antes era secretaría)
@@ -45,7 +45,7 @@ def assign_tickets():
 
 
 @bp.route('/tickets')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.all.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.list'])
 def all_tickets():
     """
     Vista de todos los tickets del sistema (Admin)
@@ -61,7 +61,7 @@ def all_tickets():
 
 
 @bp.route('/categories')
-@web_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@web_app_required('helpdesk', perms=['helpdesk.categories.page.list'])
 def categories():
     """
     Gestión de categorías de tickets
@@ -77,7 +77,7 @@ def categories():
 
 
 @bp.route('/inventory')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.view'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.page.list'])
 def inventory_list():
     """
     Lista completa de inventario (Admin)
@@ -86,7 +86,7 @@ def inventory_list():
 
 
 @bp.route('/inventory/create')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.create'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.create'])
 def inventory_create():
     """
     Formulario para crear nuevo equipo de inventario
@@ -95,7 +95,7 @@ def inventory_create():
 
 
 @bp.route('/inventory/categories')
-@web_app_required('helpdesk', perms=['helpdesk.inventory_categories.manage'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory_categories.page.list'])
 def inventory_categories():
     """
     Gestión de categorías de inventario
@@ -111,7 +111,7 @@ def inventory_categories():
 
 
 @bp.route('/inventory/reports')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.export'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.export.all'])
 def inventory_reports():
     """
     Reportes de inventario
@@ -127,7 +127,7 @@ def inventory_reports():
 
 
 @bp.route('/stats')
-@web_app_required('helpdesk', perms=['helpdesk.stats.view'])
+@web_app_required('helpdesk', perms=['helpdesk.stats.page.list'])
 def stats():
     """
     Estadísticas generales del sistema

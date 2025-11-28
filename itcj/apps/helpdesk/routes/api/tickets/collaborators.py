@@ -15,7 +15,7 @@ tickets_collaborators_bp = Blueprint('tickets_collaborators', __name__)
 
 # ==================== AGREGAR COLABORADOR ====================
 @tickets_collaborators_bp.post('/<int:ticket_id>/collaborators')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.resolve'])
 def add_collaborator(ticket_id):
     """
     Agrega un colaborador a un ticket.
@@ -75,7 +75,7 @@ def add_collaborator(ticket_id):
 
 # ==================== AGREGAR MÚLTIPLES COLABORADORES ====================
 @tickets_collaborators_bp.post('/<int:ticket_id>/collaborators/batch')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.resolve'])
 def add_multiple_collaborators(ticket_id):
     """
     Agrega múltiples colaboradores en una sola operación.
@@ -143,7 +143,7 @@ def add_multiple_collaborators(ticket_id):
 
 # ==================== OBTENER COLABORADORES ====================
 @tickets_collaborators_bp.get('/<int:ticket_id>/collaborators')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def get_collaborators(ticket_id):
     """
     Obtiene todos los colaboradores de un ticket.
@@ -175,7 +175,7 @@ def get_collaborators(ticket_id):
 
 # ==================== ACTUALIZAR COLABORADOR ====================
 @tickets_collaborators_bp.put('/<int:ticket_id>/collaborators/<int:collab_user_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.resolve'])
 def update_collaborator(ticket_id, collab_user_id):
     """
     Actualiza el tiempo invertido y/o notas de un colaborador.
@@ -231,7 +231,7 @@ def update_collaborator(ticket_id, collab_user_id):
 
 # ==================== REMOVER COLABORADOR ====================
 @tickets_collaborators_bp.delete('/<int:ticket_id>/collaborators/<int:collab_user_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.resolve'])
 def remove_collaborator(ticket_id, collab_user_id):
     """
     Remueve un colaborador de un ticket.
@@ -270,7 +270,7 @@ def remove_collaborator(ticket_id, collab_user_id):
 
 # ==================== SUGERIR ROL ====================
 @tickets_collaborators_bp.get('/<int:ticket_id>/collaborators/suggest-role/<int:collab_user_id>')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.resolve'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.resolve'])
 def suggest_role(ticket_id, collab_user_id):
     """
     Sugiere un rol de colaboración para un usuario en un ticket específico.
@@ -303,7 +303,7 @@ def suggest_role(ticket_id, collab_user_id):
 
 # ==================== MIS COLABORACIONES ====================
 @tickets_collaborators_bp.get('/collaborations/me')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def my_collaborations():
     """
     Obtiene tickets donde el usuario actual colaboró.
@@ -338,7 +338,7 @@ def my_collaborations():
 
 # ==================== ESTADÍSTICAS DE COLABORACIÓN ====================
 @tickets_collaborators_bp.get('/collaborations/me/stats')
-@api_app_required('helpdesk', perms=['helpdesk.tickets.own.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def my_collaboration_stats():
     """
     Obtiene estadísticas de colaboración del usuario actual.
