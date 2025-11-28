@@ -35,7 +35,7 @@ services:
       - ../../migrations:/app/migrations:ro 
       - ../../instance:/app/instance:ro
       # CSV si lo necesitas
-      - ../../database/CSV:/app/database/CSV:ro
+      - ../../database:/app/database:ro
     depends_on:
       - postgres
       - redis
