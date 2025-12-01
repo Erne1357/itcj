@@ -36,7 +36,6 @@ instance/
 docker-compose.override.yml
 docker-compose.override.yaml
 docker-data/
-data/
 volumes/
 
 # --- Base de datos y seeds locales ---

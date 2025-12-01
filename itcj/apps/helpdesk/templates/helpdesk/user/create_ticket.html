@@ -10,6 +10,9 @@
 <a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" class="btn btn-outline-light btn-sm">
     <i class="fas fa-list me-2"></i>Mis Tickets
 </a>
+<button id="tutorialButton" class="btn btn-outline-light btn-sm ms-2" onclick="window.helpdeskTutorial?.resetTutorial()">
+    <i class="fas fa-question-circle"></i> Ver Tutorial
+</button>
 {% endblock %}
 
 {% block content %}
@@ -579,8 +582,17 @@
 {% block extra_css %}
 <link rel="stylesheet"
     href="{{ url_for('static', filename='helpdesk/css/user/create_ticket.css') }}?v={{ static_version }}">
+<!-- Shepherd.js CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
+<!-- Tutorial Custom CSS -->
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='helpdesk/js/user/create_ticket.js') }}?v={{ static_version }}"></script>
+<!-- Shepherd.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
+<!-- Tutorial Script -->
+<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ static_version }}"></script>
 {% endblock %}

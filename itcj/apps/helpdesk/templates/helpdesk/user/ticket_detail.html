@@ -546,6 +546,11 @@
 {% block extra_css %}
 <link rel="stylesheet"
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ static_version }}">
+<!-- Shepherd.js CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
+<!-- Tutorial Custom CSS -->
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block extra_js %}
@@ -553,5 +558,10 @@
     // Global variables
     const ticketId = {{ ticket_id }};
 </script>
+<!-- Shepherd.js Library (cargar primero) -->
+<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
+<!-- Tutorial Script (cargar segundo, antes de ticket_detail.js) -->
+<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ static_version }}"></script>
+<!-- Ticket Detail Script (cargar último, después del tutorial) -->
 <script src="{{ url_for('static', filename='helpdesk/js/user/ticket_detail.js') }}?v={{ static_version }}"></script>
 {% endblock %}

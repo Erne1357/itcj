@@ -1,0 +1,38 @@
+{
+  "ticket": {
+    "id": 99999,
+    "ticket_number": "TK-TUTORIAL-2025",
+    "title": "Tutorial: Computadora no enciende en mi oficina",
+    "description": "Este es un ticket de ejemplo creado por el tutorial. La computadora de mi escritorio no enciende cuando presiono el botón de encendido. Ya revisé que esté conectada a la corriente.",
+    "status": "PENDING",
+    "area": "SOPORTE",
+    "priority": "MEDIA",
+    "location": "Edificio A - Oficina 203",
+    "office_document_folio": "TUT-2025-001",
+    "created_at": "2025-01-15T10:30:00Z",
+    "updated_at": "2025-01-15T10:30:00Z",
+    "resolved_at": null,
+    "resolution_notes": null,
+    "rating_attention": null,
+    "rating_speed": null,
+    "rating_efficiency": null,
+    "rating_comment": null,
+    "assigned_to": null,
+    "assigned_to_team": null,
+    "resolved_by": null,
+    "requester": {
+      "id": 1,
+      "name": "Usuario de Ejemplo",
+      "email": "usuario@ejemplo.com",
+      "full_name": "Usuario de Ejemplo"
+    },
+    "category": {
+      "id": 1,
+      "name": "Hardware - Computadoras",
+      "icon": "fas fa-desktop"
+    },
+    "inventory_item": null,
+    "inventory_items": []
+  },
+  "comments": []
+}

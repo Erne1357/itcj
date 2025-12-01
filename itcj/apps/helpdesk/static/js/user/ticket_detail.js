@@ -15,7 +15,51 @@ async function loadTicketDetail() {
     showState('loading');
 
     try {
-        // Load ticket data
+        // Verificar si hay parámetro tutorial=true en la URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const isTutorialParam = urlParams.get('tutorial') === 'true';
+
+        console.log('🎫 [ticket_detail] Cargando ticket...');
+        console.log('🎫 Parámetro tutorial en URL:', isTutorialParam);
+        console.log('🎫 Ticket ID:', ticketId);
+
+        // Verificar si está en modo tutorial (por URL o por estado)
+        const isTutorialMode = isTutorialParam || (typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive());
+
+        if (isTutorialMode) {
+            console.log('🎫 Modo tutorial detectado');
+            const tutorialTicketId = window.getTutorialTicketId();
+            console.log('🎫 Tutorial ticket ID esperado:', tutorialTicketId);
+
+            // Si el ID coincide con el del tutorial, cargar desde JSON
+            if (tutorialTicketId && ticketId == tutorialTicketId) {
+                console.log('🎫 Cargando desde JSON (modo tutorial)');
+                const tutorialData = window.getTutorialTicketData();
+
+                if (tutorialData) {
+                    console.log('🎫 Datos del tutorial cargados correctamente');
+                    currentTicket = tutorialData.ticket;
+                    const comments = tutorialData.comments || [];
+
+                    // Render everything
+                    renderTicketDetail(currentTicket);
+                    renderComments(comments);
+                    renderStatusTimeline(currentTicket);
+                    renderAssignmentInfo(currentTicket);
+                    renderActionButtons(currentTicket);
+
+                    showState('main');
+                    return;
+                } else {
+                    console.warn('⚠️ No se encontraron datos del tutorial en sessionStorage');
+                }
+            } else {
+                console.warn('⚠️ ID no coincide:', { ticketId, tutorialTicketId });
+            }
+        }
+
+        // Modo normal: cargar desde la BD
+        console.log('🎫 Cargando desde la BD (modo normal)');
         const ticketResponse = await HelpdeskUtils.api.getTicket(ticketId);
         currentTicket = ticketResponse.ticket;
 
@@ -750,3 +794,7 @@ function openPhotoModal(photoUrl) {
     document.getElementById('photoModalImage').src = photoUrl;
     modal.show();
 }
+
+// ==================== EXPORT GLOBAL FUNCTIONS ====================
+// Exportar funciones para que el tutorial pueda acceder a ellas
+window.loadTicketDetail = loadTicketDetail;
