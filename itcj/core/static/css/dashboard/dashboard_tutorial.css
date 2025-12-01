@@ -9,15 +9,14 @@
 
 /* ==================== OVERLAY ==================== */
 .shepherd-modal-overlay-container {
-    background-color: rgba(0, 0, 0, 0.6);
-    z-index: 9998;
+    background-color: rgba(0, 0, 0, 0.5);
 }
 
 /* ==================== PASO DEL TUTORIAL ==================== */
 .dashboard-tutorial-step {
-    max-width: 520px;
+    max-width: 500px;
     border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     border: 1px solid #e0e0e0;
 }
 
@@ -35,7 +34,7 @@
 }
 
 .shepherd-title {
-    font-size: 1.3rem;
+    font-size: 1.25rem;
     font-weight: 600;
     margin: 0;
     color: white;
@@ -43,7 +42,7 @@
 
 .shepherd-cancel-icon {
     color: white;
-    opacity: 0.9;
+    opacity: 0.8;
     font-size: 1.5rem;
     transition: opacity 0.2s;
 }
@@ -57,8 +56,8 @@
     padding: 24px;
     background: white;
     color: #333;
-    font-size: 1rem;
-    line-height: 1.7;
+    font-size: 0.95rem;
+    line-height: 1.6;
 }
 
 .shepherd-text p {
@@ -71,11 +70,11 @@
 
 .shepherd-text ul {
     margin: 12px 0;
-    padding-left: 24px;
+    padding-left: 20px;
 }
 
 .shepherd-text li {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 .shepherd-text strong {
@@ -117,7 +116,7 @@
     padding: 10px 20px;
     border-radius: 6px;
     font-weight: 500;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     transition: all 0.2s ease;
     border: none;
     cursor: pointer;
