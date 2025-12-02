@@ -1,4 +1,6 @@
 from . import db
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy import func, case
 
 class User(db.Model):
     __tablename__ = "core_users"
@@ -9,7 +11,12 @@ class User(db.Model):
     username = db.Column(db.Text, unique=True)  # nullable for students
     control_number = db.Column(db.CHAR(8), unique=True)  # nullable for staff
     nip_hash = db.Column(db.Text)
-    full_name = db.Column(db.Text, nullable=False)
+    
+    # Nombre dividido en partes (nuevo estándar)
+    first_name = db.Column(db.Text, nullable=False)  # Nombre(s) - OBLIGATORIO
+    last_name = db.Column(db.Text, nullable=False)   # Apellido paterno - OBLIGATORIO
+    middle_name = db.Column(db.Text, nullable=True)  # Apellido materno - OPCIONAL
+    
     email = db.Column(db.Text)
     is_active = db.Column(db.Boolean, nullable=False, server_default=db.text("TRUE"))
     must_change_password = db.Column(db.Boolean, nullable=False, server_default=db.text("FALSE"))
@@ -26,6 +33,29 @@ class User(db.Model):
     notifications = db.relationship("Notification", back_populates="user", cascade="all, delete", passive_deletes=True)
     audit_logs = db.relationship("AuditLog", back_populates="actor", cascade="all, delete-orphan", passive_deletes=True)
 
+    # ==================== Help-Desk ====================
+    tickets_created = db.relationship("Ticket", foreign_keys='Ticket.created_by', back_populates="created_by_user", cascade="all, delete", passive_deletes=True)
+    tickets_updated = db.relationship("Ticket", foreign_keys='Ticket.updated_by', back_populates="updated_by_user", cascade="all, delete", passive_deletes=True)
+    tickets_requested = db.relationship("Ticket", foreign_keys='Ticket.requester_id', back_populates="requester", cascade="all, delete", passive_deletes=True)
+    tickets_assigned = db.relationship("Ticket", foreign_keys='Ticket.assigned_to_user_id', back_populates="assigned_to", cascade="all, delete", passive_deletes=True)
+    tickets_resolved = db.relationship("Ticket", foreign_keys='Ticket.resolved_by_id', back_populates="resolved_by", cascade="all, delete", passive_deletes=True)
+    
+    @hybrid_property
+    def full_name(self):
+        """Nombre completo calculado a partir de las partes (propiedad Python)"""
+        if self.middle_name:
+            return f"{self.last_name} {self.middle_name} {self.first_name}"
+        return f"{self.last_name} {self.first_name}"
+    
+    @full_name.expression
+    def full_name(cls):
+        """Expresión SQL para full_name (para queries y ordenamiento)"""
+        return case(
+            (cls.middle_name.isnot(None), 
+             func.concat(cls.last_name, ' ', cls.middle_name, ' ', cls.first_name)),
+            else_=func.concat(cls.last_name, ' ', cls.first_name)
+        )
+    
     def __repr__(self) -> str:
         return f"<User {self.id} {self.full_name}>"
     
@@ -58,7 +88,10 @@ class User(db.Model):
             "id": self.id,
             "username": self.username,
             "control_number": self.control_number,
-            "full_name": self.full_name,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "middle_name": self.middle_name,
+            "full_name": self.full_name,  # Propiedad calculada
             "email": self.email,
             "is_active": self.is_active,
             "must_change_password": self.must_change_password,

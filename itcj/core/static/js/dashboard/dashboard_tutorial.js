@@ -109,6 +109,7 @@ class DashboardTutorial {
         this.isNavigating = false;
         this.originalInteractiveState = new Map();
         this.tutorialNotifications = [];
+        this.isRunning = false; // Nueva variable para prevenir múltiples instancias
     }
 
     /**
@@ -171,16 +172,29 @@ class DashboardTutorial {
             modal.innerHTML = `
                 <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Salir del Tutorial</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border-bottom: none;">
+                            <h5 class="modal-title" style="color: white !important; font-weight: 600;">
+                                <i class="bi bi-box-arrow-right me-2"></i>
+                                Salir del Tutorial
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                         </div>
                         <div class="modal-body">
-                            ¿Estás seguro de que quieres salir del tutorial? Podrás iniciarlo de nuevo más tarde haciendo click en el botón "Tutorial" en la barra inferior.
+                            <p class="mb-3">¿Estás seguro de que quieres salir del tutorial?</p>
+                            <div class="alert alert-warning mb-0" style="border-left: 4px solid #ffc107;">
+                                <i class="bi bi-info-circle me-2"></i>
+                                Podrás iniciarlo de nuevo más tarde haciendo click en el botón <strong>"Tutorial"</strong> en la barra inferior.
+                            </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                            <button type="button" class="btn btn-primary" id="dashboardTutorialCancelConfirm">Salir del Tutorial</button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                <i class="bi bi-arrow-left me-1"></i>
+                                Continuar Tutorial
+                            </button>
+                            <button type="button" class="btn btn-danger" id="dashboardTutorialCancelConfirm">
+                                <i class="bi bi-x-circle me-1"></i>
+                                Salir del Tutorial
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -194,16 +208,123 @@ class DashboardTutorial {
         // Configurar botón de confirmación
         const confirmBtn = document.getElementById('dashboardTutorialCancelConfirm');
         if (confirmBtn) {
-            confirmBtn.onclick = () => {
+            // Remover listeners anteriores
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+            newConfirmBtn.onclick = () => {
                 bsModal.hide();
+
+                // IMPORTANTE: Restaurar interfaz antes de marcar como completado
+                this.enableAllInteractiveElements();
+                this.isRunning = false; // Marcar como no activo
+
+                // Re-habilitar el botón de tutorial
+                const tutorialButton = document.getElementById('dashboardTutorialButton');
+                if (tutorialButton) {
+                    tutorialButton.disabled = false;
+                    tutorialButton.style.opacity = '';
+                    tutorialButton.style.cursor = '';
+                }
+
                 this.markTutorialComplete();
-                DashboardTutorialUtils.showMessage(
+
+                // Mostrar mensaje de éxito con mejor estilo
+                this.showStyledMessage(
                     'Tutorial Omitido',
                     'Puedes reiniciar el tutorial en cualquier momento desde el botón "Tutorial" en la barra inferior.',
-                    'info'
+                    'info',
+                    'info-circle'
                 );
             };
         }
+    }
+
+    /**
+     * Muestra un mensaje estilizado con iconos
+     */
+    showStyledMessage(title, message, type = 'info', icon = 'info-circle') {
+        // Crear un toast estilizado similar a los modales
+        const toast = document.createElement('div');
+        toast.className = 'position-fixed top-0 start-50 translate-middle-x p-3';
+        toast.style.zIndex = '10000';
+        toast.style.marginTop = '20px';
+
+        const bgColors = {
+            'success': '#28a745',
+            'info': '#667eea',
+            'warning': '#ffc107',
+            'error': '#dc3545'
+        };
+
+        toast.innerHTML = `
+            <div class="toast show" role="alert" style="min-width: 350px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <div class="toast-header" style="background: ${bgColors[type]}; color: white; border: none;">
+                    <i class="bi bi-${icon} me-2"></i>
+                    <strong class="me-auto">${title}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(toast);
+
+        // Auto-remover después de 5 segundos
+        setTimeout(() => {
+            toast.remove();
+        }, 5000);
+    }
+
+    /**
+     * Muestra modal de felicitación al completar el tutorial
+     */
+    showCompletionModal() {
+        // Crear modal de felicitación si no existe
+        let modal = document.getElementById('dashboardTutorialCompletionModal');
+
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'dashboardTutorialCompletionModal';
+            modal.className = 'modal fade';
+            modal.setAttribute('tabindex', '-1');
+            modal.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important; color: white !important; border-bottom: none;">
+                            <h5 class="modal-title" style="color: white !important; font-weight: 600;">
+                                <i class="bi bi-trophy-fill me-2"></i>
+                                ¡Tutorial Completado!
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body text-center py-4">
+                            <div class="mb-4">
+                                <i class="bi bi-check-circle-fill" style="font-size: 4rem; color: #28a745;"></i>
+                            </div>
+                            <h5 class="mb-3">¡Felicitaciones!</h5>
+                            <p class="mb-3">Ya conoces las funcionalidades principales del dashboard ITCJ.</p>
+                            <div class="alert alert-success mb-0" style="border-left: 4px solid #28a745;">
+                                <i class="bi bi-lightbulb-fill me-2"></i>
+                                ¡Comienza a explorar y aprovechar todas las herramientas disponibles!
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-success" data-bs-dismiss="modal" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important; border: none;">
+                                <i class="bi bi-rocket-takeoff me-1"></i>
+                                ¡Empezar a Usar el Dashboard!
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
     }
 
     /**
@@ -230,11 +351,18 @@ class DashboardTutorial {
         this.tour.on('complete', () => {
             this.markTutorialComplete();
             this.enableAllInteractiveElements();
-            DashboardTutorialUtils.showMessage(
-                '¡Tutorial Completado!',
-                'Ya conoces las funcionalidades principales del dashboard ITCJ. ¡Comienza a explorar!',
-                'success'
-            );
+            this.isRunning = false; // Marcar como no activo
+
+            // Re-habilitar el botón de tutorial
+            const tutorialButton = document.getElementById('dashboardTutorialButton');
+            if (tutorialButton) {
+                tutorialButton.disabled = false;
+                tutorialButton.style.opacity = '';
+                tutorialButton.style.cursor = '';
+            }
+
+            // Mostrar modal de felicitación estilizado
+            this.showCompletionModal();
         });
 
         // Evento cuando se cancela el tour
@@ -245,6 +373,7 @@ class DashboardTutorial {
 
             // Restaurar todos los elementos interactivos
             this.enableAllInteractiveElements();
+            this.isRunning = false; // Marcar como no activo
 
             // Mostrar confirmación
             this.showCancelConfirmation();
@@ -1072,6 +1201,27 @@ class DashboardTutorial {
      * Muestra modal de confirmación para iniciar el tutorial
      */
     showStartConfirmationModal() {
+        // Verificar si el tutorial ya está corriendo o si ya hay un modal abierto
+        if (this.isRunning) {
+            console.log('[DashboardTutorial] Tutorial already running, ignoring request');
+            return;
+        }
+
+        // Verificar si ya hay un modal de confirmación abierto
+        const existingModal = document.getElementById('dashboardTutorialStartModal');
+        if (existingModal && existingModal.classList.contains('show')) {
+            console.log('[DashboardTutorial] Confirmation modal already open, ignoring request');
+            return;
+        }
+
+        // Deshabilitar el botón de tutorial inmediatamente
+        const tutorialButton = document.getElementById('dashboardTutorialButton');
+        if (tutorialButton) {
+            tutorialButton.disabled = true;
+            tutorialButton.style.opacity = '0.5';
+            tutorialButton.style.cursor = 'not-allowed';
+        }
+
         // Crear modal de confirmación si no existe
         let modal = document.getElementById('dashboardTutorialStartModal');
 
@@ -1083,8 +1233,8 @@ class DashboardTutorial {
             modal.innerHTML = `
                 <div class="modal-dialog modal-dialog-centered">
                     <div class="modal-content">
-                        <div class="modal-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                            <h5 class="modal-title">
+                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border-bottom: none;">
+                            <h5 class="modal-title" style="color: white !important; font-weight: 600;">
                                 <i class="bi bi-compass me-2"></i>
                                 Iniciar Tutorial del Dashboard
                             </h5>
@@ -1102,7 +1252,7 @@ class DashboardTutorial {
                                 <i class="bi bi-x-circle me-1"></i>
                                 Cancelar
                             </button>
-                            <button type="button" class="btn btn-primary" id="dashboardTutorialStartConfirm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                            <button type="button" class="btn btn-primary" id="dashboardTutorialStartConfirm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; border: none;">
                                 <i class="bi bi-play-circle me-1"></i>
                                 Iniciar Tutorial
                             </button>
@@ -1115,6 +1265,17 @@ class DashboardTutorial {
 
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
+
+        // Evento cuando se cierra el modal (cancelar o cerrar con X)
+        modal.addEventListener('hidden.bs.modal', () => {
+            // Re-habilitar el botón de tutorial
+            const tutorialButton = document.getElementById('dashboardTutorialButton');
+            if (tutorialButton && !this.isRunning) {
+                tutorialButton.disabled = false;
+                tutorialButton.style.opacity = '';
+                tutorialButton.style.cursor = '';
+            }
+        }, { once: true });
 
         // Configurar botón de confirmación
         const confirmBtn = document.getElementById('dashboardTutorialStartConfirm');
@@ -1144,7 +1305,14 @@ class DashboardTutorial {
      * Inicia el tutorial
      */
     async startTutorial() {
+        // Verificar si ya está corriendo
+        if (this.isRunning) {
+            console.log('[DashboardTutorial] Tutorial already running');
+            return;
+        }
+
         this.isNavigating = false;
+        this.isRunning = true; // Marcar como activo
         this.enableTutorialMode();
 
         // Cargar notificaciones de prueba

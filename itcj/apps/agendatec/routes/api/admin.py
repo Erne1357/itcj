@@ -373,8 +373,32 @@ def create_coordinator():
     if not role:
         return jsonify({"error": "role_not_found"}), 500
 
+    # Separar el nombre en partes (asumiendo formato: "Nombre Apellido1 Apellido2")
+    name_parts = name.strip().split()
+    if len(name_parts) < 2:
+        return jsonify({"error": "invalid_name_format"}), 400
+    
+    # Asumimos: último elemento = apellido paterno, penúltimo = apellido materno (si hay), resto = nombre(s)
+    if len(name_parts) >= 3:
+        first_name = ' '.join(name_parts[:-2]).upper()
+        last_name = name_parts[-2].upper()
+        middle_name = name_parts[-1].upper()
+    else:
+        first_name = name_parts[0].upper()
+        last_name = name_parts[-1].upper()
+        middle_name = None
+
     # User
-    u = User(full_name=name, email=email or None, control_number=control_number, username = username, role_id=role.id, nip_hash=hash_nip(nip))
+    u = User(
+        first_name=first_name,
+        last_name=last_name,
+        middle_name=middle_name,
+        email=email or None,
+        control_number=control_number,
+        username=username,
+        role_id=role.id,
+        nip_hash=hash_nip(nip)
+    )
     db.session.add(u)
     db.session.flush()
 
@@ -421,8 +445,18 @@ def update_coordinator(coord_id: int):
 
     before = {"name": c.user.full_name, "email": c.contact_email}
 
-    if name is not None:
-        c.user.full_name = name.strip() or c.user.full_name
+    if name is not None and name.strip():
+        # Separar el nombre en partes
+        name_parts = name.strip().split()
+        if len(name_parts) >= 2:
+            if len(name_parts) >= 3:
+                c.user.first_name = ' '.join(name_parts[:-2]).upper()
+                c.user.last_name = name_parts[-2].upper()
+                c.user.middle_name = name_parts[-1].upper()
+            else:
+                c.user.first_name = name_parts[0].upper()
+                c.user.last_name = name_parts[-1].upper()
+                c.user.middle_name = None
     if email is not None:
         c.contact_email = email.strip() or None
 

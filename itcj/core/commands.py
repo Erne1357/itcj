@@ -45,7 +45,8 @@ def init_database_command():
             '06_insert_enhanced_inventory_categories.sql',
             '07_insert_position_app_perm.sql',
             '08_insert_technician_user.sql',
-            '09_insert_user_role_technician.sql'
+            '09_insert_user_role_technician.sql',
+            '11_insert_user_position_technician.sql'
         ])
     ]
     

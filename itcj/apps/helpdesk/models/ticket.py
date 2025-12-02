@@ -55,18 +55,26 @@ class Ticket(db.Model):
     
     # ==================== TIMESTAMPS ====================
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"), index=True)
+    created_by = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Usuario que creó el ticket
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
+    updated_by = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Último usuario que actualizó el ticket
     closed_at = db.Column(db.DateTime, nullable=True)
     
     # ==================== RELACIONES ====================
     # Usuario que solicita
-    requester = db.relationship('User', foreign_keys=[requester_id], backref='tickets_requested')
+    requester = db.relationship('User', foreign_keys=[requester_id], back_populates='tickets_requested')
     
     # Usuario asignado
-    assigned_to = db.relationship('User', foreign_keys=[assigned_to_user_id], backref='tickets_assigned')
+    assigned_to = db.relationship('User', foreign_keys=[assigned_to_user_id], back_populates='tickets_assigned')
     
     # Usuario que resolvió
-    resolved_by = db.relationship('User', foreign_keys=[resolved_by_id], backref='tickets_resolved')
+    resolved_by = db.relationship('User', foreign_keys=[resolved_by_id], back_populates='tickets_resolved')
+
+    # Usuario que creó el ticket
+    created_by_user = db.relationship('User', foreign_keys=[created_by], back_populates='tickets_created')
+    
+    # Usuario que actualizó el ticket
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by], back_populates='tickets_updated')
     
     # Departamento del solicitante
     requester_department = db.relationship('Department', foreign_keys=[requester_department_id])

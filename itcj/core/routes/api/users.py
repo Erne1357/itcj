@@ -118,12 +118,31 @@ def create_user():
     if not data:
         return jsonify({"error": "Invalid input"}), 400
 
-    full_name = data.get("full_name")
+    # Recibir nombres separados o full_name (retrocompatibilidad)
+    first_name = data.get("first_name")
+    last_name = data.get("last_name")
+    middle_name = data.get("middle_name")
+    full_name = data.get("full_name")  # Retrocompatibilidad
+    
     email = data.get("email")
     user_type = data.get("user_type")
     password = data.get("password")
 
-    if not all([full_name, user_type, password]):
+    # Si no vienen los nombres separados pero viene full_name, intentar separarlo
+    if not (first_name and last_name) and full_name:
+        name_parts = full_name.strip().split()
+        if len(name_parts) < 2:
+            return jsonify({"error": "Invalid name format"}), 400
+        if len(name_parts) >= 3:
+            first_name = ' '.join(name_parts[:-2]).upper()
+            last_name = name_parts[-2].upper()
+            middle_name = name_parts[-1].upper()
+        else:
+            first_name = name_parts[0].upper()
+            last_name = name_parts[-1].upper()
+            middle_name = None
+
+    if not all([first_name, last_name, user_type, password]):
         return jsonify({"error": "Missing required fields"}), 400
 
     # Determina el rol base del sistema
@@ -153,7 +172,9 @@ def create_user():
 
     try:
         new_user = User(
-            full_name=full_name,
+            first_name=first_name.upper(),
+            last_name=last_name.upper(),
+            middle_name=middle_name.upper() if middle_name else None,
             email=email,
             role_id=role.id,
             nip_hash=hash_nip(password), # ¡Importante! Siempre hashear la contraseña/NIP
