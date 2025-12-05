@@ -25,7 +25,8 @@
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
             }
 
             const result = await response.json();
@@ -39,7 +40,8 @@
 
         } catch (error) {
             console.error('Error loading my equipment:', error);
-            showError('Error al cargar los equipos asignados');
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al cargar los equipos asignados: ${errorMessage}`);
             showEmptyState();
         }
     }
@@ -176,7 +178,8 @@
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
             }
 
             const result = await response.json();
@@ -208,7 +211,8 @@
 
         } catch (error) {
             console.error('Error loading equipment detail:', error);
-            showError('Error al cargar los detalles del equipo');
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al cargar los detalles del equipo: ${errorMessage}`);
             $modal.modal('hide');
         }
     };
@@ -365,7 +369,8 @@
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
             }
 
             const result = await response.json();
@@ -408,7 +413,8 @@
 
         } catch (error) {
             console.error('Error loading history:', error);
-            container.innerHTML = '<p class="text-danger">Error al cargar el historial</p>';
+            const errorMessage = error.message || 'Error desconocido';
+            container.innerHTML = `<p class="text-danger">Error al cargar el historial: ${errorMessage}</p>`;
         }
     }
 
@@ -425,7 +431,8 @@
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
             }
 
             const result = await response.json();
@@ -462,7 +469,8 @@
 
         } catch (error) {
             console.error('Error loading related tickets:', error);
-            container.innerHTML = '<p class="text-danger">Error al cargar los tickets</p>';
+            const errorMessage = error.message || 'Error desconocido';
+            container.innerHTML = `<p class="text-danger">Error al cargar los tickets: ${errorMessage}</p>`;
             countBadge.textContent = '0';
         }
     }

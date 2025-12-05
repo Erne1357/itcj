@@ -70,7 +70,8 @@ async function loadMyTickets() {
 
     } catch (error) {
         console.error('Error loading tickets:', error);
-        HelpdeskUtils.showToast('Error al cargar tickets', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar tickets: ${errorMessage}`, 'error');
         showErrorState();
     }
 }

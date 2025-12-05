@@ -145,6 +145,12 @@ function renderTicketDetail(ticket) {
         document.getElementById('resolvedAt').textContent = HelpdeskUtils.formatDate(ticket.resolved_at);
     }
 
+    // Collaborators (if exist)
+    if (ticket.collaborators && ticket.collaborators.length > 0) {
+        document.getElementById('collaboratorsContainer').classList.remove('d-none');
+        document.getElementById('ticketCollaborators').innerHTML = HelpdeskUtils.renderCollaborators(ticket.collaborators);
+    }
+
     // Rating (if exists)
     if (ticket.rating_attention) {
         document.getElementById('ratingContainer').classList.remove('d-none');

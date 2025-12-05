@@ -509,18 +509,53 @@ def deactivate_item(item_id):
 def get_my_equipment():
     """
     Obtener equipos asignados al usuario actual
-    
+
     Query params:
         - category_id: int (opcional)
-    
+
     Returns:
         200: Lista de equipos del usuario
     """
     user_id = int(g.current_user['sub'])
     category_id = request.args.get('category_id', type=int)
-    
+
     items = InventoryService.get_items_for_user(user_id, category_id)
-    
+
+    return jsonify({
+        'success': True,
+        'data': [item.to_dict(include_relations=True) for item in items],
+        'total': len(items)
+    }), 200
+
+
+@bp.route('/user/<int:target_user_id>/equipment', methods=['GET'])
+@api_app_required('helpdesk')
+def get_user_equipment(target_user_id):
+    """
+    Obtener equipos asignados a un usuario específico
+    (Solo para Centro de Cómputo - crear tickets por otros usuarios)
+
+    Query params:
+        - category_id: int (opcional)
+
+    Returns:
+        200: Lista de equipos del usuario
+        403: Sin permiso
+    """
+    current_user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(current_user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+
+    # Solo Centro de Cómputo puede consultar equipos de otros usuarios
+    if 'admin' not in user_roles and current_user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+        return jsonify({
+            'success': False,
+            'error': 'No tiene permiso para consultar equipos de otros usuarios'
+        }), 403
+
+    category_id = request.args.get('category_id', type=int)
+    items = InventoryService.get_items_for_user(target_user_id, category_id)
+
     return jsonify({
         'success': True,
         'data': [item.to_dict(include_relations=True) for item in items],

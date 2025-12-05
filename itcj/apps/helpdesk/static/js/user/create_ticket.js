@@ -192,6 +192,15 @@ const RequesterSelection = {
         // Guardar ID en input oculto
         document.getElementById('requester_id').value = this.selectedRequester.id;
 
+        // Limpiar selecciones de equipos/grupos ya que el contexto cambió
+        Equipment.clearSelection();
+        Equipment.clearGroupSelection();
+
+        // Re-actualizar textos de botones si hay una selección de tipo de propietario
+        if (AppState.equipment.ownerType) {
+            Equipment.handleOwnerSelection(AppState.equipment.ownerType);
+        }
+
         HelpdeskUtils.showToast(`Ticket será creado para: ${this.selectedRequester.full_name}`, 'success');
     },
 
@@ -214,6 +223,15 @@ const RequesterSelection = {
         document.getElementById('selected-requester-preview').style.display = 'none';
         document.getElementById('requester_id').value = '';
         document.getElementById('requester-button-text').textContent = 'Seleccionar usuario (opcional)';
+
+        // Limpiar selecciones de equipos/grupos ya que ahora se basará en el usuario actual
+        Equipment.clearSelection();
+        Equipment.clearGroupSelection();
+
+        // Re-actualizar textos de botones si hay una selección de tipo de propietario
+        if (AppState.equipment.ownerType) {
+            Equipment.handleOwnerSelection(AppState.equipment.ownerType);
+        }
     }
 };
 
@@ -428,12 +446,22 @@ const Equipment = {
         } else {
             document.getElementById('equipment-selector-container').style.display = 'block';
 
-            // Actualizar texto del botón
+            // Actualizar texto del botón según si hay requester seleccionado
             const buttonText = document.getElementById('equipment-button-text');
+            const selectedRequester = RequesterSelection.selectedRequester;
+
             if (ownerType === 'mine') {
-                buttonText.textContent = 'Seleccionar de Mis Equipos';
+                if (selectedRequester) {
+                    buttonText.textContent = `Seleccionar de Equipos de ${selectedRequester.full_name.split(' ')[0]}`;
+                } else {
+                    buttonText.textContent = 'Seleccionar de Mis Equipos';
+                }
             } else {
-                buttonText.textContent = 'Seleccionar de Equipos del Departamento';
+                if (selectedRequester) {
+                    buttonText.textContent = `Seleccionar de Equipos del Departamento de ${selectedRequester.full_name.split(' ')[0]}`;
+                } else {
+                    buttonText.textContent = 'Seleccionar de Equipos del Departamento';
+                }
             }
         }
     },
@@ -454,14 +482,30 @@ const Equipment = {
         listContainer.innerHTML = '';
 
         try {
-            // Obtener departamento del usuario
-            const userResponse = await fetch('/api/core/v1/users/me/department');
-            const userData = await userResponse.json();
-            if (!userData.success || !userData.data) {
-                throw new Error('No se pudo obtener el departamento');
-            }
+            // Determinar si hay un requester seleccionado (Centro de Cómputo creando por otro usuario)
+            const selectedRequesterId = RequesterSelection.selectedRequester?.id;
+            let deptId;
 
-            const deptId = userData.data.id;
+            if (selectedRequesterId) {
+                // Obtener departamento del requester seleccionado
+                const deptResponse = await fetch(`/api/core/v1/users/${selectedRequesterId}/department`);
+                if (!deptResponse.ok) {
+                    throw new Error('No se pudo obtener el departamento del usuario seleccionado');
+                }
+                const deptData = await deptResponse.json();
+                if (!deptData.success || !deptData.data) {
+                    throw new Error('No se pudo obtener el departamento del usuario seleccionado');
+                }
+                deptId = deptData.data.id;
+            } else {
+                // Obtener departamento del usuario actual
+                const userResponse = await fetch('/api/core/v1/users/me/department');
+                const userData = await userResponse.json();
+                if (!userData.success || !userData.data) {
+                    throw new Error('No se pudo obtener el departamento');
+                }
+                deptId = userData.data.id;
+            }
 
             // Obtener grupos del departamento
             const response = await fetch(`/api/help-desk/v1/inventory/groups/department/${deptId}`);
@@ -838,12 +882,38 @@ const Equipment = {
 
         try {
             let endpoint;
+
+            // Determinar si hay un requester seleccionado (Centro de Cómputo creando por otro usuario)
+            const selectedRequesterId = RequesterSelection.selectedRequester?.id;
+
             if (AppState.equipment.ownerType === 'mine') {
-                endpoint = '/api/help-desk/v1/inventory/items/my-equipment';
+                // "Es mio" - equipos del usuario
+                if (selectedRequesterId) {
+                    // Si hay requester seleccionado, obtener equipos de ese usuario
+                    endpoint = `/api/help-desk/v1/inventory/items/user/${selectedRequesterId}/equipment`;
+                } else {
+                    // Si no, obtener equipos del usuario actual
+                    endpoint = '/api/help-desk/v1/inventory/items/my-equipment';
+                }
             } else {
-                const userResponse = await fetch('/api/core/v1/users/me/department');
-                const userData = await userResponse.json();
-                const deptId = userData.data.id;
+                // "Es de alguien más" - equipos del departamento
+                let deptId;
+
+                if (selectedRequesterId) {
+                    // Obtener departamento del requester seleccionado
+                    const deptResponse = await fetch(`/api/core/v1/users/${selectedRequesterId}/department`);
+                    if (!deptResponse.ok) {
+                        throw new Error('No se pudo obtener el departamento del usuario seleccionado');
+                    }
+                    const deptData = await deptResponse.json();
+                    deptId = deptData.data.id;
+                } else {
+                    // Obtener departamento del usuario actual
+                    const userResponse = await fetch('/api/core/v1/users/me/department');
+                    const userData = await userResponse.json();
+                    deptId = userData.data.id;
+                }
+
                 endpoint = `/api/help-desk/v1/inventory/items?department_id=${deptId}`;
             }
 

@@ -229,6 +229,45 @@ def get_my_department():
         }
     }), 200
 
+
+@api_users_bp.get('/<int:target_user_id>/department')
+@api_app_required('helpdesk')
+def get_user_department_by_id(target_user_id):
+    """
+    Obtener departamento de un usuario específico
+    (Solo para Centro de Cómputo - crear tickets por otros usuarios)
+    """
+    from itcj.core.services.departments_service import get_user_department
+    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+
+    current_user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(current_user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+
+    # Solo Centro de Cómputo puede consultar departamentos de otros usuarios
+    if 'admin' not in user_roles and current_user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+        return jsonify({
+            'success': False,
+            'error': 'No tiene permiso para consultar el departamento de otros usuarios'
+        }), 403
+
+    department = get_user_department(target_user_id)
+
+    if not department:
+        return jsonify({
+            'success': False,
+            'error': 'Usuario no tiene departamento asignado'
+        }), 404
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'id': department.id,
+            'name': department.name,
+            'code': department.code
+        }
+    }), 200
+
 @api_users_bp.get('/by-app/<app_key>')
 @api_app_required('helpdesk')  # Solo requiere acceso a helpdesk
 def list_users_by_app(app_key):
@@ -348,13 +387,17 @@ def list_users_by_app(app_key):
         # Formatear respuesta
         users_data = []
         for user in pagination.items:
+            # Convertir roles a lista (user_roles_in_app retorna un set)
+            user_roles = user_roles_in_app(user.id, 'helpdesk')
+            roles_list = list(user_roles) if isinstance(user_roles, set) else user_roles
+            
             users_data.append({
                 "id": user.id,
                 "full_name": user.full_name,
                 "email": user.email,
                 "username": user.username,
                 "control_number": user.control_number,
-                "roles": user_roles_in_app(user.id, 'helpdesk'),
+                "roles": roles_list,
                 "is_active": user.is_active
             })
 

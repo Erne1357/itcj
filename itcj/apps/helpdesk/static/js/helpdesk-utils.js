@@ -376,6 +376,43 @@ async function getAttachments(ticketId) {
     if (!response.ok) throw new Error('Error al cargar attachments');
     return await response.json();
 }
+
+
+// ==================== COLLABORATORS RENDERING ====================
+function renderCollaborators(collaborators) {
+    if (!collaborators || collaborators.length === 0) {
+        return '<small class="text-muted">Sin colaboradores registrados</small>';
+    }
+
+    const roleIcons = {
+        'LEAD': '<i class="fas fa-star text-warning"></i>',
+        'SUPERVISOR': '<i class="fas fa-user-tie text-primary"></i>',
+        'COLLABORATOR': '<i class="fas fa-hands-helping text-info"></i>',
+        'TRAINEE': '<i class="fas fa-user-graduate text-success"></i>',
+        'CONSULTANT': '<i class="fas fa-user-check text-secondary"></i>'
+    };
+
+    const roleLabels = {
+        'LEAD': 'Principal',
+        'SUPERVISOR': 'Supervisor',
+        'COLLABORATOR': 'Colaborador',
+        'TRAINEE': 'En entrenamiento',
+        'CONSULTANT': 'Asesoría'
+    };
+
+    return collaborators.map(c => `
+        <div class="d-flex align-items-center gap-2 mb-2">
+            ${roleIcons[c.collaboration_role] || '<i class="fas fa-user"></i>'}
+            <strong>${c.user.name}</strong>
+            <span class="badge bg-light text-dark">${roleLabels[c.collaboration_role] || c.collaboration_role}</span>
+            ${c.time_invested_minutes ?
+                `<small class="text-muted">(${c.time_invested_minutes} min)</small>`
+                : ''}
+        </div>
+    `).join('');
+}
+
+
 // ==================== EXPORT ====================
 window.HelpdeskUtils = {
     api,
@@ -391,5 +428,6 @@ window.HelpdeskUtils = {
     confirmDialog,
     goToTicketDetail,
     goToTicketDetailNewTab,
-    getAttachments
+    getAttachments,
+    renderCollaborators
 };
