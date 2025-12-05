@@ -154,7 +154,7 @@ def get_items_by_group(group_id):
     
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         if not user_dept or user_dept.id != group.department_id:
             return jsonify({
                 'success': False,

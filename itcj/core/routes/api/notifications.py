@@ -140,9 +140,27 @@ def notification_stream():
             # Escuchar mensajes desde Redis (ya no necesita DB, solo Redis)
             for message in pubsub.listen():
                 if message['type'] == 'message':
-                    # Nueva notificación
-                    yield f"data: {message['data']}\n\n"
-                    message_count += 1
+                    try:
+                        # Nueva notificación - verificar que sea JSON válido
+                        data = message['data']
+                        if isinstance(data, bytes):
+                            data = data.decode('utf-8')
+                        
+                        # Validar que sea JSON válido antes de enviarlo
+                        json.loads(data)  # Solo para validar
+                        yield f"data: {data}\n\n"
+                        message_count += 1
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        with app.app_context():
+                            app.logger.error(f"Invalid message data in SSE for user {user_id}: {e}")
+                        # Enviar un mensaje de error genérico al cliente
+                        error_notification = {
+                            'type': 'error',
+                            'title': 'Error de notificación',
+                            'body': 'Se recibió una notificación inválida',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        yield f"data: {json.dumps(error_notification)}\n\n"
 
                 # Heartbeat cada 30 mensajes o si es subscribe/psubscribe
                 if message_count % 30 == 0 or message['type'] in ['subscribe', 'psubscribe']:

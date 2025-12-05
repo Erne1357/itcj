@@ -3,7 +3,7 @@ from flask import Blueprint, redirect, url_for, g, render_template, request, jso
 from itcj.core.utils.decorators import login_required, guard_blueprint
 from itcj.core.services.authz_service import user_roles_in_app, get_user_permissions_for_app
 from itcj.apps.helpdesk import models
-from itcj.apps.helpdesk.utils.navigation import get_helpdesk_navigation, get_helpdesk_role_groups
+from itcj.apps.helpdesk.utils.navigation import get_helpdesk_navigation
 import logging
 
 logger = logging.getLogger(__name__)

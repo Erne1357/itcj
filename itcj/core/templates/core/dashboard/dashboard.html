@@ -12,6 +12,10 @@
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard/profile-menu.css')}}?v={{ static_version }}">
     <!-- ⭐ NUEVO: Notifications CSS -->
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/notifications/notifications.css')}}?v={{ static_version }}">
+    <!-- ⭐ NUEVO: Dashboard Tutorial CSS -->
+    <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard/dashboard_tutorial.css')}}?v={{ static_version }}">
+    <!-- Shepherd.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
 
     <link rel="shortcut icon" href="{{url_for('static',filename = 'core/icon/favicon.ico')}}?v={{ static_version }}"
         type="image/x-icon">
@@ -73,6 +77,12 @@
             <div id="open-apps" class="open-apps"></div>
 
             <div class="system-tray">
+                <!-- ⭐ NUEVO: Tutorial Button -->
+                <button id="dashboardTutorialButton" title="Ver Tutorial del Dashboard">
+                    <i data-lucide="help-circle"></i>
+                    <span>Tutorial</span>
+                </button>
+
                 <!-- ⭐ NUEVO: Notification Bell -->
                 <button id="notificationBell" class="system-icon" title="Notificaciones" style="position: relative;">
                     <i data-lucide="bell"></i>
@@ -132,6 +142,9 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
+    <!-- Shepherd.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
+
     <!-- ⭐ NUEVO: Notification System Scripts -->
     <script src="{{url_for('static',filename = 'core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
     <script src="{{url_for('static',filename = 'core/js/dashboard/notification-widget.js') }}?v={{ static_version }}"></script>
@@ -139,6 +152,9 @@
     <script src="{{url_for('static',filename = 'core/js/dashboard/profile-menu.js') }}?v={{ static_version }}"></script>
     <script src="{{url_for('static',filename = 'core/js/dashboard/dashboard.js') }}?v={{ static_version }}"></script>
     <script src="{{url_for('static',filename = 'core/js/must_change.js') }}?v={{ static_version }}"></script>
+
+    <!-- ⭐ NUEVO: Dashboard Tutorial Script -->
+    <script src="{{url_for('static',filename = 'core/js/dashboard/dashboard_tutorial.js') }}?v={{ static_version }}"></script>
 
     <!-- ⭐ NUEVO: Initialize Notification Widget -->
     <script>

@@ -37,6 +37,204 @@ const AppState = {
     groupEquipmentModal: null
 };
 
+// ==================== GESTIÓN DE REQUESTER ====================
+const RequesterSelection = {
+    modal: null,
+    selectedRequester: null,
+    availableRequesters: [],
+    filteredRequesters: [],
+    searchTimeout: null,
+
+    init() {
+        const modalElement = document.getElementById('requesterModal');
+        if (!modalElement) return; // No hay modal (usuario no puede crear para otros)
+
+        this.modal = new bootstrap.Modal(modalElement);
+
+        // Botón para abrir modal
+        document.getElementById('open-requester-modal')?.addEventListener('click', () => {
+            this.openModal();
+        });
+
+        // Botón para confirmar selección
+        document.getElementById('confirm-requester-btn')?.addEventListener('click', () => {
+            this.confirmSelection();
+        });
+
+        // Botón para limpiar selección
+        document.getElementById('clear-requester-btn')?.addEventListener('click', () => {
+            this.clearSelection();
+        });
+
+        // Búsqueda con debounce
+        document.getElementById('requester-search')?.addEventListener('input', (e) => {
+            clearTimeout(this.searchTimeout);
+            this.searchTimeout = setTimeout(() => {
+                this.searchRequesters(e.target.value);
+            }, 300);
+        });
+    },
+
+    async openModal() {
+        this.modal.show();
+        await this.loadRequesters();
+    },
+
+    async loadRequesters(search = '') {
+        const listContainer = document.getElementById('requester-list');
+        const loadingDiv = document.getElementById('requester-loading');
+        const emptyDiv = document.getElementById('requester-empty');
+
+        loadingDiv.style.display = 'block';
+        emptyDiv.style.display = 'none';
+        listContainer.innerHTML = '';
+
+        try {
+            const url = `/api/core/v1/users/by-app/helpdesk?search=${encodeURIComponent(search)}`;
+            const response = await fetch(url);
+
+            if (!response.ok) throw new Error('Error al cargar usuarios');
+
+            const result = await response.json();
+            this.availableRequesters = result.data?.users || [];
+            this.filteredRequesters = [...this.availableRequesters];
+
+            loadingDiv.style.display = 'none';
+
+            if (this.availableRequesters.length === 0) {
+                emptyDiv.style.display = 'block';
+            } else {
+                this.renderRequesterList();
+            }
+        } catch (error) {
+            console.error('❌ Error cargando usuarios:', error);
+            loadingDiv.style.display = 'none';
+            emptyDiv.style.display = 'block';
+            HelpdeskUtils.showToast('Error al cargar usuarios', 'error');
+        }
+    },
+
+    async searchRequesters(searchTerm) {
+        await this.loadRequesters(searchTerm);
+    },
+
+    renderRequesterList() {
+        const listContainer = document.getElementById('requester-list');
+        listContainer.innerHTML = '';
+
+        if (this.filteredRequesters.length === 0) {
+            listContainer.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="fas fa-search fa-2x text-muted mb-2"></i>
+                    <p class="text-muted">No se encontraron usuarios con ese criterio</p>
+                </div>
+            `;
+            return;
+        }
+
+        this.filteredRequesters.forEach(user => {
+            const card = this.createRequesterCard(user);
+            listContainer.appendChild(card);
+        });
+    },
+
+    createRequesterCard(user) {
+        const card = document.createElement('div');
+        card.className = 'equipment-card'; // Reutilizar estilos
+        if (this.selectedRequester?.id === user.id) {
+            card.classList.add('selected');
+        }
+
+        card.innerHTML = `
+            <div class="d-flex align-items-start">
+                <div class="equipment-icon me-3">
+                    <i class="fas fa-user-circle"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="fw-bold text-primary">${user.full_name}</div>
+                    <div class="text-dark">${user.email || 'Sin email'}</div>
+                    <small class="text-muted">
+                        <i class="fas fa-id-card me-1"></i>${user.username}
+                    </small>
+                </div>
+            </div>
+        `;
+
+        card.addEventListener('click', () => {
+            this.selectRequesterInModal(user);
+        });
+
+        return card;
+    },
+
+    selectRequesterInModal(user) {
+        this.selectedRequester = user;
+
+        // Actualizar UI del modal
+        document.querySelectorAll('#requester-list .equipment-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        event.currentTarget.classList.add('selected');
+
+        // Habilitar botón de confirmar
+        document.getElementById('confirm-requester-btn').disabled = false;
+    },
+
+    confirmSelection() {
+        if (!this.selectedRequester) return;
+
+        // Cerrar modal
+        this.modal.hide();
+
+        // Mostrar preview
+        this.showRequesterPreview(this.selectedRequester);
+
+        // Guardar ID en input oculto
+        document.getElementById('requester_id').value = this.selectedRequester.id;
+
+        // Limpiar selecciones de equipos/grupos ya que el contexto cambió
+        Equipment.clearSelection();
+        Equipment.clearGroupSelection();
+
+        // Re-actualizar textos de botones si hay una selección de tipo de propietario
+        if (AppState.equipment.ownerType) {
+            Equipment.handleOwnerSelection(AppState.equipment.ownerType);
+        }
+
+        HelpdeskUtils.showToast(`Ticket será creado para: ${this.selectedRequester.full_name}`, 'success');
+    },
+
+    showRequesterPreview(user) {
+        const preview = document.getElementById('selected-requester-preview');
+        const name = document.getElementById('preview-requester-name');
+        const info = document.getElementById('preview-requester-info');
+
+        name.textContent = user.full_name;
+        info.textContent = `${user.email || ''} • ${user.username}`;
+
+        preview.style.display = 'block';
+
+        // Actualizar texto del botón
+        document.getElementById('requester-button-text').textContent = 'Cambiar usuario';
+    },
+
+    clearSelection() {
+        this.selectedRequester = null;
+        document.getElementById('selected-requester-preview').style.display = 'none';
+        document.getElementById('requester_id').value = '';
+        document.getElementById('requester-button-text').textContent = 'Seleccionar usuario (opcional)';
+
+        // Limpiar selecciones de equipos/grupos ya que ahora se basará en el usuario actual
+        Equipment.clearSelection();
+        Equipment.clearGroupSelection();
+
+        // Re-actualizar textos de botones si hay una selección de tipo de propietario
+        if (AppState.equipment.ownerType) {
+            Equipment.handleOwnerSelection(AppState.equipment.ownerType);
+        }
+    }
+};
+
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -45,6 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
     FormValidation.init();
     Navigation.init();
     Equipment.init();
+    RequesterSelection.init(); // Nuevo componente
 
     // Cargar datos necesarios
     Equipment.loadCategories();
@@ -247,12 +446,22 @@ const Equipment = {
         } else {
             document.getElementById('equipment-selector-container').style.display = 'block';
 
-            // Actualizar texto del botón
+            // Actualizar texto del botón según si hay requester seleccionado
             const buttonText = document.getElementById('equipment-button-text');
+            const selectedRequester = RequesterSelection.selectedRequester;
+
             if (ownerType === 'mine') {
-                buttonText.textContent = 'Seleccionar de Mis Equipos';
+                if (selectedRequester) {
+                    buttonText.textContent = `Seleccionar de Equipos de ${selectedRequester.full_name.split(' ')[0]}`;
+                } else {
+                    buttonText.textContent = 'Seleccionar de Mis Equipos';
+                }
             } else {
-                buttonText.textContent = 'Seleccionar de Equipos del Departamento';
+                if (selectedRequester) {
+                    buttonText.textContent = `Seleccionar de Equipos del Departamento de ${selectedRequester.full_name.split(' ')[0]}`;
+                } else {
+                    buttonText.textContent = 'Seleccionar de Equipos del Departamento';
+                }
             }
         }
     },
@@ -273,14 +482,30 @@ const Equipment = {
         listContainer.innerHTML = '';
 
         try {
-            // Obtener departamento del usuario
-            const userResponse = await fetch('/api/core/v1/users/me/department');
-            const userData = await userResponse.json();
-            if (!userData.success || !userData.data) {
-                throw new Error('No se pudo obtener el departamento');
-            }
+            // Determinar si hay un requester seleccionado (Centro de Cómputo creando por otro usuario)
+            const selectedRequesterId = RequesterSelection.selectedRequester?.id;
+            let deptId;
 
-            const deptId = userData.data.id;
+            if (selectedRequesterId) {
+                // Obtener departamento del requester seleccionado
+                const deptResponse = await fetch(`/api/core/v1/users/${selectedRequesterId}/department`);
+                if (!deptResponse.ok) {
+                    throw new Error('No se pudo obtener el departamento del usuario seleccionado');
+                }
+                const deptData = await deptResponse.json();
+                if (!deptData.success || !deptData.data) {
+                    throw new Error('No se pudo obtener el departamento del usuario seleccionado');
+                }
+                deptId = deptData.data.id;
+            } else {
+                // Obtener departamento del usuario actual
+                const userResponse = await fetch('/api/core/v1/users/me/department');
+                const userData = await userResponse.json();
+                if (!userData.success || !userData.data) {
+                    throw new Error('No se pudo obtener el departamento');
+                }
+                deptId = userData.data.id;
+            }
 
             // Obtener grupos del departamento
             const response = await fetch(`/api/help-desk/v1/inventory/groups/department/${deptId}`);
@@ -657,12 +882,38 @@ const Equipment = {
 
         try {
             let endpoint;
+
+            // Determinar si hay un requester seleccionado (Centro de Cómputo creando por otro usuario)
+            const selectedRequesterId = RequesterSelection.selectedRequester?.id;
+
             if (AppState.equipment.ownerType === 'mine') {
-                endpoint = '/api/help-desk/v1/inventory/items/my-equipment';
+                // "Es mio" - equipos del usuario
+                if (selectedRequesterId) {
+                    // Si hay requester seleccionado, obtener equipos de ese usuario
+                    endpoint = `/api/help-desk/v1/inventory/items/user/${selectedRequesterId}/equipment`;
+                } else {
+                    // Si no, obtener equipos del usuario actual
+                    endpoint = '/api/help-desk/v1/inventory/items/my-equipment';
+                }
             } else {
-                const userResponse = await fetch('/api/core/v1/users/me/department');
-                const userData = await userResponse.json();
-                const deptId = userData.data.id;
+                // "Es de alguien más" - equipos del departamento
+                let deptId;
+
+                if (selectedRequesterId) {
+                    // Obtener departamento del requester seleccionado
+                    const deptResponse = await fetch(`/api/core/v1/users/${selectedRequesterId}/department`);
+                    if (!deptResponse.ok) {
+                        throw new Error('No se pudo obtener el departamento del usuario seleccionado');
+                    }
+                    const deptData = await deptResponse.json();
+                    deptId = deptData.data.id;
+                } else {
+                    // Obtener departamento del usuario actual
+                    const userResponse = await fetch('/api/core/v1/users/me/department');
+                    const userData = await userResponse.json();
+                    deptId = userData.data.id;
+                }
+
                 endpoint = `/api/help-desk/v1/inventory/items?department_id=${deptId}`;
             }
 
@@ -957,6 +1208,12 @@ const FormValidation = {
             office_folio: document.getElementById('office_folio').value.trim() || null
         };
 
+        // Incluir requester_id si se seleccionó
+        const requesterIdInput = document.getElementById('requester_id');
+        if (requesterIdInput && requesterIdInput.value) {
+            data.requester_id = parseInt(requesterIdInput.value);
+        }
+
         // Para DESARROLLO: incluir category_id
         if (data.area === 'DESARROLLO') {
             data.category_id = parseInt(document.getElementById('category_id').value);
@@ -1134,8 +1391,24 @@ const Navigation = {
                 <i class="fas fa-clipboard-check me-2 text-primary"></i>
                 Resumen de tu Ticket
             </h5>
-            
-            <div class="row g-3">
+
+            <div class="row g-3">`;
+
+        // Mostrar requester si es diferente del usuario actual
+        if (RequesterSelection.selectedRequester) {
+            summary += `
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <strong><i class="fas fa-user-circle me-2"></i>Solicitante:</strong><br>
+                        ${RequesterSelection.selectedRequester.full_name} (${RequesterSelection.selectedRequester.username})
+                        <br>
+                        <small>Este ticket aparecerá en la sección "Mis Tickets" del usuario seleccionado</small>
+                    </div>
+                </div>
+            `;
+        }
+
+        summary += `
                 <div class="col-md-6">
                     <strong><i class="fas fa-layer-group me-2 text-muted"></i>Área:</strong><br>
                     ${HelpdeskUtils.getAreaBadge(formData.area)}
@@ -1312,7 +1585,8 @@ window.CreateTicketDebug = {
     state: AppState,
     equipment: Equipment,
     validation: FormValidation,
-    photo: PhotoUpload
+    photo: PhotoUpload,
+    requester: RequesterSelection
 };
 
 const style = document.createElement('style');

@@ -150,7 +150,7 @@ function renderTickets(tickets) {
     
     container.innerHTML = tickets.map(ticket => `
         <div class="ticket-dept-card border-bottom p-3" 
-             onclick="HelpdeskUtils.goToTicketDetailNewTab(${ticket.id}, 'department')"
+             onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'department')"
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 mb-2">

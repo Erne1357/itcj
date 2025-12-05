@@ -15,7 +15,54 @@ async function loadTicketDetail() {
     showState('loading');
 
     try {
-        // Load ticket data
+        // Verificar si hay parámetro tutorial=true en la URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const isTutorialParam = urlParams.get('tutorial') === 'true';
+
+        console.log('🎫 [ticket_detail] Cargando ticket...');
+        console.log('🎫 Parámetro tutorial en URL:', isTutorialParam);
+        console.log('🎫 Ticket ID:', ticketId);
+
+        // Verificar si está en modo tutorial (por URL o por estado)
+        const isTutorialMode = isTutorialParam || (typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive());
+
+        if (isTutorialMode) {
+            console.log('🎫 Modo tutorial detectado');
+            const tutorialTicketId = window.getTutorialTicketId();
+            console.log('🎫 Tutorial ticket ID esperado:', tutorialTicketId);
+
+            // Si el ID coincide con el del tutorial, cargar desde JSON
+            if (tutorialTicketId && ticketId == tutorialTicketId) {
+                console.log('🎫 Cargando desde JSON (modo tutorial)');
+                const tutorialData = window.getTutorialTicketData();
+
+                if (tutorialData) {
+                    console.log('🎫 Datos del tutorial cargados correctamente');
+                    currentTicket = tutorialData.ticket;
+                    const comments = tutorialData.comments || [];
+
+                    // Render everything
+                    renderTicketDetail(currentTicket);
+                    renderComments(comments);
+                    renderStatusTimeline(currentTicket);
+                    renderAssignmentInfo(currentTicket);
+                    renderActionButtons(currentTicket);
+                    
+                    // Cargar photo attachment para mostrar badge
+                    await loadPhotoAttachment(currentTicket.id);
+
+                    showState('main');
+                    return;
+                } else {
+                    console.warn('⚠️ No se encontraron datos del tutorial en sessionStorage');
+                }
+            } else {
+                console.warn('⚠️ ID no coincide:', { ticketId, tutorialTicketId });
+            }
+        }
+
+        // Modo normal: cargar desde la BD
+        console.log('🎫 Cargando desde la BD (modo normal)');
         const ticketResponse = await HelpdeskUtils.api.getTicket(ticketId);
         currentTicket = ticketResponse.ticket;
 
@@ -29,6 +76,9 @@ async function loadTicketDetail() {
         renderStatusTimeline(currentTicket);
         renderAssignmentInfo(currentTicket);
         renderActionButtons(currentTicket);
+        
+        // Cargar photo attachment para mostrar badge
+        await loadPhotoAttachment(currentTicket.id);
 
         showState('main');
 
@@ -95,6 +145,12 @@ function renderTicketDetail(ticket) {
         document.getElementById('resolvedAt').textContent = HelpdeskUtils.formatDate(ticket.resolved_at);
     }
 
+    // Collaborators (if exist)
+    if (ticket.collaborators && ticket.collaborators.length > 0) {
+        document.getElementById('collaboratorsContainer').classList.remove('d-none');
+        document.getElementById('ticketCollaborators').innerHTML = HelpdeskUtils.renderCollaborators(ticket.collaborators);
+    }
+
     // Rating (if exists)
     if (ticket.rating_attention) {
         document.getElementById('ratingContainer').classList.remove('d-none');
@@ -117,8 +173,6 @@ function renderTicketDetail(ticket) {
         renderEquipmentInfo(ticket.inventory_item);
     }
 
-    // Photo Attachment (if exists)
-    loadPhotoAttachment(ticket.id);
     // Quick Actions Menu
     renderQuickActions(ticket);
 
@@ -516,7 +570,7 @@ function renderSingleEquipmentPreview(equipment, container) {
     }
 
     container.innerHTML = `
-        <div class="d-flex align-items-start gap-3">
+        <div class="d-flex align-items-start gap-3 cursor-pointer hover-bg-light p-2 rounded" onclick="openEquipmentDetail(${equipment.id})" title="Click para ver detalles del equipo">
             <div class="equipment-icon-detail">
                 <i class="${icon}"></i>
             </div>
@@ -538,6 +592,11 @@ function renderSingleEquipmentPreview(equipment, container) {
                         </small>
                     </div>
                 ` : ''}
+                <div class="mt-2">
+                    <small class="text-muted">
+                        <i class="fas fa-hand-pointer me-1"></i>Click para ver más detalles
+                    </small>
+                </div>
             </div>
         </div>
     `;
@@ -549,7 +608,7 @@ function renderMultipleEquipmentPreview(equipmentList, container) {
     const groupInfo = firstEquipment.group || null;
 
     container.innerHTML = `
-        <div class="multiple-equipment-preview" onclick="openEquipmentListModal()">
+        <div class="multiple-equipment-preview cursor-pointer hover-bg-light p-2 rounded" onclick="openEquipmentListModal()" title="Click para ver la lista completa de equipos">
             <div class="d-flex align-items-start gap-3">
                 <div class="equipment-icon-detail">
                     <i class="fas fa-layer-group"></i>
@@ -604,6 +663,16 @@ function openEquipmentListModal() {
     modal.show();
 }
 
+// ==================== NAVIGATE TO EQUIPMENT DETAIL ====================
+function openEquipmentDetail(itemId) {
+    if (!itemId) {
+        console.error('Equipment ID is required');
+        return;
+    }
+    // Navegar a la página de detalle del equipo
+    window.location.href = `/help-desk/inventory/items/${itemId}`;
+}
+
 function renderEquipmentModalList(equipmentList) {
     const listContainer = document.getElementById('equipment-modal-list');
     const groupInfoContainer = document.getElementById('equipment-modal-group-info');
@@ -638,7 +707,7 @@ function renderEquipmentModalList(equipmentList) {
         const icon = equipment.category?.icon || 'fas fa-laptop';
 
         return `
-            <div class="equipment-modal-item">
+            <div class="equipment-modal-item cursor-pointer" onclick="openEquipmentDetail(${equipment.id})" title="Click para ver detalles">
                 <div class="d-flex align-items-start gap-3">
                     <div class="equipment-modal-icon">
                         <i class="${icon}"></i>
@@ -750,3 +819,7 @@ function openPhotoModal(photoUrl) {
     document.getElementById('photoModalImage').src = photoUrl;
     modal.show();
 }
+
+// ==================== EXPORT GLOBAL FUNCTIONS ====================
+// Exportar funciones para que el tutorial pueda acceder a ellas
+window.loadTicketDetail = loadTicketDetail;

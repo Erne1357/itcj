@@ -73,16 +73,16 @@ def upgrade():
             print(f"Warning: Index {old_name} does not exist, skipping rename")
     
     # Función helper para crear índices si no existen
-    def create_index_if_not_exists(index_name, table_name, columns):
+    def create_index_if_not_exists(index_name, table_name, columns, unique=False):
         connection = op.get_bind()
         result = connection.execute(
             sa.text("SELECT 1 FROM pg_indexes WHERE indexname = :index_name"),
             {"index_name": index_name}
         )
         if not result.fetchone():
-            op.create_index(index_name, table_name, columns)
+            op.create_index(index_name, table_name, columns, unique=unique)
     
-    # Renombrar índices existentes o crear nuevos
+    # Primero intentar renombrar índices existentes con nombres antiguos
     rename_index_if_exists('ix_users_username', 'ix_core_users_username')
     rename_index_if_exists('ix_users_control_number', 'ix_core_users_control_number')
     rename_index_if_exists('ix_permissions_app_id', 'ix_core_permissions_app_id')
@@ -92,11 +92,11 @@ def upgrade():
     rename_index_if_exists('ix_user_app_roles_user_app', 'ix_core_user_app_roles_user_app')
     rename_index_if_exists('ix_user_app_perms_user_app', 'ix_core_user_app_perms_user_app')
     
-    # Crear índices importantes si no existen
-    create_index_if_not_exists('ix_core_users_username', 'core_users', ['username'])
-    create_index_if_not_exists('ix_core_users_control_number', 'core_users', ['control_number'])
-    create_index_if_not_exists('ix_core_permissions_app_id', 'core_permissions', ['app_id'])
-    create_index_if_not_exists('ix_core_user_positions_active', 'core_user_positions', ['active'])
+    # Luego crear índices importantes si no existen (por si no existían los antiguos)
+    create_index_if_not_exists('ix_core_users_username', 'core_users', ['username'], unique=False)
+    create_index_if_not_exists('ix_core_users_control_number', 'core_users', ['control_number'], unique=False)
+    create_index_if_not_exists('ix_core_permissions_app_id', 'core_permissions', ['app_id'], unique=False)
+    create_index_if_not_exists('ix_core_user_positions_active', 'core_user_positions', ['is_active'], unique=False)
     
     
     # Manejar notificaciones

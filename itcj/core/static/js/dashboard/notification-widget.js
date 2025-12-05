@@ -32,26 +32,16 @@ class DashboardNotificationWidget {
      * Inyecta el HTML del widget en el dashboard
      */
     injectHTML() {
-        const systemTray = document.querySelector('.system-tray');
-        if (!systemTray) {
-            console.error('[NotificationWidget] System tray not found');
+        // Verificar si ya existe el icono de campana en el HTML
+        const existingBell = document.getElementById('notificationBell');
+
+        if (!existingBell) {
+            console.error('[NotificationWidget] Notification bell not found in HTML');
             return;
         }
 
-        // Insertar icono de campana antes del datetime
-        const bellHTML = `
-            <button class="system-icon" id="notification-bell" title="Notificaciones">
-                <i data-lucide="bell"></i>
-                <span class="notification-badge" id="notification-badge" hidden>0</span>
-            </button>
-        `;
-
-        const datetime = systemTray.querySelector('.datetime');
-        if (datetime) {
-            datetime.insertAdjacentHTML('beforebegin', bellHTML);
-        } else {
-            systemTray.insertAdjacentHTML('beforeend', bellHTML);
-        }
+        // No inyectar un nuevo icono, usar el existente
+        // El badge ya está en el HTML con id 'globalNotificationBadge'
 
         // Panel desplegable
         const panelHTML = `
@@ -88,8 +78,8 @@ class DashboardNotificationWidget {
      * Adjunta event listeners
      */
     attachEventListeners() {
-        // Toggle panel
-        const bellBtn = document.getElementById('notification-bell');
+        // Toggle panel - usar el icono existente en el HTML
+        const bellBtn = document.getElementById('notificationBell');
         if (bellBtn) {
             bellBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -116,7 +106,7 @@ class DashboardNotificationWidget {
         // Cerrar panel al hacer click fuera
         document.addEventListener('click', (e) => {
             const panel = document.getElementById('notification-panel');
-            const bell = document.getElementById('notification-bell');
+            const bell = document.getElementById('notificationBell');
 
             if (panel && !panel.contains(e.target) && !bell.contains(e.target)) {
                 this.closePanel();
@@ -188,14 +178,14 @@ class DashboardNotificationWidget {
         this.counts = counts;
         this.totalUnread = total;
 
-        // Actualizar badge
-        const badge = document.getElementById('notification-badge');
+        // Actualizar badge - usar el badge existente en el HTML
+        const badge = document.getElementById('globalNotificationBadge');
         if (badge) {
             if (total > 0) {
                 badge.textContent = total > 99 ? '99+' : total;
-                badge.hidden = false;
+                badge.style.display = 'inline';
             } else {
-                badge.hidden = true;
+                badge.style.display = 'none';
             }
         }
 

@@ -100,7 +100,19 @@ class NotificationService:
             channel = f"notify:user:{user_id}"
 
             payload = notification.to_dict()
-            message = json.dumps(payload)
+            
+            try:
+                message = json.dumps(payload)
+            except TypeError as json_err:
+                current_app.logger.error(
+                    f"JSON serialization error for notification {notification.id}: {json_err}. "
+                    f"Data type: {type(notification.data)}, Data: {notification.data}",
+                    exc_info=True
+                )
+                # Intentar con un payload simplificado sin el campo data problemático
+                payload_safe = {k: v for k, v in payload.items() if k != 'data'}
+                payload_safe['data'] = {}
+                message = json.dumps(payload_safe)
 
             redis_client.publish(channel, message)
 

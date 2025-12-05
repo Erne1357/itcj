@@ -23,8 +23,8 @@ def get_all_groups():
         user_roles = user_roles_in_app(user_id, 'helpdesk')
         secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
         
-        # Solo admin o secretaría puede ver todos los grupos sin restricción
-        if 'admin' not in user_roles and user_id not in secretary_comp_center:
+        # Solo admin, secretaría o técnicos pueden ver todos los grupos sin restricción
+        if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
             return jsonify({
                 'success': False,
                 'error': 'No tiene permisos para ver todos los grupos'
@@ -62,9 +62,9 @@ def get_groups_by_department(department_id):
         user_roles = user_roles_in_app(user_id, 'helpdesk')
         secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
         
-        # Validar acceso: solo puede ver su departamento a menos que sea admin o secretaría
-        if 'admin' not in user_roles and user_id not in secretary_comp_center:
-            # Si no es admin, validar que sea su departamento
+        # Validar acceso: solo puede ver su departamento a menos que sea admin, secretaría o técnico
+        if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+            # Si no es admin ni técnico, validar que sea su departamento
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             

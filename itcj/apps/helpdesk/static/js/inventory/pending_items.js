@@ -46,7 +46,10 @@ async function loadPendingItems() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar equipos pendientes');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar equipos pendientes');
+        }
 
         const result = await response.json();
         pendingItems = result.data || [];
@@ -57,7 +60,8 @@ async function loadPendingItems() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('No se pudieron cargar los equipos pendientes');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los equipos pendientes: ${errorMessage}`);
         hideLoading();
     }
 }
@@ -70,14 +74,17 @@ async function loadCategories() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar categorías');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+        }
 
         const result = await response.json();
         allCategories = result.data;
 
         const select = document.getElementById('category-filter');
         select.innerHTML = '<option value="">Todas las categorías</option>';
-        
+
         allCategories.forEach(cat => {
             const option = document.createElement('option');
             option.value = cat.id;
@@ -87,6 +94,8 @@ async function loadCategories() {
 
     } catch (error) {
         console.error('Error cargando categorías:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
     }
 }
 
@@ -98,7 +107,10 @@ async function loadDepartments() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar departamentos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+        }
 
         const result = await response.json();
         allDepartments = result.data;
@@ -108,7 +120,7 @@ async function loadDepartments() {
         selects.forEach(selectId => {
             const select = document.getElementById(selectId);
             select.innerHTML = '<option value="">Seleccionar departamento...</option>';
-            
+
             allDepartments.forEach(dept => {
                 const option = document.createElement('option');
                 option.value = dept.id;
@@ -119,6 +131,8 @@ async function loadDepartments() {
 
     } catch (error) {
         console.error('Error cargando departamentos:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
     }
 }
 
@@ -317,19 +331,20 @@ async function handleAssign(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error al asignar equipo');
+            throw new Error(error.error || error.message || 'Error al asignar equipo');
         }
 
         $('#assignModal').modal('hide');
         showSuccess('Equipo asignado exitosamente');
-        
+
         // Remover de la lista local
         selectedItems.delete(parseInt(itemId));
         loadPendingItems();
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al asignar equipo: ${errorMessage}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-check"></i> Asignar';
@@ -401,21 +416,22 @@ async function handleBulkAssign(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error al asignar equipos');
+            throw new Error(error.error || error.message || 'Error al asignar equipos');
         }
 
         const result = await response.json();
 
         $('#bulkAssignModal').modal('hide');
         showSuccess(`${result.assigned_count} equipo(s) asignado(s) exitosamente`);
-        
+
         // Limpiar selección y recargar
         selectedItems.clear();
         loadPendingItems();
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al asignar equipos: ${errorMessage}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-check"></i> Asignar Todo';

@@ -112,8 +112,9 @@ def create_ticket(
     priority: str = 'MEDIA',
     location: str = None,
     office_folio: str = None,
-    inventory_item_ids: list = None,  # MODIFICADO: ahora es lista
-    photo_file = None
+    inventory_item_ids: list = None,  
+    photo_file = None,
+    created_by_id: int = None
 ) -> Ticket:
     """
     Crea un nuevo ticket.
@@ -189,8 +190,9 @@ def create_ticket(
         description=description,
         location=location,
         office_document_folio=office_folio,
-        # inventory_item_id=inventory_item_id,  # ELIMINADO: ya no existe este campo
-        status='PENDING'
+        status='PENDING',
+        created_by_id=created_by_id or requester_id,
+        updated_by_id=created_by_id or requester_id
     )
     
     db.session.add(ticket)
@@ -201,9 +203,9 @@ def create_ticket(
         try:
             from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
             TicketInventoryService.add_items_to_ticket(ticket.id, inventory_item_ids)
-            logger.info(f"Ticket {ticket.ticket_number}: {len(inventory_item_ids)} equipos asociados")
+            logger.warning(f"Ticket {ticket.ticket_number}: {len(inventory_item_ids)} equipos asociados")
         except Exception as e:
-            logger.error(f"Error al asociar equipos al ticket {ticket.id}: {e}")
+            logger.warning(f"Error al asociar equipos al ticket {ticket.id}: {e}")
             # No abortar, el ticket se crea sin equipos
             db.session.rollback()
             raise
@@ -271,6 +273,7 @@ def list_tickets(
     area: str = None,
     priority: str = None,
     assigned_to_me: bool = False,
+    assigned_to_team: str = None,
     created_by_me: bool = False,
     department_id: int = None,
     page: int = 1,
@@ -286,6 +289,7 @@ def list_tickets(
         area: Filtrar por área (DESARROLLO/SOPORTE)
         priority: Filtrar por prioridad
         assigned_to_me: Solo tickets asignados a mí
+        assigned_to_team: Solo tickets asignados al equipo (sin usuario específico)
         created_by_me: Solo tickets creados por mí
         department_id: Solo tickets de un departamento
         page: Página actual
@@ -296,20 +300,17 @@ def list_tickets(
     """
     query = Ticket.query
     
+    # Verificar si es secretary_comp_center (tiene poder total)
+    from itcj.core.services.authz_service import _get_users_with_position
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+    
     # PERMISOS: Determinar qué tickets puede ver
-    if 'admin' in user_roles or 'secretary' in user_roles:
-        query = query.order_by(Ticket.created_at.desc())
-        # Admin y secretaría ven todos
+    if 'admin' in user_roles or user_id in secretary_comp_center:
+        # Admin y secretaría del centro de cómputo ven todos
         pass
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
-        # Técnicos solo ven tickets asignados a ellos o a su equipo
-        tech_area = 'desarrollo' if 'tech_desarrollo' in user_roles else 'soporte'
-        query = query.filter(
-            or_(
-                Ticket.assigned_to_user_id == user_id,
-                Ticket.assigned_to_team == tech_area
-            )
-        )
+        # Técnicos ven todos los tickets (pueden filtrar con parámetros)
+        pass
     elif 'department_head' in user_roles:
         # Jefe de departamento solo ve tickets de su departamento
         # Obtener departamento del usuario
@@ -349,7 +350,15 @@ def list_tickets(
     if assigned_to_me:
         query = query.filter(Ticket.assigned_to_user_id == user_id)
     
+    if assigned_to_team:
+        # Tickets asignados al equipo pero SIN usuario específico
+        query = query.filter(
+            Ticket.assigned_to_team == assigned_to_team,
+            Ticket.assigned_to_user_id == None
+        )
+    
     if created_by_me:
+        # created_by_me busca en requester_id (quien solicitó el ticket)
         query = query.filter(Ticket.requester_id == user_id)
     
     if department_id:
@@ -414,6 +423,7 @@ def change_status(
     # Cambiar estado
     ticket.status = new_status
     ticket.updated_at = now_local()
+    ticket.updated_by_id = changed_by_id
     
     # Si se cierra, guardar fecha
     if new_status == 'CLOSED':
@@ -483,6 +493,7 @@ def resolve_ticket(
     ticket.resolved_at = now_local()
     ticket.resolved_by_id = resolved_by_id
     ticket.updated_at = now_local()
+    ticket.updated_by_id = resolved_by_id
     
     # Guardar tiempo invertido si se proporcionó
     if time_invested_minutes is not None:
@@ -584,6 +595,7 @@ def rate_ticket(
     ticket.status = 'CLOSED'
     ticket.closed_at = now_local()
     ticket.updated_at = now_local()
+    ticket.updated_by_id = requester_id
     
     # Registrar en log
     status_log = StatusLog(
@@ -640,6 +652,7 @@ def cancel_ticket(ticket_id: int, user_id: int, reason: str = None) -> Ticket:
     ticket.status = 'CANCELED'
     ticket.closed_at = now_local()
     ticket.updated_at = now_local()
+    ticket.updated_by_id = user_id
     
     # Registrar en log
     status_log = StatusLog(
@@ -702,6 +715,7 @@ def add_comment(
     
     db.session.add(comment)
     ticket.updated_at = now_local()
+    ticket.updated_by_id = author_id
     
     try:
         db.session.commit()
@@ -725,12 +739,17 @@ def can_user_view_ticket(ticket: Ticket, user_id: int) -> bool:
     Returns:
         True si puede ver, False si no
     """
-    from itcj.core.services.authz_service import user_roles_in_app
+    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
     
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
-    # Admin y secretaría ven todo
-    if 'admin' in user_roles or 'secretary' in user_roles:
+    # Admin y secretaría del centro de cómputo ven todo
+    if 'admin' in user_roles or user_id in secretary_comp_center:
+        return True
+    
+    # Técnicos ven todos los tickets
+    if 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         return True
     
     # Requester ve su ticket

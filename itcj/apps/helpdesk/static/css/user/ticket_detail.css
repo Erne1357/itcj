@@ -292,3 +292,29 @@
         font-size: 1.2rem;
     }
 }
+
+/* ==================== UTILITY CLASSES ==================== */
+/* Cursor pointer para elementos clickeables */
+.cursor-pointer {
+    cursor: pointer !important;
+    transition: all 0.2s ease;
+}
+
+/* Hover effect para elementos clickeables */
+.hover-bg-light:hover {
+    background-color: #f8f9fa !important;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Efecto para equipos clickeables */
+.equipment-modal-item.cursor-pointer:hover {
+    background-color: #f0f8ff;
+    border-left: 3px solid var(--sitec-primary, #059669);
+    transform: translateX(4px);
+}
+
+.multiple-equipment-preview.cursor-pointer:hover {
+    background-color: #f0f8ff;
+    border-left: 3px solid var(--sitec-primary, #059669);
+}

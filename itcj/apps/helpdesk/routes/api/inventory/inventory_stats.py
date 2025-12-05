@@ -170,7 +170,7 @@ def get_department_stats(department_id):
     secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     # Verificar permiso
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:

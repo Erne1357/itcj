@@ -36,8 +36,8 @@ def get_item_history(item_id):
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
     
     # Verificar permisos
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
-        # Jefe de depto: solo su departamento
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+        # Jefe de departamento: solo su departamento
         if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)

@@ -133,14 +133,17 @@ async function loadCategories() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar categorías');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+        }
 
         const result = await response.json();
         allCategories = result.data;
 
         const select = document.getElementById('category-id');
         select.innerHTML = '<option value="">Seleccionar categoría...</option>';
-        
+
         allCategories.forEach(cat => {
             const option = document.createElement('option');
             option.value = cat.id;
@@ -151,7 +154,8 @@ async function loadCategories() {
 
     } catch (error) {
         console.error('Error cargando categorías:', error);
-        showError('No se pudieron cargar las categorías');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
     }
 }
 
@@ -163,14 +167,17 @@ async function loadDepartments() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar departamentos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+        }
 
         const result = await response.json();
         allDepartments = result.data;
 
         const select = document.getElementById('department-id');
         select.innerHTML = '<option value="">Seleccionar departamento...</option>';
-        
+
         allDepartments.forEach(dept => {
             const option = document.createElement('option');
             option.value = dept.id;
@@ -180,7 +187,8 @@ async function loadDepartments() {
 
     } catch (error) {
         console.error('Error cargando departamentos:', error);
-        showError('No se pudieron cargar los departamentos');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
     }
 }
 
@@ -198,14 +206,17 @@ async function loadDepartmentUsers(departmentId) {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar usuarios');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar usuarios');
+        }
 
         const result = await response.json();
         departmentUsers = result.data;
 
         const select = document.getElementById('assigned-to-user-id');
         select.innerHTML = '<option value="">Seleccionar usuario...</option>';
-        
+
         departmentUsers.forEach(user => {
             const option = document.createElement('option');
             option.value = user.id;
@@ -215,6 +226,8 @@ async function loadDepartmentUsers(departmentId) {
 
     } catch (error) {
         console.error('Error cargando usuarios:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los usuarios del departamento: ${errorMessage}`);
     }
 }
 
@@ -421,7 +434,7 @@ async function handleSubmit(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error al registrar equipo');
+            throw new Error(error.error || error.message || 'Error al registrar equipo');
         }
 
         const result = await response.json();
@@ -432,7 +445,8 @@ async function handleSubmit(e) {
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al registrar equipo: ${errorMessage}`);
         
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-save"></i> Registrar Equipo';
@@ -531,7 +545,10 @@ async function loadBulkCategories() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar categorías');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+        }
 
         const result = await response.json();
         allCategories = result.data;
@@ -539,7 +556,8 @@ async function loadBulkCategories() {
 
     } catch (error) {
         console.error('Error cargando categorías para bulk:', error);
-        showError('No se pudieron cargar las categorías');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
     }
 }
 
@@ -571,7 +589,10 @@ async function loadBulkDepartments() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar departamentos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+        }
 
         const result = await response.json();
         allDepartments = result.data;
@@ -579,7 +600,8 @@ async function loadBulkDepartments() {
 
     } catch (error) {
         console.error('Error cargando departamentos para bulk:', error);
-        showError('No se pudieron cargar los departamentos');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
     }
 }
 
@@ -610,15 +632,20 @@ async function loadGroups(departmentId = null) {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar grupos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar grupos');
+        }
 
         const result = await response.json();
         allGroups = result.data || [];
-        
+
         populateBulkGroups();
 
     } catch (error) {
         console.error('Error cargando grupos:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los grupos: ${errorMessage}`);
         allGroups = [];
         populateBulkGroups();
     }
@@ -739,21 +766,22 @@ async function handleBulkSubmit(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error en registro masivo');
+            throw new Error(error.error || error.message || 'Error en registro masivo');
         }
 
         const result = await response.json();
-        
+
         // Ocultar modal de progreso
         $('#progressModal').modal('hide');
-        
+
         // Mostrar modal de éxito masivo
         showBulkSuccessModal(result);
 
     } catch (error) {
         console.error('Error:', error);
         $('#progressModal').modal('hide');
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error en registro masivo: ${errorMessage}`);
         
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-boxes"></i> Registrar <span id="bulk-btn-quantity">0</span> Equipos';

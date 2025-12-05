@@ -18,26 +18,60 @@ document.addEventListener('DOMContentLoaded', () => {
         url: window.location.href,
         text: 'Mis Tickets'
     }));
-    
-    loadMyTickets();
-    setupFilters();
-    setupRatingModal();
-    setupCancelModal();
+
+    // Dar tiempo para que el tutorial se inicialice primero
+    // Si está en modo tutorial, esperar un poco más
+    const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
+    const delay = isTutorialMode ? 100 : 0;
+
+    setTimeout(() => {
+        loadMyTickets();
+        setupFilters();
+        setupRatingModal();
+        setupCancelModal();
+    }, delay);
 });
 
 // ==================== LOAD TICKETS ====================
 async function loadMyTickets() {
     try {
+        console.log('🎫 Cargando tickets...');
+
+        // Verificar si está en modo tutorial
+        const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
+        console.log('🎫 Modo tutorial activo:', isTutorialMode);
+
+        if (isTutorialMode) {
+            // Modo tutorial: cargar solo el ticket de ejemplo
+            const tutorialData = window.getTutorialTicketData();
+            console.log('🎫 Datos del tutorial:', tutorialData);
+
+            if (tutorialData && tutorialData.ticket) {
+                console.log('🎫 Cargando ticket de ejemplo del tutorial');
+                allTickets = [tutorialData.ticket];
+                filteredTickets = [...allTickets];
+
+                updateSummaryCards();
+                renderTickets();
+                return;
+            } else {
+                console.warn('⚠️ Modo tutorial activo pero sin datos de ticket');
+            }
+        }
+
+        // Modo normal: cargar tickets de la BD
+        console.log('🎫 Cargando tickets desde la BD');
         const response = await HelpdeskUtils.api.getTickets({ created_by_me: true });
         allTickets = response.tickets || [];
         filteredTickets = [...allTickets];
-        
+
         updateSummaryCards();
         renderTickets();
-        
+
     } catch (error) {
         console.error('Error loading tickets:', error);
-        HelpdeskUtils.showToast('Error al cargar tickets', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar tickets: ${errorMessage}`, 'error');
         showErrorState();
     }
 }
@@ -668,3 +702,4 @@ window.openRatingModal = openRatingModal;
 window.openCancelModal = openCancelModal;
 window.goToTicketDetail = goToTicketDetail;
 window.changePage = changePage;
+window.loadMyTickets = loadMyTickets; // Exportar para que el tutorial pueda recargar

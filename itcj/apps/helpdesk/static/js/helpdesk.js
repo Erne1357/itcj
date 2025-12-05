@@ -19,11 +19,13 @@ async function pedirAyuda() {
             const data = await response.json();
             window.location.href = data.redirect;
         } else {
-            throw new Error('Error en la redirección');
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error en la redirección');
         }
     } catch (error) {
         console.error('Error:', error);
-        mostrarNotificacion('Hubo un error al procesar tu solicitud', 'danger');
+        const errorMessage = error.message || 'Error desconocido';
+        mostrarNotificacion(`Hubo un error al procesar tu solicitud: ${errorMessage}`, 'danger');
         btn.classList.remove('loading');
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-plus me-2"></i>Pedir Ayuda';

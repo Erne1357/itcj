@@ -2,6 +2,10 @@
 
 {% block title %}{{ title }}{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/secretary/dashboard.css') }}?v={{ static_version }}">
+{% endblock %}
+
 {% block header_title %}Dashboard de Secretaría{% endblock %}
 {% block header_subtitle %}{{ department_name }}{% endblock %}
 
