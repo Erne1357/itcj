@@ -232,7 +232,7 @@ def get_recent_activity():
     department_id = None
     
     # Si es jefe de depto, filtrar por su departamento
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
@@ -355,8 +355,8 @@ def get_status_chart():
     
     query = InventoryItem.query.filter(InventoryItem.is_active == True)
     
-    # Filtrar por departamento si no es admin
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
+    # Filtrar por departamento si no es admin ni técnico
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if user_dept:

@@ -20,9 +20,9 @@
         <!-- Header -->
         <div class="d-flex justify-content-between align-items-start mb-4">
             <div>
-                <div class="mb-2">
-                    <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="text-muted">
-                        <i class="fas fa-arrow-left"></i> Volver a Inventario
+                <div class="mb-2" id="backButtonContainer" style="display: none;">
+                    <a href="#" id="backButton" class="text-muted">
+                        <i class="fas fa-arrow-left"></i> <span id="backButtonText">Volver</span>
                     </a>
                 </div>
                 <h1 class="h3 mb-1 text-gray-800" id="item-title">
@@ -104,24 +104,24 @@
             <div class="card-header py-3">
                 <ul class="nav nav-tabs card-header-tabs" id="detail-tabs" role="tablist">
                     <li class="nav-item">
-                        <a class="nav-link active" id="specs-tab" data-toggle="tab" href="#specs-content" role="tab">
+                        <a class="nav-link active" id="specs-tab" data-bs-toggle="tab" href="#specs-content" role="tab">
                             <i class="fas fa-microchip"></i> Especificaciones
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" id="history-tab" data-toggle="tab" href="#history-content" role="tab">
+                        <a class="nav-link" id="history-tab" data-bs-toggle="tab" href="#history-content" role="tab">
                             <i class="fas fa-history"></i> Historial
-                            <span class="badge badge-secondary ml-1" id="history-count">0</span>
+                            <span class="badge bg-secondary text-white ms-1" id="history-count">0</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" id="tickets-tab" data-toggle="tab" href="#tickets-content" role="tab">
+                        <a class="nav-link" id="tickets-tab" data-bs-toggle="tab" href="#tickets-content" role="tab">
                             <i class="fas fa-ticket-alt"></i> Tickets
-                            <span class="badge badge-info ml-1" id="tickets-count">0</span>
+                            <span class="badge bg-info text-dark ms-1" id="tickets-count">0</span>
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" id="notes-tab" data-toggle="tab" href="#notes-content" role="tab">
+                        <a class="nav-link" id="notes-tab" data-bs-toggle="tab" href="#notes-content" role="tab">
                             <i class="fas fa-sticky-note"></i> Notas
                         </a>
                     </li>
@@ -341,8 +341,41 @@
 
 {% block extra_js %}
 <script>
-    // Pasar el item_id desde Flask a JavaScript
+    // Pasar el item_id y permisos desde Flask a JavaScript
     const ITEM_ID = {{ item_id }};
+    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+</script>
+<script>
+// Sistema de navegación inteligente
+document.addEventListener('DOMContentLoaded', function() {
+    const backButton = document.getElementById('backButton');
+    const backButtonText = document.getElementById('backButtonText');
+    const backButtonContainer = document.getElementById('backButtonContainer');
+    const referrer = document.referrer;
+    
+    // Solo mostrar botón si viene de dentro de la aplicación
+    if (referrer && referrer.includes('/help-desk/')) {
+        let backUrl = referrer;
+        let backText = 'Volver';
+        
+        // Detectar origen específico
+        if (referrer.includes('/help-desk/user/tickets/')) {
+            backText = 'Volver al Ticket';
+        } else if (referrer.includes('/help-desk/secretary/dashboard')) {
+            backText = 'Volver al Dashboard';
+        } else if (referrer.includes('/help-desk/inventory/items') && !referrer.includes('/items/')) {
+            backText = 'Volver a Inventario';
+        } else if (referrer.includes('/help-desk/admin')) {
+            backText = 'Volver a Admin';
+        } else if (referrer.includes('/help-desk/department')) {
+            backText = 'Volver a Departamento';
+        }
+        
+        backButton.href = backUrl;
+        backButtonText.textContent = backText;
+        backButtonContainer.style.display = 'block';
+    }
+});
 </script>
 <script src="{{ url_for('static', filename='helpdesk/js/inventory/item_detail.js') }}?v={{ static_version }}"></script>
 {% endblock %}

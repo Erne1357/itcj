@@ -91,7 +91,7 @@ class HelpdeskNotificationHelper:
                 body=f'{ticket.title} - Prioridad: {ticket.priority}',
                 data={
                     'ticket_id': ticket.id,
-                    'url': f'/help-desk/technician/tickets/{ticket.id}',
+                    'url': f'/help-desk/user/tickets/{ticket.id}',
                     'priority': ticket.priority,
                     'area': ticket.area
                 },
@@ -128,7 +128,7 @@ class HelpdeskNotificationHelper:
                 body=f'{ticket.title} - Prioridad: {ticket.priority}',
                 data={
                     'ticket_id': ticket.id,
-                    'url': f'/help-desk/technician/tickets/{ticket.id}',
+                    'url': f'/help-desk/user/tickets/{ticket.id}',
                     'priority': ticket.priority
                 },
                 ticket_id=ticket.id
@@ -144,7 +144,7 @@ class HelpdeskNotificationHelper:
                     body=f'El ticket fue reasignado a {new_assigned_user.full_name}',
                     data={
                         'ticket_id': ticket.id,
-                        'url': f'/help-desk/technician/tickets/{ticket.id}'
+                        'url': f'/help-desk/user/tickets/{ticket.id}'
                     },
                     ticket_id=ticket.id
                 )
@@ -276,7 +276,7 @@ class HelpdeskNotificationHelper:
                 body=f'Promedio: {avg_rating:.1f}/5 estrellas',
                 data={
                     'ticket_id': ticket.id,
-                    'url': f'/help-desk/technician/tickets/{ticket.id}',
+                    'url': f'/help-desk/user/tickets/{ticket.id}',
                     'rating_attention': ticket.rating_attention,
                     'rating_speed': ticket.rating_speed,
                     'rating_efficiency': ticket.rating_efficiency
@@ -308,7 +308,7 @@ class HelpdeskNotificationHelper:
                     body=f'El solicitante canceló el ticket: {ticket.title}',
                     data={
                         'ticket_id': ticket.id,
-                        'url': f'/help-desk/technician/tickets/{ticket.id}'
+                        'url': f'/help-desk/user/tickets/{ticket.id}'
                     },
                     ticket_id=ticket.id
                 )

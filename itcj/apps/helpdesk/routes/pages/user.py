@@ -2,6 +2,8 @@
 from flask import render_template, g, request, abort
 from itcj.core.utils.decorators import app_required as web_app_required
 from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.models.position import UserPosition
+from itcj.core.models.department import Department
 from . import user_pages_bp
 import logging
 
@@ -14,11 +16,32 @@ def create_ticket():
     """Página para crear un nuevo ticket"""
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
+
+    # Determinar si el usuario puede crear tickets para otros
+    can_create_for_other = False
+
+    # Verificar si es admin
+    if 'admin' in user_roles:
+        can_create_for_other = True
+    else:
+        # Verificar si pertenece al Centro de Cómputo en alguno de sus puestos activos
+        user_positions = UserPosition.query.filter_by(
+            user_id=user_id,
+            is_active=True
+        ).all()
+
+        for user_position in user_positions:
+            if user_position.position and user_position.position.department:
+                # Verificar si el departamento es comp_center
+                if user_position.position.department.code == 'comp_center':
+                    can_create_for_other = True
+                    break
+
     return render_template(
-        'helpdesk/user/create_ticket.html', 
+        'helpdesk/user/create_ticket.html',
         title="Crear Ticket",
         user_roles=user_roles,
+        can_create_for_other=can_create_for_other,
         active_page='create_ticket'
     )
 

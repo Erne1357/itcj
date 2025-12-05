@@ -2,6 +2,7 @@
 from flask import Blueprint, jsonify, request, current_app,g
 from itcj.core.models.user import User
 from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.extensions import db
 from sqlalchemy.exc import IntegrityError
 from itcj.core.utils.security import hash_nip
@@ -209,16 +210,16 @@ def create_user():
 def get_my_department():
     """Obtener departamento del usuario actual"""
     from itcj.core.services.departments_service import get_user_department
-    
+
     user_id = int(g.current_user['sub'])
     department = get_user_department(user_id)
-    
+
     if not department:
         return jsonify({
             'success': False,
             'error': 'Usuario no tiene departamento asignado'
         }), 404
-    
+
     return jsonify({
         'success': True,
         'data': {
@@ -227,3 +228,150 @@ def get_my_department():
             'code': department.code
         }
     }), 200
+
+@api_users_bp.get('/by-app/<app_key>')
+@api_app_required('helpdesk')  # Solo requiere acceso a helpdesk
+def list_users_by_app(app_key):
+    """
+    Lista usuarios con acceso a una aplicación específica.
+    Solo requiere tener acceso a la app helpdesk.
+
+    Query params:
+        - search: Término de búsqueda (prioriza username, luego nombre, email, control_number)
+        - page: Número de página (default: 1)
+        - per_page: Items por página (default: 20, max: 50)
+
+    Returns:
+        200: Lista de usuarios con acceso a la app
+    """
+    try:
+        # Obtener app
+        from itcj.core.models.app import App
+        app = App.query.filter_by(key=app_key, is_active=True).first()
+        if not app:
+            return _bad("App no encontrada", 404)
+
+        # Parámetros de búsqueda
+        search = request.args.get("search", "").strip()
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = min(int(request.args.get("per_page", 20)), 50)
+
+        # Obtener usuarios con acceso a la app (roles o permisos, directos o por puesto)
+        from itcj.core.models.user_app_role import UserAppRole
+        from itcj.core.models.user_app_perm import UserAppPerm
+        from itcj.core.models.position import UserPosition, PositionAppRole, PositionAppPerm
+
+        # 1. Usuarios con roles DIRECTOS en la app
+        users_with_roles = db.session.query(User.id).join(
+            UserAppRole, UserAppRole.user_id == User.id
+        ).filter(
+            UserAppRole.app_id == app.id,
+            User.is_active == True
+        )
+
+        # 2. Usuarios con permisos DIRECTOS en la app
+        users_with_perms = db.session.query(User.id).join(
+            UserAppPerm, UserAppPerm.user_id == User.id
+        ).filter(
+            UserAppPerm.app_id == app.id,
+            UserAppPerm.allow == True,
+            User.is_active == True
+        )
+
+        # 3. Usuarios con roles a través de PUESTOS
+        users_with_position_roles = db.session.query(User.id).join(
+            UserPosition, UserPosition.user_id == User.id
+        ).join(
+            PositionAppRole, PositionAppRole.position_id == UserPosition.position_id
+        ).filter(
+            PositionAppRole.app_id == app.id,
+            UserPosition.is_active == True,
+            User.is_active == True
+        )
+
+        # 4. Usuarios con permisos a través de PUESTOS
+        users_with_position_perms = db.session.query(User.id).join(
+            UserPosition, UserPosition.user_id == User.id
+        ).join(
+            PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id
+        ).filter(
+            PositionAppPerm.app_id == app.id,
+            PositionAppPerm.allow == True,
+            UserPosition.is_active == True,
+            User.is_active == True
+        )
+
+        # Unión de todos los casos
+        user_ids_query = users_with_roles.union(
+            users_with_perms
+        ).union(
+            users_with_position_roles
+        ).union(
+            users_with_position_perms
+        )
+
+        # Construir query principal
+        query = db.session.query(User).filter(
+            User.id.in_(user_ids_query),
+            User.is_active == True
+        )
+
+        # Aplicar búsqueda si se proporciona (priorizar username)
+        if search:
+            search_pattern = f"%{search}%"
+            # Priorizar username en el ordenamiento
+            query = query.filter(
+                db.or_(
+                    User.username.ilike(search_pattern),
+                    User.full_name.ilike(search_pattern),
+                    User.email.ilike(search_pattern),
+                    User.control_number.ilike(search_pattern)
+                )
+            ).order_by(
+                # Ordenar poniendo primero los que coinciden en username
+                db.case(
+                    (User.username.ilike(search_pattern), 0),
+                    else_=1
+                ),
+                User.full_name
+            )
+        else:
+            query = query.order_by(User.full_name)
+
+        # Aplicar paginación
+        pagination = query.paginate(
+            page=page,
+            per_page=per_page,
+            error_out=False
+        )
+
+        # Formatear respuesta
+        users_data = []
+        for user in pagination.items:
+            users_data.append({
+                "id": user.id,
+                "full_name": user.full_name,
+                "email": user.email,
+                "username": user.username,
+                "control_number": user.control_number,
+                "roles": user_roles_in_app(user.id, 'helpdesk'),
+                "is_active": user.is_active
+            })
+
+        return _ok({
+            "users": users_data,
+            "pagination": {
+                "page": pagination.page,
+                "per_page": pagination.per_page,
+                "total": pagination.total,
+                "pages": pagination.pages,
+                "has_next": pagination.has_next,
+                "has_prev": pagination.has_prev,
+                "next_num": pagination.next_num,
+                "prev_num": pagination.prev_num
+            }
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Error listing users by app: {e}")
+        return _bad("internal_server_error", 500)

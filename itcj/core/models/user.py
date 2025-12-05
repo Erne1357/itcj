@@ -34,8 +34,8 @@ class User(db.Model):
     audit_logs = db.relationship("AuditLog", back_populates="actor", cascade="all, delete-orphan", passive_deletes=True)
 
     # ==================== Help-Desk ====================
-    tickets_created = db.relationship("Ticket", foreign_keys='Ticket.created_by', back_populates="created_by_user", cascade="all, delete", passive_deletes=True)
-    tickets_updated = db.relationship("Ticket", foreign_keys='Ticket.updated_by', back_populates="updated_by_user", cascade="all, delete", passive_deletes=True)
+    tickets_created = db.relationship("Ticket", foreign_keys='Ticket.created_by_id', back_populates="created_by_user", cascade="all, delete", passive_deletes=True)
+    tickets_updated = db.relationship("Ticket", foreign_keys='Ticket.updated_by_id', back_populates="updated_by_user", cascade="all, delete", passive_deletes=True)
     tickets_requested = db.relationship("Ticket", foreign_keys='Ticket.requester_id', back_populates="requester", cascade="all, delete", passive_deletes=True)
     tickets_assigned = db.relationship("Ticket", foreign_keys='Ticket.assigned_to_user_id', back_populates="assigned_to", cascade="all, delete", passive_deletes=True)
     tickets_resolved = db.relationship("Ticket", foreign_keys='Ticket.resolved_by_id', back_populates="resolved_by", cascade="all, delete", passive_deletes=True)

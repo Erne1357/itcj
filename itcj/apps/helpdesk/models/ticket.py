@@ -55,9 +55,9 @@ class Ticket(db.Model):
     
     # ==================== TIMESTAMPS ====================
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"), index=True)
-    created_by = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Usuario que creó el ticket
+    created_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Usuario que creó el ticket
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
-    updated_by = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Último usuario que actualizó el ticket
+    updated_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Último usuario que actualizó el ticket
     closed_at = db.Column(db.DateTime, nullable=True)
     
     # ==================== RELACIONES ====================
@@ -71,10 +71,10 @@ class Ticket(db.Model):
     resolved_by = db.relationship('User', foreign_keys=[resolved_by_id], back_populates='tickets_resolved')
 
     # Usuario que creó el ticket
-    created_by_user = db.relationship('User', foreign_keys=[created_by], back_populates='tickets_created')
+    created_by_user = db.relationship('User', foreign_keys=[created_by_id], back_populates='tickets_created')
     
     # Usuario que actualizó el ticket
-    updated_by_user = db.relationship('User', foreign_keys=[updated_by], back_populates='tickets_updated')
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by_id], back_populates='tickets_updated')
     
     # Departamento del solicitante
     requester_department = db.relationship('Department', foreign_keys=[requester_department_id])
@@ -184,7 +184,9 @@ class Ticket(db.Model):
             'status': self.status,
             'office_document_folio': self.office_document_folio,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_by_id': self.created_by_id,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'updated_by_id': self.updated_by_id,
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'rated_at': self.rated_at.isoformat() if self.rated_at else None,
             'closed_at': self.closed_at.isoformat() if self.closed_at else None,
@@ -202,19 +204,29 @@ class Ticket(db.Model):
                 'requester': {
                     'id': self.requester.id,
                     'name': self.requester.full_name,
-                    'username': self.requester.username or self.requester.employee_number
+                    'username': self.requester.username or self.requester.control_number
                 } if self.requester else None,
                 'category': self.category.to_dict() if self.category else None,
                 'assigned_to': {
                     'id': self.assigned_to.id,
                     'name': self.assigned_to.full_name,
-                    'username': self.assigned_to.username or self.assigned_to.employee_number
+                    'username': self.assigned_to.username or self.assigned_to.control_number
                 } if self.assigned_to else None,
                 'assigned_to_team': self.assigned_to_team,
                 'department': {
                     'id': self.requester_department.id,
                     'name': self.requester_department.name
                 } if self.requester_department else None,
+                'created_by': {
+                    'id': self.created_by_user.id,
+                    'name': self.created_by_user.full_name,
+                    'username': self.created_by_user.username or self.created_by_user.control_number
+                } if self.created_by_user else None,
+                'updated_by': {
+                    'id': self.updated_by_user.id,
+                    'name': self.updated_by_user.full_name,
+                    'username': self.updated_by_user.username or self.updated_by_user.control_number
+                } if self.updated_by_user else None,
                 'collaborators': [c.to_dict() for c in self.collaborators] if hasattr(self, 'collaborators') else [],
                 'collaborators_count': self.collaborators.count() if hasattr(self, 'collaborators') else 0,
                 'inventory_items': [

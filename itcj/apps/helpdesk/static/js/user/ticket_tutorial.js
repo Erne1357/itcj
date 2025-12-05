@@ -597,8 +597,8 @@ class HelpdeskTutorial {
                 text: `
                     <p>Primero debes seleccionar el tipo de servicio que necesitas:</p>
                     <ul>
-                        <li><strong>SOPORTE:</strong> Para problemas con equipos físicos (computadoras, proyectores, impresoras, etc.)</li>
-                        <li><strong>DESARROLLO:</strong> Para problemas con software y sistemas (SII, SIISAE, Moodle, correo, etc.)</li>
+                        <li><strong>SOPORTE:</strong> Para solicitudes con equipos físicos (computadoras, proyectores, impresoras, etc.)</li>
+                        <li><strong>DESARROLLO:</strong> Para solicitudes con software y sistemas (SII, SIILE, SIISAE, Moodle, Correo, etc.)</li>
                     </ul>
                 `,
                 attachTo: {
@@ -655,8 +655,8 @@ class HelpdeskTutorial {
                 id: 'desarrollo-option',
                 title: 'Opción: Desarrollo',
                 text: `
-                    <p>También existe la opción de <strong>DESARROLLO</strong> para problemas con sistemas y software.</p>
-                    <p>Cuando seleccionas DESARROLLO, en lugar de equipos, deberás seleccionar una categoría específica del sistema con problemas (SII, Moodle, Correo, etc.).</p>
+                    <p>También existe la opción de <strong>DESARROLLO</strong> para solicitudes con sistemas y software.</p>
+                    <p>Cuando seleccionas DESARROLLO, en lugar de equipos, deberás seleccionar una categoría específica del sistema que solicita (SII, SIILE, SIISAE, Moodle, Correo, etc.).</p>
                 `,
                 attachTo: {
                     element: '[data-area="DESARROLLO"]',

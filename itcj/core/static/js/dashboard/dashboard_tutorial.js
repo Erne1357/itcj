@@ -579,13 +579,13 @@ class DashboardTutorial {
         return [
             {
                 id: 'welcome',
-                title: 'Bienvenido a la plataforma ITCJ',
+                title: '¡Bienvenido a la plataforma Digital ITCJ!',
                 text: `
                     <p>Este tutorial te guiará a través de las funcionalidades principales del dashboard.</p>
                     <p><strong>En esta plataforma tendrás acceso a varias aplicaciones:</strong></p>
                     <ul>
                         <li>📅 <strong>AgendaTec:</strong> Sistema para crear solicitudes de altas y bajas de materias agendando citas con el coordinador de carrera</li>
-                        <li>🎫 <strong>Help Desk:</strong> Sistema de tickets de soporte técnico</li>
+                        <li>🎫 <strong>Help Desk:</strong> Sistema de tickets de soporte del Centro de Cómputo</li>
                         <li>Y más aplicaciones según tus permisos...</li>
                     </ul>
                     <p><em>Nota: El acceso a cada aplicación depende de tus permisos asignados.</em></p>
@@ -647,8 +647,7 @@ class DashboardTutorial {
                 title: 'Demostración: Abrir Aplicación',
                 text: `
                     <p>Vamos a abrir Help Desk como ejemplo.</p>
-                    <p>Recuerda: necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> sobre el ícono de Help Desk.</p>
-                    <p>Haz doble click ahora sobre el ícono de Help Desk para continuar.</p>
+                    <p>Recuerda: necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> sobre el ícono de Help Desk para continuar con el tutorial.</p>
                 `,
                 attachTo: {
                     element: '[data-app="helpdesk"]',
@@ -766,7 +765,7 @@ class DashboardTutorial {
                     <p>El ícono de campana 🔔 te muestra las notificaciones del sistema.</p>
                     <p><strong>Características:</strong></p>
                     <ul>
-                        <li>Un badge rojo indica cuántas notificaciones sin leer tienes</li>
+                        <li>Un número en rojo indica cuántas notificaciones sin leer tienes</li>
                         <li>Al hacer click, se despliega un panel con tus notificaciones</li>
                         <li>Las notificaciones pueden ser de diferentes aplicaciones</li>
                     </ul>
@@ -935,7 +934,7 @@ class DashboardTutorial {
                     <p>Aquí puedes ver:</p>
                     <ul>
                         <li><strong>Tu información:</strong> Nombre, puesto y departamento</li>
-                        <li><strong>Botón de Configuración:</strong> Para ajustes del sistema</li>
+                        <li><strong>Botón de Configuración:</strong> Para ajustes del sistema (Solo usuarios con permisos)</li>
                         <li><strong>Botón de Cerrar Sesión:</strong> Para salir de forma segura</li>
                     </ul>
                     <p><strong>Muy importante:</strong> Para abrir tu perfil necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> en la sección donde aparece tu nombre y rol.</p>
@@ -1085,8 +1084,8 @@ class DashboardTutorial {
                     <ul>
                         <li>Datos personales (nombre, correo, teléfono)</li>
                         <li>Información laboral (puesto, departamento)</li>
-                        <li>Cambiar tu contraseña</li>
-                        <li>Configurar preferencias</li>
+                        <li>Permisos de las aplicaciones</li>
+                        <li>Historial de actividades y Notificaciones</li>
                     </ul>
                     <p><em>La primera pestaña contiene la información más importante de tu perfil.</em></p>
                 `,

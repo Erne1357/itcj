@@ -101,6 +101,50 @@
                     <div id="step2" class="step-content d-none">
                         <h4 class="mb-4 text-center">Cuéntanos los detalles</h4>
 
+                        <!-- Selector de Requester (solo para admins/comp_center) -->
+                        {% if can_create_for_other %}
+                        <div class="mb-4" id="requester-section">
+                            <label class="sitec-form-label">
+                                <i class="fas fa-user me-2"></i>¿De quién es esta solicitud?
+                            </label>
+                            <div class="alert alert-info mb-3">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <small>Puedes crear tickets para otros usuarios. Si lo dejas vacío, el ticket será tuyo.</small>
+                            </div>
+
+                            <!-- Botón para seleccionar usuario -->
+                            <button type="button" class="btn btn-outline-primary w-100 btn-select-requester" id="open-requester-modal">
+                                <i class="fas fa-search me-2"></i>
+                                <span id="requester-button-text">Seleccionar usuario (opcional)</span>
+                            </button>
+
+                            <!-- Preview del usuario seleccionado -->
+                            <div id="selected-requester-preview" class="mt-3" style="display: none;">
+                                <div class="card border-primary">
+                                    <div class="card-body p-3">
+                                        <div class="d-flex align-items-center">
+                                            <div class="me-3">
+                                                <i class="fas fa-user-circle fa-2x text-primary"></i>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <div class="fw-bold" id="preview-requester-name"></div>
+                                                <small class="text-muted" id="preview-requester-info"></small>
+                                            </div>
+                                            <div>
+                                                <button type="button" class="btn btn-sm btn-outline-danger" id="clear-requester-btn">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Input oculto para requester_id -->
+                            <input type="hidden" id="requester_id" name="requester_id">
+                        </div>
+                        {% endif %}
+
                         <!-- Categoría (solo para DESARROLLO) -->
                         <div class="mb-4" id="category-section">
                             <label for="category_id" class="sitec-form-label required">
@@ -577,6 +621,53 @@
         </div>
     </div>
 </div>
+<!-- Modal de Selección de Requester -->
+{% if can_create_for_other %}
+<div class="modal fade" id="requesterModal" tabindex="-1" aria-labelledby="requesterModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="requesterModalLabel">
+                    <i class="fas fa-user-circle me-2"></i>Seleccionar Usuario Solicitante
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Búsqueda -->
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="requester-search"
+                           placeholder="Buscar por nombre, email o número de control...">
+                </div>
+
+                <!-- Loading State -->
+                <div id="requester-loading" class="text-center py-5" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="text-muted mt-3">Cargando usuarios...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div id="requester-empty" class="text-center py-5" style="display: none;">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No se encontraron usuarios</p>
+                </div>
+
+                <!-- Lista de Usuarios -->
+                <div id="requester-list" style="max-height: 500px; overflow-y: auto;">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="confirm-requester-btn" disabled>
+                    <i class="fas fa-check me-2"></i>Confirmar Selección
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_css %}

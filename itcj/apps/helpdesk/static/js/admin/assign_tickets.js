@@ -534,6 +534,10 @@ async function confirmAssignment() {
         
         HelpdeskUtils.showToast('Ticket asignado exitosamente', 'success');
         
+        // Reset button
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        
         // Close modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('assignmentModal'));
         modal.hide();
@@ -635,6 +639,10 @@ async function confirmReassignment() {
         });
         
         HelpdeskUtils.showToast('Ticket reasignado exitosamente', 'success');
+        
+        // Reset button
+        btn.disabled = false;
+        btn.innerHTML = originalText;
         
         // Close modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('reassignmentModal'));

@@ -45,8 +45,8 @@
                     backText = "Administración";
                     break;
                 case 'secretary':
-                    backUrl = "{{ url_for('helpdesk_pages.secretary_pages.dashboard') }}";
-                    backText = "Secretaría";
+                    backUrl = "{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}";
+                    backText = "Assignar Tickets";
                 default:
                     // Mantener valores por defecto
                     break;
@@ -63,8 +63,8 @@
             } else if (referrer.includes('/help-desk/department')) {
                 backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
                 backText = "Departamento";
-            } else if (referrer.includes('/help-desk/admin')) {
-                backUrl = "/help-desk/admin/tickets";
+            } else if (referrer.includes('/help-desk/admin/assign-tickets')) {
+                backUrl = "/help-desk/admin/assign-tickets";
                 backText = "Administración";
             } else if (referrer.includes('/help-desk')) {
                 // Si viene de alguna página de helpdesk pero no coincide con las anteriores
@@ -86,15 +86,21 @@
             }
         }
 
-        // Aplicar la URL y texto determinados
-        backButton.href = backUrl;
-        backButtonText.textContent = backText;
+        // Solo mostrar el botón si la URL de retorno es válida y dentro de help-desk
+        if (backUrl && (backUrl.includes('/help-desk/') || fromParam || referrer.includes('/help-desk/'))) {
+            backButton.href = backUrl;
+            backButtonText.textContent = backText;
+            backButton.style.display = 'inline-block';
 
-        // Guardar en sessionStorage para futuras navegaciones
-        sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
-            url: backUrl,
-            text: backText
-        }));
+            // Guardar en sessionStorage para futuras navegaciones
+            sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
+                url: backUrl,
+                text: backText
+            }));
+        } else {
+            // Ocultar el botón si no viene de help-desk
+            backButton.style.display = 'none';
+        }
     });
 </script>
 {% endblock %}

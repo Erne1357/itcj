@@ -14,6 +14,7 @@ tickets_base_bp = Blueprint('tickets_base', __name__)
 
 
 # ==================== CREAR TICKET ====================
+@tickets_base_bp.post('')
 @tickets_base_bp.post('/')
 @api_app_required('helpdesk', perms=['helpdesk.tickets.api.create'])
 def create_ticket():
@@ -31,18 +32,21 @@ def create_ticket():
             "priority": "BAJA" | "MEDIA" | "ALTA" | "URGENTE" (opcional),
             "location": str (opcional),
             "office_folio": str (opcional),
-            "inventory_item_ids": [int] (opcional) - Array de IDs de equipos
+            "inventory_item_ids": [int] (opcional) - Array de IDs de equipos,
+            "requester_id": int (opcional) - ID del usuario solicitante (solo para admins/comp_center)
         }
-    
+
     Body (FormData):
         Los mismos campos + "photo": archivo de imagen
         Para inventory_item_ids usar: inventory_item_ids[] repetido o JSON string
-    
+
     Returns:
         201: Ticket creado exitosamente
         400: Datos inválidos
+        403: No autorizado para crear tickets para otros
     """
     user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     # Detectar si es FormData (multipart) o JSON
     if request.content_type and 'multipart/form-data' in request.content_type:
@@ -51,7 +55,7 @@ def create_ticket():
         for key in request.form:
             value = request.form[key]
             # Convertir a int si es necesario
-            if key == 'category_id':
+            if key in ['category_id', 'requester_id']:
                 data[key] = int(value) if value else None
             elif key == 'inventory_item_ids':
                 # Puede venir como JSON string
@@ -62,11 +66,11 @@ def create_ticket():
                     data[key] = []
             else:
                 data[key] = value
-        
+
         # Si viene como array HTML (inventory_item_ids[])
         if 'inventory_item_ids[]' in request.form:
             data['inventory_item_ids'] = request.form.getlist('inventory_item_ids[]', type=int)
-        
+
         # Obtener archivo de foto
         photo_file = request.files.get('photo')
     else:
@@ -105,7 +109,7 @@ def create_ticket():
                 'error': 'invalid_equipment_format',
                 'message': 'inventory_item_ids debe ser un array'
             }), 400
-        
+
         from itcj.apps.helpdesk.models import InventoryItem
         for item_id in inventory_item_ids:
             item = InventoryItem.query.get(item_id)
@@ -114,10 +118,52 @@ def create_ticket():
                     'error': 'invalid_equipment',
                     'message': f'El equipo {item_id} no es válido'
                 }), 400
-    
+
+    # Determinar el requester_id
+    requester_id = data.get('requester_id')
+
+    if requester_id and requester_id != user_id:
+        # El usuario está intentando crear un ticket para otra persona
+        # Verificar que tenga permiso
+        can_create_for_other = False
+
+        if 'admin' in user_roles:
+            can_create_for_other = True
+        else:
+            # Verificar si pertenece al Centro de Cómputo
+            from itcj.core.models.position import UserPosition
+            user_positions = UserPosition.query.filter_by(
+                user_id=user_id,
+                is_active=True
+            ).all()
+
+            for user_position in user_positions:
+                if user_position.position and user_position.position.department:
+                    if user_position.position.department.code == 'comp_center':
+                        can_create_for_other = True
+                        break
+
+        if not can_create_for_other:
+            return jsonify({
+                'error': 'forbidden',
+                'message': 'No tienes permiso para crear tickets para otros usuarios'
+            }), 403
+
+        # Verificar que el requester existe y está activo
+        from itcj.core.models.user import User
+        requester = User.query.get(requester_id)
+        if not requester or not requester.is_active:
+            return jsonify({
+                'error': 'invalid_requester',
+                'message': 'El usuario solicitante no es válido'
+            }), 400
+    else:
+        # Crear ticket para el mismo usuario
+        requester_id = user_id
+
     try:
         ticket = ticket_service.create_ticket(
-            requester_id=user_id,
+            requester_id=requester_id,
             area=data['area'],
             category_id=data['category_id'],
             title=data['title'].strip(),
@@ -126,7 +172,8 @@ def create_ticket():
             location=data.get('location'),
             office_folio=data.get('office_folio'),
             inventory_item_ids=inventory_item_ids,
-            photo_file=photo_file
+            photo_file=photo_file,
+            created_by_id=user_id
         )
 
         logger.info(f"Ticket {ticket.ticket_number} creado por usuario {user_id}")
@@ -155,6 +202,7 @@ def create_ticket():
 
 
 # ==================== LISTAR TICKETS ====================
+@tickets_base_bp.get('')
 @tickets_base_bp.get('/')
 @api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
 def list_tickets():
@@ -166,7 +214,8 @@ def list_tickets():
         - area: Filtrar por área (DESARROLLO/SOPORTE)
         - priority: Filtrar por prioridad
         - assigned_to_me: true/false - Solo asignados a mí
-        - created_by_me: true/false - Solo creados por mí
+        - assigned_to_team: desarrollo/soporte - Solo asignados al equipo (sin usuario específico)
+        - created_by_me: true/false - Solo donde soy el requester (quien solicitó el ticket)
         - department_id: Filtrar por departamento
         - page: Número de página (default: 1)
         - per_page: Items por página (default: 20, max: 100)
@@ -187,6 +236,7 @@ def list_tickets():
     area = request.args.get('area')
     priority = request.args.get('priority')
     assigned_to_me = request.args.get('assigned_to_me', 'false').lower() == 'true'
+    assigned_to_team = request.args.get('assigned_to_team')
     created_by_me = request.args.get('created_by_me', 'false').lower() == 'true'
     department_id = request.args.get('department_id', type=int)
     page = request.args.get('page', 1, type=int)
@@ -200,6 +250,7 @@ def list_tickets():
             area=area,
             priority=priority,
             assigned_to_me=assigned_to_me,
+            assigned_to_team=assigned_to_team,
             created_by_me=created_by_me,
             department_id=department_id,
             page=page,

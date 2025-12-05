@@ -45,13 +45,23 @@ class Notification(db.Model):
     )
     
     def to_dict(self, include_source=False):
+        # Sanitizar el campo data para asegurar que sea JSON serializable
+        sanitized_data = {}
+        if self.data:
+            for key, value in self.data.items():
+                # Convertir sets a listas
+                if isinstance(value, (set, frozenset)):
+                    sanitized_data[key] = list(value)
+                else:
+                    sanitized_data[key] = value
+        
         data = {
             'id': self.id,
             'app_name': self.app_name,
             'type': self.type,
             'title': self.title,
             'body': self.body,
-            'data': self.data or {},
+            'data': sanitized_data,
             'is_read': self.is_read,
             'read_at': self.read_at.isoformat() if self.read_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,

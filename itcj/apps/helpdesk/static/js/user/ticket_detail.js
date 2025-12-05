@@ -47,6 +47,9 @@ async function loadTicketDetail() {
                     renderStatusTimeline(currentTicket);
                     renderAssignmentInfo(currentTicket);
                     renderActionButtons(currentTicket);
+                    
+                    // Cargar photo attachment para mostrar badge
+                    await loadPhotoAttachment(currentTicket.id);
 
                     showState('main');
                     return;
@@ -73,6 +76,9 @@ async function loadTicketDetail() {
         renderStatusTimeline(currentTicket);
         renderAssignmentInfo(currentTicket);
         renderActionButtons(currentTicket);
+        
+        // Cargar photo attachment para mostrar badge
+        await loadPhotoAttachment(currentTicket.id);
 
         showState('main');
 
@@ -161,8 +167,6 @@ function renderTicketDetail(ticket) {
         renderEquipmentInfo(ticket.inventory_item);
     }
 
-    // Photo Attachment (if exists)
-    loadPhotoAttachment(ticket.id);
     // Quick Actions Menu
     renderQuickActions(ticket);
 
@@ -560,7 +564,7 @@ function renderSingleEquipmentPreview(equipment, container) {
     }
 
     container.innerHTML = `
-        <div class="d-flex align-items-start gap-3">
+        <div class="d-flex align-items-start gap-3 cursor-pointer hover-bg-light p-2 rounded" onclick="openEquipmentDetail(${equipment.id})" title="Click para ver detalles del equipo">
             <div class="equipment-icon-detail">
                 <i class="${icon}"></i>
             </div>
@@ -582,6 +586,11 @@ function renderSingleEquipmentPreview(equipment, container) {
                         </small>
                     </div>
                 ` : ''}
+                <div class="mt-2">
+                    <small class="text-muted">
+                        <i class="fas fa-hand-pointer me-1"></i>Click para ver más detalles
+                    </small>
+                </div>
             </div>
         </div>
     `;
@@ -593,7 +602,7 @@ function renderMultipleEquipmentPreview(equipmentList, container) {
     const groupInfo = firstEquipment.group || null;
 
     container.innerHTML = `
-        <div class="multiple-equipment-preview" onclick="openEquipmentListModal()">
+        <div class="multiple-equipment-preview cursor-pointer hover-bg-light p-2 rounded" onclick="openEquipmentListModal()" title="Click para ver la lista completa de equipos">
             <div class="d-flex align-items-start gap-3">
                 <div class="equipment-icon-detail">
                     <i class="fas fa-layer-group"></i>
@@ -648,6 +657,16 @@ function openEquipmentListModal() {
     modal.show();
 }
 
+// ==================== NAVIGATE TO EQUIPMENT DETAIL ====================
+function openEquipmentDetail(itemId) {
+    if (!itemId) {
+        console.error('Equipment ID is required');
+        return;
+    }
+    // Navegar a la página de detalle del equipo
+    window.location.href = `/help-desk/inventory/items/${itemId}`;
+}
+
 function renderEquipmentModalList(equipmentList) {
     const listContainer = document.getElementById('equipment-modal-list');
     const groupInfoContainer = document.getElementById('equipment-modal-group-info');
@@ -682,7 +701,7 @@ function renderEquipmentModalList(equipmentList) {
         const icon = equipment.category?.icon || 'fas fa-laptop';
 
         return `
-            <div class="equipment-modal-item">
+            <div class="equipment-modal-item cursor-pointer" onclick="openEquipmentDetail(${equipment.id})" title="Click para ver detalles">
                 <div class="d-flex align-items-start gap-3">
                     <div class="equipment-modal-icon">
                         <i class="${icon}"></i>

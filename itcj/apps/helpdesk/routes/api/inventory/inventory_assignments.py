@@ -370,8 +370,8 @@ def update_location():
     if not item or not item.is_active:
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
     
-    # Verificar permiso
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
+    # Verificar permisos
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         

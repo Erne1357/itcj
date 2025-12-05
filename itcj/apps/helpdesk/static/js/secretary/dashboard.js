@@ -229,27 +229,85 @@ function renderInventory(items) {
         return;
     }
     
-    container.innerHTML = items.map(item => `
-        <div class="border-bottom p-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1">${item.model}</h6>
-                    <small class="text-muted">
-                        ${item.category?.name || 'Sin categoría'} - 
-                        ${item.inventory_number || 'N/A'}
-                    </small>
-                    ${item.assigned_to ? `
-                        <br><small class="text-primary">
-                            <i class="fas fa-user me-1"></i>Asignado a: ${item.assigned_to.name}
-                        </small>
-                    ` : ''}
+    container.innerHTML = items.map(item => {
+        const icon = item.category?.icon || 'fas fa-laptop';
+        const statusColor = getEquipmentStatusColor(item.status);
+        
+        return `
+            <div class="inventory-item-card border-bottom p-3 cursor-pointer hover-bg-light" 
+                 onclick="viewInventoryItem(${item.id})" 
+                 title="Click para ver detalles del equipo">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="equipment-icon-dashboard">
+                        <i class="${icon}"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <div class="fw-bold text-primary mb-1">${item.inventory_number || 'N/A'}</div>
+                                <h6 class="mb-2">${item.brand || 'N/A'} ${item.model || ''}</h6>
+                            </div>
+                            <span class="badge ${statusColor}">
+                                ${item.status || 'UNKNOWN'}
+                            </span>
+                        </div>
+                        
+                        <div class="mb-2">
+                            <span class="badge bg-info">
+                                <i class="fas fa-tag me-1"></i>${item.category?.name || 'Sin categoría'}
+                            </span>
+                        </div>
+                        
+                        ${item.assigned_to ? `
+                            <div class="mb-2">
+                                <small class="text-muted d-block">Asignado a:</small>
+                                <strong><i class="fas fa-user me-1"></i>${item.assigned_to.name}</strong>
+                            </div>
+                        ` : `
+                            <div class="mb-2">
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-building me-1"></i>Disponible
+                                </span>
+                            </div>
+                        `}
+                        
+                        ${item.location_detail ? `
+                            <div>
+                                <small class="text-muted">
+                                    <i class="fas fa-map-marker-alt me-1"></i>${item.location_detail}
+                                </small>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <i class="fas fa-hand-pointer me-1"></i>Click para ver más detalles
+                            </small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-chevron-right text-muted"></i>
+                    </div>
                 </div>
-                <span class="badge ${item.status === 'ACTIVO' ? 'bg-success' : 'bg-secondary'}">
-                    ${item.status}
-                </span>
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
+}
+
+function getEquipmentStatusColor(status) {
+    const statusColors = {
+        'ACTIVE': 'bg-success',
+        'ACTIVO': 'bg-success',
+        'MAINTENANCE': 'bg-warning',
+        'MANTENIMIENTO': 'bg-warning',
+        'DAMAGED': 'bg-danger',
+        'DAÑADO': 'bg-danger',
+        'LOST': 'bg-dark',
+        'EXTRAVIADO': 'bg-dark',
+        'INACTIVE': 'bg-secondary',
+        'INACTIVO': 'bg-secondary'
+    };
+    return statusColors[status] || 'bg-secondary';
 }
 
 // ==================== FILTERS ====================
@@ -362,3 +420,9 @@ function viewTicket(ticketId) {
     window.location.href = `/help-desk/user/tickets/${ticketId}`;
 }
 window.viewTicket = viewTicket;
+
+function viewInventoryItem(itemId) {
+    // Redirect to inventory item detail page
+    window.location.href = `/help-desk/inventory/items/${itemId}`;
+}
+window.viewInventoryItem = viewInventoryItem;
