@@ -423,6 +423,92 @@ class DashboardTutorial {
             element.style.cursor = originalState.cursor;
         });
         this.originalInteractiveState.clear();
+
+        // Llamar a limpieza completa para asegurar que todo quede bien
+        this.cleanupTutorialState();
+    }
+
+    /**
+     * Limpia completamente el estado del tutorial
+     * Restaura TODOS los elementos que pudieron ser modificados
+     */
+    cleanupTutorialState() {
+        // IMPORTANTE: Restaurar específicamente el menú de perfil y sus elementos
+        const profileMenu = document.getElementById('profileMenu');
+        if (profileMenu) {
+            profileMenu.style.pointerEvents = '';
+            profileMenu.style.opacity = '';
+            profileMenu.style.cursor = '';
+        }
+
+        const profileOverlay = document.getElementById('profileMenuOverlay');
+        if (profileOverlay) {
+            profileOverlay.style.pointerEvents = '';
+            profileOverlay.style.opacity = '';
+        }
+
+        const userSection = document.getElementById('profileMenuUser');
+        if (userSection) {
+            userSection.style.pointerEvents = '';
+            userSection.style.opacity = '';
+            userSection.style.cursor = '';
+            userSection.style.position = '';
+            userSection.style.zIndex = '';
+            userSection.classList.remove('tutorial-highlight');
+        }
+
+        // Restaurar botones del menú (configuración y cerrar sesión)
+        const configButton = profileMenu?.querySelector('[onclick*="openConfigWindow"]');
+        if (configButton) {
+            configButton.style.pointerEvents = '';
+            configButton.style.opacity = '';
+            configButton.style.cursor = '';
+        }
+
+        const logoutButton = profileMenu?.querySelector('[onclick*="logout"]');
+        if (logoutButton) {
+            logoutButton.style.pointerEvents = '';
+            logoutButton.style.opacity = '';
+            logoutButton.style.cursor = '';
+        }
+
+        // Restaurar íconos de aplicaciones
+        document.querySelectorAll('.desktop-icon').forEach(icon => {
+            icon.style.pointerEvents = '';
+            icon.style.opacity = '';
+            icon.style.cursor = '';
+            icon.style.position = '';
+            icon.style.zIndex = '';
+        });
+
+        // Restaurar botones de la barra de tareas
+        document.querySelectorAll('.start-button, .pinned-app, .system-icon').forEach(btn => {
+            btn.style.pointerEvents = '';
+            btn.style.opacity = '';
+            btn.style.cursor = '';
+        });
+
+        // Restaurar cualquier ventana que haya quedado deshabilitada
+        document.querySelectorAll('.window-container').forEach(window => {
+            window.style.pointerEvents = '';
+            window.style.opacity = '';
+        });
+
+        // Restaurar todos los controles de ventana
+        document.querySelectorAll('.window-control').forEach(control => {
+            control.style.pointerEvents = '';
+            control.style.opacity = '';
+            control.style.cursor = '';
+        });
+
+        // Restaurar todos los botones, enlaces e inputs generales
+        document.querySelectorAll('button:not(.shepherd-button), a, input, select, textarea').forEach(element => {
+            if (!element.id || element.id !== 'dashboardTutorialButton') {
+                element.style.pointerEvents = '';
+                element.style.opacity = '';
+                element.style.cursor = '';
+            }
+        });
     }
 
     /**
@@ -972,6 +1058,18 @@ class DashboardTutorial {
                         const userSection = document.getElementById('profileMenuUser');
                         if (userSection) {
                             userSection.classList.remove('tutorial-highlight');
+                            userSection.style.pointerEvents = '';
+                        }
+
+                        // Restaurar el menú y overlay
+                        const menu = document.getElementById('profileMenu');
+                        if (menu) {
+                            menu.style.pointerEvents = '';
+                        }
+
+                        const overlay = document.getElementById('profileMenuOverlay');
+                        if (overlay) {
+                            overlay.style.pointerEvents = '';
                         }
                     }
                 },
@@ -1031,12 +1129,21 @@ class DashboardTutorial {
                         if (userSection) {
                             userSection.style.position = '';
                             userSection.style.zIndex = '';
+                            userSection.style.pointerEvents = '';
+                            userSection.style.opacity = '';
+                            userSection.style.cursor = '';
                         }
 
                         // Restaurar el overlay
                         const overlay = document.getElementById('profileMenuOverlay');
                         if (overlay) {
                             overlay.style.pointerEvents = '';
+                        }
+
+                        // Restaurar el menú de perfil
+                        const menu = document.getElementById('profileMenu');
+                        if (menu) {
+                            menu.style.pointerEvents = '';
                         }
 
                         // Desactivar modo tutorial del menú

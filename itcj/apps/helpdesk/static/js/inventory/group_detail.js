@@ -69,7 +69,8 @@ async function loadGroupDetail() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('No se pudo cargar el grupo');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudo cargar el grupo: ${errorMessage}`);
     }
 }
 
@@ -125,7 +126,8 @@ async function loadGroupEquipment() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('No se pudieron cargar los equipos del grupo');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los equipos del grupo: ${errorMessage}`);
     } finally {
         document.getElementById('equipment-loading').style.display = 'none';
     }
@@ -165,7 +167,8 @@ async function loadAvailableEquipment() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('No se pudieron cargar los equipos disponibles');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los equipos disponibles: ${errorMessage}`);
     } finally {
         document.getElementById('available-equipment-loading').style.display = 'none';
     }
@@ -426,7 +429,8 @@ async function addSelectedEquipment() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al agregar equipos: ${errorMessage}`);
     }
 }
 
@@ -451,7 +455,8 @@ async function removeEquipmentFromGroup(itemId) {
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al agregar equipos: ${errorMessage}`);
     }
 }
 
@@ -483,7 +488,8 @@ async function removeSelectedEquipment() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('Error al remover equipos');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al remover equipos: ${errorMessage}`);
     }
 }
 
@@ -527,7 +533,8 @@ async function confirmDeleteGroup() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al agregar equipos: ${errorMessage}`);
     }
 }
 

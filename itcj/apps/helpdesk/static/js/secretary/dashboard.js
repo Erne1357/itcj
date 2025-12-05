@@ -28,7 +28,8 @@ async function initializeDashboard() {
         
     } catch (error) {
         console.error('Error initializing dashboard:', error);
-        HelpdeskUtils.showToast('Error al cargar el dashboard', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar el dashboard: ${errorMessage}`, 'error');
     }
 }
 

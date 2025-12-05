@@ -77,7 +77,8 @@ async function loadInitialData() {
 
     } catch (error) {
         console.error('Error cargando datos:', error);
-        showError('No se pudieron cargar los datos del departamento');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los datos del departamento: ${errorMessage}`);
     }
 }
 
@@ -89,12 +90,15 @@ async function loadUserDepartment() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar departamento');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar departamento');
+        }
 
         const result = await response.json();
         currentDepartment = result.data;
 
-        document.getElementById('department-info').textContent = 
+        document.getElementById('department-info').textContent =
             `Gestionando equipos del ${currentDepartment.name}`;
 
     } catch (error) {
@@ -111,10 +115,13 @@ async function loadDepartmentUsers() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar usuarios');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar usuarios');
+        }
 
         const result = await response.json();
-        departmentUsers = result.data.users.sort((a, b) => 
+        departmentUsers = result.data.users.sort((a, b) =>
             a.full_name.localeCompare(b.full_name)
         );
 
@@ -135,7 +142,10 @@ async function loadDepartmentEquipment() {
             }
         );
 
-        if (!response.ok) throw new Error('Error al cargar equipos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar equipos');
+        }
 
         const result = await response.json();
         departmentEquipment = result.data;
@@ -180,7 +190,10 @@ async function loadCategories() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar categorías');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+        }
 
         const result = await response.json();
         allCategories = result.data;
@@ -666,17 +679,18 @@ async function handleAssign(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error al asignar equipo');
+            throw new Error(error.error || error.message || 'Error al asignar equipo');
         }
 
         $('#assignModal').modal('hide');
         showSuccess('Equipo asignado correctamente');
-        
+
         await refreshData();
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al asignar equipo: ${errorMessage}`);
     }
 }
 

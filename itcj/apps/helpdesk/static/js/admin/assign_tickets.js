@@ -34,7 +34,8 @@ async function initializeDashboard() {
         
     } catch (error) {
         console.error('Error initializing dashboard:', error);
-        HelpdeskUtils.showToast('Error al cargar el dashboard', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar el dashboard: ${errorMessage}`, 'error');
     }
 }
 
@@ -552,7 +553,8 @@ async function confirmAssignment() {
         
     } catch (error) {
         console.error('Error assigning ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al asignar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al asignar ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -654,7 +656,8 @@ async function confirmReassignment() {
         
     } catch (error) {
         console.error('Error reassigning ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al reasignar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al reasignar ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;

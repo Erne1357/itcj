@@ -55,7 +55,10 @@ async function loadGroups() {
                 }
             });
         }
-        if (!response.ok) throw new Error('Error al cargar grupos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar grupos');
+        }
 
         const result = await response.json();
         allGroups = result.data;
@@ -65,7 +68,8 @@ async function loadGroups() {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('No se pudieron cargar los grupos');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los grupos: ${errorMessage}`);
         hideLoading();
     }
 }
@@ -78,7 +82,10 @@ async function loadDepartments() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar departamentos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+        }
 
         const result = await response.json();
         allDepartments = result.data;
@@ -107,6 +114,8 @@ async function loadDepartments() {
 
     } catch (error) {
         console.error('Error cargando departamentos:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
     }
 }
 
@@ -118,13 +127,18 @@ async function loadCategories() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar categorías');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+        }
 
         const result = await response.json();
         allCategories = result.data;
 
     } catch (error) {
         console.error('Error cargando categorías:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
     }
 }
 
@@ -301,7 +315,10 @@ async function openEditGroupModal(groupId) {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar grupo');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar grupo');
+        }
 
         const result = await response.json();
         const group = result.data;
@@ -324,7 +341,8 @@ async function openEditGroupModal(groupId) {
 
     } catch (error) {
         console.error('Error:', error);
-        showError('No se pudo cargar el grupo');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudo cargar el grupo: ${errorMessage}`);
     }
 }
 
@@ -410,7 +428,7 @@ async function handleSubmit(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error al guardar grupo');
+            throw new Error(error.error || error.message || 'Error al guardar grupo');
         }
 
         $('#groupModal').modal('hide');
@@ -419,7 +437,8 @@ async function handleSubmit(e) {
 
     } catch (error) {
         console.error('Error:', error);
-        showError(error.message);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`Error al guardar grupo: ${errorMessage}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-save"></i> Guardar Grupo';

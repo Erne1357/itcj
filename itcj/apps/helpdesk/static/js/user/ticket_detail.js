@@ -84,7 +84,8 @@ async function loadTicketDetail() {
 
     } catch (error) {
         console.error('Error loading ticket:', error);
-        showError(error.message || 'No se pudo cargar el ticket');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudo cargar el ticket: ${errorMessage}`);
     }
 }
 
@@ -264,7 +265,8 @@ async function addComment() {
 
     } catch (error) {
         console.error('Error adding comment:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al agregar comentario', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al agregar comentario: ${errorMessage}`, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-paper-plane"></i>';
@@ -478,7 +480,8 @@ async function submitRating() {
 
     } catch (error) {
         console.error('Error al enviar evaluación:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al enviar la evaluación', 'danger');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al enviar la evaluación: ${errorMessage}`, 'danger');
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
@@ -517,7 +520,8 @@ async function confirmCancel() {
 
     } catch (error) {
         console.error('Error canceling ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al cancelar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cancelar ticket: ${errorMessage}`, 'error');
 
         btn.disabled = false;
         btn.innerHTML = originalText;

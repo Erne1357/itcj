@@ -514,9 +514,10 @@ class HelpdeskTutorial {
 
         } catch (error) {
             console.error('Error cargando ticket de ejemplo:', error);
+            const errorMessage = error.message || 'Error desconocido';
             TutorialUtils.showModal(
                 'Error en el Tutorial',
-                'Hubo un error al cargar el ticket de ejemplo. Por favor, recarga la página e intenta de nuevo.',
+                `Hubo un error al cargar el ticket de ejemplo: ${errorMessage}. Por favor, recarga la página e intenta de nuevo.`,
                 'error'
             );
             return null;

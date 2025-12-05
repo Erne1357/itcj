@@ -110,7 +110,8 @@ const RequesterSelection = {
             console.error('❌ Error cargando usuarios:', error);
             loadingDiv.style.display = 'none';
             emptyDiv.style.display = 'block';
-            HelpdeskUtils.showToast('Error al cargar usuarios', 'error');
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar usuarios: ${errorMessage}`, 'error');
         }
     },
 
@@ -302,7 +303,8 @@ const AreaSelection = {
 
         } catch (error) {
             console.error('❌ Error loading categories:', error);
-            HelpdeskUtils.showToast('Error al cargar categorías', 'error');
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar categorías: ${errorMessage}`, 'error');
         }
     },
 
@@ -426,6 +428,8 @@ const Equipment = {
 
         } catch (error) {
             console.error('❌ Error cargando categorías de inventario:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar categorías de inventario: ${errorMessage}`, 'error');
         }
     },
 
@@ -526,7 +530,8 @@ const Equipment = {
             console.error('❌ Error cargando grupos:', error);
             loadingDiv.style.display = 'none';
             emptyDiv.style.display = 'block';
-            HelpdeskUtils.showToast('Error al cargar grupos', 'error');
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar grupos: ${errorMessage}`, 'error');
         }
     },
 
@@ -691,7 +696,8 @@ const Equipment = {
             console.error('❌ Error cargando equipos del grupo:', error);
             loadingDiv.style.display = 'none';
             emptyDiv.style.display = 'block';
-            HelpdeskUtils.showToast('Error al cargar equipos', 'error');
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar equipos del grupo: ${errorMessage}`, 'error');
         }
     },
 
@@ -936,7 +942,8 @@ const Equipment = {
             console.error('❌ Error cargando equipos:', error);
             loadingDiv.style.display = 'none';
             emptyDiv.style.display = 'block';
-            HelpdeskUtils.showToast('Error al cargar equipos', 'error');
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar equipos: ${errorMessage}`, 'error');
         }
     },
 
@@ -1306,8 +1313,9 @@ const FormValidation = {
             }
         } catch (error) {
             console.error('❌ Error creating ticket:', error);
+            const errorMessage = error.message || 'Error desconocido';
             HelpdeskUtils.showToast(
-                error.message || 'Error al crear el ticket. Intenta nuevamente.',
+                `Error al crear el ticket: ${errorMessage}`,
                 'error'
             );
 

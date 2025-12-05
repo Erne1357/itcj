@@ -37,7 +37,8 @@ async function initializeDashboard() {
         
     } catch (error) {
         console.error('Error initializing dashboard:', error);
-        HelpdeskUtils.showToast('Error al cargar el dashboard', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar el dashboard: ${errorMessage}`, 'error');
     }
 }
 
@@ -333,7 +334,8 @@ async function confirmStartWork() {
         
     } catch (error) {
         console.error('Error starting ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al iniciar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al iniciar ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -530,7 +532,8 @@ async function confirmResolve() {
         
     } catch (error) {
         console.error('Error resolving ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al resolver ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al resolver ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -581,7 +584,8 @@ async function confirmSelfAssign() {
         
     } catch (error) {
         console.error('Error self-assigning ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al tomar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al tomar ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;

@@ -6,7 +6,7 @@ class WindowsDesktop {
     this.rows = 0
     this.desktopItems = [
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
-      { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket' },
+      { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
@@ -116,9 +116,25 @@ class WindowsDesktop {
   renderDesktopGrid() {
     const grid = document.getElementById('desktop-grid')
     if (!grid) return
+    
+    // Guardar elementos que ya están en el HTML (con customImage) en un mapa
+    const existingCustomElements = new Map()
+    this.desktopItems.filter(item => item.customImage).forEach(item => {
+      const existing = grid.querySelector(`[data-app="${item.id}"]`)
+      if (existing) {
+        existingCustomElements.set(item.id, existing)
+      }
+    })
+    
+    // Limpiar el grid
     grid.innerHTML = ''
 
     const buildTile = (item) => {
+      // Si tiene customImage, retornar el elemento existente del HTML
+      if (item.customImage) {
+        return existingCustomElements.get(item.id) || null
+      }
+      
       const el = document.createElement('div')
       el.className = 'desktop-icon'
       el.dataset.app = item.id
@@ -139,14 +155,19 @@ class WindowsDesktop {
     // 1) Papelera: última columna (C), última fila
     if (recycle) {
       const t = buildTile(recycle)
-      t.style.gridColumn = 1
-      t.style.gridRow = 1
-      grid.appendChild(t)
+      if (t) {
+        t.style.gridColumn = 1
+        t.style.gridRow = 1
+        grid.appendChild(t)
+      }
     }
 
     // 2) Normales (sin posición → el auto-placement los coloca de izq->der, arr->abajo)
     items.filter(i => i !== recycle )
-      .forEach(i => grid.appendChild(buildTile(i)))
+      .forEach(i => {
+        const tile = buildTile(i)
+        if (tile) grid.appendChild(tile)
+      })
 
     lucide.createIcons()
     // ¡La solución está aquí!
