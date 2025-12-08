@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== ASIGNAR TICKET ====================
 @assignments_api_bp.post('')
-@api_app_required('helpdesk', perms=['helpdesk.assign'])
+@api_app_required('helpdesk', perms=['helpdesk.assignments.api.assign'])
 def assign_ticket():
     """
     Asigna un ticket a un técnico o equipo (secretaría/admin).
@@ -58,11 +58,20 @@ def assign_ticket():
         )
         
         logger.info(f"Ticket {data['ticket_id']} asignado por usuario {user_id}")
-        
-        # TODO: Emitir evento SSE
-        # from itcj.apps.helpdesk.services.notification_service import notify_ticket_assigned
-        # notify_ticket_assigned(assignment)
-        
+
+        # Notificar al técnico asignado si se asignó a un usuario específico
+        if assignment.ticket.assigned_to_user_id:
+            from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+            from itcj.core.extensions import db
+            try:
+                HelpdeskNotificationHelper.notify_ticket_assigned(
+                    assignment.ticket,
+                    assignment.ticket.assigned_to
+                )
+                db.session.commit()
+            except Exception as notif_error:
+                logger.error(f"Error al enviar notificación de asignación: {notif_error}")
+
         return jsonify({
             'message': 'Ticket asignado exitosamente',
             'assignment': assignment.to_dict()
@@ -75,7 +84,7 @@ def assign_ticket():
 
 # ==================== REASIGNAR TICKET ====================
 @assignments_api_bp.post('/<int:ticket_id>/reassign')
-@api_app_required('helpdesk', perms=['helpdesk.reassign'])
+@api_app_required('helpdesk', perms=['helpdesk.assignments.api.reassign'])
 def reassign_ticket(ticket_id):
     """
     Reasigna un ticket que ya estaba asignado.
@@ -113,9 +122,29 @@ def reassign_ticket(ticket_id):
         )
         
         logger.info(f"Ticket {ticket_id} reasignado por usuario {user_id}")
-        
-        # TODO: Emitir evento SSE
-        
+
+        # Notificar al nuevo técnico asignado
+        from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+        from itcj.core.extensions import db
+        from itcj.core.models.user import User
+        try:
+            # Obtener el técnico anterior si había uno
+            previous_user = None
+            prev_assignments = assignment.ticket.assignments.filter_by(is_active=False).order_by(db.desc('created_at')).first()
+            if prev_assignments and prev_assignments.assigned_to_user_id:
+                previous_user = User.query.get(prev_assignments.assigned_to_user_id)
+
+            # Notificar a ambos si se asignó a un usuario específico
+            if assignment.ticket.assigned_to_user_id:
+                HelpdeskNotificationHelper.notify_ticket_reassigned(
+                    assignment.ticket,
+                    assignment.ticket.assigned_to,
+                    previous_user
+                )
+            db.session.commit()
+        except Exception as notif_error:
+            logger.error(f"Error al enviar notificación de reasignación: {notif_error}")
+
         return jsonify({
             'message': 'Ticket reasignado exitosamente',
             'assignment': assignment.to_dict()
@@ -150,9 +179,22 @@ def self_assign_ticket(ticket_id):
         )
         
         logger.info(f"Técnico {user_id} se auto-asignó el ticket {ticket_id}")
-        
-        # TODO: Emitir evento SSE
-        
+
+        # Notificar al solicitante que el técnico tomó su ticket
+        from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+        from itcj.core.extensions import db
+        from itcj.core.models.user import User
+        try:
+            technician = User.query.get(user_id)
+            if technician:
+                HelpdeskNotificationHelper.notify_ticket_self_assigned(
+                    assignment.ticket,
+                    technician
+                )
+            db.session.commit()
+        except Exception as notif_error:
+            logger.error(f"Error al enviar notificación de auto-asignación: {notif_error}")
+
         return jsonify({
             'message': 'Te has asignado el ticket exitosamente',
             'assignment': assignment.to_dict()
@@ -165,7 +207,7 @@ def self_assign_ticket(ticket_id):
 
 # ==================== HISTORIAL DE ASIGNACIONES ====================
 @assignments_api_bp.get('/<int:ticket_id>/history')
-@api_app_required('helpdesk', perms=['helpdesk.all.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.all'])
 def get_assignment_history(ticket_id):
     """
     Obtiene el historial completo de asignaciones de un ticket.
@@ -250,7 +292,7 @@ def get_team_tickets(team_name):
 
 # ==================== OBTENER TÉCNICOS DISPONIBLES ====================
 @assignments_api_bp.get('/technicians/<string:area>')
-@api_app_required('helpdesk', perms=['helpdesk.assign'])
+@api_app_required('helpdesk', perms=['helpdesk.assignments.api.assign'])
 def get_available_technicians(area):
     """
     Obtiene la lista de técnicos disponibles para un área.
@@ -309,7 +351,7 @@ def get_available_technicians(area):
 
 # ==================== ESTADÍSTICAS DE ASIGNACIÓN ====================
 @assignments_api_bp.get('/stats')
-@api_app_required('helpdesk', perms=['helpdesk.all.read'])
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.all'])
 def get_assignment_stats():
     """
     Obtiene estadísticas de asignación de tickets.

@@ -1,0 +1,24 @@
+.group-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+}
+.stat-card {
+    border-left: 4px solid #667eea;
+}
+.equipment-item {
+    transition: background-color 0.2s;
+}
+.equipment-item:hover {
+    background-color: #f8f9fc;
+}
+.capacity-progress {
+    height: 25px;
+    font-size: 0.875rem;
+}
+.equipment-checkbox {
+    transform: scale(1.2);
+    cursor: pointer;
+}

@@ -1,0 +1,48 @@
+.slot-btn {
+    transition: transform .08s ease;
+}
+
+.slot-btn.active {
+    transform: scale(0.98);
+}
+
+.slot-btn.held {
+    background-color: #ffe9b3;
+    border-color: #ffda6a;
+    animation: holdPulse 1.2s ease-out infinite;
+}
+
+/* ámbar suave */
+.slot-btn.booked,
+.slot-btn:disabled {
+    background-color: #e9ecef;
+    color: #6c757d;
+}
+
+.slot-hold-controls {
+    gap: .5rem;
+}
+
+.slot-hold-timer {
+    font-size: .85rem;
+    color: #6c757d;
+}
+
+@keyframes holdPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 193, 7, .7);
+    }
+
+    70% {
+        box-shadow: 0 0 0 10px rgba(255, 193, 7, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+    }
+}
+
+.slot-btn.held-self {
+    animation: none !important;
+    border-color: #00ff55 !important;
+}

@@ -1,0 +1,198 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Grupos de Equipos - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups_list.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0 text-gray-800">
+                <i class="fas fa-layer-group fa-fw"></i> Grupos de Equipos
+            </h1>
+            <p class="text-muted mb-0">Gestión de salones, laboratorios y agrupaciones de equipos</p>
+        </div>
+        <div>
+            {% if 'admin' in user_roles or 'department_head' in user_roles %}
+            <button class="btn btn-primary" onclick="openCreateGroupModal()">
+                <i class="fas fa-plus-circle"></i> Crear Grupo
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card shadow mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <input 
+                        type="text" 
+                        class="form-control" 
+                        id="search-input" 
+                        placeholder="Buscar grupos..."
+                    >
+                </div>
+                {% if can_view_all %}
+                <div class="col-md-4">
+                    <select class="form-control" id="department-filter">
+                        <option value="">Todos los departamentos</option>
+                    </select>
+                </div>
+                {% endif %}
+                <div class="col-md-4">
+                    <select class="form-control" id="type-filter">
+                        <option value="">Todos los tipos</option>
+                        <option value="CLASSROOM">Salón</option>
+                        <option value="LABORATORY">Laboratorio</option>
+                        <option value="OFFICE">Oficina</option>
+                        <option value="MEETING_ROOM">Sala de Reuniones</option>
+                        <option value="OTHER">Otro</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading-container" class="text-center py-5">
+        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <p class="text-muted">Cargando grupos...</p>
+    </div>
+
+    <!-- Lista de Grupos (Grid) -->
+    <div id="groups-container" class="row" style="display: none;">
+        <!-- Se llenará con JavaScript -->
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" style="display: none;" class="text-center py-5">
+        <i class="fas fa-layer-group fa-4x text-muted mb-3"></i>
+        <h5 class="text-muted">No hay grupos registrados</h5>
+        <p class="text-muted">Crea tu primer grupo de equipos</p>
+        {% if 'admin' in user_roles or 'department_head' in user_roles %}
+        <button class="btn btn-primary mt-3" onclick="openCreateGroupModal()">
+            <i class="fas fa-plus-circle"></i> Crear Grupo
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal: Crear/Editar Grupo -->
+<div class="modal fade" id="groupModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-layer-group"></i> <span id="modal-title">Crear Grupo</span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="group-form">
+                <div class="modal-body">
+                    <input type="hidden" id="group-id">
+                    
+                    <!-- Información Básica -->
+                    <div class="form-row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="required-field">Nombre del Grupo</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="group-name" 
+                                    placeholder="Ej: Salón 203, Lab Electrónica"
+                                    required
+                                >
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="required-field">Tipo</label>
+                                <select class="form-control" id="group-type" required>
+                                    <option value="CLASSROOM">Salón</option>
+                                    <option value="LABORATORY">Laboratorio</option>
+                                    <option value="OFFICE">Oficina</option>
+                                    <option value="MEETING_ROOM">Sala de Reuniones</option>
+                                    <option value="WORKSHOP">Taller</option>
+                                    <option value="OTHER">Otro</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="required-field">Departamento</label>
+                        <select class="form-control" id="group-department" required>
+                            <option value="">Seleccionar...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Descripción</label>
+                        <textarea 
+                            class="form-control" 
+                            id="group-description" 
+                            rows="2"
+                            placeholder="Descripción opcional del grupo"
+                        ></textarea>
+                    </div>
+
+                    <!-- Ubicación -->
+                    <div class="form-row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Edificio</label>
+                                <input type="text" class="form-control" id="group-building" placeholder="Ej: A, B, Principal">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Piso</label>
+                                <input type="text" class="form-control" id="group-floor" placeholder="Ej: 1, 2, PB">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Notas de Ubicación</label>
+                                <input type="text" class="form-control" id="group-location-notes" placeholder="Ala norte, etc.">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Capacidades -->
+                    <hr>
+                    <h6 class="mb-3">
+                        <i class="fas fa-sliders-h"></i> Capacidades por Categoría
+                    </h6>
+                    <p class="text-muted small">Define cuántos equipos de cada tipo puede contener este grupo</p>
+                    
+                    <div id="capacities-container">
+                        <!-- Se llenará dinámicamente -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Guardar Grupo
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const departmentId = {% if department_id %}{{ department_id }}{% else %}null{% endif %};
+    const canViewAll = {{ 'true' if can_view_all else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups_list.js') }}?v={{static_version}}"></script>
+{% endblock %}

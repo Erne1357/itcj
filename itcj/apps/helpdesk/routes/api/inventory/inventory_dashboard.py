@@ -2,7 +2,7 @@
 API para widgets del dashboard de inventario
 """
 from flask import Blueprint, request, jsonify, g
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 from itcj.apps.helpdesk.models import InventoryItem
@@ -24,9 +24,10 @@ def get_quick_stats():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     # Si es admin o secretaría: stats globales
-    if 'admin' in user_roles or 'helpdesk_secretary' in user_roles:
+    if 'admin' in user_roles or user_id in secretary_comp_center:
         stats = InventoryStatsService.get_overview_stats()
         
         return jsonify({
@@ -108,7 +109,7 @@ def get_quick_stats():
 
 
 @bp.route('/widgets/alerts', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_alerts():
     """
     Alertas del inventario (garantías, mantenimiento, etc.)
@@ -170,12 +171,14 @@ def get_alerts():
     
     # Equipos problemáticos (>10 tickets en 6 meses)
     six_months_ago = date.today() - timedelta(days=180)
-    from itcj.apps.helpdesk.models import Ticket
-    
+    from itcj.apps.helpdesk.models import Ticket, TicketInventoryItem
+
     problematic = db.session.query(
         InventoryItem.id
     ).join(
-        Ticket, Ticket.inventory_item_id == InventoryItem.id
+        TicketInventoryItem, TicketInventoryItem.inventory_item_id == InventoryItem.id
+    ).join(
+        Ticket, Ticket.id == TicketInventoryItem.ticket_id
     ).filter(
         InventoryItem.is_active == True,
         Ticket.created_at >= six_months_ago
@@ -224,11 +227,12 @@ def get_recent_activity():
     
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     department_id = None
     
     # Si es jefe de depto, filtrar por su departamento
-    if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
@@ -279,9 +283,10 @@ def get_category_chart():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     # Admin/Secretaría: todas las categorías
-    if 'admin' in user_roles or 'helpdesk_secretary' in user_roles:
+    if 'admin' in user_roles or user_id in secretary_comp_center:
         stats = InventoryStatsService.get_by_category()
     else:
         # Jefe de depto: solo su departamento
@@ -346,11 +351,12 @@ def get_status_chart():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     query = InventoryItem.query.filter(InventoryItem.is_active == True)
     
-    # Filtrar por departamento si no es admin
-    if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
+    # Filtrar por departamento si no es admin ni técnico
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if user_dept:

@@ -3,7 +3,7 @@ API para gestión de items del inventario (equipos)
 """
 from flask import Blueprint, request, jsonify, g,current_app
 from itcj.core.extensions import db
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models import InventoryItem, InventoryCategory
 from itcj.apps.helpdesk.services.inventory_service import InventoryService
@@ -40,13 +40,15 @@ def get_items():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     user_dept = None
+
     
     # Query base
     query = InventoryItem.query.filter_by(is_active=True)
     
     # Permisos: restringir por rol
-    if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         # Jefe de departamento: solo su departamento
         if 'department_head' in user_roles:
             # Obtener departamento del usuario
@@ -66,7 +68,11 @@ def get_items():
                 }), 200
         else:
             # Usuario normal: solo sus equipos asignados
-            query = query.filter(InventoryItem.assigned_to_user_id == user_id)
+            department_id = request.args.get('department_id', type=int)
+            if department_id:
+                query = query.filter(InventoryItem.department_id == department_id)
+            else:
+                query = query.filter(InventoryItem.assigned_to_user_id == user_id)
     
     # Filtros
     category_id = request.args.get('category_id', type=int)
@@ -89,7 +95,10 @@ def get_items():
         elif assigned.lower() == 'no':
             query = query.filter(InventoryItem.assigned_to_user_id.is_(None))
 
-    current_app.logger.warning("Búsqueda de items de inventario", extra={"query": str(query)})
+    department_id = request.args.get('department_id', type=int)
+    current_app.logger.warning(f"Department ID filter: {department_id}")
+    if department_id:
+        query = query.filter(InventoryItem.department_id == department_id)
 
     # Búsqueda
     search = request.args.get('search')
@@ -136,6 +145,7 @@ def get_item(item_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     item = InventoryItem.query.get(item_id)
     
@@ -146,7 +156,7 @@ def get_item(item_id):
         }), 404
     
     # Verificar permisos
-    if 'admin' not in user_roles and 'helpdesk_secretary' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and ('tech_soporte' not in user_roles and 'tech_desarrollo' not in user_roles):
         # Jefe de depto: solo su departamento
         if 'department_head' in user_roles:
             from itcj.core.services.departments_service import get_user_department
@@ -170,8 +180,88 @@ def get_item(item_id):
     }), 200
 
 
+@bp.route('/<int:item_id>/tickets', methods=['GET'])
+@api_app_required('helpdesk')
+def get_item_tickets(item_id):
+    """
+    Obtener tickets relacionados con un item de inventario
+    
+    Query params:
+        - status: str (opcional) - filtrar por estado de ticket
+        - page: int (default: 1)
+        - per_page: int (default: 20, max: 100)
+    
+    Returns:
+        200: Lista de tickets
+        403: Sin permiso
+        404: Item no encontrado
+    """
+    from itcj.apps.helpdesk.models import Ticket, TicketInventoryItem
+    
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+    
+    item = InventoryItem.query.get(item_id)
+    
+    if not item or not item.is_active:
+        return jsonify({
+            'success': False,
+            'error': 'Equipo no encontrado'
+        }), 404
+    
+    # Verificar permisos (mismo esquema que get_item)
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and ('tech_soporte' not in user_roles and 'tech_desarrollo' not in user_roles):
+        if 'department_head' in user_roles:
+            from itcj.core.services.departments_service import get_user_department
+            user_dept = get_user_department(user_id)
+            if not user_dept or item.department_id != user_dept.id:
+                return jsonify({
+                    'success': False,
+                    'error': 'No tiene permiso para ver los tickets de este equipo'
+                }), 403
+        else:
+            # Usuario: solo si es su equipo
+            if item.assigned_to_user_id != user_id:
+                return jsonify({
+                    'success': False,
+                    'error': 'No tiene permiso para ver los tickets de este equipo'
+                }), 403
+    
+    # Query base: obtener tickets relacionados con este item
+    query = db.session.query(Ticket).join(
+        TicketInventoryItem,
+        TicketInventoryItem.ticket_id == Ticket.id
+    ).filter(
+        TicketInventoryItem.inventory_item_id == item_id
+    ).order_by(Ticket.created_at.desc())
+    
+    # Filtro por estado si se proporciona
+    status = request.args.get('status')
+    if status:
+        query = query.filter(Ticket.status == status)
+    
+    # Paginación
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', 20, type=int), 100)
+    
+    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    # Serializar tickets
+    tickets = [ticket.to_dict(include_relations=True) for ticket in paginated.items]
+    
+    return jsonify({
+        'success': True,
+        'tickets': tickets,
+        'total': paginated.total,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': paginated.pages
+    }), 200
+
+
 @bp.route('', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.create'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.create'])
 def create_item():
     """
     Registrar nuevo equipo en el inventario
@@ -260,7 +350,7 @@ def create_item():
 
 
 @bp.route('/<int:item_id>', methods=['PATCH'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.edit'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.update'])
 def update_item(item_id):
     """
     Actualizar información de un equipo
@@ -316,7 +406,7 @@ def update_item(item_id):
 
 
 @bp.route('/<int:item_id>/status', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.edit'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.update'])
 def change_item_status(item_id):
     """
     Cambiar estado de un equipo
@@ -371,7 +461,7 @@ def change_item_status(item_id):
 
 
 @bp.route('/<int:item_id>/deactivate', methods=['POST'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.deactivate'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.delete'])
 def deactivate_item(item_id):
     """
     Dar de baja un equipo (soft delete)
@@ -419,18 +509,53 @@ def deactivate_item(item_id):
 def get_my_equipment():
     """
     Obtener equipos asignados al usuario actual
-    
+
     Query params:
         - category_id: int (opcional)
-    
+
     Returns:
         200: Lista de equipos del usuario
     """
     user_id = int(g.current_user['sub'])
     category_id = request.args.get('category_id', type=int)
-    
+
     items = InventoryService.get_items_for_user(user_id, category_id)
-    
+
+    return jsonify({
+        'success': True,
+        'data': [item.to_dict(include_relations=True) for item in items],
+        'total': len(items)
+    }), 200
+
+
+@bp.route('/user/<int:target_user_id>/equipment', methods=['GET'])
+@api_app_required('helpdesk')
+def get_user_equipment(target_user_id):
+    """
+    Obtener equipos asignados a un usuario específico
+    (Solo para Centro de Cómputo - crear tickets por otros usuarios)
+
+    Query params:
+        - category_id: int (opcional)
+
+    Returns:
+        200: Lista de equipos del usuario
+        403: Sin permiso
+    """
+    current_user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(current_user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+
+    # Solo Centro de Cómputo puede consultar equipos de otros usuarios
+    if 'admin' not in user_roles and current_user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+        return jsonify({
+            'success': False,
+            'error': 'No tiene permiso para consultar equipos de otros usuarios'
+        }), 403
+
+    category_id = request.args.get('category_id', type=int)
+    items = InventoryService.get_items_for_user(target_user_id, category_id)
+
     return jsonify({
         'success': True,
         'data': [item.to_dict(include_relations=True) for item in items],
@@ -439,7 +564,7 @@ def get_my_equipment():
 
 
 @bp.route('/department/<int:department_id>', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.own_dept'])
 def get_department_equipment(department_id):
     """
     Obtener equipos de un departamento
@@ -453,9 +578,11 @@ def get_department_equipment(department_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+
     
     # Verificar permiso si no es admin
-    if 'admin' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:

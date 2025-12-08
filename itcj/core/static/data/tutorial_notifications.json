@@ -1,0 +1,42 @@
+{
+  "notifications": [
+    {
+      "id": "tutorial-notif-1",
+      "title": "Nuevo ticket asignado",
+      "message": "Se te ha asignado el ticket #2025-001 - Computadora no enciende",
+      "type": "info",
+      "app": "helpdesk",
+      "icon": "ticket",
+      "timestamp": "2025-01-15T10:30:00",
+      "read": false,
+      "priority": "medium"
+    },
+    {
+      "id": "tutorial-notif-2",
+      "title": "Evento próximo en AgendaTec",
+      "message": "Recordatorio: Reunión de departamento mañana a las 9:00 AM",
+      "type": "warning",
+      "app": "agendatec",
+      "icon": "calendar",
+      "timestamp": "2025-01-15T09:15:00",
+      "read": false,
+      "priority": "high"
+    },
+    {
+      "id": "tutorial-notif-3",
+      "title": "Actualización del sistema",
+      "message": "La plataforma ITCJ ha sido actualizada con nuevas funcionalidades",
+      "type": "success",
+      "app": "core",
+      "icon": "info",
+      "timestamp": "2025-01-15T08:00:00",
+      "read": false,
+      "priority": "low"
+    }
+  ],
+  "metadata": {
+    "version": "1.0",
+    "tutorial_mode": true,
+    "description": "Notificaciones de ejemplo para el tutorial del dashboard"
+  }
+}

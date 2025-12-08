@@ -26,27 +26,27 @@ def student_home():
     last_time_str = os.getenv('LAST_TIME_STUDENT_ADMIT')    
     last_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')            
     if datetime.now() > last_time:
-        return render_template("student/close.html", title = "Periodo terminado")
+        return render_template("agendatec/student/close.html", title = "Periodo terminado")
     g.current_user["has_appointment"] = has_request(g.current_user["sub"])
-    return render_template("student/home.html", title="Alumno - Inicio")
+    return render_template("agendatec/student/home.html", title="Alumno - Inicio")
 
 @student_pages_bp.get("/requests")
 @login_required
 @app_required("agendatec",roles=["student"])
 def student_requests():
-    return render_template("student/requests.html", title="Alumno - Mis solicitudes")
+    return render_template("agendatec/student/requests.html", title="Alumno - Mis solicitudes")
 
 @student_pages_bp.get("/request")
 @login_required
 @app_required("agendatec",roles=["student"])
 def student_new_request():
-    return render_template("student/new_request.html", title="Alumno - Nueva solicitud")
+    return render_template("agendatec/student/new_request.html", title="Alumno - Nueva solicitud")
 
 @student_pages_bp.get("/close")
 @login_required
 @app_required("agendatec",roles=["student"])
 def student_close():
     start, end = get_student_window()
-    return render_template("student/close.html",
+    return render_template("agendatec/student/close.html",
                            win_from=fmt_spanish(start),
                            win_to=fmt_spanish(end))

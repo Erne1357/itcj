@@ -4,18 +4,20 @@ from datetime import datetime
 
 class Position(db.Model):
     """Puestos organizacionales (Coordinador, Jefe de Depto, etc.)"""
-    __tablename__ = "positions"
+    __tablename__ = "core_positions"
     
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False, index=True)  # ej: 'coord_sistemas'
     title = db.Column(db.String(120), nullable=False)  # ej: 'Coordinador de Sistemas'
     description = db.Column(db.Text)
     email = db.Column(db.String(150), nullable=True, unique=True, index=True)  # Email oficial del puesto (si aplica)
-    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
+    department_id = db.Column(db.Integer, db.ForeignKey('core_departments.id'), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now(), nullable=False)
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now(), nullable=False)
     allows_multiple = db.Column(db.Boolean, nullable=False, default=False)  # Si varios usuarios pueden tener este puesto simultáneamente
+    phone_extension = db.Column(db.String(10), nullable=True)  # Extensión: "2000", "2460"
+    phone_notes = db.Column(db.String(200), nullable=True)     # Opcional: "Ext. de 10 a 14 hrs"
     # Relaciones
     user_assignments = db.relationship("UserPosition", back_populates="position", cascade="all, delete-orphan")
     app_role_assignments = db.relationship("PositionAppRole", back_populates="position", cascade="all, delete-orphan")
@@ -27,11 +29,11 @@ class Position(db.Model):
 
 class UserPosition(db.Model):
     """Asignación de usuarios a puestos (con fechas de vigencia)"""
-    __tablename__ = "user_positions"
+    __tablename__ = "core_user_positions"
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.BigInteger, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    position_id = db.Column(db.Integer, db.ForeignKey("positions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    position_id = db.Column(db.Integer, db.ForeignKey("core_positions.id", ondelete="CASCADE"), nullable=False, index=True)
     start_date = db.Column(db.Date, nullable=False, default=db.func.current_date())
     end_date = db.Column(db.Date)  # NULL significa activo
     is_active = db.Column(db.Boolean, nullable=False, default=True)
@@ -50,11 +52,11 @@ class UserPosition(db.Model):
 
 class PositionAppRole(db.Model):
     """Roles que tiene un puesto en cada aplicación"""
-    __tablename__ = "position_app_roles"
+    __tablename__ = "core_position_app_roles"
     
-    position_id = db.Column(db.Integer, db.ForeignKey("positions.id", ondelete="CASCADE"), primary_key=True)
-    app_id = db.Column(db.Integer, db.ForeignKey("apps.id", ondelete="CASCADE"), primary_key=True)
-    role_id = db.Column(db.Integer, db.ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
+    position_id = db.Column(db.Integer, db.ForeignKey("core_positions.id", ondelete="CASCADE"), primary_key=True)
+    app_id = db.Column(db.Integer, db.ForeignKey("core_apps.id", ondelete="CASCADE"), primary_key=True)
+    role_id = db.Column(db.Integer, db.ForeignKey("core_roles.id", ondelete="CASCADE"), primary_key=True)
     
     # Relaciones
     position = db.relationship("Position", back_populates="app_role_assignments")
@@ -67,11 +69,11 @@ class PositionAppRole(db.Model):
 
 class PositionAppPerm(db.Model):
     """Permisos directos que tiene un puesto en cada aplicación"""
-    __tablename__ = "position_app_perms"
+    __tablename__ = "core_position_app_perms"
     
-    position_id = db.Column(db.Integer, db.ForeignKey("positions.id", ondelete="CASCADE"), primary_key=True)
-    app_id = db.Column(db.Integer, db.ForeignKey("apps.id", ondelete="CASCADE"), primary_key=True)
-    perm_id = db.Column(db.Integer, db.ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True)
+    position_id = db.Column(db.Integer, db.ForeignKey("core_positions.id", ondelete="CASCADE"), primary_key=True)
+    app_id = db.Column(db.Integer, db.ForeignKey("core_apps.id", ondelete="CASCADE"), primary_key=True)
+    perm_id = db.Column(db.Integer, db.ForeignKey("core_permissions.id", ondelete="CASCADE"), primary_key=True)
     allow = db.Column(db.Boolean, nullable=False, default=True)
     
     # Relaciones
@@ -86,11 +88,11 @@ class PositionAppPerm(db.Model):
 # itcj/core/models/program_position.py (específico para AgendaTec)
 class ProgramPosition(db.Model):
     """Relación entre puestos y programas académicos (ej: coordinadores)"""
-    __tablename__ = "program_positions"
+    __tablename__ = "core_program_positions"
     
     id = db.Column(db.Integer, primary_key=True)
-    position_id = db.Column(db.Integer, db.ForeignKey("positions.id", ondelete="CASCADE"), nullable=False)
-    program_id = db.Column(db.Integer, db.ForeignKey("programs.id", ondelete="CASCADE"), nullable=False)
+    position_id = db.Column(db.Integer, db.ForeignKey("core_positions.id", ondelete="CASCADE"), nullable=False)
+    program_id = db.Column(db.Integer, db.ForeignKey("core_programs.id", ondelete="CASCADE"), nullable=False)
     responsibilities = db.Column(db.Text)  # Responsabilidades específicas
     created_at = db.Column(db.DateTime, server_default=db.func.now(), nullable=False)
     

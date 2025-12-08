@@ -10,7 +10,6 @@
 // ==================== GLOBAL STATE ====================
 let departmentTickets = [];
 let departmentUsers = [];
-let categories = [];
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }));
     
     initializeDashboard();
-    setupModals();
     setupFilters();
 });
 
@@ -31,7 +29,6 @@ async function initializeDashboard() {
             loadDepartmentStats(),
             loadDepartmentTickets(),
             loadDepartmentUsers(),
-            loadCategories(),
             loadRecentActivity()
         ]);
         
@@ -40,7 +37,8 @@ async function initializeDashboard() {
         
     } catch (error) {
         console.error('Error initializing dashboard:', error);
-        HelpdeskUtils.showToast('Error al cargar el dashboard', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar el dashboard: ${errorMessage}`, 'error');
     }
 }
 
@@ -59,7 +57,7 @@ async function loadDepartmentStats() {
             per_page: 1000
         });
         
-        const tickets = response.items || [];
+        const tickets = response.tickets || [];
         
         // Active tickets
         const active = tickets.filter(t => 
@@ -119,7 +117,7 @@ async function loadDepartmentTickets() {
             per_page: 100
         });
         
-        departmentTickets = response.items || [];
+        departmentTickets = response.tickets || [];
         document.getElementById('ticketsBadge').textContent = departmentTickets.length;
         
         renderTickets(departmentTickets);
@@ -143,7 +141,7 @@ function renderTickets(tickets) {
             <div class="text-center py-5">
                 <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
                 <p class="text-muted">No hay tickets del departamento</p>
-                <button class="btn btn-primary mt-3" onclick="openCreateTicketModal()">
+                <button class="btn btn-primary mt-3" onclick="window.location.href='/help-desk/user/create'">
                     <i class="fas fa-plus me-2"></i>Crear Primer Ticket
                 </button>
             </div>
@@ -153,7 +151,7 @@ function renderTickets(tickets) {
     
     container.innerHTML = tickets.map(ticket => `
         <div class="ticket-dept-card border-bottom p-3" 
-             onclick="HelpdeskUtils.goToTicketDetailNewTab(${ticket.id}, 'department')"
+             onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'department')"
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -343,26 +341,6 @@ async function loadRecentActivity() {
     }
 }
 
-// ==================== CATEGORIES ====================
-async function loadCategories() {
-    try {
-        const response = await HelpdeskUtils.api.getCategories();
-        categories = response.categories || [];
-    } catch (error) {
-        console.error('Error loading categories:', error);
-    }
-}
-
-function updateCategoriesSelect(area) {
-    const select = document.getElementById('ticketCategory');
-    const filtered = categories.filter(c => c.area === area && c.is_active);
-    
-    select.innerHTML = filtered.length > 0
-        ? '<option value="">Selecciona una categoría...</option>' +
-          filtered.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
-        : '<option value="">No hay categorías disponibles</option>';
-}
-
 // ==================== FILTERS ====================
 function setupFilters() {
     const filterStatus = document.getElementById('filterStatus');
@@ -406,97 +384,14 @@ function applyFilters() {
 }
 
 // ==================== MODALS ====================
-function setupModals() {
-    // Area change in create ticket
-    document.querySelectorAll('input[name="ticketArea"]').forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            updateCategoriesSelect(e.target.value);
-        });
-    });
-    
-    // Submit buttons
-    document.getElementById('btnSubmitTicket').addEventListener('click', submitTicket);
-    document.getElementById('btnSubmitUser').addEventListener('click', submitUser);
-}
-
-function openCreateTicketModal() {
-    // Reset form
-    document.getElementById('createTicketForm').reset();
-    document.getElementById('areaSoporte').checked = true;
-    updateCategoriesSelect('SOPORTE');
-    
-    const modal = new bootstrap.Modal(document.getElementById('createTicketModal'));
-    modal.show();
-}
-window.openCreateTicketModal = openCreateTicketModal;
-
-async function submitTicket() {
-    const area = document.querySelector('input[name="ticketArea"]:checked').value;
-    const categoryId = document.getElementById('ticketCategory').value;
-    const title = document.getElementById('ticketTitle').value.trim();
-    const description = document.getElementById('ticketDescription').value.trim();
-    const priority = document.getElementById('ticketPriority').value;
-    const location = document.getElementById('ticketLocation').value.trim();
-    
-    // Validation
-    if (!categoryId) {
-        HelpdeskUtils.showToast('Selecciona una categoría', 'warning');
-        return;
-    }
-    
-    if (!title || title.length < 5) {
-        HelpdeskUtils.showToast('El título debe tener al menos 5 caracteres', 'warning');
-        return;
-    }
-    
-    if (!description || description.length < 20) {
-        HelpdeskUtils.showToast('La descripción debe tener al menos 20 caracteres', 'warning');
-        return;
-    }
-    
-    const btn = document.getElementById('btnSubmitTicket');
-    const originalText = btn.innerHTML;
-    
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Creando...';
-    
-    try {
-        await HelpdeskUtils.api.createTicket({
-            area,
-            category_id: parseInt(categoryId),
-            title,
-            description,
-            priority,
-            location: location || null
-        });
-        
-        HelpdeskUtils.showToast('Ticket creado exitosamente', 'success');
-        
-        const modal = bootstrap.Modal.getInstance(document.getElementById('createTicketModal'));
-        modal.hide();
-        
-        // Refresh
-        await loadDepartmentTickets();
-        await loadDepartmentStats();
-        await loadRecentActivity();
-        
-    } catch (error) {
-        console.error('Error creating ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al crear ticket', 'error');
-        
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-    }
-}
-
 function openCreateUserModal() {
-    document.getElementById('createUserForm').reset();
     const modal = new bootstrap.Modal(document.getElementById('createUserModal'));
     modal.show();
 }
 window.openCreateUserModal = openCreateUserModal;
 
-async function submitUser() {
+// Función deshabilitada - en desarrollo
+async function submitUser_DISABLED() {
     const name = document.getElementById('userName').value.trim();
     const username = document.getElementById('userUsername').value.trim();
     const email = document.getElementById('userEmail').value.trim();
@@ -556,7 +451,8 @@ async function submitUser() {
         
     } catch (error) {
         console.error('Error creating user:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al crear usuario', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al crear usuario: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;

@@ -1,0 +1,129 @@
+/* Tarjeta de dirección */
+.direction-card {
+    cursor: pointer;
+    transition: all 0.4s ease;
+    border: 3px solid transparent;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.direction-card:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(13, 110, 253, 0.2);
+    border-color: var(--bs-primary);
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+}
+
+.direction-icon {
+    font-size: 4rem;
+    color: var(--bs-primary);
+}
+
+/* Tarjetas de subdirecciones */
+.subdirection-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.subdirection-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    border-color: var(--bs-primary);
+}
+
+.subdirection-icon {
+    font-size: 2.5rem;
+    color: var(--bs-primary);
+}
+
+/* Botones de administración discretos */
+.admin-btn {
+    opacity: 0.6;
+    transition: all 0.2s ease;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.card:hover .admin-btn {
+    opacity: 1;
+}
+
+.admin-btn:hover {
+    transform: scale(1.1);
+    opacity: 1;
+    background-color: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: white;
+}
+
+.department-card {
+    transition: all 0.2s ease;
+}
+
+.department-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.department-icon {
+    font-size: 2.5rem;
+}
+
+/* Animaciones */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.4s ease;
+}
+
+@keyframes expandCard {
+    from {
+        transform: scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: scale(1.05);
+        opacity: 0;
+    }
+}
+
+@keyframes expandDirection {
+    from {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: scale(1.1) translateY(-20px);
+        opacity: 0;
+    }
+}
+
+.expand-out {
+    animation: expandCard 0.3s ease forwards;
+}
+
+.expand-direction {
+    animation: expandDirection 0.4s ease forwards;
+}
+
+.back-btn {
+    transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+    transform: translateX(-5px);
+}

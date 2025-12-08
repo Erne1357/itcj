@@ -6,7 +6,7 @@ from itcj.core.models.role import Role
 from itcj.core.models.permission import Permission
 from itcj.core.models.role_permission import RolePermission
 from itcj.core.models.user import User
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.core.services import authz_service as svc
 
 
@@ -31,7 +31,7 @@ def _bad(msg="bad_request", status=400):
 
 @api_authz_bp.get("/apps")
 @api_auth_required
-@api_role_required(["admin"])  # admin global ve todo
+@api_app_required("itcj", perms=["core.apps.api.read"])
 def list_apps():
     rows = db.session.query(App).order_by(App.key.asc()).all()
     data = [{"id":a.id,"key":a.key,"name":a.name,"is_active":a.is_active} for a in rows]
@@ -39,7 +39,7 @@ def list_apps():
 
 @api_authz_bp.post("/apps")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.apps.api.create"])
 def create_app():
     payload = request.get_json(silent=True) or {}
     key = (payload.get("key") or "").strip()
@@ -55,7 +55,7 @@ def create_app():
 
 @api_authz_bp.patch("/apps/<string:app_key>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.apps.api.update"])
 def update_app(app_key):
     a = db.session.query(App).filter_by(key=app_key).first()
     if not a: return _bad("not_found", 404)
@@ -67,7 +67,7 @@ def update_app(app_key):
 
 @api_authz_bp.delete("/apps/<string:app_key>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.apps.api.delete"])
 def delete_app(app_key):
     a = db.session.query(App).filter_by(key=app_key).first()
     if not a: return _bad("not_found", 404)
@@ -80,13 +80,13 @@ def delete_app(app_key):
 
 @api_authz_bp.get("/roles")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.read"])
 def list_roles():
     return _ok([{"name": r.name} for r in db.session.query(Role).order_by(Role.name.asc()).all()])
 
 @api_authz_bp.post("/roles")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.create"])
 def create_role():
     p = request.get_json(silent=True) or {}
     name = (p.get("name") or "").strip()
@@ -99,7 +99,7 @@ def create_role():
 
 @api_authz_bp.delete("/roles/<string:role_name>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.delete"])
 def delete_role(role_name):
     r = db.session.query(Role).filter_by(name=role_name).first()
     if not r: return _bad("not_found", 404)
@@ -112,13 +112,13 @@ def delete_role(role_name):
 
 @api_authz_bp.get("/apps/<string:app_key>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.permissions.api.read.by_app"])
 def list_perms(app_key):
     return _ok(svc.list_perms(app_key))
 
 @api_authz_bp.post("/apps/<string:app_key>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.permissions.api.create"])
 def create_perm(app_key):
     app = svc.get_or_404_app(app_key)
     p = request.get_json(silent=True) or {}
@@ -134,7 +134,7 @@ def create_perm(app_key):
 
 @api_authz_bp.delete("/apps/<string:app_key>/perms/<string:code>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.permissions.api.delete"])
 def delete_perm(app_key, code):
     app = svc.get_or_404_app(app_key)
     perm = db.session.query(Permission).filter_by(app_id=app.id, code=code).first()
@@ -148,7 +148,7 @@ def delete_perm(app_key, code):
 
 @api_authz_bp.get("/apps/<string:app_key>/roles/<string:role_name>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.read.permissions"])
 def role_perms(app_key, role_name):
     app = svc.get_or_404_app(app_key)
     role = db.session.query(Role).filter_by(name=role_name).first()
@@ -164,7 +164,7 @@ def role_perms(app_key, role_name):
 
 @api_authz_bp.put("/apps/<string:app_key>/roles/<string:role_name>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.assign_permissions"])
 def role_perms_replace(app_key, role_name):
     app = svc.get_or_404_app(app_key)
     role = db.session.query(Role).filter_by(name=role_name).first()
@@ -203,7 +203,7 @@ def role_perms_replace(app_key, role_name):
 
 @api_authz_bp.post("/apps/<string:app_key>/roles/<string:role_name>/perms/<string:code>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.assign_permissions"])
 def role_perm_add(app_key, role_name, code):
     app = svc.get_or_404_app(app_key)
     role = db.session.query(Role).filter_by(name=role_name).first()
@@ -216,7 +216,7 @@ def role_perm_add(app_key, role_name, code):
 
 @api_authz_bp.delete("/apps/<string:app_key>/roles/<string:role_name>/perms/<string:code>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.roles.api.assign_permissions"])
 def role_perm_remove(app_key, role_name, code):
     app = svc.get_or_404_app(app_key)
     role = db.session.query(Role).filter_by(name=role_name).first()
@@ -233,13 +233,13 @@ def role_perm_remove(app_key, role_name, code):
     
 @api_authz_bp.get("/apps/<string:app_key>/users/<int:user_id>/roles")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_roles"])
 def user_roles(app_key, user_id):
     return _ok(sorted(list(svc.user_roles_in_app(user_id, app_key))))
 
 @api_authz_bp.post("/apps/<string:app_key>/users/<int:user_id>/roles")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.grant_roles"])
 def user_roles_add(app_key, user_id):
     p = request.get_json(silent=True) or {}
     role_name = (p.get("role_name") or "").strip()
@@ -249,20 +249,20 @@ def user_roles_add(app_key, user_id):
 
 @api_authz_bp.delete("/apps/<string:app_key>/users/<int:user_id>/roles/<string:role_name>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.revoke_roles"])
 def user_roles_del(app_key, user_id, role_name):
     removed = svc.revoke_role(user_id, app_key, role_name)
     return _ok({"removed": bool(removed)})
 
 @api_authz_bp.get("/apps/<string:app_key>/users/<int:user_id>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_permissions"])
 def user_perms(app_key, user_id):
     return _ok(sorted(list(svc.user_direct_perms_in_app(user_id, app_key))))
 
 @api_authz_bp.post("/apps/<string:app_key>/users/<int:user_id>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.grant_permissions"])
 def user_perms_add(app_key, user_id):
     p = request.get_json(silent=True) or {}
     code = (p.get("code") or "").strip()
@@ -273,13 +273,13 @@ def user_perms_add(app_key, user_id):
 
 @api_authz_bp.delete("/apps/<string:app_key>/users/<int:user_id>/perms/<string:code>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.revoke_permissions"])
 def user_perms_del(app_key, user_id, code):
     removed = svc.revoke_perm(user_id, app_key, code)
     return _ok({"removed": bool(removed)})
 
 @api_authz_bp.get("/apps/<string:app_key>/users/<int:user_id>/effective-perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_permissions"])
 def user_effective(app_key, user_id):
     return _ok(svc.effective_perms(user_id, app_key))

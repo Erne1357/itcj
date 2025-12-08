@@ -9,7 +9,7 @@ from . import admin_pages_bp as bp
 
 
 @bp.route('/home')
-@web_app_required('helpdesk', perms=['helpdesk.admin.access'])
+@web_app_required('helpdesk', perms=['helpdesk.dashboard.admin'])
 def home():
     """
     Dashboard principal de administrador
@@ -18,14 +18,34 @@ def home():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/home.html',
+        'helpdesk/admin/home.html',
         user_roles=user_roles,
         active_page='admin_home'
     )
 
 
+@bp.route('/assign-tickets')
+@web_app_required('helpdesk', perms=['helpdesk.assignments.page.list'])
+def assign_tickets():
+    """
+    Vista para asignar y gestionar tickets (antes era secretaría)
+    
+    Requiere permiso específico: helpdesk.tickets.assign
+    - Admins lo tienen por defecto
+    - Posición secretary_comp_center lo tiene asignado
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'helpdesk/admin/assign_tickets.html',
+        user_roles=user_roles,
+        active_page='admin_assign_tickets'
+    )
+
+
 @bp.route('/tickets')
-@web_app_required('helpdesk', perms=['helpdesk.tickets.all.read'])
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.list'])
 def all_tickets():
     """
     Vista de todos los tickets del sistema (Admin)
@@ -34,14 +54,14 @@ def all_tickets():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/all_tickets.html',
+        'helpdesk/admin/all_tickets.html',
         user_roles=user_roles,
         active_page='admin_tickets'
     )
 
 
 @bp.route('/categories')
-@web_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@web_app_required('helpdesk', perms=['helpdesk.categories.page.list'])
 def categories():
     """
     Gestión de categorías de tickets
@@ -50,14 +70,14 @@ def categories():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/categories.html',
+        'helpdesk/admin/categories.html',
         user_roles=user_roles,
         active_page='admin_categories'
     )
 
 
 @bp.route('/inventory')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.view'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.page.list'])
 def inventory_list():
     """
     Lista completa de inventario (Admin)
@@ -66,7 +86,7 @@ def inventory_list():
 
 
 @bp.route('/inventory/create')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.create'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.create'])
 def inventory_create():
     """
     Formulario para crear nuevo equipo de inventario
@@ -75,7 +95,7 @@ def inventory_create():
 
 
 @bp.route('/inventory/categories')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.categories.manage'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory_categories.page.list'])
 def inventory_categories():
     """
     Gestión de categorías de inventario
@@ -84,14 +104,14 @@ def inventory_categories():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/inventory_categories.html',
+        'helpdesk/admin/inventory_categories.html',
         user_roles=user_roles,
         active_page='admin_inventory_categories'
     )
 
 
 @bp.route('/inventory/reports')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.reports.view'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.export.all'])
 def inventory_reports():
     """
     Reportes de inventario
@@ -100,14 +120,14 @@ def inventory_reports():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/inventory_reports.html',
+        'helpdesk/admin/inventory_reports.html',
         user_roles=user_roles,
         active_page='admin_inventory_reports'
     )
 
 
 @bp.route('/stats')
-@web_app_required('helpdesk', perms=['helpdesk.stats.view'])
+@web_app_required('helpdesk', perms=['helpdesk.stats.page.list'])
 def stats():
     """
     Estadísticas generales del sistema
@@ -116,7 +136,7 @@ def stats():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'admin/stats.html',
+        'helpdesk/admin/stats.html',
         user_roles=user_roles,
         active_page='admin_stats'
     )

@@ -37,7 +37,8 @@ async function initializeDashboard() {
         
     } catch (error) {
         console.error('Error initializing dashboard:', error);
-        HelpdeskUtils.showToast('Error al cargar el dashboard', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al cargar el dashboard: ${errorMessage}`, 'error');
     }
 }
 
@@ -333,7 +334,8 @@ async function confirmStartWork() {
         
     } catch (error) {
         console.error('Error starting ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al iniciar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al iniciar ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -361,8 +363,77 @@ function openResolveModal(ticketId) {
     
     const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
     modal.show();
+    
+
+    loadAvailableTechnicians(ticketToResolve);
 }
 window.openResolveModal = openResolveModal;
+
+async function loadAvailableTechnicians(ticket) {
+    const container = document.getElementById('collaboratorsList');
+    
+    // Mostrar loading
+    container.innerHTML = `
+        <div class="text-center text-muted py-2">
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            Cargando técnicos...
+        </div>
+    `;
+    
+    try {
+        // Obtener técnicos del área del ticket
+        const response = await fetch(`/api/help-desk/v1/assignments/technicians/${ticket.area}`);
+        
+        if (!response.ok) {
+            throw new Error('Error al cargar técnicos');
+        }
+        
+        const data = await response.json();
+        const technicians = data.technicians || [];
+        
+        if (technicians.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-2">
+                    <i class="fas fa-users-slash me-2"></i>
+                    No hay técnicos disponibles
+                </div>
+            `;
+            return;
+        }
+        
+        // Renderizar checkboxes
+        container.innerHTML = technicians.map(tech => {
+            const isAssigned = ticket.assigned_to && tech.id === ticket.assigned_to.id;
+            
+            return `
+                <div class="form-check mb-2">
+                    <input class="form-check-input collaborator-check" 
+                           type="checkbox" 
+                           value="${tech.id}" 
+                           id="collab_${tech.id}"
+                           ${isAssigned ? 'checked disabled' : ''}>
+                    <label class="form-check-label d-flex justify-content-between align-items-center w-100" 
+                           for="collab_${tech.id}">
+                        <span>
+                            ${tech.name}
+                            ${isAssigned ? '<span class="badge bg-primary ms-2">Asignado</span>' : ''}
+                        </span>
+                        <small class="text-muted">${tech.active_tickets} activos</small>
+                    </label>
+                </div>
+            `;
+        }).join('');
+        
+    } catch (error) {
+        console.error('Error loading technicians:', error);
+        container.innerHTML = `
+            <div class="text-center text-danger py-2">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <small>Error al cargar técnicos</small>
+            </div>
+        `;
+    }
+}
 
 async function confirmResolve() {
     if (!ticketToResolve) return;
@@ -371,6 +442,7 @@ async function confirmResolve() {
     const notes = document.getElementById('resolutionNotes').value.trim();
     const timeInvested = parseInt(document.getElementById('timeInvested').value) || null;
     
+    // Validar notas
     if (!notes || notes.length < 10) {
         HelpdeskUtils.showToast('Las notas deben tener al menos 10 caracteres', 'warning');
         document.getElementById('resolutionNotes').focus();
@@ -384,12 +456,62 @@ async function confirmResolve() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Resolviendo...';
     
     try {
+        // 1. Resolver el ticket
         await HelpdeskUtils.api.resolveTicket(ticketToResolve.id, {
             success: resolutionType === 'success',
             resolution_notes: notes,
             time_invested_minutes: timeInvested
         });
         
+        // 2. Capturar colaboradores seleccionados (NUEVO)
+        const selectedCollaborators = [];
+        
+        // Obtener checkboxes marcados (excepto el disabled que es el asignado)
+        document.querySelectorAll('.collaborator-check:checked:not(:disabled)').forEach(checkbox => {
+            selectedCollaborators.push({
+                user_id: parseInt(checkbox.value),
+                collaboration_role: 'COLLABORATOR', // Se auto-sugiere en backend
+                time_invested_minutes: null,
+                notes: null
+            });
+        });
+        
+        // El asignado principal siempre se agrega como LEAD
+        if (ticketToResolve.assigned_to && ticketToResolve.assigned_to.id) {
+            selectedCollaborators.push({
+                user_id: ticketToResolve.assigned_to.id,
+                collaboration_role: 'LEAD',
+                time_invested_minutes: timeInvested,
+                notes: notes
+            });
+        }
+        
+        // 3. Agregar colaboradores si hay (NUEVO)
+        if (selectedCollaborators.length > 0) {
+            try {
+                const collabResponse = await fetch(
+                    `/api/help-desk/v1/tickets/${ticketToResolve.id}/collaborators/batch`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ collaborators: selectedCollaborators })
+                    }
+                );
+                
+                if (collabResponse.ok) {
+                    const collabData = await collabResponse.json();
+                    console.log(`${collabData.count} colaboradores agregados`);
+                } else {
+                    console.warn('No se pudieron agregar algunos colaboradores');
+                    // No bloquear el flujo si falla esto
+                }
+            } catch (collabError) {
+                console.error('Error adding collaborators:', collabError);
+                // No bloquear el flujo
+            }
+        }
+        
+        // 4. Mostrar éxito
         HelpdeskUtils.showToast(
             resolutionType === 'success' 
                 ? '¡Ticket resuelto exitosamente!' 
@@ -397,10 +519,11 @@ async function confirmResolve() {
             'success'
         );
         
+        // 5. Cerrar modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('resolveModal'));
         modal.hide();
         
-        // Refresh
+        // 6. Refrescar listas
         await Promise.all([
             loadInProgressTickets(),
             loadResolvedTickets()
@@ -409,7 +532,8 @@ async function confirmResolve() {
         
     } catch (error) {
         console.error('Error resolving ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al resolver ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al resolver ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -460,7 +584,8 @@ async function confirmSelfAssign() {
         
     } catch (error) {
         console.error('Error self-assigning ticket:', error);
-        HelpdeskUtils.showToast(error.message || 'Error al tomar ticket', 'error');
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al tomar ticket: ${errorMessage}`, 'error');
         
         btn.disabled = false;
         btn.innerHTML = originalText;

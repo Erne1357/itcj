@@ -15,12 +15,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ==================== SETUP ====================
 function setupEventListeners() {
-    // Tabs - Cargar contenido al hacer clic
-    document.getElementById('history-tab').addEventListener('click', function() {
+    // Tabs - Cargar contenido al hacer clic usando Bootstrap 5 events
+    const historyTab = document.getElementById('history-tab');
+    const ticketsTab = document.getElementById('tickets-tab');
+    
+    historyTab.addEventListener('shown.bs.tab', function() {
         if (itemHistory.length === 0) loadHistory();
     });
 
-    document.getElementById('tickets-tab').addEventListener('click', function() {
+    ticketsTab.addEventListener('shown.bs.tab', function() {
         if (itemTickets.length === 0) loadTickets();
     });
 
@@ -45,11 +48,14 @@ async function loadItemDetail() {
                 showNotFound();
                 return;
             }
+            if (response.status === 403) {
+                showForbidden();
+                return;
+            }
             throw new Error('Error al cargar equipo');
         }
 
         const result = await response.json();
-        console.log('Item Detail:', result);
         currentItem = result.data;
 
         renderItemDetail(currentItem);
@@ -102,7 +108,7 @@ function renderStatusBadge(item) {
     
     container.innerHTML = `
         <div class="d-inline-block">
-            <span class="badge badge-${statusInfo.color} badge-lg px-3 py-2" style="font-size: 0.9rem;">
+            <span class="badge bg-${statusInfo.color} text-white badge-lg px-3 py-2" style="font-size: 0.9rem;">
                 <span class="status-indicator ${statusInfo.class}"></span>
                 ${statusInfo.text}
             </span>
@@ -113,41 +119,48 @@ function renderStatusBadge(item) {
 function renderActionButtons(item) {
     const container = document.getElementById('header-actions');
     
+    // Siempre mostrar el botón de crear ticket
     let buttons = `
         <div class="btn-group">
-            <a href="/help-desk/tickets/create?item=${item.id}" class="btn btn-success action-button">
+            <a href="/help-desk/user/create?item=${item.id}" class="btn btn-success action-button">
                 <i class="fas fa-plus-circle"></i> Crear Ticket
             </a>
+    `;
+
+    // Solo mostrar botones de administración si tiene permisos
+    if (CAN_EDIT) {
+        buttons += `
             <button class="btn btn-primary action-button" onclick="openEditModal()">
                 <i class="fas fa-edit"></i> Editar
             </button>
             <button class="btn btn-warning action-button" onclick="openChangeStatusModal()">
                 <i class="fas fa-toggle-on"></i> Cambiar Estado
             </button>
-    `;
+        `;
 
-    // Botón asignar/liberar
-    if (item.is_assigned_to_user) {
-        buttons += `
-            <button class="btn btn-info action-button" onclick="unassignUser()">
-                <i class="fas fa-user-times"></i> Liberar
-            </button>
-        `;
-    } else {
-        buttons += `
-            <button class="btn btn-info action-button" onclick="openAssignModal()">
-                <i class="fas fa-user-plus"></i> Asignar
-            </button>
-        `;
-    }
+        // Botón asignar/liberar
+        if (item.is_assigned_to_user) {
+            buttons += `
+                <button class="btn btn-info action-button" onclick="unassignUser()">
+                    <i class="fas fa-user-times"></i> Liberar
+                </button>
+            `;
+        } else {
+            buttons += `
+                <button class="btn btn-info action-button" onclick="openAssignModal()">
+                    <i class="fas fa-user-plus"></i> Asignar
+                </button>
+            `;
+        }
 
-    // Botón dar de baja (solo si está activo)
-    if (item.is_active) {
-        buttons += `
-            <button class="btn btn-danger action-button" onclick="openDeactivateModal()">
-                <i class="fas fa-trash-alt"></i> Dar de Baja
-            </button>
-        `;
+        // Botón dar de baja (solo si está activo)
+        if (item.is_active) {
+            buttons += `
+                <button class="btn btn-danger action-button" onclick="openDeactivateModal()">
+                    <i class="fas fa-trash-alt"></i> Dar de Baja
+                </button>
+            `;
+        }
     }
 
     buttons += `</div>`;
@@ -218,15 +231,15 @@ function renderLocationInfo(item) {
                     </small>
                 </div>
             ` : `
-                <span class="badge badge-secondary">Global del Departamento</span>
+                <span class="badge bg-secondary text-white">Global del Departamento</span>
             `}
         </div>
 
         <div class="info-label">Tickets Relacionados</div>
         <div class="info-value">
-            <span class="badge badge-info">${item.tickets_count || 0} Total</span>
+            <span class="badge bg-info text-white">${item.tickets_count || 0} Total</span>
             ${item.active_tickets_count > 0 ? `
-                <span class="badge badge-warning">${item.active_tickets_count} Activos</span>
+                <span class="badge bg-warning text-dark">${item.active_tickets_count} Activos</span>
             ` : ''}
         </div>
     `;
@@ -400,10 +413,14 @@ async function loadHistory() {
 
     } catch (error) {
         console.error('Error:', error);
+        const errorMessage = error.message.includes('Failed to fetch') 
+            ? 'No se pudo conectar con el servidor. Verifica tu conexión.' 
+            : 'No se pudo cargar el historial';
+        
         document.getElementById('history-container').innerHTML = `
             <div class="alert alert-danger">
                 <i class="fas fa-exclamation-triangle"></i>
-                No se pudo cargar el historial
+                ${errorMessage}
             </div>
         `;
     }
@@ -451,26 +468,41 @@ function renderHistory(history) {
 // ==================== TICKETS ====================
 async function loadTickets() {
     try {
-        const response = await fetch(`/api/help-desk/v1/tickets?inventory_item_id=${ITEM_ID}`, {
+        const response = await fetch(`/api/help-desk/v1/inventory/items/${ITEM_ID}/tickets`, {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar tickets');
+        if (!response.ok) {
+            if (response.status === 403) {
+                document.getElementById('tickets-container').innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="fas fa-lock"></i>
+                        No tienes permisos para ver los tickets de este equipo
+                    </div>
+                `;
+                return;
+            }
+            throw new Error('Error al cargar tickets');
+        }
 
         const result = await response.json();
-        itemTickets = result.tickets;
+        itemTickets = result.tickets || [];
 
         document.getElementById('tickets-count').textContent = itemTickets.length;
         renderTickets(itemTickets);
 
     } catch (error) {
         console.error('Error:', error);
+        const errorMessage = error.message.includes('Failed to fetch') 
+            ? 'No se pudo conectar con el servidor. Verifica tu conexión.' 
+            : 'No se pudieron cargar los tickets';
+        
         document.getElementById('tickets-container').innerHTML = `
             <div class="alert alert-danger">
                 <i class="fas fa-exclamation-triangle"></i>
-                No se pudieron cargar los tickets
+                ${errorMessage}
             </div>
         `;
     }
@@ -484,7 +516,7 @@ function renderTickets(tickets) {
             <div class="text-center text-muted py-4">
                 <i class="fas fa-ticket-alt fa-2x mb-3"></i>
                 <p class="mb-0">No hay tickets relacionados con este equipo</p>
-                <a href="/help-desk/tickets/create?item=${ITEM_ID}" class="btn btn-sm btn-primary mt-3">
+                <a href="/help-desk/user/create?item=${ITEM_ID}" class="btn btn-sm btn-primary mt-3">
                     <i class="fas fa-plus"></i> Crear Primer Ticket
                 </a>
             </div>
@@ -499,7 +531,7 @@ function renderTickets(tickets) {
         const priorityBadge = getTicketPriorityBadge(ticket.priority);
 
         html += `
-            <a href="/help-desk/tickets/${ticket.id}" class="list-group-item list-group-item-action">
+            <a href="/help-desk/user/tickets/${ticket.id}" class="list-group-item list-group-item-action">
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         <strong>${ticket.ticket_number}</strong> - ${escapeHtml(ticket.title)}
@@ -507,8 +539,8 @@ function renderTickets(tickets) {
                         <small class="text-muted">${formatDateTime(ticket.created_at)}</small>
                     </div>
                     <div class="text-right">
-                        <span class="badge badge-${statusBadge.color}">${statusBadge.text}</span>
-                        <span class="badge badge-${priorityBadge.color}">${priorityBadge.text}</span>
+                        <span class="badge bg-${statusBadge.color} text-white">${statusBadge.text}</span>
+                        <span class="badge bg-${priorityBadge.color} text-white">${priorityBadge.text}</span>
                     </div>
                 </div>
             </a>
@@ -846,6 +878,24 @@ function hideLoading() {
     document.getElementById('loading-state').style.display = 'none';
 }
 
+function showForbidden() {
+    document.getElementById('loading-state').innerHTML = `
+        <div class="text-center py-5">
+            <i class="fas fa-lock fa-4x text-danger mb-4"></i>
+            <h3>Acceso Denegado</h3>
+            <p class="text-muted">No tienes permisos para ver la información de este equipo</p>
+            <div id="backButtonContainer-forbidden" class="mt-3">
+                <button onclick="window.history.back()" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Volver
+                </button>
+            </div>
+            <a href="/help-desk/inventory/items" class="btn btn-primary mt-3">
+                <i class="fas fa-list"></i> Ver Inventario
+            </a>
+        </div>
+    `;
+}
+
 function showNotFound() {
     document.getElementById('loading-state').innerHTML = `
         <div class="text-center py-5">
@@ -860,9 +910,9 @@ function showNotFound() {
 }
 
 function showSuccess(message) {
-    alert(message); // Reemplazar con tu sistema de notificaciones
+    showToast(message, 'success'); // Reemplazar con tu sistema de notificaciones
 }
 
 function showError(message) {
-    alert(message);
+    showToast(message, 'error'); // Reemplazar con tu sistema de notificaciones
 }

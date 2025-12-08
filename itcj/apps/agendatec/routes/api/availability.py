@@ -98,7 +98,7 @@ def list_slots_for_program_day(program_id: int):
 # =========================================================
 @api_avail_bp.post("/windows")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.create"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.create"])
 def create_availability_window():
     """
     Crea una ventana para UNO de los 3 días permitidos (25,26,27 Ago 2025).
@@ -165,7 +165,7 @@ def create_availability_window():
 # =========================================================
 @api_avail_bp.post("/generate-slots")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.create"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.create"])
 def api_generate_slots():
     """
     Genera 'time_slots' a partir de 'availability_windows' del/los día(s) indicados.
@@ -235,7 +235,7 @@ def api_generate_slots():
 # =========================================================
 @api_avail_bp.get("/windows")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.slots.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.slots.api.read"])
 def list_my_windows():
     """
     Lista las ventanas del día ?day=YYYY-MM-DD para:

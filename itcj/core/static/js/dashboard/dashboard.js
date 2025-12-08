@@ -6,7 +6,7 @@ class WindowsDesktop {
     this.rows = 0
     this.desktopItems = [
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
-      { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket' },
+      { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
@@ -60,11 +60,9 @@ class WindowsDesktop {
       // Manejar diferentes tipos de mensajes
       switch (event.data.type) {
         case 'LOGOUT':
-          console.log('Logout detectado desde iframe:', event.data)
           this.handleLogout()
           break
         case 'SESSION_EXPIRED':
-          console.log('Sesión expirada detectada desde iframe:', event.data)
           this.handleSessionExpired()
           break
         case 'NAVIGATION':
@@ -77,7 +75,6 @@ class WindowsDesktop {
 
   handleLogout() {
     // Mostrar mensaje de logout si es necesario
-    console.log('Cerrando sesión en dashboard principal...')
 
     // Cerrar todas las ventanas
     this.closeAllWindows()
@@ -87,7 +84,6 @@ class WindowsDesktop {
   }
 
   handleSessionExpired() {
-    console.log('Sesión expirada, redirigiendo...')
     this.closeAllWindows()
     window.location.href = '/itcj/login?session_expired=true'
   }
@@ -120,9 +116,25 @@ class WindowsDesktop {
   renderDesktopGrid() {
     const grid = document.getElementById('desktop-grid')
     if (!grid) return
+    
+    // Guardar elementos que ya están en el HTML (con customImage) en un mapa
+    const existingCustomElements = new Map()
+    this.desktopItems.filter(item => item.customImage).forEach(item => {
+      const existing = grid.querySelector(`[data-app="${item.id}"]`)
+      if (existing) {
+        existingCustomElements.set(item.id, existing)
+      }
+    })
+    
+    // Limpiar el grid
     grid.innerHTML = ''
 
     const buildTile = (item) => {
+      // Si tiene customImage, retornar el elemento existente del HTML
+      if (item.customImage) {
+        return existingCustomElements.get(item.id) || null
+      }
+      
       const el = document.createElement('div')
       el.className = 'desktop-icon'
       el.dataset.app = item.id
@@ -143,14 +155,19 @@ class WindowsDesktop {
     // 1) Papelera: última columna (C), última fila
     if (recycle) {
       const t = buildTile(recycle)
-      t.style.gridColumn = 1
-      t.style.gridRow = 1
-      grid.appendChild(t)
+      if (t) {
+        t.style.gridColumn = 1
+        t.style.gridRow = 1
+        grid.appendChild(t)
+      }
     }
 
     // 2) Normales (sin posición → el auto-placement los coloca de izq->der, arr->abajo)
     items.filter(i => i !== recycle )
-      .forEach(i => grid.appendChild(buildTile(i)))
+      .forEach(i => {
+        const tile = buildTile(i)
+        if (tile) grid.appendChild(tile)
+      })
 
     lucide.createIcons()
     // ¡La solución está aquí!
@@ -165,6 +182,7 @@ class WindowsDesktop {
     window.style.top = "100px"
     window.style.zIndex = ++this.windowZIndex
     window.dataset.appId = appId
+    window.classList.add("maximized") // Iniciar maximizado
 
     window.innerHTML = `
         <div class="window-titlebar">
@@ -195,7 +213,7 @@ class WindowsDesktop {
 
     this.setupWindowControls(window, appId)
     this.setupWindowDragging(window)
-    this.setupIframeMonitoring(window, appId) // Nueva función
+    this.setupIframeMonitoring(window, appId) 
 
     document.getElementById("windows-container").appendChild(window)
     this.openWindows.push(appId)
@@ -221,7 +239,6 @@ class WindowsDesktop {
 
           // Verificar si es logout
           if (pathname.endsWith('/logout') || pathname === '/itcj/login') {
-            console.log('Logout detectado via URL monitoring:', pathname)
             this.handleLogout()
             return
           }
@@ -441,8 +458,10 @@ class WindowsDesktop {
 
 document.addEventListener("DOMContentLoaded", () => {
   const desktop = new WindowsDesktop()
+  // Exponer desktop globalmente para que otros componentes puedan accederlo
+  window.desktop = desktop;
+  
   if (typeof ProfileMenu !== 'undefined') {
     const profileMenu = new ProfileMenu(desktop);
   }
-
 })

@@ -8,7 +8,6 @@
       p.textContent = msg;
       el.prepend(p);
     } else {
-      console.log(msg);
     }
   };
 

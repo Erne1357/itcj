@@ -5,7 +5,7 @@ from itcj.core.services import positions_service
 from . import department_pages_bp
 
 @department_pages_bp.get('/')
-@app_required('helpdesk', positions=['department_head'])
+@app_required('helpdesk', roles=['department_head'])
 def tickets():
     """Vista de tickets del departamento"""
     # Obtener el departamento del cual el usuario es jefe
@@ -20,7 +20,7 @@ def tickets():
     department = managed_department['department']
     position = managed_department['position']
     
-    return render_template('department_head/dashboard.html', 
+    return render_template('helpdesk/department_head/dashboard.html', 
                          title=f"Departamento - {department['name']}", 
                          department=department,
                          position=position,
@@ -28,13 +28,13 @@ def tickets():
                          active_page='dashboard')
 
 @department_pages_bp.get('/inventory')
-@app_required('helpdesk', perms=['helpdesk.inventory.view_own_dept'])
+@app_required('helpdesk', perms=['helpdesk.inventory.page.list.own_dept'])
 def inventory():
     """Vista de inventario del departamento"""
     return redirect(url_for('helpdesk_pages.inventory_pages.items_list'))
 
 @department_pages_bp.get('/tickets/<int:ticket_id>')
-@app_required('helpdesk', perms=['helpdesk.department.dashboard'])
+@app_required('helpdesk', perms=['helpdesk.tickets.page.my_tickets'])
 def ticket_detail(ticket_id):
     """Vista de detalle de ticket del departamento"""
     # Obtener el departamento del cual el usuario es jefe
@@ -54,7 +54,7 @@ def ticket_detail(ticket_id):
     department = managed_department['department']
     position = managed_department['position']
     
-    return render_template('department_head/ticket_detail.html', 
+    return render_template('helpdesk/department_head/ticket_detail.html', 
                          title=f"Ticket #{ticket_id}",
                          ticket_id=ticket_id,
                          department=department,
@@ -63,7 +63,7 @@ def ticket_detail(ticket_id):
                          active_page='tickets')
 
 @department_pages_bp.get('/reports')
-@app_required('helpdesk', perms=['helpdesk.department.dashboard'])
+@app_required('helpdesk', perms=['helpdesk.dashboard.department'])
 def reports():
     """Vista de reportes del departamento"""
     # Obtener el departamento del cual el usuario es jefe
@@ -78,7 +78,7 @@ def reports():
     department = managed_department['department']
     position = managed_department['position']
     
-    return render_template('department_head/reports.html', 
+    return render_template('helpdesk/department_head/reports.html', 
                          title=f"Reportes - {department['name']}", 
                          department=department,
                          position=position,

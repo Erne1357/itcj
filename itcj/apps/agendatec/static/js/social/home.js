@@ -102,14 +102,12 @@
       };
 
       s.on("appointment_created", (p) => {
-        console.log("Se creo una cita");
         // Se emite con: slot_day, program_id
         const payload = { type: "APPOINTMENT", day: p?.slot_day, program_id: p?.program_id };
         if (matchesFilter(payload)) $("#btnLoadSS")?.click();
       });
 
       s.on("request_status_changed", (p) => {
-        console.log("Se borro una cita");
         // Solo nos interesan cambios en APPOINTMENT (cancel/resuelto) para “limpiar”/actualizar vista
         if (p?.type === "APPOINTMENT" && matchesFilter(p)) {
           $("#btnLoadSS")?.click();

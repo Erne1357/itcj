@@ -7,15 +7,15 @@ admin_surveys_pages = Blueprint("admin_surveys_pages", __name__, template_folder
 
 @admin_surveys_pages.get("/admin/surveys")
 @login_required
-@app_required(app_key="agendatec", perms=["agendatec.surveys.view"])
+@app_required(app_key="agendatec", perms=["agendatec.surveys.page.list"])
 def admin_surveys():
     acct = read_account_info() or {}
     # Muestra estado de conexión y botones
-    return render_template("admin/surveys.html", ms_account=acct)
+    return render_template("agendatec/admin/surveys.html", ms_account=acct)
 
 @admin_surveys_pages.get("/auth/ms/login")
 @login_required
-@app_required(app_key="agendatec", perms=["agendatec.surveys.manage"])
+@app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def ms_login():
     # Puedes generar un state si quieres validarlo a la vuelta
     state = "surveys"
@@ -33,14 +33,14 @@ def ms_callback():
 
 @admin_surveys_pages.post("/auth/ms/logout")
 @login_required
-@app_required(app_key="agendatec", perms=["agendatec.surveys.manage"])
+@app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def ms_logout():
     clear_account_and_cache()
     return jsonify({"ok": True})
 
 @admin_surveys_pages.get("/auth/ms/status")
 @login_required
-@app_required(app_key="agendatec", perms=["agendatec.surveys.manage"])
+@app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def ms_status():
     # ¿tengo token silencioso? (indica que hay sesión viva)
     token = acquire_token_silent()

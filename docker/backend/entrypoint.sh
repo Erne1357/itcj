@@ -18,6 +18,22 @@ cd /app
   #/docker-entrypoint-initdb.d/init-itcj.sh
 #fi
 
+echo "Verificando conexión a Redis..."
+python3 << 'PYEOF'
+import redis
+import os
+import sys
+
+try:
+    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    r = redis.from_url(redis_url)
+    r.ping()
+    print(f"✓ Redis conectado exitosamente: {redis_url}")
+except Exception as e:
+    print(f"✗ ERROR: No se puede conectar a Redis: {e}")
+    sys.exit(1)
+PYEOF
+
 # Ejecutar migraciones después de la restauración
 echo "Ejecutando migraciones..."
 flask db upgrade || exit 1

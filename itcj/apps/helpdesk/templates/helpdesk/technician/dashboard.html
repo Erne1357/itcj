@@ -1,0 +1,387 @@
+<!-- itcj/apps/helpdesk/templates/technician/dashboard.html -->
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Técnicos - Dashboard{% endblock %}
+
+{% block header_title %}Panel de Técnicos{% endblock %}
+{% block header_subtitle %}Centro de Cómputo - Atención de Tickets{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-outline-light btn-sm" onclick="refreshDashboard()">
+    <i class="fas fa-sync me-2"></i>Actualizar
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stats Overview -->
+<div class="row mb-4">
+    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+        <div class="card border-0 shadow-sm border-start border-primary border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Mis Tickets</small>
+                        <h2 class="text-primary mb-0 fw-bold" id="myTicketsCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-ticket-alt fa-2x text-primary opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+        <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">En Espera</small>
+                        <h2 class="text-warning mb-0 fw-bold" id="assignedCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-inbox fa-2x text-warning opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+        <div class="card border-0 shadow-sm border-start border-info border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">En Progreso</small>
+                        <h2 class="text-info mb-0 fw-bold" id="inProgressCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-cog fa-2x text-info opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Resueltos Hoy</small>
+                        <h2 class="text-success mb-0 fw-bold" id="resolvedTodayCount">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-check-circle fa-2x text-success opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Tabs -->
+<ul class="nav nav-tabs nav-fill mb-4" id="technicianTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button">
+            <i class="fas fa-inbox me-2"></i>En Espera
+            <span class="badge bg-warning ms-2" id="queueBadge">0</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="working-tab" data-bs-toggle="tab" data-bs-target="#working" type="button">
+            <i class="fas fa-cog me-2"></i>Trabajando
+            <span class="badge bg-info ms-2" id="workingBadge">0</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="team-tab" data-bs-toggle="tab" data-bs-target="#team" type="button">
+            <i class="fas fa-users me-2"></i>Del Equipo
+            <span class="badge bg-secondary ms-2" id="teamBadge">0</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button">
+            <i class="fas fa-history me-2"></i>Historial
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="technicianTabContent">
+
+    <!-- Queue Tab (ASSIGNED) -->
+    <div class="tab-pane fade show active" id="queue" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">
+                    <i class="fas fa-list me-2"></i>Tickets Asignados - Listos para Iniciar
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div id="queueList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-3">Cargando tickets...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Working Tab (IN_PROGRESS) -->
+    <div class="tab-pane fade" id="working" role="tabpanel">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">
+                    <i class="fas fa-cog me-2"></i>Tickets en los que Estoy Trabajando
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div id="workingList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-info" role="status"></div>
+                        <p class="text-muted mt-3">Cargando tickets...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Team Tab (Team Tickets) -->
+    <div class="tab-pane fade" id="team" role="tabpanel">
+        <div class="alert alert-info border-0 shadow-sm">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Tickets del Equipo:</strong> Estos tickets están asignados a todo el equipo.
+            Puedes tomarlos para trabajar en ellos.
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">
+                    <i class="fas fa-users me-2"></i>Tickets del Equipo Disponibles
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div id="teamList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-secondary" role="status"></div>
+                        <p class="text-muted mt-3">Cargando tickets del equipo...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Tab (Resolved) -->
+    <div class="tab-pane fade" id="history" role="tabpanel">
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <select class="form-select" id="historyFilter">
+                    <option value="today">Hoy</option>
+                    <option value="week" selected>Esta Semana</option>
+                    <option value="month">Este Mes</option>
+                    <option value="all">Todos</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <input type="text" class="form-control" id="historySearch" placeholder="Buscar en historial...">
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h5 class="mb-0">
+                    <i class="fas fa-check-circle me-2"></i>Tickets Resueltos
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div id="historyList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-success" role="status"></div>
+                        <p class="text-muted mt-3">Cargando historial...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+
+<!-- Start Work Modal -->
+<div class="modal fade" id="startWorkModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-play me-2"></i>Iniciar Trabajo en Ticket
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="startWorkTicketInfo" class="p-3 bg-light rounded mb-3"></div>
+                <p class="text-muted">
+                    ¿Estás listo para comenzar a trabajar en este ticket?
+                </p>
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    El ticket cambiará a estado "En Progreso" y se comenzará a contar el tiempo.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary" id="btnConfirmStart">
+                    <i class="fas fa-play me-2"></i>Sí, Iniciar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Resolve Ticket Modal -->
+<div class="modal fade" id="resolveModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-check-circle me-2"></i>Resolver Ticket
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="resolveTicketInfo" class="p-3 bg-light rounded mb-4"></div>
+
+                <!-- Resolution Type -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">¿Cómo se resolvió el ticket?</label>
+                    <div class="d-grid gap-2">
+                        <div class="form-check p-3 border rounded">
+                            <input class="form-check-input" type="radio" name="resolutionType" id="resolutionSuccess"
+                                value="success" checked>
+                            <label class="form-check-label w-100" for="resolutionSuccess">
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                <strong>Resuelto Exitosamente</strong>
+                                <small class="d-block text-muted">El problema fue solucionado completamente</small>
+                            </label>
+                        </div>
+                        <div class="form-check p-3 border rounded">
+                            <input class="form-check-input" type="radio" name="resolutionType" id="resolutionFailed"
+                                value="failed">
+                            <label class="form-check-label w-100" for="resolutionFailed">
+                                <i class="fas fa-times-circle text-warning me-2"></i>
+                                <strong>Atendido pero No Resuelto</strong>
+                                <small class="d-block text-muted">Se intentó resolver pero no fue posible</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resolution Notes -->
+                <div class="mb-4">
+                    <label for="resolutionNotes" class="form-label fw-bold">
+                        Notas de Resolución <span class="text-danger">*</span>
+                    </label>
+                    <textarea class="form-control" id="resolutionNotes" rows="5"
+                        placeholder="Describe detalladamente el trabajo realizado, pasos seguidos, soluciones aplicadas..."
+                        required></textarea>
+                    <small class="form-text text-muted">Mínimo 10 caracteres</small>
+                </div>
+
+                <!-- Time Invested (Optional) -->
+                <div class="mb-3">
+                    <label for="timeInvested" class="form-label">
+                        <i class="fas fa-clock me-2"></i>Tiempo Invertido (opcional)
+                    </label>
+                    <div class="input-group">
+                        <input type="number" class="form-control" id="timeInvested" min="0" step="15" placeholder="60">
+                        <span class="input-group-text">minutos</span>
+                    </div>
+                    <small class="form-text text-muted">
+                        Tiempo real de trabajo (no incluye esperas)
+                    </small>
+                </div>
+                <!-- Collaborators Section (NUEVO) -->
+                <div class="mb-3">
+                    <label class="form-label">
+                        <i class="fas fa-users me-2"></i>
+                        ¿Quién trabajó en este ticket?
+                    </label>
+                    <small class="d-block text-muted mb-2">
+                        Selecciona a los técnicos que colaboraron en la resolución (opcional)
+                    </small>
+
+                    <div id="collaboratorsList" class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+                        <div class="text-center text-muted py-2">
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            Cargando técnicos disponibles...
+                        </div>
+                    </div>
+
+                    <small class="form-text text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        El técnico asignado siempre se registra automáticamente como principal
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-success" id="btnConfirmResolve">
+                    <i class="fas fa-check-circle me-2"></i>Resolver Ticket
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<!-- Self-Assign Modal -->
+<div class="modal fade" id="selfAssignModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-hand-paper me-2"></i>Tomar Ticket del Equipo
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="selfAssignTicketInfo" class="p-3 bg-light rounded mb-3"></div>
+                <p class="text-muted">
+                    ¿Deseas asignarte este ticket para trabajar en él?
+                </p>
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    El ticket se asignará a ti y desaparecerá de la lista del equipo.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary" id="btnConfirmSelfAssign">
+                    <i class="fas fa-hand-paper me-2"></i>Sí, Tomar Ticket
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ static_version }}"></script>
+{% endblock %}

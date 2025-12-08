@@ -236,22 +236,6 @@ def _check_app_access_or_abort(app_key: str,
         ok = (direct_ok or via_role_ok) if any_of else (direct_ok and via_role_ok)
         if not ok:
             abort(403)
-def api_app_required(app_key: str, roles: list[str] | None = None, perms: list[str] | None = None):
-    """Decorador unificado para proteger APIs, respondiendo con JSON."""
-    def deco(view):
-        @wraps(view)
-        def wrapper(*args, **kwargs):
-            try:
-                _check_app_access_or_abort(app_key, roles, perms, any_of=True)
-            except Exception as e:
-                code = getattr(e, 'code', 500)
-                if code == 401: return jsonify({"error": "unauthorized"}), 401
-                if code == 403: return jsonify({"error": "forbidden"}), 403
-                if code == 404: return jsonify({"error": "not_found"}), 404
-                raise e
-            return view(*args, **kwargs)
-        return wrapper
-    return deco
 
 def guard_blueprint(bp,
                     app_key: str,
@@ -322,7 +306,6 @@ def _check_app_access_enhanced(app_key: str,
     if perms:
         user_perm_set = get_user_permissions_for_app(uid, app_key, include_positions=True)
         has_required_perm = bool(perms & user_perm_set)
-        
         if not has_required_perm:
             abort(403)
 

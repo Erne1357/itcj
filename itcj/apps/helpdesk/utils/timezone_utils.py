@@ -68,7 +68,7 @@ def now() -> datetime:
     """Alias para now_local() - hora actual en timezone local"""
     return now_local()
 
-# Para usar en lugar de datetime.utcnow() cuando queremos hora local
+# Para usar en lugar de datetime.now() cuando queremos hora local
 def localnow() -> datetime:
     """Hora actual en timezone local (mismo que now())"""
     return now_local()

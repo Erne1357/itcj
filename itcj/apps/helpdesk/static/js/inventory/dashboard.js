@@ -23,7 +23,10 @@ async function loadQuickStats() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar estadísticas');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar estadísticas');
+        }
 
         const result = await response.json();
         const stats = result.data;
@@ -35,7 +38,8 @@ async function loadQuickStats() {
 
     } catch (error) {
         console.error('Error cargando stats:', error);
-        showError('No se pudieron cargar las estadísticas');
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar las estadísticas: ${errorMessage}`);
     }
 }
 
@@ -48,7 +52,10 @@ async function loadAlerts() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar alertas');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar alertas');
+        }
 
         const result = await response.json();
         const alerts = result.data;
@@ -82,6 +89,8 @@ async function loadAlerts() {
 
     } catch (error) {
         console.error('Error cargando alertas:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudieron cargar las alertas: ${errorMessage}`);
     }
 }
 
@@ -94,13 +103,16 @@ async function loadCategoryChart() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar gráfica');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar gráfica');
+        }
 
         const result = await response.json();
         const chartData = result.data;
 
         const ctx = document.getElementById('categoryChart').getContext('2d');
-        
+
         if (categoryChart) categoryChart.destroy();
 
         categoryChart = new Chart(ctx, {
@@ -135,6 +147,8 @@ async function loadCategoryChart() {
 
     } catch (error) {
         console.error('Error cargando gráfica de categorías:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudo cargar la gráfica de categorías: ${errorMessage}`);
     }
 }
 
@@ -147,13 +161,16 @@ async function loadStatusChart() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar gráfica');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar gráfica');
+        }
 
         const result = await response.json();
         const chartData = result.data;
 
         const ctx = document.getElementById('statusChart').getContext('2d');
-        
+
         if (statusChart) statusChart.destroy();
 
         statusChart = new Chart(ctx, {
@@ -188,6 +205,8 @@ async function loadStatusChart() {
 
     } catch (error) {
         console.error('Error cargando gráfica de estados:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudo cargar la gráfica de estados: ${errorMessage}`);
     }
 }
 
@@ -200,7 +219,10 @@ async function loadRecentActivity() {
             }
         });
 
-        if (!response.ok) throw new Error('Error al cargar actividad');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || errorData.message || 'Error al cargar actividad');
+        }
 
         const result = await response.json();
         const activities = result.data;
@@ -220,11 +242,11 @@ async function loadRecentActivity() {
 
         tbody.innerHTML = activities.map(activity => {
             const date = new Date(activity.timestamp);
-            const dateStr = date.toLocaleDateString('es-MX', { 
-                day: '2-digit', 
-                month: 'short', 
-                hour: '2-digit', 
-                minute: '2-digit' 
+            const dateStr = date.toLocaleDateString('es-MX', {
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
             });
 
             const eventBadge = getEventBadge(activity.event_type);
@@ -256,6 +278,8 @@ async function loadRecentActivity() {
 
     } catch (error) {
         console.error('Error cargando actividad:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        showError(`No se pudo cargar la actividad reciente: ${errorMessage}`);
     }
 }
 
@@ -276,5 +300,5 @@ function getEventBadge(eventType) {
 
 function showError(message) {
     // Implementar notificación de error (toastr, sweetalert, etc.)
-    alert(message);
+    showToast(message, 'error');
 }

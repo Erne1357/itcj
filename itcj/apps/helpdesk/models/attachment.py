@@ -11,7 +11,7 @@ class Attachment(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     ticket_id = db.Column(db.Integer, db.ForeignKey('helpdesk_ticket.id'), nullable=False, index=True)
-    uploaded_by_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False)
+    uploaded_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)
     
     # Información del archivo
     filename = db.Column(db.String(255), nullable=False)  # Nombre generado (único)
@@ -64,7 +64,7 @@ class Attachment(db.Model):
             'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
             'uploaded_by': {
                 'id': self.uploaded_by.id,
-                'name': self.uploaded_by.name,
+                'name': self.uploaded_by.full_name,
                 'username': self.uploaded_by.username
             } if self.uploaded_by else None
         }

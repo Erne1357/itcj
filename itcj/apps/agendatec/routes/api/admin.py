@@ -17,7 +17,7 @@ from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.request import Request as Req
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.apps.agendatec.models.notification import Notification
+from itcj.core.models.notification import Notification
 from itcj.apps.agendatec.models.audit_log import AuditLog
 from itcj.apps.agendatec.models.survey_dispatches import SurveyDispatch
 
@@ -283,7 +283,7 @@ def stats_overview():
 
 @api_admin_bp.get("/requests")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.requests_all.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.requests.api.read.all"])
 def admin_list_requests():
     start, end = _range_from_query()
     status = request.args.get("status")
@@ -342,7 +342,7 @@ def admin_list_requests():
 
 @api_admin_bp.patch("/requests/<int:req_id>/status")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.requests_all.edit"])
+@api_app_required(app_key="agendatec", perms=["agendatec.requests.api.update.all"])
 def admin_change_request_status(req_id: int):
     data = request.get_json(silent=True) or {}
     new_status: str = data.get("status")
@@ -355,7 +355,7 @@ def admin_change_request_status(req_id: int):
 
 @api_admin_bp.post("/users/coordinators")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.users.create"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.api.create"])
 def create_coordinator():
     data = request.get_json(silent=True) or {}
     name: str = data.get("name", "").strip()
@@ -373,8 +373,32 @@ def create_coordinator():
     if not role:
         return jsonify({"error": "role_not_found"}), 500
 
+    # Separar el nombre en partes (asumiendo formato: "Nombre Apellido1 Apellido2")
+    name_parts = name.strip().split()
+    if len(name_parts) < 2:
+        return jsonify({"error": "invalid_name_format"}), 400
+    
+    # Asumimos: último elemento = apellido paterno, penúltimo = apellido materno (si hay), resto = nombre(s)
+    if len(name_parts) >= 3:
+        first_name = ' '.join(name_parts[:-2]).upper()
+        last_name = name_parts[-2].upper()
+        middle_name = name_parts[-1].upper()
+    else:
+        first_name = name_parts[0].upper()
+        last_name = name_parts[-1].upper()
+        middle_name = None
+
     # User
-    u = User(full_name=name, email=email or None, control_number=control_number, username = username, role_id=role.id, nip_hash=hash_nip(nip))
+    u = User(
+        first_name=first_name,
+        last_name=last_name,
+        middle_name=middle_name,
+        email=email or None,
+        control_number=control_number,
+        username=username,
+        role_id=role.id,
+        nip_hash=hash_nip(nip)
+    )
     db.session.add(u)
     db.session.flush()
 
@@ -408,7 +432,7 @@ def create_coordinator():
 
 @api_admin_bp.patch("/users/coordinators/<int:coord_id>")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.users.edit"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.api.update"])
 def update_coordinator(coord_id: int):
     data = request.get_json(silent=True) or {}
     name: Optional[str] = data.get("name")
@@ -421,8 +445,18 @@ def update_coordinator(coord_id: int):
 
     before = {"name": c.user.full_name, "email": c.contact_email}
 
-    if name is not None:
-        c.user.full_name = name.strip() or c.user.full_name
+    if name is not None and name.strip():
+        # Separar el nombre en partes
+        name_parts = name.strip().split()
+        if len(name_parts) >= 2:
+            if len(name_parts) >= 3:
+                c.user.first_name = ' '.join(name_parts[:-2]).upper()
+                c.user.last_name = name_parts[-2].upper()
+                c.user.middle_name = name_parts[-1].upper()
+            else:
+                c.user.first_name = name_parts[0].upper()
+                c.user.last_name = name_parts[-1].upper()
+                c.user.middle_name = None
     if email is not None:
         c.contact_email = email.strip() or None
 
@@ -455,7 +489,7 @@ def update_coordinator(coord_id: int):
 
 @api_admin_bp.get("/users/coordinators")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.users.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.users.api.read"])
 def list_coordinators():
     """
     Lista coordinadores con sus programas (para usar en Admin · Usuarios y combos).
@@ -510,7 +544,7 @@ def list_coordinators():
 
 @api_admin_bp.post("/reports/requests.xlsx")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.reports.generate"])
+@api_app_required(app_key="agendatec", perms=["agendatec.reports.api.generate"])
 def export_requests_xlsx():
     start, end = _range_from_query()
     status = request.args.get("status")
@@ -788,7 +822,7 @@ def stats_coordinators():
 #-----------------Email ---------------------
 @api_admin_bp.post("/surveys/send")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.surveys.manage"])
+@api_app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def send_surveys():
     """
     Envía correos de encuesta:

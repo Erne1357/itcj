@@ -1,0 +1,367 @@
+/**
+ * ========================================
+ * ESTILOS PARA EL TUTORIAL DEL DASHBOARD
+ * ========================================
+ *
+ * Estilos personalizados para Shepherd.js
+ * Tema claro y profesional para el tutorial del dashboard principal
+ */
+
+/* ==================== OVERLAY ==================== */
+.shepherd-modal-overlay-container {
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* ==================== PASO DEL TUTORIAL ==================== */
+.dashboard-tutorial-step {
+    max-width: 500px;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    border: 1px solid #e0e0e0;
+}
+
+.shepherd-element {
+    z-index: 9999;
+}
+
+/* ==================== HEADER ==================== */
+.shepherd-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    padding: 20px;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+}
+
+.shepherd-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.shepherd-cancel-icon {
+    color: white;
+    opacity: 0.8;
+    font-size: 1.5rem;
+    transition: opacity 0.2s;
+}
+
+.shepherd-cancel-icon:hover {
+    opacity: 1;
+}
+
+/* ==================== CONTENIDO ==================== */
+.shepherd-text {
+    padding: 24px;
+    background: white;
+    color: #333;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.shepherd-text p {
+    margin-bottom: 12px;
+}
+
+.shepherd-text p:last-child {
+    margin-bottom: 0;
+}
+
+.shepherd-text ul {
+    margin: 12px 0;
+    padding-left: 20px;
+}
+
+.shepherd-text li {
+    margin-bottom: 8px;
+}
+
+.shepherd-text strong {
+    color: #667eea;
+    font-weight: 600;
+}
+
+.shepherd-text em {
+    color: #666;
+    font-style: italic;
+}
+
+.shepherd-text kbd {
+    background-color: #f4f4f4;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+    color: #333;
+    display: inline-block;
+    font-family: monospace;
+    font-size: 0.85em;
+    line-height: 1;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
+/* ==================== FOOTER Y BOTONES ==================== */
+.shepherd-footer {
+    padding: 16px 24px;
+    background: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.shepherd-button {
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.shepherd-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.shepherd-button:active {
+    transform: translateY(0);
+}
+
+/* Botón primario */
+.shepherd-button.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.shepherd-button.btn-primary:hover {
+    background: linear-gradient(135deg, #5568d3 0%, #653a8a 100%);
+}
+
+/* Botón secundario */
+.shepherd-button.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.shepherd-button.btn-secondary:hover {
+    background: #5a6268;
+}
+
+/* Botón success */
+.shepherd-button.btn-success {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    color: white;
+}
+
+.shepherd-button.btn-success:hover {
+    background: linear-gradient(135deg, #0f8074 0%, #2dd46b 100%);
+}
+
+/* ==================== FLECHA/ARROW ==================== */
+.shepherd-arrow:before {
+    background: white;
+}
+
+/* Flechas en diferentes posiciones */
+[data-popper-placement^='top'] > .shepherd-arrow:before {
+    border-top-color: white;
+}
+
+[data-popper-placement^='bottom'] > .shepherd-arrow:before {
+    border-bottom-color: white;
+}
+
+[data-popper-placement^='left'] > .shepherd-arrow:before {
+    border-left-color: white;
+}
+
+[data-popper-placement^='right'] > .shepherd-arrow:before {
+    border-right-color: white;
+}
+
+/* ==================== ELEMENTO DESTACADO ==================== */
+.shepherd-target {
+    animation: pulse-highlight-dashboard 2s ease-in-out infinite;
+    position: relative;
+}
+
+@keyframes pulse-highlight-dashboard {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 0 12px rgba(102, 126, 234, 0);
+    }
+}
+
+/* ==================== BOTÓN DE TUTORIAL EN TASKBAR ==================== */
+#dashboardTutorialButton {
+    position: relative;
+    background: rgba(0, 0, 0, 0.3);
+    color: white;
+    border: 1px solid rgba(0, 0, 0, 0.5);
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-weight: 500;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 8px;
+    height: 32px;
+}
+
+#dashboardTutorialButton:hover {
+    background: rgba(0, 0, 0, 0.5);
+    border-color: rgba(0, 0, 0, 0.7);
+    transform: translateY(-1px);
+}
+
+#dashboardTutorialButton:active {
+    transform: translateY(0);
+}
+
+#dashboardTutorialButton i {
+    font-size: 1rem;
+}
+
+#dashboardTutorialButton svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Animación de pulso sutil para llamar la atención */
+@keyframes pulse-tutorial-button {
+    0%, 100% {
+        border-color: rgba(255, 255, 255, 0.3);
+    }
+    50% {
+        border-color: rgba(255, 255, 255, 0.6);
+    }
+}
+
+#dashboardTutorialButton.pulse {
+    animation: pulse-tutorial-button 2s ease-in-out infinite;
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 768px) {
+    .dashboard-tutorial-step {
+        max-width: 90vw;
+    }
+
+    .shepherd-text {
+        font-size: 0.9rem;
+        padding: 20px;
+    }
+
+    .shepherd-header {
+        padding: 16px;
+    }
+
+    .shepherd-title {
+        font-size: 1.1rem;
+    }
+
+    .shepherd-footer {
+        padding: 12px 20px;
+        flex-direction: column-reverse;
+    }
+
+    .shepherd-button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    #dashboardTutorialButton {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+    }
+}
+
+/* ==================== MEJORAS DE ACCESIBILIDAD ==================== */
+.shepherd-button:focus {
+    outline: 2px solid #667eea;
+    outline-offset: 2px;
+}
+
+.shepherd-text a {
+    color: #667eea;
+    text-decoration: underline;
+}
+
+.shepherd-text a:hover {
+    color: #5568d3;
+}
+
+/* ==================== ANIMACIONES DE ENTRADA ==================== */
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.shepherd-element {
+    animation: fadeInScale 0.3s ease-out;
+}
+
+/* ==================== SCROLLBAR PERSONALIZADO ==================== */
+.shepherd-text::-webkit-scrollbar {
+    width: 6px;
+}
+
+.shepherd-text::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.shepherd-text::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 10px;
+}
+
+.shepherd-text::-webkit-scrollbar-thumb:hover {
+    background: #5568d3;
+}
+
+/* ==================== OVERLAY PARA BLOQUEAR INTERACCIÓN ==================== */
+.tutorial-interaction-blocker {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9997;
+    pointer-events: none;
+}
+
+.tutorial-interaction-blocker.active {
+    pointer-events: all;
+}
+
+/* ==================== ICONO DE INFORMACIÓN ==================== */
+.shepherd-text .info-icon {
+    color: #667eea;
+    margin-right: 8px;
+}
+
+/* ==================== DESTACAR ELEMENTOS ESPECÍFICOS ==================== */
+.tutorial-highlight {
+    position: relative;
+    z-index: 10000 !important;
+}

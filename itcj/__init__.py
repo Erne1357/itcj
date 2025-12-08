@@ -4,6 +4,7 @@ from .core.extensions import db, migrate
 from werkzeug.exceptions import HTTPException
 from .core.utils.jwt_tools import encode_jwt, decode_jwt
 from itcj.core.utils.role_home import role_home
+from itcj.core.services.authz_service import user_roles_in_app
 import time
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -32,7 +33,9 @@ def create_app():
 
     #Registrar comandos 
     from itcj.apps.helpdesk.commands import register_helpdesk_commands
+    from itcj.core.commands import register_commands
     register_helpdesk_commands(app)
+    register_commands(app)
 
     @app.before_request
     def load_current_user():
@@ -51,7 +54,7 @@ def create_app():
     def maybe_refresh_cookie(resp):
         if getattr(g, "_refresh_token", False) and g.current_user:
             new_token = encode_jwt(
-                {"sub": g.current_user["sub"], "role": g.current_user["role"],
+                {"sub": g.current_user["sub"], "role": user_roles_in_app(int(g.current_user["sub"]), 'itcj'),
                  "cn": g.current_user.get("cn"), "name": g.current_user.get("name")},
                 hours=current_app.config["JWT_EXPIRES_HOURS"]
             )
@@ -83,7 +86,7 @@ def create_app():
     @app.get("/")
     def home():
         if g.current_user:
-            return redirect(role_home(g.current_user.get("role")))
+            return redirect(role_home(user_roles_in_app(int(g.current_user["sub"]), 'itcj')))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor
@@ -216,7 +219,7 @@ def register_error_handlers(app):
         return request.path.startswith("/api/")
 
     def render_error_page(status_code, error_info):
-        return render_template("errors/core_error.html",
+        return render_template("core/errors/core_error.html",
                              error_code=status_code,
                              error_title=error_info['title'],
                              error_message=error_info['message']), status_code

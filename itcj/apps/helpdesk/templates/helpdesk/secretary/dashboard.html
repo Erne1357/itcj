@@ -1,0 +1,183 @@
+{% extends 'helpdesk/base_helpdesk.html' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/secretary/dashboard.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block header_title %}Dashboard de Secretaría{% endblock %}
+{% block header_subtitle %}{{ department_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h1 class="h2 mb-0">Dashboard: <span class="text-primary">{{ department_name }}</span></h1>
+    <div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="refreshDashboard()">
+            <i class="fas fa-redo me-1"></i> Actualizar
+        </button>
+        <button class="btn btn-sm btn-primary" onclick="createTicket()">
+            <i class="fas fa-plus me-1"></i> Crear Ticket
+        </button>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-3 col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title text-muted small">Tickets Activos</h5>
+                <div class="h2 fw-bold" id="activeTicketsCount">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </div>
+                <small class="text-muted">Pendientes, Asignados o En Progreso</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title text-muted small">Resueltos (Histórico)</h5>
+                <div class="h2 fw-bold" id="resolvedCount">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </div>
+                <small class="text-muted">Total de tickets completados</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title text-muted small">Tiempo Prom. Resolución</h5>
+                <div class="h2 fw-bold" id="avgTime">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </div>
+                <small class="text-muted">Desde creación a resolución</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="card-title text-muted small">Satisfacción (Promedio)</h5>
+                <div class="h2 fw-bold" id="satisfaction">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </div>
+                <small class="text-muted">Basado en calificaciones</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header p-0 border-bottom">
+        <ul class="nav nav-tabs nav-fill" id="dashboardTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tickets-tab" data-bs-toggle="tab" data-bs-target="#tickets-panel" type="button" role="tab" aria-controls="tickets-panel" aria-selected="true">
+                    <i class="fas fa-ticket-alt me-1"></i>
+                    Tickets del Depto.
+                    <span class="badge rounded-pill bg-primary ms-1" id="ticketsBadge">...</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="inventory-tab" data-bs-toggle="tab" data-bs-target="#inventory-panel" type="button" role="tab" aria-controls="inventory-panel" aria-selected="false">
+                    <i class="fas fa-boxes me-1"></i>
+                    Inventario (Lectura)
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary-panel" type="button" role="tab" aria-controls="summary-panel" aria-selected="false">
+                    <i class="fas fa-chart-pie me-1"></i>
+                    Resumen
+                </button>
+            </li>
+        </ul>
+    </div>
+    
+    <div class="card-body p-0">
+        <div class="tab-content" id="dashboardTabsContent">
+            
+            <div class="tab-pane fade show active" id="tickets-panel" role="tabpanel" aria-labelledby="tickets-tab">
+                
+                <div class="p-3 border-bottom bg-light">
+                    <div class="row g-2 align-items-center">
+                        <div class="col-md-5">
+                            <input type="text" class="form-control form-control-sm" id="searchTickets" placeholder="Buscar por título, # ticket, solicitante...">
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select form-select-sm" id="filterStatus">
+                                <option value="">Todo estatus</option>
+                                <option value="PENDING">Pendiente</option>
+                                <option value="ASSIGNED">Asignado</option>
+                                <option value="IN_PROGRESS">En Progreso</option>
+                                <option value="RESOLVED_SUCCESS">Resuelto (Éxito)</option>
+                                <option value="RESOLVED_FAILED">Resuelto (Fallido)</option>
+                                <option value="CLOSED">Cerrado</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                             <select class="form-select form-select-sm" id="filterArea">
+                                <option value="">Toda área</option>
+                                <option value="HARDWARE">Hardware</option>
+                                <option value="SOFTWARE">Software</option>
+                                <option value="NETWORKING">Redes</option>
+                                <option value="SISTEMAS_ACADEMICOS">Sistemas Académicos</option>
+                                <option value="SISTEMAS_ADMIN">Sistemas Admin.</option>
+                                <option value="OTRO">Otro</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="list-container" style="max-height: 600px; overflow-y: auto;">
+                    <div id="ticketsList">
+                        </div>
+                </div>
+
+            </div>
+            
+            <div class="tab-pane fade" id="inventory-panel" role="tabpanel" aria-labelledby="inventory-tab">
+                
+                <div class="list-container" style="max-height: 600px; overflow-y: auto;">
+                    <div id="inventoryList">
+                        </div>
+                </div>
+
+            </div>
+
+            <div class="tab-pane fade" id="summary-panel" role="tabpanel" aria-labelledby="summary-tab">
+                <div class="p-3 p-md-4">
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <h5 class="mb-3">Estadísticas del Mes Actual</h5>
+                            <div id="monthStats">
+                                <p class="text-muted text-center py-3">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>Cargando...
+                                </p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h5 class="mb-3">Top 5 Categorías (Histórico)</h5>
+                            <div id="categoryStats">
+                                <p class="text-muted text-center py-3">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>Cargando...
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+    const DEPARTMENT_ID = {{ department.id | tojson }};
+</script>
+
+<script src="{{ url_for('static', filename='helpdesk/js/secretary/dashboard.js') }}?v={{ static_version }}"></script>
+{% endblock %}

@@ -250,9 +250,7 @@ class DepartmentDetailManager {
         const formData = new FormData(e.target);
 
         // Depuración: ver todos los valores del formulario
-        console.log('=== FORM DATA DEBUG ===');
         for (let [key, value] of formData.entries()) {
-            console.log(`${key}:`, value);
         }
 
         const data = {
@@ -264,9 +262,6 @@ class DepartmentDetailManager {
             is_active: formData.get('is_active') === 'on'  // Ahora lee del checkbox
         };
 
-        console.log('=== FINAL DATA OBJECT ===');
-        console.log('Creating position with data:', data);
-        console.log('allows_multiple específicamente:', data.allows_multiple);
         try {
             const response = await fetch(`${this.apiBase}/positions`, {
                 method: 'POST',
@@ -275,7 +270,6 @@ class DepartmentDetailManager {
             });
 
             const result = await response.json();
-            console.log('Create position response:', result);
             if (response.ok) {
                 this.showSuccess('Puesto creado correctamente');
                 this.createModal.hide();
@@ -446,7 +440,6 @@ class DepartmentDetailManager {
             }
 
             const appsResult = await appsResponse.json();
-            console.log('Apps response:', appsResult);
 
             if (appsResult.status !== 'ok' || !appsResult.data) {
                 container.innerHTML = '<p class="text-muted">Error al cargar aplicaciones</p>';
@@ -459,7 +452,6 @@ class DepartmentDetailManager {
 
             if (assignmentsResponse.ok) {
                 const assignmentsResult = await assignmentsResponse.json();
-                console.log('Assignments response:', assignmentsResult);
                 if (assignmentsResult.status === 'ok' && assignmentsResult.data && assignmentsResult.data.apps) {
                     positionApps = assignmentsResult.data.apps;
                 }
@@ -534,7 +526,6 @@ class DepartmentDetailManager {
             const collapseEl = document.getElementById(`appCollapse${app.id}`);
             if (collapseEl) {
                 collapseEl.addEventListener('show.bs.collapse', () => {
-                    console.log('Loading app:', app.key, 'for position:', this.currentPositionId);
                     this.currentAppKey = app.key;
                     this.loadAppRolesAndPermissions(app.key, app.id, positionApps[app.key] || {});
                 });
@@ -562,7 +553,6 @@ class DepartmentDetailManager {
             let availableRoles = [];
             if (rolesResponse.ok) {
                 const rolesResult = await rolesResponse.json();
-                console.log('Available roles response:', rolesResult);
                 if (rolesResult.status === 'ok' && rolesResult.data) {
                     availableRoles = rolesResult.data;
                 }
@@ -572,7 +562,6 @@ class DepartmentDetailManager {
             let assignedRoles = [];
             if (positionRolesResponse.ok) {
                 const positionRolesResult = await positionRolesResponse.json();
-                console.log('Position roles response:', positionRolesResult);
                 if (positionRolesResult.status === 'ok' && positionRolesResult.data) {
                     assignedRoles = positionRolesResult.data;
                 }
@@ -582,7 +571,6 @@ class DepartmentDetailManager {
             let availablePerms = [];
             if (permsResponse.ok) {
                 const permsResult = await permsResponse.json();
-                console.log('Available permissions response:', permsResult);
                 if (permsResult.status === 'ok' && permsResult.data) {
                     availablePerms = permsResult.data;
                 }
@@ -592,7 +580,6 @@ class DepartmentDetailManager {
             let assignedPerms = [];
             if (positionPermsResponse.ok) {
                 const positionPermsResult = await positionPermsResponse.json();
-                console.log('Position permissions response:', positionPermsResult);
                 if (positionPermsResult.status === 'ok' && positionPermsResult.data) {
                     assignedPerms = positionPermsResult.data;
                 }
@@ -686,7 +673,6 @@ class DepartmentDetailManager {
     }
 
     async togglePositionRole(roleName, assign) {
-        console.log('togglePositionRole called:', { roleName, assign, currentAppKey: this.currentAppKey, currentPositionId: this.currentPositionId });
 
         if (!this.currentAppKey) {
             this.showError('No hay aplicación seleccionada');
@@ -711,7 +697,6 @@ class DepartmentDetailManager {
     }
 
     async togglePositionPermission(permCode, assign) {
-        console.log('togglePositionPermission called:', { permCode, assign, currentAppKey: this.currentAppKey, currentPositionId: this.currentPositionId });
 
         if (!this.currentAppKey) {
             this.showError('No hay aplicación seleccionada');
@@ -829,7 +814,6 @@ class DepartmentDetailManager {
             const response = await fetch(`${this.apiBase}/users?limit=100`);
             const result = await response.json();
 
-            console.log('Users API response:', result); // Debug log
 
             if (response.ok && result.data) {
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';

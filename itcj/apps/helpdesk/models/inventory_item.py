@@ -60,14 +60,14 @@ class InventoryItem(db.Model):
     # Ubicación y asignación
     department_id = db.Column(
         db.Integer,
-        db.ForeignKey("departments.id"),
+        db.ForeignKey("core_departments.id"),
         nullable=False,
         index=True
     )
     
     assigned_to_user_id = db.Column(
         db.BigInteger,
-        db.ForeignKey("users.id"),
+        db.ForeignKey("core_users.id"),
         nullable=True,
         index=True
     )
@@ -77,9 +77,25 @@ class InventoryItem(db.Model):
     location_detail = db.Column(db.String(200))
     # Ubicación específica: "Aula 201", "Lab 3 - Estación 5", "Oficina del Director"
     
+    # Grupo al que pertenece (salón, laboratorio, etc.)
+    group_id = db.Column(
+        db.Integer,
+        db.ForeignKey("helpdesk_inventory_groups.id"),
+        nullable=True,
+        index=True
+    )
+    # NULL = no asignado a grupo específico
+    # NOT NULL = asignado a un grupo/salón
+
     # Estado del equipo
-    status = db.Column(db.String(30), nullable=False, default='ACTIVE', index=True)
-    # Estados: ACTIVE, MAINTENANCE, DAMAGED, RETIRED, LOST
+    status = db.Column(db.String(30), nullable=False, default='PENDING_ASSIGNMENT', index=True)
+    # Estados: 
+    # - PENDING_ASSIGNMENT: Recién registrado, en limbo del CC
+    # - ACTIVE: Activo y en uso
+    # - MAINTENANCE: En mantenimiento
+    # - DAMAGED: Dañado
+    # - RETIRED: Dado de baja
+    # - LOST: Extraviado
     
     # Fechas importantes
     acquisition_date = db.Column(db.Date)
@@ -99,13 +115,13 @@ class InventoryItem(db.Model):
     # Auditoría de registro
     registered_by_id = db.Column(
         db.BigInteger,
-        db.ForeignKey("users.id"),
+        db.ForeignKey("core_users.id"),
         nullable=False
     )
     registered_at = db.Column(db.DateTime, server_default=db.func.now(), nullable=False)
     
     # Auditoría de asignación
-    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey("users.id"))
+    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id"))
     assigned_at = db.Column(db.DateTime)
     
     # Timestamps generales
@@ -115,10 +131,16 @@ class InventoryItem(db.Model):
         onupdate=db.func.now()
     )
     
+    created_at = db.Column(
+        db.DateTime,
+        server_default=db.func.now(),
+        nullable=False
+    )
+
     # Soft delete
     is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
     deactivated_at = db.Column(db.DateTime)
-    deactivated_by_id = db.Column(db.BigInteger, db.ForeignKey("users.id"))
+    deactivated_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id"))
     deactivation_reason = db.Column(db.Text)
     
     # Relaciones
@@ -126,6 +148,8 @@ class InventoryItem(db.Model):
     
     department = db.relationship("Department", backref="inventory_items")
     
+    group = db.relationship("InventoryGroup", back_populates="items")
+
     assigned_to_user = db.relationship(
         "User",
         foreign_keys=[assigned_to_user_id],
@@ -148,10 +172,11 @@ class InventoryItem(db.Model):
         foreign_keys=[deactivated_by_id]
     )
     
-    # Relación con tickets
-    tickets = db.relationship(
-        "Ticket",
+
+    ticket_items = db.relationship(
+        "TicketInventoryItem",
         back_populates="inventory_item",
+        cascade="all, delete-orphan",
         lazy='dynamic'
     )
     
@@ -183,7 +208,7 @@ class InventoryItem(db.Model):
     @property
     def is_global(self):
         """¿Es global del departamento?"""
-        return self.assigned_to_user_id is None
+        return self.assigned_to_user_id is None and not self.is_in_group
     
     @property
     def display_name(self):
@@ -232,6 +257,46 @@ class InventoryItem(db.Model):
             ~Ticket.status.in_(['CLOSED', 'CANCELED'])
         ).count()
     
+    @property
+    def is_in_group(self):
+        """¿Está asignado a un grupo/salón?"""
+        return self.group_id is not None
+    
+    @property
+    def is_pending_assignment(self):
+        """¿Está en espera de asignación?"""
+        return self.status == 'PENDING_ASSIGNMENT'
+    
+    @property
+    def tickets_count(self):
+        """Total de tickets relacionados"""
+        return self.ticket_items.count() if self.ticket_items else 0
+    
+    @property
+    def active_tickets_count(self):
+        """Tickets activos (no cerrados ni cancelados)"""
+        if not self.ticket_items:
+            return 0
+        from itcj.apps.helpdesk.models.ticket import Ticket
+        active_ticket_ids = [
+            ti.ticket_id for ti in self.ticket_items
+        ]
+        if not active_ticket_ids:
+            return 0
+        return Ticket.query.filter(
+            Ticket.id.in_(active_ticket_ids),
+            ~Ticket.status.in_(['CLOSED', 'CANCELED'])
+        ).count()
+    
+    @property
+    def tickets(self):
+        """Obtener tickets relacionados a través de la tabla intermedia"""
+        from itcj.apps.helpdesk.models.ticket import Ticket
+        ticket_ids = [ti.ticket_id for ti in self.ticket_items]
+        if not ticket_ids:
+            return []
+        return Ticket.query.filter(Ticket.id.in_(ticket_ids)).all()
+
     def to_dict(self, include_relations=False):
         """Serialización para API"""
         data = {
@@ -244,6 +309,7 @@ class InventoryItem(db.Model):
             'specifications': self.specifications,
             'department_id': self.department_id,
             'assigned_to_user_id': self.assigned_to_user_id,
+            'group_id': self.group_id,  # NUEVO
             'location_detail': self.location_detail,
             'status': self.status,
             'acquisition_date': self.acquisition_date.isoformat() if self.acquisition_date else None,
@@ -253,14 +319,17 @@ class InventoryItem(db.Model):
             'next_maintenance_date': self.next_maintenance_date.isoformat() if self.next_maintenance_date else None,
             'notes': self.notes,
             'registered_at': self.registered_at.isoformat() if self.registered_at else None,
-            'assigned_by' : self.assigned_by.to_dict() if self.assigned_by else None,
+            'assigned_by': self.assigned_by.to_dict() if self.assigned_by else None,
             'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
             'is_active': self.is_active,
             # Propiedades calculadas
             'display_name': self.display_name,
             'is_assigned_to_user': self.is_assigned_to_user,
             'is_global': self.is_global,
+            'is_in_group': self.is_in_group,  # NUEVO
+            'is_pending_assignment': self.is_pending_assignment,  # NUEVO
             'is_under_warranty': self.is_under_warranty,
             'warranty_days_remaining': self.warranty_days_remaining if self.is_under_warranty else 0,
             'needs_maintenance': self.needs_maintenance,
@@ -272,7 +341,8 @@ class InventoryItem(db.Model):
             data['category'] = self.category.to_dict() if self.category else None
             data['department'] = {
                 'id': self.department.id,
-                'name': self.department.name
+                'name': self.department.name,
+                'code': self.department.code  # AGREGADO
             } if self.department else None
             data['assigned_to_user'] = {
                 'id': self.assigned_to_user.id,
@@ -283,5 +353,6 @@ class InventoryItem(db.Model):
                 'id': self.registered_by.id,
                 'full_name': self.registered_by.full_name
             } if self.registered_by else None
+            data['group'] = self.group.to_dict() if self.group else None  # NUEVO
         
         return data

@@ -1,8 +1,8 @@
 from itcj.core.extensions import db
 class Permission(db.Model):
-    __tablename__ = "permissions"
+    __tablename__ = "core_permissions"
     id = db.Column(db.Integer, primary_key=True)
-    app_id = db.Column(db.Integer, db.ForeignKey("apps.id", ondelete="CASCADE"), nullable=False, index=True)
+    app_id = db.Column(db.Integer, db.ForeignKey("core_apps.id", ondelete="CASCADE"), nullable=False, index=True)
     code = db.Column(db.String(100), nullable=False)  # p.ej. 'requests.view'
     name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.Text)

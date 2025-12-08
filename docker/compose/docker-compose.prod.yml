@@ -4,6 +4,10 @@ services:
   redis:
     restart: always
     image: redis:7
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     # No exponemos puerto en prod, solo red interna
 
   postgres:
@@ -32,12 +36,17 @@ services:
       - ../../itcj:/app/itcj:ro
       - ../../wsgi.py:/app/wsgi.py:ro
       - ../../requirements.txt:/app/requirements.txt:ro
-      - ../../migrations:/app/migrations:ro  # Agregar esta línea
+      - ../../migrations:/app/migrations:ro 
+      - ../../instance:/app/instance:ro
       # CSV si lo necesitas
-      - ../../database/CSV:/app/database/CSV:ro
+      - ../../database:/app/database:ro
     depends_on:
       - postgres
       - redis
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     # No exponemos puerto, nginx lo maneja
     logging:
       driver: json-file

@@ -4,7 +4,7 @@ class TimeSlot(db.Model):
     __tablename__ = "agendatec_time_slots"
 
     id = db.Column(db.BigInteger, primary_key=True)
-    coordinator_id = db.Column(db.Integer, db.ForeignKey("coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    coordinator_id = db.Column(db.Integer, db.ForeignKey("core_coordinators.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
     day = db.Column(db.Date, nullable=False)
     start_time = db.Column(db.Time, nullable=False)

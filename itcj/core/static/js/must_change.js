@@ -33,6 +33,78 @@
             toast.remove();
         }, 3000);
     }
+
+    // Función para bloquear toda la interfaz
+    function blockInterface() {
+        // Bloquear todos los elementos interactivos
+        const selectors = [
+            '.desktop-icon',
+            '.start-button',
+            '.pinned-app',
+            '.system-icon',
+            'button:not(#btnSavePw):not(.btn-close)',
+            '.taskbar button',
+            '.taskbar input'
+        ];
+
+        selectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(element => {
+                element.style.pointerEvents = 'none';
+                element.style.opacity = '0.5';
+                element.style.cursor = 'not-allowed';
+            });
+        });
+
+        // Bloquear toda la taskbar
+        const taskbar = document.querySelector('.taskbar');
+        if (taskbar) {
+            taskbar.style.pointerEvents = 'none';
+            taskbar.style.opacity = '0.7';
+        }
+
+        // Bloquear el desktop
+        const desktop = document.getElementById('desktop-grid');
+        if (desktop) {
+            desktop.style.pointerEvents = 'none';
+            desktop.style.opacity = '0.6';
+        }
+    }
+
+    // Función para desbloquear la interfaz
+    function unblockInterface() {
+        // Desbloquear todos los elementos
+        const selectors = [
+            '.desktop-icon',
+            '.start-button',
+            '.pinned-app',
+            '.system-icon',
+            'button',
+            '.taskbar button',
+            '.taskbar input'
+        ];
+
+        selectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(element => {
+                element.style.pointerEvents = '';
+                element.style.opacity = '';
+                element.style.cursor = '';
+            });
+        });
+
+        // Desbloquear la taskbar
+        const taskbar = document.querySelector('.taskbar');
+        if (taskbar) {
+            taskbar.style.pointerEvents = '';
+            taskbar.style.opacity = '';
+        }
+
+        // Desbloquear el desktop
+        const desktop = document.getElementById('desktop-grid');
+        if (desktop) {
+            desktop.style.pointerEvents = '';
+            desktop.style.opacity = '';
+        }
+    }
     const modalEl = document.getElementById("forcePwModal");
     const newPw = document.getElementById("newPw");
     const btnSave = document.getElementById("btnSavePw");
@@ -45,12 +117,19 @@
 
     const modal = new bootstrap.Modal(modalEl, { backdrop: "static", keyboard: false });
 
+    // Variable para rastrear si se mostró el modal
+    let modalWasShown = false;
+
     try {
         const r = await fetch("/api/core/v1/user/password-state", { credentials: "include" });
         if (r.ok) {
             const { must_change } = await r.json();
-            console.log("Must change: " + must_change);
-            if (must_change) modal.show();
+            console.log("Estado de la contraseña:", must_change);
+            if (must_change) {
+                modalWasShown = true;
+                blockInterface(); // Bloquear toda la interfaz
+                modal.show();
+            }
         }
     } catch (e) {
         console.error("Error al verificar el estado de la contraseña:", e);
@@ -75,6 +154,17 @@
             if (!res.ok) throw new Error("No se pudo actualizar la contraseña.");
             showToast("Contraseña actualizada.", "success");
             modal.hide();
+
+            // Desbloquear la interfaz después de cerrar el modal
+            setTimeout(() => {
+                unblockInterface();
+
+                // Disparar evento personalizado para indicar que el modal se cerró
+                // El tutorial puede escuchar este evento para iniciar
+                const event = new CustomEvent('passwordModalClosed');
+                window.dispatchEvent(event);
+                console.log('[MustChange] Password modal closed, interface unblocked');
+            }, 300);
         } catch (e) {
             showToast("No se pudo actualizar la contraseña.", "error");
             console.error("Error al actualizar la contraseña:", e);
@@ -83,4 +173,7 @@
             newPw.value = "";
         }
     });
+
+    // Exponer el estado del modal globalmente para que el tutorial pueda verificarlo
+    window.passwordModalWasShown = () => modalWasShown;
 })();

@@ -1,0 +1,586 @@
+<!-- itcj/apps/helpdesk/templates/user/ticket_detail.html -->
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Ticket #{{ ticket_id }}{% endblock %}
+
+{% block header_title %}Detalle del Ticket{% endblock %}
+{% block header_subtitle %}Información Completa{% endblock %}
+
+{% block header_back %}
+<a href="#" id="backButton" class="btn btn-outline-light btn-sm">
+    <i class="fas fa-arrow-left me-2"></i><span id="backButtonText">Volver</span>
+</a>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const backButton = document.getElementById('backButton');
+        const backButtonText = document.getElementById('backButtonText');
+
+        // Obtener el referrer o parámetro de URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const fromParam = urlParams.get('from');
+        console.log('fromParam:', fromParam);
+        const referrer = document.referrer;
+
+        let backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}"; // Default fallback
+        let backText = "Mis Tickets";
+
+        // Determinar la URL y texto basado en el parámetro 'from'
+        if (fromParam) {
+            switch (fromParam) {
+                case 'dashboard':
+                    backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
+                    backText = "Dashboard";
+                    break;
+                case 'my_tickets':
+                    backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
+                    backText = "Mis Tickets";
+                    break;
+                case 'department':
+                    backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
+                    backText = "Departamento";
+                    break;
+                case 'admin':
+                    backUrl = "/help-desk/admin/tickets";
+                    backText = "Administración";
+                    break;
+                case 'secretary':
+                    backUrl = "{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}";
+                    backText = "Assignar Tickets";
+                default:
+                    // Mantener valores por defecto
+                    break;
+            }
+        }
+        // Si no hay parámetro, intentar determinar por referrer
+        else if (referrer) {
+            if (referrer.includes('/help-desk/user/dashboard')) {
+                backUrl = "{{ url_for('helpdesk_pages.user_pages.create_ticket') }}";
+                backText = "Dashboard";
+            } else if (referrer.includes('/help-desk/user/tickets')) {
+                backUrl = "{{ url_for('helpdesk_pages.user_pages.my_tickets') }}";
+                backText = "Mis Tickets";
+            } else if (referrer.includes('/help-desk/department')) {
+                backUrl = "{{ url_for('helpdesk_pages.department_pages.tickets') }}";
+                backText = "Departamento";
+            } else if (referrer.includes('/help-desk/admin/assign-tickets')) {
+                backUrl = "/help-desk/admin/assign-tickets";
+                backText = "Administración";
+            } else if (referrer.includes('/help-desk')) {
+                // Si viene de alguna página de helpdesk pero no coincide con las anteriores
+                backText = "Volver";
+                backUrl = referrer;
+            }
+        }
+
+        // Fallback: usar sessionStorage si no se pudo determinar
+        if (!fromParam && !referrer) {
+            try {
+                const lastPage = JSON.parse(sessionStorage.getItem('helpdesk_last_page') || '{}');
+                if (lastPage.url && lastPage.text) {
+                    backUrl = lastPage.url;
+                    backText = lastPage.text;
+                }
+            } catch (e) {
+                // Ignorar errores de JSON parsing
+            }
+        }
+
+        // Solo mostrar el botón si la URL de retorno es válida y dentro de help-desk
+        if (backUrl && (backUrl.includes('/help-desk/') || fromParam || referrer.includes('/help-desk/'))) {
+            backButton.href = backUrl;
+            backButtonText.textContent = backText;
+            backButton.style.display = 'inline-block';
+
+            // Guardar en sessionStorage para futuras navegaciones
+            sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
+                url: backUrl,
+                text: backText
+            }));
+        } else {
+            // Ocultar el botón si no viene de help-desk
+            backButton.style.display = 'none';
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+
+<!-- Loading State (inicial) -->
+<div id="loadingState" class="text-center py-5">
+    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
+        <span class="visually-hidden">Cargando...</span>
+    </div>
+    <h5 class="text-muted">Cargando ticket...</h5>
+</div>
+
+<!-- Error State -->
+<div id="errorState" class="d-none">
+    <div class="alert alert-danger d-flex align-items-center">
+        <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
+        <div>
+            <h5 class="alert-heading mb-2">Error al cargar el ticket</h5>
+            <p class="mb-0" id="errorMessage">No se pudo cargar la información del ticket.</p>
+        </div>
+    </div>
+    <div class="text-center">
+        <button class="btn btn-primary" onclick="loadTicketDetail()">
+            <i class="fas fa-redo me-2"></i>Reintentar
+        </button>
+    </div>
+</div>
+
+<!-- Main Content -->
+<div id="mainContent" class="d-none">
+    <div class="row">
+        <!-- Left Column: Ticket Info -->
+        <div class="col-lg-8">
+
+            <!-- Ticket Header Card -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h2 class="mb-2" id="ticketNumber">
+                                <i class="fas fa-ticket-alt me-2 text-primary"></i>
+                                TK-2025-0000
+                            </h2>
+                            <div class="d-flex gap-2 flex-wrap" id="ticketBadges">
+                                <!-- Badges dinámicos -->
+                            </div>
+                        </div>
+
+                        <!-- Quick Actions -->
+                        <div class="dropdown">
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                                data-bs-toggle="dropdown">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" id="quickActions">
+                                <!-- Se llenará dinámicamente -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <h3 class="mb-3" id="ticketTitle">Título del Ticket</h3>
+
+                    <!-- Info Grid -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <small class="text-muted d-block mb-1">
+                                <i class="fas fa-calendar me-1"></i>Fecha de Creación
+                            </small>
+                            <strong id="ticketCreated">-</strong>
+                        </div>
+
+                        <div class="col-md-6">
+                            <small class="text-muted d-block mb-1">
+                                <i class="fas fa-clock me-1"></i>Última Actualización
+                            </small>
+                            <strong id="ticketUpdated">-</strong>
+                        </div>
+
+                        <div class="col-md-6" id="locationContainer" style="display: none;">
+                            <small class="text-muted d-block mb-1">
+                                <i class="fas fa-map-marker-alt me-1"></i>Ubicación
+                            </small>
+                            <strong id="ticketLocation">-</strong>
+                        </div>
+
+                        <div class="col-md-6" id="folioContainer" style="display: none;">
+                            <small class="text-muted d-block mb-1">
+                                <i class="fas fa-file-alt me-1"></i>Folio de Oficio
+                            </small>
+                            <strong id="ticketFolio">-</strong>
+                        </div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <!-- Description -->
+                    <div class="mb-3">
+                        <h6 class="fw-bold mb-2">
+                            <i class="fas fa-align-left me-2"></i>Descripción del Problema
+                        </h6>
+                        <p class="text-muted mb-0" id="ticketDescription" style="white-space: pre-wrap;">-</p>
+                    </div>
+                    <div id="photoContainer" class="card-body border-top" style="display: none;">
+                        <h6 class="fw-bold mb-3">
+                            <i class="fas fa-camera me-2 text-primary"></i>Foto del Problema
+                        </h6>
+                        <div class="photo-thumbnail-container" id="photoThumbnail">
+                            <!-- Se llenará dinámicamente -->
+                        </div>
+                    </div>
+
+                    <!-- Resolution (if exists) -->
+                    <div id="resolutionContainer" class="d-none">
+                        <hr class="my-3">
+                        <h6 class="fw-bold mb-2">
+                            <i class="fas fa-check-circle me-2 text-success"></i>Solución
+                        </h6>
+                        <div class="alert alert-success mb-2">
+                            <p class="mb-2" id="resolutionNotes" style="white-space: pre-wrap;">-</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">
+                                    <i class="fas fa-user me-1"></i>Resuelto por: <strong id="resolvedBy">-</strong>
+                                </small>
+                                <small class="text-muted" id="resolvedAt">-</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Collaborators (if exist) -->
+                    <div id="collaboratorsContainer" class="d-none">
+                        <hr class="my-3">
+                        <h6 class="fw-bold mb-2">
+                            <i class="fas fa-users me-2 text-primary"></i>Equipo de Trabajo
+                        </h6>
+                        <div class="p-3 bg-light rounded">
+                            <div id="ticketCollaborators">
+                                <!-- Se llena dinámicamente -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rating (if exists) -->
+                    <div id="ratingContainer" class="d-none">
+                        <hr class="my-3">
+                        <h6 class="fw-bold mb-2">
+                            <i class="fas fa-star me-2 text-warning"></i>Tu Calificación
+                        </h6>
+                        <div class="p-3 bg-light rounded">
+                            <div class="mb-2" id="ratingStars">
+                                <!-- Stars -->
+                            </div>
+                            <p class="mb-0 text-muted" id="ratingComment" style="white-space: pre-wrap;">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comments Section -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0">
+                        <i class="fas fa-comments me-2"></i>
+                        Comentarios
+                        <span class="badge bg-secondary ms-2" id="commentsCount">0</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+
+                    <!-- Add Comment Form (only if ticket is open) -->
+                    <div id="addCommentForm" class="mb-4 d-none">
+                        <div class="d-flex gap-3">
+                            <div class="flex-grow-1">
+                                <textarea class="form-control" id="newCommentText" rows="3"
+                                    placeholder="Escribe un comentario..."></textarea>
+                            </div>
+                            <div>
+                                <button class="btn btn-primary" onclick="addComment()" id="btnAddComment">
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Los comentarios son visibles para el técnico asignado
+                        </small>
+                    </div>
+
+                    <!-- Comments List -->
+                    <div id="commentsList">
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-spinner fa-spin fa-2x mb-2"></i>
+                            <p>Cargando comentarios...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Sidebar -->
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm mb-4" id="equipmentCard" style="display: none;">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0 fw-bold">
+                        <i class="fas fa-laptop me-2"></i>Equipo Relacionado
+                    </h6>
+                </div>
+                <div class="card-body" id="equipmentInfo">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </div>
+            <!-- Status Timeline -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0 fw-bold">
+                        <i class="fas fa-history me-2"></i>Historial de Estados
+                    </h6>
+                </div>
+                <div class="card-body p-3">
+                    <div id="statusTimeline">
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <small class="d-block mt-2">Cargando...</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assignment Info -->
+            <div class="card border-0 shadow-sm mb-4" id="assignmentCard">
+                <div class="card-header bg-white border-bottom">
+                    <h6 class="mb-0 fw-bold">
+                        <i class="fas fa-user-check me-2"></i>Asignación
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div id="assignmentInfo">
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-clock"></i>
+                            <p class="mb-0 small mt-2">Sin asignar</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div id="actionButtons" class="d-grid gap-2">
+                <!-- Se llenarán dinámicamente -->
+            </div>
+
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+<!-- Modal de Equipos Múltiples -->
+<div class="modal fade" id="equipmentListModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-laptop me-2"></i>Equipos Relacionados
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="equipment-modal-group-info" class="alert alert-info mb-3" style="display: none;">
+                    <!-- Info del grupo si aplica -->
+                </div>
+                
+                <!-- Lista de equipos -->
+                <div id="equipment-modal-list">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Cargando...</span>
+                        </div>
+                        <p class="text-muted mt-2">Cargando equipos...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="photoModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-image me-2"></i>Foto del Problema
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center p-0">
+                <img id="photoModalImage" src="" alt="Foto del problema" class="img-fluid">
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Rating Modal -->
+<div class="modal fade" id="ratingModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-star me-2 text-warning"></i>Calificar Servicio
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Pregunta 1: Atención -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">
+                        <i class="fas fa-user-tie me-2 text-primary"></i>Califique la atención que recibió
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="d-flex justify-content-center gap-2 my-3">
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="1">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="2">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="3">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="4">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-attention" data-rating="5">
+                            <i class="far fa-star"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pregunta 2: Rapidez -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">
+                        <i class="fas fa-tachometer-alt me-2 text-success"></i>La rapidez con la que se atendió su servicio fue...
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="d-flex justify-content-center gap-2 my-3">
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="1">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="2">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="3">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="4">
+                            <i class="far fa-star"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-warning star-btn-speed" data-rating="5">
+                            <i class="far fa-star"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Pregunta 3: Eficiencia -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">
+                        <i class="fas fa-check-circle me-2 text-info"></i>¿La eficiencia del servicio fue con base a lo solicitado?
+                        <span class="text-danger">*</span>
+                    </label>
+                    <div class="d-flex justify-content-center gap-3 my-3">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="ratingEfficiencyDetail" id="efficiencyDetailYes" value="true">
+                            <label class="form-check-label" for="efficiencyDetailYes">
+                                <i class="fas fa-thumbs-up me-1 text-success"></i>Sí
+                            </label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="ratingEfficiencyDetail" id="efficiencyDetailNo" value="false">
+                            <label class="form-check-label" for="efficiencyDetailNo">
+                                <i class="fas fa-thumbs-down me-1 text-danger"></i>No
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pregunta 4: Comentarios -->
+                <div class="mb-3">
+                    <label for="ratingCommentInput" class="form-label fw-bold">
+                        <i class="fas fa-comment-dots me-2 text-secondary"></i>Sugerencias y/o comentarios
+                        <span class="text-muted small">(Opcional)</span>
+                    </label>
+                    <textarea class="form-control" 
+                              id="ratingCommentInput" 
+                              rows="3" 
+                              placeholder="Comparte tu experiencia o sugerencias..." 
+                              maxlength="500"></textarea>
+                    <small class="text-muted">Máximo 500 caracteres</small>
+                </div>
+
+                <div class="alert alert-info mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <small><span class="text-danger">*</span> Campos obligatorios</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-warning" id="btnSubmitRating" disabled>
+                    <i class="fas fa-paper-plane me-2"></i>Enviar Calificación
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cancel Confirmation Modal -->
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Cancelar Ticket
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>¿Estás seguro que deseas cancelar este ticket?</p>
+
+                <div class="mb-3">
+                    <label for="cancelReason" class="form-label">
+                        Razón de cancelación (opcional)
+                    </label>
+                    <textarea class="form-control" id="cancelReason" rows="3"
+                        placeholder="¿Por qué deseas cancelar?"></textarea>
+                </div>
+
+                <div class="alert alert-warning mb-0">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Nota:</strong> Esta acción no se puede deshacer.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    No, mantener ticket
+                </button>
+                <button type="button" class="btn btn-danger" id="btnConfirmCancel">
+                    <i class="fas fa-ban me-2"></i>Sí, cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ static_version }}">
+<!-- Shepherd.js CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
+<!-- Tutorial Custom CSS -->
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Global variables
+    const ticketId = {{ ticket_id }};
+</script>
+<!-- Shepherd.js Library (cargar primero) -->
+<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
+<!-- Tutorial Script (cargar segundo, antes de ticket_detail.js) -->
+<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ static_version }}"></script>
+<!-- Ticket Detail Script (cargar último, después del tutorial) -->
+<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_detail.js') }}?v={{ static_version }}"></script>
+{% endblock %}

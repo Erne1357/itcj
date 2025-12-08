@@ -11,11 +11,11 @@ class Ticket(db.Model):
     ticket_number = db.Column(db.String(20), unique=True, nullable=False, index=True)  # TK-2025-0001
     
     # ==================== SOLICITANTE ====================
-    requester_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False, index=True)
+    requester_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False, index=True)
     
     # Departamento (puede ser NULL si el usuario no tiene position)
     # Lo obtendremos de position → department, pero guardamos el ID aquí por rendimiento
-    requester_department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=True)
+    requester_department_id = db.Column(db.Integer, db.ForeignKey('core_departments.id'), nullable=True)
     
     # ==================== CLASIFICACIÓN ====================
     area = db.Column(db.String(20), nullable=False, index=True)  # 'DESARROLLO' | 'SOPORTE'
@@ -27,7 +27,6 @@ class Ticket(db.Model):
     description = db.Column(db.Text, nullable=False)
     location = db.Column(db.String(200), nullable=True)  # Ubicación física (opcional)
     office_document_folio = db.Column(db.String(50), nullable=True)  # Folio de oficio (opcional)
-    inventory_item_id = db.Column(db.Integer, db.ForeignKey('helpdesk_inventory_items.id'), nullable=True, index=True)  # Ítem de inventario relacionado (opcional)
     # ==================== ESTADO Y ASIGNACIÓN ====================
     status = db.Column(db.String(30), nullable=False, default='PENDING', index=True)
     # Estados posibles:
@@ -39,33 +38,43 @@ class Ticket(db.Model):
     # - CLOSED: Cerrado (después de calificación)
     # - CANCELED: Cancelado por el usuario
     
-    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=True, index=True)
+    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True, index=True)
     assigned_to_team = db.Column(db.String(50), nullable=True)  # 'desarrollo', 'soporte', NULL
     
     # ==================== RESOLUCIÓN ====================
     resolution_notes = db.Column(db.Text, nullable=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
-    resolved_by_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=True)
+    resolved_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)
     
-    # ==================== CALIFICACIÓN ====================
-    rating = db.Column(db.Integer, nullable=True)  # 1-5 estrellas
-    rating_comment = db.Column(db.Text, nullable=True)
+    # ==================== CALIFICACIÓN (ENCUESTA) ====================
+    rating_attention = db.Column(db.Integer, nullable=True)  # 1-5 estrellas - Calidad de atención
+    rating_speed = db.Column(db.Integer, nullable=True)  # 1-5 estrellas - Rapidez del servicio
+    rating_efficiency = db.Column(db.Boolean, nullable=True)  # Si/No - Eficiencia del servicio
+    rating_comment = db.Column(db.Text, nullable=True)  # Sugerencias y comentarios (opcional)
     rated_at = db.Column(db.DateTime, nullable=True)
     
     # ==================== TIMESTAMPS ====================
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"), index=True)
+    created_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Usuario que creó el ticket
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
+    updated_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)  # Último usuario que actualizó el ticket
     closed_at = db.Column(db.DateTime, nullable=True)
     
     # ==================== RELACIONES ====================
     # Usuario que solicita
-    requester = db.relationship('User', foreign_keys=[requester_id], backref='tickets_requested')
+    requester = db.relationship('User', foreign_keys=[requester_id], back_populates='tickets_requested')
     
     # Usuario asignado
-    assigned_to = db.relationship('User', foreign_keys=[assigned_to_user_id], backref='tickets_assigned')
+    assigned_to = db.relationship('User', foreign_keys=[assigned_to_user_id], back_populates='tickets_assigned')
     
     # Usuario que resolvió
-    resolved_by = db.relationship('User', foreign_keys=[resolved_by_id], backref='tickets_resolved')
+    resolved_by = db.relationship('User', foreign_keys=[resolved_by_id], back_populates='tickets_resolved')
+
+    # Usuario que creó el ticket
+    created_by_user = db.relationship('User', foreign_keys=[created_by_id], back_populates='tickets_created')
+    
+    # Usuario que actualizó el ticket
+    updated_by_user = db.relationship('User', foreign_keys=[updated_by_id], back_populates='tickets_updated')
     
     # Departamento del solicitante
     requester_department = db.relationship('Department', foreign_keys=[requester_department_id])
@@ -78,10 +87,14 @@ class Ticket(db.Model):
     comments = db.relationship('Comment', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     attachments = db.relationship('Attachment', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
     status_logs = db.relationship('StatusLog', back_populates='ticket', cascade='all, delete-orphan', lazy='dynamic')
-    
+    collaborators = db.relationship('TicketCollaborator',back_populates='ticket',cascade='all, delete-orphan', lazy='dynamic', order_by='TicketCollaborator.added_at')
     #Inventario relacionado
-    inventory_item = db.relationship('InventoryItem', back_populates='tickets', lazy='joined')
-
+    ticket_items = db.relationship(
+        "TicketInventoryItem",
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        lazy='dynamic'
+    )
     # ==================== TIEMPOS ====================
     # AUTOMÁTICO: Para métricas de servicio al usuario
     # (Ya definido arriba en TIMESTAMPS)
@@ -114,7 +127,7 @@ class Ticket(db.Model):
     @property
     def can_be_rated(self):
         """Puede ser calificado si está resuelto y no ha sido calificado"""
-        return self.is_resolved and self.rating is None
+        return self.is_resolved and self.rating_attention is None
     
     @property
     def resolution_time_hours(self):
@@ -149,6 +162,16 @@ class Ticket(db.Model):
         
         return calculate_business_hours(created_at, resolved_at)
 
+    @property
+    def inventory_items(self):
+        """Lista de equipos relacionados con el ticket"""
+        return [ti.inventory_item for ti in self.ticket_items if ti.inventory_item]
+    
+    @property
+    def inventory_items_count(self):
+        """Cantidad de equipos relacionados"""
+        return self.ticket_items.count()
+
     def to_dict(self, include_relations=False, include_metrics=False):
         data = {
             'id': self.id,
@@ -161,13 +184,18 @@ class Ticket(db.Model):
             'status': self.status,
             'office_document_folio': self.office_document_folio,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_by_id': self.created_by_id,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'updated_by_id': self.updated_by_id,
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'rated_at': self.rated_at.isoformat() if self.rated_at else None,
             'closed_at': self.closed_at.isoformat() if self.closed_at else None,
-            'rating': self.rating,
+            'rating_attention': self.rating_attention,
+            'rating_speed': self.rating_speed,
+            'rating_efficiency': self.rating_efficiency,
             'rating_comment': self.rating_comment,
             'resolution_notes': self.resolution_notes,
+            'resolved_by': self.resolved_by.to_dict() if self.resolved_by else None,
             'time_invested_minutes': self.time_invested_minutes,
         }
         
@@ -176,28 +204,64 @@ class Ticket(db.Model):
                 'requester': {
                     'id': self.requester.id,
                     'name': self.requester.full_name,
-                    'username': self.requester.username or self.requester.employee_number
+                    'username': self.requester.username or self.requester.control_number
                 } if self.requester else None,
                 'category': self.category.to_dict() if self.category else None,
                 'assigned_to': {
                     'id': self.assigned_to.id,
                     'name': self.assigned_to.full_name,
-                    'username': self.assigned_to.username or self.assigned_to.employee_number
+                    'username': self.assigned_to.username or self.assigned_to.control_number
                 } if self.assigned_to else None,
                 'assigned_to_team': self.assigned_to_team,
                 'department': {
                     'id': self.requester_department.id,
                     'name': self.requester_department.name
                 } if self.requester_department else None,
-                'inventory_item': {
-                    'id': self.inventory_item.id,
-                    'inventory_number': self.inventory_item.inventory_number,
-                    'display_name': self.inventory_item.display_name,
-                    'brand': self.inventory_item.brand,
-                    'model': self.inventory_item.model,
-                    'location_detail': self.inventory_item.location_detail,
-                } if self.inventory_item else None,
+                'created_by': {
+                    'id': self.created_by_user.id,
+                    'name': self.created_by_user.full_name,
+                    'username': self.created_by_user.username or self.created_by_user.control_number
+                } if self.created_by_user else None,
+                'updated_by': {
+                    'id': self.updated_by_user.id,
+                    'name': self.updated_by_user.full_name,
+                    'username': self.updated_by_user.username or self.updated_by_user.control_number
+                } if self.updated_by_user else None,
+                'collaborators': [c.to_dict() for c in self.collaborators] if hasattr(self, 'collaborators') else [],
+                'collaborators_count': self.collaborators.count() if hasattr(self, 'collaborators') else 0,
+                'inventory_items': [
+                    {
+                        'id': item.id,
+                        'inventory_number': item.inventory_number,
+                        'display_name': item.display_name,
+                        'brand': item.brand,
+                        'model': item.model,
+                        'location_detail': item.location_detail,
+                        'category': {
+                            'id': item.category.id,
+                            'name': item.category.name,
+                            'icon': item.category.icon
+                        } if item.category else None,
+                        'assigned_to_user': {
+                            'id': item.assigned_to_user.id,
+                            'full_name': item.assigned_to_user.full_name,
+                        } if item.assigned_to_user else None,
+                        'group': {
+                            'id': item.group.id,
+                            'name': item.group.name,
+                            'code': item.group.code
+                        } if item.group else None
+                    } for item in self.inventory_items
+                ] if self.inventory_items else [],
+                'inventory_items_count': self.inventory_items_count, 
             })
+            if data.get('inventory_items'):
+                if len(data['inventory_items']) == 1:
+                    data['inventory_item'] = data['inventory_items'][0]
+                else:
+                    data['inventory_item'] = None
+            else:
+                data['inventory_item'] = None
         
         if include_metrics:
             # Calcular métricas temporales

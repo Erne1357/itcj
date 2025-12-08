@@ -32,7 +32,6 @@
         currentPath === '/itcj/login' ||
         currentPath.includes('login')) {
       
-      console.log('Logout detectado en iframe:', currentPath)
       notifyParent('LOGOUT', { 
         reason: 'navigation',
         path: currentPath 
@@ -127,5 +126,4 @@
     observer.disconnect()
   })
 
-  console.log('iframe-bridge.js cargado correctamente')
 })()

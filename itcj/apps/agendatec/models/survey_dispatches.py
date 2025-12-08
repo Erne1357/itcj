@@ -5,7 +5,7 @@ class SurveyDispatch(db.Model):
     __tablename__ = "agendatec_survey_dispatches"
     id            = db.Column(db.BigInteger, primary_key=True)
     campaign_code = db.Column(db.Text, nullable=False)
-    user_id       = db.Column(db.BigInteger, db.ForeignKey("users.id"), nullable=False)
+    user_id       = db.Column(db.BigInteger, db.ForeignKey("core_users.id"), nullable=False)
     request_id    = db.Column(db.BigInteger, db.ForeignKey("agendatec_requests.id"))
     email         = db.Column(db.Text, nullable=False)
     sent_at       = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)

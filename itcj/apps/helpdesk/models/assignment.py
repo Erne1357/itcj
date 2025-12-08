@@ -11,15 +11,16 @@ class Assignment(db.Model):
     ticket_id = db.Column(db.Integer, db.ForeignKey('helpdesk_ticket.id'), nullable=False, index=True)
     
     # Quién asignó
-    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=False)
+    assigned_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)
     
     # A quién/qué se asignó
-    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('users.id'), nullable=True)  # Usuario específico
+    assigned_to_user_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)  # Usuario específico
     assigned_to_team = db.Column(db.String(50), nullable=True)  # O equipo ('desarrollo', 'soporte')
     
     # Timestamps
     assigned_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
     unassigned_at = db.Column(db.DateTime, nullable=True)  # Cuando se reasigna
+    updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"), onupdate=db.text("NOW()"))
     
     # Razón (útil en reasignaciones)
     reason = db.Column(db.Text, nullable=True)
@@ -49,6 +50,7 @@ class Assignment(db.Model):
             } if self.assigned_to else None,
             'assigned_to_team': self.assigned_to_team,
             'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'unassigned_at': self.unassigned_at.isoformat() if self.unassigned_at else None,
             'reason': self.reason
         }

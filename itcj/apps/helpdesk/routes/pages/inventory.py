@@ -3,13 +3,14 @@ Rutas de vistas para el módulo de inventario
 """
 from flask import Blueprint, render_template, abort, g
 from itcj.core.utils.decorators import app_required as web_app_required
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.departments_service import get_user_department
 
 from . import inventory_pages_bp as bp
 
 
 @bp.route('/dashboard')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.view'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.page.list'])
 def dashboard():
     """
     Dashboard principal de inventario (Admin/Secretaría)
@@ -19,7 +20,7 @@ def dashboard():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/dashboard.html',
+        'helpdesk/inventory/dashboard.html',
         user_roles=user_roles,
         active_page='inventory_dashboard'
     )
@@ -40,7 +41,7 @@ def items_list():
     can_view_all = 'admin' in user_roles or 'secretary' in user_roles
     
     return render_template(
-        'inventory/items_list.html',
+        'helpdesk/inventory/items_list.html',
         user_roles=user_roles,
         can_view_all=can_view_all,
         active_page='inventory_items'
@@ -48,7 +49,7 @@ def items_list():
 
 
 @bp.route('/items/create')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.create'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.create'])
 def item_create():
     """
     Formulario para registrar nuevo equipo (Admin/Secretaría)
@@ -57,7 +58,7 @@ def item_create():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/item_create.html',
+        'helpdesk/inventory/item_create.html',
         user_roles=user_roles,
         active_page='inventory_items'
     )
@@ -73,10 +74,20 @@ def item_detail(item_id):
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
+    # Verificar si el usuario tiene permisos para editar
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+    can_edit = (
+        'admin' in user_roles or 
+        'tech_soporte' in user_roles or 
+        'tech_desarrollo' in user_roles or
+        user_id in secretary_comp_center
+    )
+    
     return render_template(
-        'inventory/item_detail.html',
+        'helpdesk/inventory/item_detail.html',
         item_id=item_id,
         user_roles=user_roles,
+        can_edit=can_edit,
         active_page='inventory_items'
     )
 
@@ -91,14 +102,14 @@ def my_equipment():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/my_equipment.html',
+        'helpdesk/inventory/my_equipment.html',
         user_roles=user_roles,
         active_page='inventory_my_equipment'
     )
 
 
 @bp.route('/assign')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.assign'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.assign'])
 def assign_equipment():
     """
     Interfaz para asignar equipos a usuarios (Jefe Depto/Admin)
@@ -107,14 +118,14 @@ def assign_equipment():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/assign_equipment.html',
+        'helpdesk/inventory/assign_equipment.html',
         user_roles=user_roles,
         active_page='inventory_assign'
     )
 
 
 @bp.route('/reports/warranty')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def warranty_report():
     """
     Reporte de garantías
@@ -123,14 +134,14 @@ def warranty_report():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/reports/warranty.html',
+        'helpdesk/inventory/reports/warranty.html',
         user_roles=user_roles,
         active_page='inventory_reports'
     )
 
 
 @bp.route('/reports/maintenance')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def maintenance_report():
     """
     Reporte de mantenimientos
@@ -139,14 +150,14 @@ def maintenance_report():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/reports/maintenance.html',
+        'helpdesk/inventory/reports/maintenance.html',
         user_roles=user_roles,
         active_page='inventory_reports'
     )
 
 
 @bp.route('/reports/lifecycle')
-@web_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def lifecycle_report():
     """
     Reporte de ciclo de vida (antigüedad)
@@ -155,7 +166,81 @@ def lifecycle_report():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     
     return render_template(
-        'inventory/reports/lifecycle.html',
+        'helpdesk/inventory/reports/lifecycle.html',
         user_roles=user_roles,
         active_page='inventory_reports'
+    )
+
+@bp.route('/groups')
+@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.page.list'])
+def groups_list():
+    """
+    Lista de grupos de equipos (salones, laboratorios)
+    - Admin: Todos los grupos
+    - Jefe Depto: Solo su departamento
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    user_dept = get_user_department(user_id)
+    department_id = user_dept.id if user_dept else None
+    can_view_all = 'admin' in user_roles
+
+    return render_template(
+        'helpdesk/inventory/groups_list.html',
+        user_roles=user_roles,
+        can_view_all=can_view_all,
+        department_id=department_id,
+        active_page='inventory_groups'
+    )
+
+
+@bp.route('/groups/<int:group_id>')
+@web_app_required('helpdesk', perms=['helpdesk.inventory_groups.page.list'])
+def group_detail(group_id):
+    """
+    Detalle de un grupo con sus equipos
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    user_dept = get_user_department(user_id)
+    department_id = user_dept.id if user_dept else None
+    
+    return render_template(
+        'helpdesk/inventory/group_detail.html',
+        group_id=group_id,
+        user_roles=user_roles,
+        department_id=department_id,
+        active_page='inventory_groups'
+    )
+
+
+@bp.route('/pending')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.pending'])
+def pending_items():
+    """
+    Equipos pendientes de asignación (limbo del CC)
+    Solo: Admin y Secretaría del CC
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    
+    return render_template(
+        'helpdesk/inventory/pending_items.html',
+        user_roles=user_roles,
+        active_page='inventory_pending'
+    )
+
+
+@bp.route('/bulk-register')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.bulk.create'])
+def bulk_register():
+    """
+    Registro masivo de equipos
+    Redirige a item_create con modo bulk
+    """
+    return render_template(
+        'helpdesk/inventory/item_create.html',
+        bulk_mode=True,
+        user_roles=user_roles_in_app(int(g.current_user['sub']), 'helpdesk'),
+        active_page='inventory_items'
     )

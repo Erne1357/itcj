@@ -1,0 +1,63 @@
+{% extends "agendatec/base.html" %}
+{% block title %}Coordinador - Bajas{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title mb-3">Solicitudes de baja</h5>
+
+        <div class="row g-2 mb-2">
+          <div class="col-12 col-sm-3">
+            <label class="form-label">Estado</label>
+            <select class="form-select" id="dropStatus">
+              <option value="ALL" selected>Todas</option>
+              <option value="PENDING">Pendientes</option>
+              <option value="RESOLVED_SUCCESS">Resueltas</option>
+              <option value="RESOLVED_NOT_COMPLETED">No resueltas</option>
+              <option value="CANCELED">Canceladas</option>
+            </select>
+          </div>
+          <div class="col-12 col-sm-3 d-grid">
+            <label class="form-label d-none d-sm-block">&nbsp;</label>
+            <button class="btn btn-outline-primary" id="btnLoadDrops">Cargar</button>
+          </div>
+        </div>
+
+        <div id="dropList" class="table-responsive"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Detalle DROP -->
+<div class="modal fade" id="dropDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Detalle de solicitud de baja</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div id="dropDetailBody" class="small"></div>
+        <div class="mt-3">
+          <label for="dropCoordComment" class="form-label small">Comentario (opcional)</label>
+          <textarea id="dropCoordComment" class="form-control" rows="3" +
+            placeholder="Escribe un comentario para el alumno (opcional)"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="btn-group btn-group-sm me-auto" id="dropDetailActions"></div>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/drops.js') }}?v={{ static_version }}"></script>
+{% endblock %}

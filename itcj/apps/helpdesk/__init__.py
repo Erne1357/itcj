@@ -3,7 +3,7 @@ from flask import Blueprint, redirect, url_for, g, render_template, request, jso
 from itcj.core.utils.decorators import login_required, guard_blueprint
 from itcj.core.services.authz_service import user_roles_in_app, get_user_permissions_for_app
 from itcj.apps.helpdesk import models
-from itcj.apps.helpdesk.utils.navigation import get_helpdesk_navigation, get_helpdesk_role_groups
+from itcj.apps.helpdesk.utils.navigation import get_helpdesk_navigation
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ from itcj.apps.helpdesk.routes.api import (
     comments_api_bp,
     attachments_api_bp,
     categories_api_bp,
-    inventory_api_bp
+    inventory_api_bp,
 )
 
 helpdesk_api_bp.register_blueprint(tickets_api_bp, url_prefix='/tickets')
@@ -90,7 +90,6 @@ def inject_helpdesk_nav():
         except Exception as e:
             current_app.logger.warning(f"Error en context processor de Help-Desk: {e}")
             nav_items = []
-    current_app.logger.warning(f"Help-Desk navigation items: {nav_items} {user_roles=}")
     return {
         "helpdesk_nav_items": nav_items,
         "current_route": request.endpoint
@@ -103,7 +102,7 @@ def inject_helpdesk_nav():
 @login_required
 def home():
     """Landing page - entry point para todos los usuarios"""
-    return render_template("home_landing.html", title="Help-Desk")
+    return render_template("helpdesk/home_landing.html", title="Help-Desk")
 
 
 # ==================== REDIRECCIÓN POR ROL ====================
@@ -121,10 +120,10 @@ def redirect_by_role():
     
     # Prioridad de roles (de más específico a más general)
     if 'admin' in user_roles:
-        return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
+        return jsonify({'redirect': url_for('helpdesk_pages.admin_pages.home')}), 200
 
     elif 'secretary' in user_roles:
-        return jsonify({'redirect': url_for('helpdesk_pages.secretary_pages.dashboard')}), 200
+        return jsonify({'redirect': url_for('helpdesk_pages.user_pages.create_ticket')}), 200
 
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         return jsonify({'redirect': url_for('helpdesk_pages.technician_pages.dashboard')}), 200
@@ -146,7 +145,7 @@ def role_home(role: str) -> str:
     """
     role_map = {
         "staff": "/help-desk/user/create",
-        "secretary": "/help-desk/secretary",
+        "secretary": "/help-desk/user/create",
         "tech_desarrollo": "/help-desk/technician",
         "tech_soporte": "/help-desk/technician",
         "department_head": "/help-desk/department",

@@ -1,7 +1,7 @@
 from . import db
 
 class Program(db.Model):
-    __tablename__ = "programs"
+    __tablename__ = "core_programs"
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Text, unique=True, nullable=False)
@@ -15,7 +15,7 @@ class Program(db.Model):
     # convenient many-to-many via association table
     coordinators = db.relationship(
         "Coordinator",
-        secondary="program_coordinator",
+        secondary="core_program_coordinator",
         back_populates="programs",
         viewonly=True,
     )

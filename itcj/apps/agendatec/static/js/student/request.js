@@ -102,7 +102,6 @@
       // Unirse al nuevo día
       emit("join_day", { day });
       state.currentRoom = day;
-      console.log(`[WS] Solicitando join a day: ${day}`);
 
     } catch (error) {
       console.error("[WS] Error al hacer join:", error);
@@ -190,7 +189,6 @@
 
     // Alguien puso hold en un slot
     socket.on("slot_held", ({ slot_id, day, ttl }) => {
-      console.log("[WS] slot_held:", { slot_id, day, ttl });
       if (day !== state.day) return;
       const btn = getSlotButton(slot_id);
       if (!btn) return;
@@ -203,7 +201,6 @@
 
     // Se liberó un hold
     socket.on("slot_released", ({ slot_id, day }) => {
-      console.log("[WS] slot_released:", { slot_id, day });
       if (day !== state.day) return;
       const btn = getSlotButton(slot_id);
       if (!btn) return;
@@ -223,7 +220,6 @@
     });
     // Slot reservado definitivamente
     socket.on("slot_booked", ({ slot_id, day }) => {
-      console.log("[WS] slot_booked:", { slot_id, day });
       if (day !== state.day) return;
       const btn = getSlotButton(slot_id);
       if (btn) {
@@ -239,7 +235,6 @@
 
     // Respuesta a MI intento de hold
     socket.on("hold_slot_ack", (resp) => {
-      console.log("[WS] hold_slot_ack:", resp);
       if (!resp) return;
       if (!resp.ok) {
         if (resp.error === "already_held") {
@@ -277,7 +272,6 @@
 
     // Respuesta a release
     socket.on("release_hold_ack", (resp) => {
-      console.log("[WS] release_hold_ack:", resp);
       if (resp?.ok && pendingHold) {
         const next = pendingHold;
         pendingHold = null;

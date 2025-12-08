@@ -2,7 +2,7 @@
 API para estadísticas del inventario
 """
 from flask import Blueprint, request, jsonify, g
-from itcj.core.services.authz_service import user_roles_in_app
+from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 
@@ -10,7 +10,7 @@ bp = Blueprint('inventory_stats', __name__)
 
 
 @bp.route('/overview', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_overview():
     """
     Obtener estadísticas generales del inventario
@@ -27,7 +27,7 @@ def get_overview():
 
 
 @bp.route('/by-category', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_by_category():
     """
     Obtener estadísticas por categoría
@@ -45,7 +45,7 @@ def get_by_category():
 
 
 @bp.route('/by-department', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_by_department():
     """
     Obtener estadísticas por departamento
@@ -63,7 +63,7 @@ def get_by_department():
 
 
 @bp.route('/problematic', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_problematic_items():
     """
     Obtener equipos problemáticos (muchas fallas)
@@ -105,7 +105,7 @@ def get_problematic_items():
 
 
 @bp.route('/warranty', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_warranty_report():
     """
     Reporte de garantías
@@ -122,7 +122,7 @@ def get_warranty_report():
 
 
 @bp.route('/maintenance', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_maintenance_report():
     """
     Reporte de mantenimientos
@@ -139,7 +139,7 @@ def get_maintenance_report():
 
 
 @bp.route('/lifecycle', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.stats'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def get_lifecycle_report():
     """
     Reporte de ciclo de vida (antigüedad de equipos)
@@ -156,7 +156,7 @@ def get_lifecycle_report():
 
 
 @bp.route('/department/<int:department_id>', methods=['GET'])
-@api_app_required('helpdesk', perms=['helpdesk.inventory.view_own_dept'])
+@api_app_required('helpdesk', perms=['helpdesk.inventory.api.read.own_dept'])
 def get_department_stats(department_id):
     """
     Estadísticas de un departamento específico
@@ -167,9 +167,10 @@ def get_department_stats(department_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     
     # Verificar permiso
-    if 'admin' not in user_roles:
+    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:

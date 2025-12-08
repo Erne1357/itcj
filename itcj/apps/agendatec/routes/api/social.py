@@ -14,7 +14,7 @@ api_social_bp = Blueprint("api_social", __name__)
 
 @api_social_bp.get("/appointments")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.social_home.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.social.api.read.appointments"])
 def social_appointments():
     """
     Lista citas por día (obligatorio) y carrera opcional (program_id).

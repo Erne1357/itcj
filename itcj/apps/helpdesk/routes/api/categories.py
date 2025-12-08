@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== LISTAR CATEGORÍAS ====================
 @categories_api_bp.get('')
-@api_app_required('helpdesk', perms=['helpdesk.categories.view'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.read'])
 def list_categories():
     """
     Lista todas las categorías.
@@ -76,7 +76,7 @@ def list_categories():
 
 # ==================== OBTENER CATEGORÍA POR ID ====================
 @categories_api_bp.get('/<int:category_id>')
-@api_app_required('helpdesk', perms=['helpdesk.categories.view'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.read'])
 def get_category(category_id):
     """
     Obtiene una categoría específica por ID.
@@ -115,7 +115,7 @@ def get_category(category_id):
 
 # ==================== CREAR CATEGORÍA ====================
 @categories_api_bp.post('')
-@api_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.update'])
 def create_category():
     """
     Crea una nueva categoría.
@@ -216,7 +216,7 @@ def create_category():
 
 # ==================== ACTUALIZAR CATEGORÍA ====================
 @categories_api_bp.patch('/<int:category_id>')
-@api_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.update'])
 def update_category(category_id):
     """
     Actualiza una categoría existente.
@@ -288,7 +288,7 @@ def update_category(category_id):
 
 # ==================== ACTIVAR/DESACTIVAR CATEGORÍA ====================
 @categories_api_bp.post('/<int:category_id>/toggle')
-@api_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.update'])
 def toggle_category(category_id):
     """
     Activa o desactiva una categoría.
@@ -360,7 +360,7 @@ def toggle_category(category_id):
 
 # ==================== REORDENAR CATEGORÍAS ====================
 @categories_api_bp.post('/reorder')
-@api_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.update'])
 def reorder_categories():
     """
     Reordena categorías (drag & drop).
@@ -454,7 +454,7 @@ def reorder_categories():
 
 # ==================== ELIMINAR CATEGORÍA ====================
 @categories_api_bp.delete('/<int:category_id>')
-@api_app_required('helpdesk', perms=['helpdesk.categories.manage'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.update'])
 def delete_category(category_id):
     """
     Elimina una categoría (soft delete, marca como inactiva).
@@ -509,7 +509,7 @@ def delete_category(category_id):
 
 # ==================== ESTADÍSTICAS DE CATEGORÍAS ====================
 @categories_api_bp.get('/stats')
-@api_app_required('helpdesk', perms=['helpdesk.categories.view'])
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.read'])
 def get_categories_stats():
     """
     Obtiene estadísticas de uso de categorías.

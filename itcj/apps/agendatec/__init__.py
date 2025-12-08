@@ -57,7 +57,7 @@ def register_agendatec_error_handlers():
     def render_agendatec_error_page(status_code, message):
         # Marcar que estamos en un error handler para evitar loops en context processor
         request.is_error_handler = True
-        return render_template("errors/error_page.html",
+        return render_template("agendatec/errors/error_page.html",
                              code=status_code,
                              message=message), status_code
     
@@ -107,24 +107,24 @@ def agendatec_role_home(role: str) -> str:
 # Función para obtener navegación de AgendaTec
 def get_agendatec_navigation(user_permissions: set[str], student_window_open: bool = True):
     """Devuelve la navegación específica de AgendaTec basada en los permisos del usuario."""
-    
+
     # Define la estructura completa de navegación con el permiso requerido para cada item
     full_nav_structure = [
         # Coordinador
-        {"label": "Dashboard", "endpoint": "agendatec_pages.coord_pages.coord_home_page", "permission": "agendatec.coord_dashboard.view"},
-        {"label": "Horario", "endpoint": "agendatec_pages.coord_pages.coord_slots_page", "permission": "agendatec.slots.view"},
-        {"label": "Citas del día", "endpoint": "agendatec_pages.coord_pages.coord_appointments_page", "permission": "agendatec.appointments.view"},
-        {"label": "Bajas", "endpoint": "agendatec_pages.coord_pages.coord_drops_page", "permission": "agendatec.drops.view"},
+        {"label": "Dashboard", "endpoint": "agendatec_pages.coord_pages.coord_home_page", "permission": "agendatec.coord_dashboard.page.view", "icon": "bi-speedometer2"},
+        {"label": "Horario", "endpoint": "agendatec_pages.coord_pages.coord_slots_page", "permission": "agendatec.slots.page.list", "icon": "bi-calendar-week"},
+        {"label": "Citas del día", "endpoint": "agendatec_pages.coord_pages.coord_appointments_page", "permission": "agendatec.appointments.page.list", "icon": "bi-calendar-event"},
+        {"label": "Bajas", "endpoint": "agendatec_pages.coord_pages.coord_drops_page", "permission": "agendatec.drops.page.list", "icon": "bi-person-dash"},
         # Admin
-        {"label": "Dashboard Admin", "endpoint": "agendatec_pages.admin_pages.admin_home", "permission": "agendatec.admin_dashboard.view"},
-        {"label": "Usuarios", "endpoint": "agendatec_pages.admin_pages.admin_users", "permission": "agendatec.users.view"},
-        {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests_all.view"},
-        {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.view"},
-        {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.view"},
+        {"label": "Dashboard Admin", "endpoint": "agendatec_pages.admin_pages.admin_home", "permission": "agendatec.admin_dashboard.page.view", "icon": "bi-bar-chart-fill"},
+        {"label": "Usuarios", "endpoint": "agendatec_pages.admin_pages.admin_users", "permission": "agendatec.users.page.list", "icon": "bi-people"},
+        {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests.page.list", "icon": "bi-clipboard-data"},
+        {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.page.view", "icon": "bi-graph-up"},
+        {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.page.list", "icon": "bi-list-check"},
         # Servicio Social
-        {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home", "permission": "agendatec.social_home.view"}
+        {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home", "permission": "agendatec.social.page.home", "icon": "bi-calendar-heart"}
     ]
-    
+
     # Filtra la lista: incluye un item solo si el usuario tiene el permiso requerido
     return [item for item in full_nav_structure if item["permission"] in user_permissions]
 
@@ -148,8 +148,8 @@ def inject_agendatec_nav():
             # 2. Si tiene el rol de estudiante en la app, mostrar la navegación de estudiante
             if "student" in agendatec_roles and student_open:
                 nav_items = [
-                    {"label": "Inicio", "endpoint": "agendatec_pages.student_pages.student_home"},
-                    {"label": "Mis solicitudes", "endpoint": "agendatec_pages.student_pages.student_requests"},
+                    {"label": "Inicio", "endpoint": "agendatec_pages.student_pages.student_home", "icon": "bi-house"},
+                    {"label": "Mis solicitudes", "endpoint": "agendatec_pages.student_pages.student_requests", "icon": "bi-journal-text"},
                 ]
             # Si no es estudiante, construir la navegación basada en permisos
             else:

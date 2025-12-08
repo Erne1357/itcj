@@ -1,6 +1,6 @@
 # itcj/core/routes/api/positions.py
 from flask import Blueprint, request, jsonify, g, current_app
-from itcj.core.utils.decorators import api_auth_required, api_role_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
 from itcj.core.services import positions_service as svc
 from itcj.core.extensions import db
 from datetime import date, datetime
@@ -19,7 +19,7 @@ def _bad(msg="bad_request", status=400):
 
 @api_positions_bp.get("")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.read"])
 def list_positions():
     """Lista todos los puestos organizacionales"""
     department = request.args.get("department")
@@ -41,7 +41,7 @@ def list_positions():
 
 @api_positions_bp.get("/<int:position_id>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.read"])
 def get_position(position_id):
     """Obtiene un puesto específico con toda su información"""
     try:
@@ -73,7 +73,7 @@ def get_position(position_id):
 
 @api_positions_bp.post("")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.create"])
 def create_position():
     """Crea un nuevo puesto organizacional"""
     payload = request.get_json(silent=True) or {}
@@ -113,7 +113,7 @@ def create_position():
 
 @api_positions_bp.patch("/<int:position_id>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.update"])
 def update_position(position_id):
     """Actualiza un puesto organizacional"""
     payload = request.get_json(silent=True) or {}
@@ -143,7 +143,7 @@ def update_position(position_id):
 
 @api_positions_bp.delete("/<int:position_id>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.delete"])
 def delete_position(position_id):
     """Elimina un puesto organizacional SOLO si no tiene usuarios asignados"""
     try:
@@ -179,7 +179,7 @@ def delete_position(position_id):
 
 @api_positions_bp.get("/<int:position_id>/user")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.read.assignments"])
 def get_position_current_user(position_id):
     """Obtiene el usuario actualmente asignado al puesto"""
     user_data = svc.get_position_current_user(position_id)
@@ -187,7 +187,7 @@ def get_position_current_user(position_id):
 
 @api_positions_bp.get("/<int:position_id>/users")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.read.assignments"])
 def get_position_current_users_list(position_id):
     """Obtiene TODOS los usuarios asignados al puesto"""
     users_data = svc.get_position_current_users(position_id)
@@ -195,7 +195,7 @@ def get_position_current_users_list(position_id):
 
 @api_positions_bp.post("/<int:position_id>/assign-user")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.assign_users"])
 def assign_user_to_position(position_id):
     """Asigna un usuario a un puesto"""
     payload = request.get_json(silent=True) or {}
@@ -226,7 +226,7 @@ def assign_user_to_position(position_id):
 
 @api_positions_bp.post("/<int:position_id>/transfer")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.assign_users"])
 def transfer_position(position_id):
     """Transfiere un puesto de un usuario a otro"""
     payload = request.get_json(silent=True) or {}
@@ -261,7 +261,7 @@ def transfer_position(position_id):
 
 @api_positions_bp.delete("/<int:position_id>/remove-user")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.unassign_users"])
 def remove_user_from_position(position_id):
     """Remueve el usuario actual de un puesto"""
     payload = request.get_json(silent=True) or {}
@@ -293,7 +293,7 @@ def remove_user_from_position(position_id):
 
 @api_positions_bp.get("/<int:position_id>/assignments")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.read.assignments"])
 def get_position_assignments(position_id):
     """Obtiene todas las asignaciones de un puesto por aplicación"""
     try:
@@ -307,7 +307,7 @@ def get_position_assignments(position_id):
 
 @api_positions_bp.post("/<int:position_id>/apps/<string:app_key>/roles")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.grant_roles"])
 def assign_role_to_position(position_id, app_key):
     """Asigna un rol a un puesto en una aplicación"""
     payload = request.get_json(silent=True) or {}
@@ -324,7 +324,7 @@ def assign_role_to_position(position_id, app_key):
 
 @api_positions_bp.delete("/<int:position_id>/apps/<string:app_key>/roles/<string:role_name>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.revoke_roles"])
 def remove_role_from_position(position_id, app_key, role_name):
     """Remueve un rol de un puesto"""
     removed = svc.remove_role_from_position(position_id, app_key, role_name)
@@ -332,7 +332,7 @@ def remove_role_from_position(position_id, app_key, role_name):
 
 @api_positions_bp.post("/<int:position_id>/apps/<string:app_key>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.grant_permissions"])
 def assign_permission_to_position(position_id, app_key):
     """Asigna un permiso directo a un puesto"""
     payload = request.get_json(silent=True) or {}
@@ -350,7 +350,7 @@ def assign_permission_to_position(position_id, app_key):
 
 @api_positions_bp.delete("/<int:position_id>/apps/<string:app_key>/perms/<string:perm_code>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.revoke_permissions"])
 def remove_permission_from_position(position_id, app_key, perm_code):
     """Remueve un permiso de un puesto"""
     # Para remover, asignar con allow=False y luego eliminar registro
@@ -381,7 +381,7 @@ def remove_permission_from_position(position_id, app_key, perm_code):
 
 @api_positions_bp.get("/users/<int:user_id>/positions")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.positions.api.read.assignments"])
 def get_user_positions(user_id):
     """Obtiene los puestos activos de un usuario"""
     positions = svc.get_user_active_positions(user_id)
@@ -389,7 +389,7 @@ def get_user_positions(user_id):
 
 @api_positions_bp.get("/users/<int:user_id>/apps/<string:app_key>/position-perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_permissions"])
 def get_user_position_permissions(user_id, app_key):
     """Obtiene los permisos efectivos de un usuario vía sus puestos"""
     try:
@@ -404,7 +404,7 @@ def get_user_position_permissions(user_id, app_key):
 
 @api_positions_bp.get("/<int:position_id>/apps/<string:app_key>/roles")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_roles"])
 def get_position_app_roles(position_id, app_key):
     """Obtiene los roles asignados a una posición en una app específica"""
     try:
@@ -430,7 +430,7 @@ def get_position_app_roles(position_id, app_key):
 
 @api_positions_bp.get("/<int:position_id>/apps/<string:app_key>/perms")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_permissions"])
 def get_position_app_perms(position_id, app_key):
     """Obtiene los permisos directos asignados a una posición en una app específica"""
     try:
@@ -457,7 +457,7 @@ def get_position_app_perms(position_id, app_key):
 
 @api_positions_bp.get("/<int:position_id>/effective-perms/<string:app_key>")
 @api_auth_required
-@api_role_required(["admin"])
+@api_app_required("itcj", perms=["core.authz.api.read.user_permissions"])
 def get_position_effective_perms(position_id, app_key):
     """Obtiene los permisos efectivos de una posición en una app (roles + permisos directos)"""
     try:

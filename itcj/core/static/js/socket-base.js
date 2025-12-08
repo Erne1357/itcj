@@ -37,11 +37,9 @@ window.debugSocket = (socket, name) => {
     if (!socket) return;
     
     socket.on('connect', () => {
-        console.log(`[${name}] Conectado - ID: ${socket.id}`);
     });
     
     socket.on('disconnect', (reason) => {
-        console.log(`[${name}] Desconectado: ${reason}`);
     });
     
     socket.on('connect_error', (error) => {
