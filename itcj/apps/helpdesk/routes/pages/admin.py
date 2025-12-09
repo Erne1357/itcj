@@ -52,11 +52,29 @@ def all_tickets():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
+
     return render_template(
         'helpdesk/admin/all_tickets.html',
         user_roles=user_roles,
         active_page='admin_tickets'
+    )
+
+
+@bp.route('/tickets-list')
+@web_app_required('helpdesk', perms=['helpdesk.tickets.page.list_all'])
+def tickets_list():
+    """
+    Vista de lista completa de todos los tickets (Admin)
+    Lista estática ordenada por fecha de creación descendente
+    Muestra información de creador y solicitante
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+
+    return render_template(
+        'helpdesk/admin/tickets_list.html',
+        user_roles=user_roles,
+        active_page='admin_tickets_list'
     )
 
 

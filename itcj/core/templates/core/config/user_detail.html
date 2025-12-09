@@ -65,10 +65,16 @@
                                 </div>
                             </div>
                             <div class="col-auto">
-                                <div class="text-muted small">
+                                <div class="text-muted small mb-2">
                                     <div>Creado: {{ user.created_at.strftime('%d/%m/%Y') }}</div>
                                     <div>ID: {{ user.id }}</div>
                                 </div>
+                                {% if not user.control_number %}
+                                <button class="btn btn-sm btn-warning" id="btnResetPassword"
+                                        title="Resetear contraseña a la por defecto">
+                                    <i class="bi bi-key me-1"></i>Resetear Contraseña
+                                </button>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -216,6 +222,41 @@
                             <p class="text-muted">La actividad reciente se implementará próximamente</p>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirmar Reset de Contraseña -->
+    <div class="modal fade" id="confirmResetPasswordModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Reset de Contraseña
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-3">
+                        <strong>¿Está seguro de resetear la contraseña de este usuario?</strong>
+                    </p>
+                    <div class="alert alert-warning mb-3">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <small>
+                            La contraseña se cambiará a <strong>"tecno#2K"</strong> y el usuario
+                            será obligado a cambiarla en su próximo inicio de sesión.
+                        </small>
+                    </div>
+                    <p class="mb-0 text-muted">
+                        <strong>Usuario:</strong> {{ user.full_name }}
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-warning" id="confirmResetPasswordBtn">
+                        <i class="bi bi-key me-1"></i>Sí, Resetear
+                    </button>
                 </div>
             </div>
         </div>

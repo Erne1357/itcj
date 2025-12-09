@@ -1,0 +1,250 @@
+<!-- itcj/apps/helpdesk/templates/admin/tickets_list.html -->
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Lista de Tickets{% endblock %}
+
+{% block header_title %}Lista de Tickets{% endblock %}
+{% block header_subtitle %}Listado Completo del Sistema{% endblock %}
+
+{% block content %}
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-primary border-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Total</small>
+                        <h2 class="text-primary mb-0 fw-bold" id="totalTickets">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-ticket-alt fa-2x text-primary opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-warning border-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Pendientes</small>
+                        <h2 class="text-warning mb-0 fw-bold" id="pendingTickets">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-clock fa-2x text-warning opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-info border-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">En Proceso</small>
+                        <h2 class="text-info mb-0 fw-bold" id="inProgressTickets">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-cog fa-2x text-info opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm border-start border-success border-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-semibold">Resueltos</small>
+                        <h2 class="text-success mb-0 fw-bold" id="resolvedTickets">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                        </h2>
+                    </div>
+                    <i class="fas fa-check-circle fa-2x text-success opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters and Search -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">
+                    <i class="fas fa-filter me-2"></i>Filtrar por Estado
+                </label>
+                <select class="form-select" id="filterStatus">
+                    <option value="">Todos los estados</option>
+                    <option value="PENDING">Pendiente</option>
+                    <option value="ASSIGNED">Asignado</option>
+                    <option value="IN_PROGRESS">En Progreso</option>
+                    <option value="RESOLVED_SUCCESS">Resuelto</option>
+                    <option value="RESOLVED_FAILED">No Resuelto</option>
+                    <option value="CLOSED">Cerrado</option>
+                    <option value="CANCELED">Cancelado</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">
+                    <i class="fas fa-layer-group me-2"></i>Área
+                </label>
+                <select class="form-select" id="filterArea">
+                    <option value="">Todas</option>
+                    <option value="DESARROLLO">Desarrollo</option>
+                    <option value="SOPORTE">Soporte</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">
+                    <i class="fas fa-exclamation-circle me-2"></i>Prioridad
+                </label>
+                <select class="form-select" id="filterPriority">
+                    <option value="">Todas</option>
+                    <option value="URGENTE">Urgente</option>
+                    <option value="ALTA">Alta</option>
+                    <option value="MEDIA">Media</option>
+                    <option value="BAJA">Baja</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">
+                    <i class="fas fa-search me-2"></i>Buscar
+                </label>
+                <input type="text"
+                       class="form-control"
+                       id="searchInput"
+                       placeholder="Buscar por título o número...">
+            </div>
+
+            <div class="col-md-2">
+                <button class="btn btn-outline-secondary w-100" id="btnClearFilters">
+                    <i class="fas fa-times me-2"></i>Limpiar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tickets List -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="fas fa-list me-2"></i>Todos los Tickets
+            </h5>
+            <span class="badge bg-secondary" id="ticketCount">0 tickets</span>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div id="ticketsList">
+            <!-- Loading state -->
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Cargando...</span>
+                </div>
+                <p class="text-muted mt-3">Cargando tickets...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination -->
+<div class="d-flex justify-content-center mt-4">
+    <nav id="paginationNav" style="display: none;">
+        <ul class="pagination" id="paginationList">
+            <!-- Se generará dinámicamente -->
+        </ul>
+    </nav>
+</div>
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Estilos específicos para la lista de tickets */
+    .ticket-card {
+        transition: all 0.2s ease;
+        border-left: 4px solid transparent;
+        cursor: pointer;
+    }
+
+    .ticket-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .ticket-card.status-PENDING {
+        border-left-color: #ffc107;
+    }
+
+    .ticket-card.status-ASSIGNED {
+        border-left-color: #17a2b8;
+    }
+
+    .ticket-card.status-IN_PROGRESS {
+        border-left-color: #007bff;
+    }
+
+    .ticket-card.status-RESOLVED_SUCCESS {
+        border-left-color: #28a745;
+    }
+
+    .ticket-card.status-RESOLVED_FAILED {
+        border-left-color: #6c757d;
+    }
+
+    .ticket-card.status-CLOSED {
+        border-left-color: #6c757d;
+    }
+
+    .ticket-card.status-CANCELED {
+        border-left-color: #dc3545;
+    }
+
+    .badge-priority-URGENTE {
+        background-color: #dc3545;
+    }
+
+    .badge-priority-ALTA {
+        background-color: #fd7e14;
+    }
+
+    .badge-priority-MEDIA {
+        background-color: #ffc107;
+    }
+
+    .badge-priority-BAJA {
+        background-color: #17a2b8;
+    }
+
+    .ticket-info-label {
+        font-size: 0.75rem;
+        color: #6c757d;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+
+    .ticket-info-value {
+        font-size: 0.875rem;
+        color: #212529;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/tickets_list.js') }}?v={{ static_version }}"></script>
+{% endblock %}
