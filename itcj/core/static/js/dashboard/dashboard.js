@@ -294,6 +294,11 @@ class WindowsDesktop {
   }
 
   openApplication(appId) {
+    // No hacer nada si es la papelera (solo decoración)
+    if (appId === 'papelera') {
+      return
+    }
+
     if (this.openWindows.includes(appId)) {
       return
     }

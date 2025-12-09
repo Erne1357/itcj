@@ -54,7 +54,7 @@ def create_app():
     def maybe_refresh_cookie(resp):
         if getattr(g, "_refresh_token", False) and g.current_user:
             new_token = encode_jwt(
-                {"sub": g.current_user["sub"], "role": user_roles_in_app(int(g.current_user["sub"]), 'itcj'),
+                {"sub": g.current_user["sub"], "role": list(user_roles_in_app(int(g.current_user["sub"]), 'itcj')),
                  "cn": g.current_user.get("cn"), "name": g.current_user.get("name")},
                 hours=current_app.config["JWT_EXPIRES_HOURS"]
             )

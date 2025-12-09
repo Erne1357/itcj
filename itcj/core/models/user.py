@@ -10,7 +10,7 @@ class User(db.Model):
 
     username = db.Column(db.Text, unique=True)  # nullable for students
     control_number = db.Column(db.CHAR(8), unique=True)  # nullable for staff
-    nip_hash = db.Column(db.Text)
+    password_hash = db.Column(db.Text)
     
     # Nombre dividido en partes (nuevo estándar)
     first_name = db.Column(db.Text, nullable=False)  # Nombre(s) - OBLIGATORIO

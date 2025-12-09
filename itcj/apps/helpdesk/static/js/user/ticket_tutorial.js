@@ -1013,7 +1013,7 @@ class HelpdeskTutorial {
                 title: 'Enviar el Ticket',
                 text: `
                     <p>Cuando todo esté correcto, presiona este botón para <strong>enviar el ticket</strong>.</p>
-                    <p>Para el tutorial, vamos a cargar un ticket de ejemplo (no se guardará en la base de datos). Presiona "Continuar Tutorial" para avanzar.</p>
+                    <p>Para el tutorial, vamos a cargar un ticket de ejemplo. Presiona "Continuar Tutorial" para avanzar.</p>
                     <p><em>Nota: El ticket de ejemplo solo es visible durante el tutorial.</em></p>
                 `,
                 attachTo: {

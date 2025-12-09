@@ -17,7 +17,8 @@
 
     btnSave.addEventListener("click", async () => {
         const v = (newPw.value || "").trim();
-        if (!/^\d{4}$/.test(v)) {
+        // Validar que la contraseña tenga al menos 4 caracteres
+        if (v.length < 4) {
             pwErr.classList.remove("d-none");
             return;
         }

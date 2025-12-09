@@ -135,12 +135,24 @@
         console.error("Error al verificar el estado de la contraseña:", e);
     }
 
-    btnSave.addEventListener("click", async () => {
+    // Función para manejar el cambio de contraseña
+    const handlePasswordChange = async () => {
         const v = (newPw.value || "").trim();
-        if (!/^\d{4}$/.test(v)) {
+
+        // Validar que la contraseña tenga al menos 8 caracteres
+        if (v.length < 8) {
+            pwErr.textContent = "La contraseña debe tener al menos 8 caracteres.";
             pwErr.classList.remove("d-none");
             return;
         }
+
+        // Validar que NO sea la contraseña por defecto
+        if (v === "tecno#2K") {
+            pwErr.textContent = "No puedes usar la contraseña por defecto. Elige una diferente.";
+            pwErr.classList.remove("d-none");
+            return;
+        }
+
         pwErr.classList.add("d-none");
         btnSave.disabled = true;
 
@@ -151,7 +163,14 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ new_password: v })
             });
-            if (!res.ok) throw new Error("No se pudo actualizar la contraseña.");
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                const errorMessage = errorData.message || "No se pudo actualizar la contraseña.";
+                showToast(errorMessage, "error");
+                return;
+            }
+
             showToast("Contraseña actualizada.", "success");
             modal.hide();
 
@@ -171,6 +190,17 @@
         } finally {
             btnSave.disabled = false;
             newPw.value = "";
+        }
+    };
+
+    // Manejar clic en el botón
+    btnSave.addEventListener("click", handlePasswordChange);
+
+    // Manejar Enter en el campo de contraseña
+    newPw.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handlePasswordChange();
         }
     });
 

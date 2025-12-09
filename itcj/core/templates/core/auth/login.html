@@ -22,15 +22,14 @@
                     <div class="form-floating mb-3">
                         <input type="text" class="form-control" id="control_number" placeholder="Usuario"
                              required>
-                        <label for="control_number">Usuario (número de control)</label>
-                        <div class="invalid-feedback">Ingresa tú número de control</div>
+                        <label for="control_number">Usuario</label>
+                        <div class="invalid-feedback">Ingresa tu usuario</div>
                     </div>
 
                     <div class="form-floating mb-3">
-                        <input type="password" class="form-control" id="nip" placeholder="NIP" inputmode="numeric"
-                            pattern="[0-9]{3,5}" maxlength="5" required>
-                        <label for="nip">NIP</label>
-                        <div class="invalid-feedback">Ingresa 4 dígitos.</div>
+                        <input type="password" class="form-control" id="nip" placeholder="Contraseña" required>
+                        <label for="nip">Contraseña</label>
+                        <div class="invalid-feedback">Ingresa tu contraseña.</div>
                     </div>
 
                     <div id="alertBox" class="alert alert-danger mt-3 d-none" role="alert"></div>
@@ -43,11 +42,11 @@
 
                     <div class="text-center" style="margin-top: 1.5rem;">
                         
-                        <a href="#" class="text-muted" style="font-size: 1rem;" data-bs-toggle="modal"
+                        <!--a href="#" class="text-muted" style="font-size: 1rem;" data-bs-toggle="modal"
                             data-bs-target="#infoModal">
                             <i class="bi bi-info-circle"></i>
                             <span>Información</span>
-                        </a>
+                        </a-->
                     </div>
                 </form>
             </div>
@@ -76,18 +75,21 @@
                     </div>
 
                     <div class="mb-4">
-                        <h6 class="fw-semibold mb-2 colorBlueTec">Usuario y NIP</h6>
-                        <p class="mb-2">Debes iniciar sesión con el mismo <strong>número de control</strong> y
+                        <h6 class="fw-semibold mb-2 colorBlueTec">Usuario y Contraseña</h6>
+                        <p class="mb-2"><strong>Estudiantes:</strong> Debes iniciar sesión con el mismo <strong>número de control</strong> y
                             <strong>NIP</strong> que utilizas en:</p>
                         <ul class="mb-2">
                             <li><a href="http://sii.cdjuarez.tecnm.mx" _blank><em>sii.cdjuarez.tecnm.mx</em></a></li>
                             <li><a href="http://siisae.cdjuarez.tecnm.mx" _blank><em>siisae.cdjuarez.tecnm.mx</em></a></li>
                         </ul>
-                        <p class="mb-0">
+                        <p class="mb-2">
                             <strong>Importante:</strong> el número de control son <u>solo 8 dígitos</u>.
                             Si tu correo institucional inicia con una letra (por ejemplo
                             <code>L{número_de_control}@cdjuarez.tecnm.mx</code>),
-                            <u>esa “L” no forma parte</u> de tu número de control. Ingresa únicamente los dígitos.
+                            <u>esa "L" no forma parte</u> de tu número de control. Ingresa únicamente los dígitos.
+                        </p>
+                        <p class="mb-0">
+                            <strong>Personal:</strong> Utiliza tu <strong>nombre de usuario</strong> y la <strong>contraseña</strong> asignada por el administrador.
                         </p>
                     </div>
 
