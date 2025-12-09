@@ -15,11 +15,11 @@ def authenticate(control_number: str, nip: str):
         .filter(User.control_number == control_number, User.is_active == True)  # noqa: E712
         .first()
     )
-    if not user or not user.nip_hash:
+    if not user or not user.password_hash:
         return None
 
     # Verifica NIP
-    if not verify_nip(nip, user.nip_hash):
+    if not verify_nip(nip, user.password_hash):
         return None
 
     role_name = user.role.name if user.role else None
@@ -38,7 +38,7 @@ def authenticate_by_username(username: str, nip: str):
 
     if not u:
         return None
-    if not verify_nip(nip, u.nip_hash):
+    if not verify_nip(nip, u.password_hash):
         return None
     role = db.session.query(Role).get(u.role_id)
     return {

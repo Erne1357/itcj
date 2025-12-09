@@ -363,7 +363,7 @@ def create_coordinator():
     control_number: Optional[str] = data.get("control_number")
     username: str = data.get("username","").strip() # opcional para staff
     program_ids: list[int] = data.get("program_ids", [])
-    nip: str = data.get("nip", "1234")  # NIP temporal
+    nip: str = data.get("nip", "tecno#2K")  # NIP temporal
 
     if not name:
         return jsonify({"error": "missing_name"}), 400
@@ -397,7 +397,7 @@ def create_coordinator():
         control_number=control_number,
         username=username,
         role_id=role.id,
-        nip_hash=hash_nip(nip)
+        password_hash=hash_nip(nip)
     )
     db.session.add(u)
     db.session.flush()

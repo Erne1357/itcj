@@ -144,7 +144,7 @@ function createTicketCard(ticket) {
     const hasRating = ticket.rating_attention !== null;
     
     return `
-        <div class="ticket-card border-bottom p-3" onclick="showTicketDetail(${ticket.id})">
+        <div class="ticket-card border-bottom p-3" onclick="goToTicketDetail(${ticket.id})">
             <div class="row align-items-start">
                 <!-- Main Info -->
                 <div class="col-md-8">
@@ -233,14 +233,9 @@ function createTicketCard(ticket) {
                             </button>
                         ` : ''}
                         
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-outline-primary btn-sm" onclick="showTicketDetail(${ticket.id})">
-                                <i class="fas fa-eye me-1"></i>Vista Rápida
-                            </button>
-                            <button class="btn btn-primary btn-sm" onclick="goToTicketDetail(${ticket.id})">
-                                <i class="fas fa-external-link-alt me-1"></i>Abrir
-                            </button>
-                        </div>
+                        <button class="btn btn-primary btn-sm w-100" onclick="goToTicketDetail(${ticket.id})">
+                            <i class="fas fa-eye me-1"></i>Ver Detalle
+                        </button>
                     </div>
                 </div>
             </div>
@@ -536,140 +531,6 @@ async function confirmCancel() {
     }
 }
 
-// ==================== TICKET DETAIL MODAL ====================
-async function showTicketDetail(ticketId) {
-    const modal = new bootstrap.Modal(document.getElementById('detailModal'));
-    const body = document.getElementById('detailModalBody');
-    
-    // Show loading
-    body.innerHTML = `
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="text-muted mt-3">Cargando detalles...</p>
-        </div>
-    `;
-    
-    modal.show();
-    
-    try {
-        const response = await HelpdeskUtils.api.getTicket(ticketId);
-        const ticket = response.ticket;
-        
-        // Get comments
-        const commentsResponse = await HelpdeskUtils.api.getComments(ticketId);
-        const comments = commentsResponse.comments || [];
-        
-        // Render detail
-        renderTicketDetail(ticket, comments);
-        
-    } catch (error) {
-        console.error('Error loading ticket detail:', error);
-        body.innerHTML = `
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-circle me-2"></i>
-                Error al cargar los detalles del ticket
-            </div>
-        `;
-    }
-}
-
-function renderTicketDetail(ticket, comments) {
-    const body = document.getElementById('detailModalBody');
-    const title = document.getElementById('detailModalTitle');
-    
-    title.textContent = ticket.ticket_number;
-    
-    body.innerHTML = `
-        <!-- Header -->
-        <div class="mb-4">
-            <h4 class="mb-3">${ticket.title}</h4>
-            <div class="d-flex gap-2 flex-wrap">
-                ${HelpdeskUtils.getStatusBadge(ticket.status)}
-                ${HelpdeskUtils.getAreaBadge(ticket.area)}
-                ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
-                ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
-            </div>
-        </div>
-        
-        <!-- Info Grid -->
-        <div class="row g-3 mb-4">
-            <div class="col-md-6">
-                <small class="text-muted d-block">Creado</small>
-                <strong>${HelpdeskUtils.formatDate(ticket.created_at)}</strong>
-            </div>
-            
-            ${ticket.location ? `
-            <div class="col-md-6">
-                <small class="text-muted d-block">Ubicación</small>
-                <strong><i class="fas fa-map-marker-alt me-1"></i>${ticket.location}</strong>
-            </div>
-            ` : ''}
-            
-            ${ticket.assigned_to ? `
-            <div class="col-md-6">
-                <small class="text-muted d-block">Asignado a</small>
-                <strong><i class="fas fa-user-check me-1"></i>${ticket.assigned_to.name}</strong>
-            </div>
-            ` : ''}
-            
-            ${ticket.resolved_at ? `
-            <div class="col-md-6">
-                <small class="text-muted d-block">Resuelto</small>
-                <strong>${HelpdeskUtils.formatDate(ticket.resolved_at)}</strong>
-            </div>
-            ` : ''}
-        </div>
-        
-        <!-- Description -->
-        <div class="mb-4">
-            <h6 class="fw-bold mb-2">Descripción</h6>
-            <p class="text-muted">${ticket.description}</p>
-        </div>
-        
-        ${ticket.resolution_notes ? `
-        <div class="mb-4">
-            <h6 class="fw-bold mb-2">Solución</h6>
-            <div class="alert alert-success mb-0">
-                <i class="fas fa-check-circle me-2"></i>
-                ${ticket.resolution_notes}
-            </div>
-        </div>
-        ` : ''}
-        
-        ${ticket.rating ? `
-        <div class="mb-4">
-            <h6 class="fw-bold mb-2">Tu Calificación</h6>
-            <div class="p-3 bg-light rounded">
-                ${HelpdeskUtils.renderStarRating(ticket.rating, '2x')}
-                ${ticket.rating_comment ? `
-                    <p class="mb-0 mt-2 text-muted">"${ticket.rating_comment}"</p>
-                ` : ''}
-            </div>
-        </div>
-        ` : ''}
-        
-        <!-- Comments -->
-        ${comments.length > 0 ? `
-        <div class="mb-3">
-            <h6 class="fw-bold mb-3">Comentarios (${comments.length})</h6>
-            ${comments.map(c => `
-                <div class="card mb-2">
-                    <div class="card-body py-2">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <strong>${c.author.name}</strong>
-                                <small class="text-muted ms-2">${HelpdeskUtils.formatTimeAgo(c.created_at)}</small>
-                            </div>
-                        </div>
-                        <p class="mb-0 mt-2">${c.content}</p>
-                    </div>
-                </div>
-            `).join('')}
-        </div>
-        ` : ''}
-    `;
-}
-
 // ==================== HELPERS ====================
 function truncateText(text, maxLength) {
     if (!text) return '';
@@ -690,8 +551,6 @@ function showErrorState() {
     `;
 }
 
-// ==================== EXPORT FOR INLINE CALLS ====================
-window.showTicketDetail = showTicketDetail;
 // ==================== NAVIGATION ====================
 function goToTicketDetail(ticketId) {
     HelpdeskUtils.goToTicketDetail(ticketId, 'my_tickets');

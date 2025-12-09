@@ -178,7 +178,7 @@ def create_user():
             middle_name=middle_name.upper() if middle_name else None,
             email=email,
             role_id=role.id,
-            nip_hash=hash_nip(password), # ¡Importante! Siempre hashear la contraseña/NIP
+            password_hash=hash_nip(password), # ¡Importante! Siempre hashear la contraseña/NIP
             control_number=data.get("control_number") if user_type == 'student' else None,
             username=data.get("username") if user_type == 'staff' else None,
             must_change_password=(user_type == 'staff') # Forzar cambio de contraseña para personal
@@ -267,6 +267,45 @@ def get_user_department_by_id(target_user_id):
             'code': department.code
         }
     }), 200
+
+@api_users_bp.post('/<int:user_id>/reset-password')
+@api_auth_required
+@api_app_required("itcj", perms=["core.users.api.reset_password"])
+def reset_user_password(user_id):
+    """
+    Resetea la contraseña de un usuario a la contraseña por defecto
+    y marca que debe cambiarla en el próximo login
+    """
+    from itcj.core.routes.api.user import DEFAULT_PASSWORD
+
+    try:
+        # Buscar el usuario
+        user = User.query.get(user_id)
+        if not user:
+            return _bad("user_not_found", 404)
+
+        # No permitir resetear contraseña de estudiantes (usan NIP del SII)
+        if user.control_number:  # Es un estudiante
+            return _bad("cannot_reset_student_password", 400)
+
+        # Resetear la contraseña a la por defecto
+        user.password_hash = hash_nip(DEFAULT_PASSWORD)
+        user.must_change_password = True
+        db.session.commit()
+
+        current_app.logger.info(f"Password reset for user {user.id} by admin {g.current_user['sub']}")
+
+        return _ok({
+            "message": "Contraseña reseteada exitosamente",
+            "user_id": user.id,
+            "must_change_password": True
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error resetting password for user {user_id}: {e}")
+        return _bad("internal_server_error", 500)
+
 
 @api_users_bp.get('/by-app/<app_key>')
 @api_app_required('helpdesk')  # Solo requiere acceso a helpdesk

@@ -16,6 +16,18 @@ class UserDetailManager {
     }
 
     bindEvents() {
+        // Reset Password button
+        const resetPasswordBtn = document.getElementById('btnResetPassword');
+        if (resetPasswordBtn) {
+            resetPasswordBtn.addEventListener('click', () => this.showResetPasswordModal());
+        }
+
+        // Confirm reset password
+        const confirmResetBtn = document.getElementById('confirmResetPasswordBtn');
+        if (confirmResetBtn) {
+            confirmResetBtn.addEventListener('click', () => this.resetPassword());
+        }
+
         // Manage app buttons
         document.addEventListener('click', (e) => {
             if (e.target.closest('.manage-app-btn')) {
@@ -69,6 +81,7 @@ class UserDetailManager {
 
     initModals() {
         this.manageModal = new bootstrap.Modal(document.getElementById('manageAssignmentsModal'));
+        this.resetPasswordModal = new bootstrap.Modal(document.getElementById('confirmResetPasswordModal'));
     }
 
     async loadUserPositions() {
@@ -571,11 +584,52 @@ class UserDetailManager {
         }
     }
 
+    showResetPasswordModal() {
+        this.resetPasswordModal.show();
+    }
+
+    async resetPassword() {
+        const confirmBtn = document.getElementById('confirmResetPasswordBtn');
+        const originalText = confirmBtn.innerHTML;
+
+        try {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Reseteando...';
+
+            const response = await fetch(`${this.apiBase}/users/${this.userId}/reset-password`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include'
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                this.resetPasswordModal.hide();
+                this.showSuccess('Contraseña reseteada exitosamente. Nueva contraseña: "tecno#2K"');
+            } else {
+                if (result.error === 'cannot_reset_student_password') {
+                    this.showError('No se puede resetear la contraseña de estudiantes');
+                } else {
+                    this.showError(result.error || 'Error al resetear la contraseña');
+                }
+            }
+        } catch (error) {
+            this.showError('Error de conexión');
+            console.error('Error resetting password:', error);
+        } finally {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = originalText;
+        }
+    }
+
     showSuccess(message) {
         const toast = document.getElementById('successToast');
         const messageEl = document.getElementById('successMessage');
         messageEl.textContent = message;
-        
+
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
     }

@@ -14,6 +14,8 @@
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/notifications/notifications.css')}}?v={{ static_version }}">
     <!-- ⭐ NUEVO: Dashboard Tutorial CSS -->
     <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard/dashboard_tutorial.css')}}?v={{ static_version }}">
+    <!-- 🎄 NAVIDAD: Decoraciones Navideñas CSS -->
+    <link rel="stylesheet" href="{{url_for('static',filename = 'core/css/dashboard/christmas-decorations.css')}}?v={{ static_version }}">
     <!-- Shepherd.js CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
 
@@ -126,12 +128,10 @@
                         <p class="mb-2 windows-text">Para continuar, debe actualizar su contraseña por motivos de
                             seguridad.</p>
                         <div class="mb-3">
-                            <label class="form-label windows-text">Nueva contraseña (4 dígitos)</label>
-                            <input type="password" maxlength="4" class="form-control windows-input" id="newPw"
-                                inputmode="numeric" pattern="\\d{4}">
+                            <label class="form-label windows-text">Nueva contraseña (mínimo 8 caracteres)</label>
+                            <input type="password" class="form-control windows-input" id="newPw" minlength="8">
                         </div>
-                        <div id="pwErr" class="text-danger small d-none windows-text">El NIP debe ser 4 dígitos
-                            numéricos.</div>
+                        <div id="pwErr" class="text-danger small d-none windows-text"></div>
                     </div>
                 </div>
                 <div class="modal-footer windows-footer">
@@ -156,6 +156,9 @@
 
     <!-- ⭐ NUEVO: Dashboard Tutorial Script -->
     <script src="{{url_for('static',filename = 'core/js/dashboard/dashboard_tutorial.js') }}?v={{ static_version }}"></script>
+
+    <!-- 🎄 NAVIDAD: Efecto de Nieve Navideña -->
+    <script src="{{url_for('static',filename = 'core/js/dashboard/christmas-snow.js') }}?v={{ static_version }}"></script>
 
     <!-- ⭐ NUEVO: Initialize Notification Widget -->
     <script>

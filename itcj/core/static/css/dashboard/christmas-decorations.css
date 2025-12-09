@@ -1,0 +1,828 @@
+/* ============================================
+   DECORACIONES NAVIDEÑAS - DASHBOARD
+   Efectos ligeros y elegantes para Navidad
+   ============================================ */
+
+/* ==================== LUCES NAVIDEÑAS CON CABLES CURVOS ==================== */
+.christmas-lights {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50px;
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-start;
+    pointer-events: none;
+    z-index: 9999;
+    gap: 0;
+    padding: 0;
+}
+
+/* Los cables curvos se crean dinámicamente con SVG desde JavaScript */
+
+.christmas-light {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    box-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+    animation: twinkle 2s ease-in-out infinite;
+    margin-top: 20px; /* Espacio para el cable colgante */
+    flex-shrink: 0;
+}
+
+/* Cable colgante de cada luz */
+.christmas-light::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1px;
+    height: 15px;
+    background: linear-gradient(to bottom, #2c2c2c 0%, #404040 100%);
+    box-shadow: 1px 0 1px rgba(0, 0, 0, 0.2);
+}
+
+/* Socket/base de la luz */
+.christmas-light::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 6px;
+    height: 6px;
+    background: #1a1a1a;
+    border-radius: 2px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.christmas-light:nth-child(6n+1) {
+    background: #ff0000;
+    color: #ff0000;
+    animation-delay: 0s;
+}
+
+.christmas-light:nth-child(6n+2) {
+    background: #00ff00;
+    color: #00ff00;
+    animation-delay: 0.3s;
+}
+
+.christmas-light:nth-child(6n+3) {
+    background: #0000ff;
+    color: #0000ff;
+    animation-delay: 0.6s;
+}
+
+.christmas-light:nth-child(6n+4) {
+    background: #ffff00;
+    color: #ffff00;
+    animation-delay: 0.9s;
+}
+
+.christmas-light:nth-child(6n+5) {
+    background: #ff00ff;
+    color: #ff00ff;
+    animation-delay: 1.2s;
+}
+
+.christmas-light:nth-child(6n+6) {
+    background: #00ffff;
+    color: #00ffff;
+    animation-delay: 1.5s;
+}
+
+@keyframes twinkle {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.3;
+        transform: scale(0.8);
+    }
+}
+
+/* ==================== NIEVE ACUMULADA EN ÍCONOS ==================== */
+.desktop-icon {
+    position: relative;
+}
+
+/* Capa de nieve acumulada en la parte superior del icono */
+.desktop-icon::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 70%;
+    height: 12px;
+    background: linear-gradient(to bottom,
+        #ffffff 0%,
+        #f0f8ff 40%,
+        rgba(255, 255, 255, 0.8) 70%,
+        transparent 100%
+    );
+    border-radius: 50% 50% 0 0 / 60% 60% 0 0;
+    box-shadow:
+        0 2px 4px rgba(255, 255, 255, 0.5),
+        inset 0 -2px 4px rgba(200, 220, 255, 0.3);
+    pointer-events: none;
+    z-index: 10;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+/* Goteos de nieve cayendo (estilo carámbanos pequeños) */
+.desktop-icon::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 35%;
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 8px solid rgba(255, 255, 255, 0.9);
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.1));
+    pointer-events: none;
+    z-index: 9;
+    animation: snowDrip 3s ease-in-out infinite;
+}
+
+/* Segundo goteo (varía por icono) */
+.desktop-icon:nth-child(odd)::after {
+    left: 60%;
+    animation-delay: 1.5s;
+}
+
+.desktop-icon:nth-child(even)::after {
+    left: 40%;
+    border-top-width: 6px;
+    animation-delay: 0.8s;
+}
+
+@keyframes snowDrip {
+    0%, 90%, 100% {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
+    50% {
+        opacity: 0.8;
+        transform: translateY(3px) scaleY(1.2);
+    }
+}
+
+/* Goteos adicionales de nieve (creados por JS) */
+.snow-drip-extra {
+    position: absolute;
+    top: 2px;
+    background: linear-gradient(to bottom,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(240, 248, 255, 0.9) 50%,
+        rgba(255, 255, 255, 0.7) 100%
+    );
+    border-radius: 0 0 50% 50%;
+    pointer-events: none;
+    z-index: 9;
+    animation: snowDripExtra 4s ease-in-out infinite;
+    box-shadow:
+        inset 0 1px 2px rgba(255, 255, 255, 0.5),
+        0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+@keyframes snowDripExtra {
+    0%, 85%, 100% {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
+    50% {
+        opacity: 0.9;
+        transform: translateY(4px) scaleY(1.3);
+    }
+    70% {
+        opacity: 0.7;
+        transform: translateY(6px) scaleY(1.5);
+    }
+}
+
+/* Brillo sutil para simular reflejo de la nieve */
+.desktop-icon .icon-container {
+    position: relative;
+}
+
+.desktop-icon .icon-container::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    background: radial-gradient(circle at top, rgba(255, 255, 255, 0.2) 0%, transparent 60%);
+    border-radius: 10px;
+    opacity: 0;
+    animation: snowShimmer 4s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.desktop-icon:nth-child(odd) .icon-container::before {
+    animation-delay: 2s;
+}
+
+@keyframes snowShimmer {
+    0%, 100% {
+        opacity: 0;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* ==================== TASKBAR NAVIDEÑA ==================== */
+/* Decoración en la parte superior de la taskbar sin modificar su posición */
+.taskbar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+        90deg,
+        #ff0000 0%,
+        #00ff00 16.66%,
+        #0000ff 33.33%,
+        #ffff00 50%,
+        #ff00ff 66.66%,
+        #00ffff 83.33%,
+        #ff0000 100%
+    );
+    opacity: 0.3;
+    animation: lightMove 3s linear infinite;
+    pointer-events: none;
+    z-index: 10;
+}
+
+@keyframes lightMove {
+    0% {
+        background-position: 0% 0%;
+    }
+    100% {
+        background-position: 100% 0%;
+    }
+}
+
+/* ==================== COPOS DE NIEVE (CSS) ==================== */
+.snowflake {
+    position: fixed;
+    top: -10px;
+    color: #fff;
+    font-size: 1em;
+    pointer-events: none;
+    z-index: 10000;
+    user-select: none;
+    animation: fall linear infinite;
+    opacity: 0.8;
+}
+
+@keyframes fall {
+    0% {
+        transform: translateY(0) rotate(0deg);
+        opacity: 0.8;
+    }
+    100% {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0.3;
+    }
+}
+
+/* Diferentes tamaños y velocidades para variedad */
+.snowflake:nth-child(3n) {
+    font-size: 0.8em;
+    animation-duration: 15s;
+}
+
+.snowflake:nth-child(3n+1) {
+    font-size: 1.2em;
+    animation-duration: 20s;
+}
+
+.snowflake:nth-child(3n+2) {
+    font-size: 1em;
+    animation-duration: 18s;
+}
+
+/* ==================== DECORACIONES ADICIONALES ==================== */
+/* Efecto de escarcha en las esquinas */
+.desktop::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.desktop::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Mensaje navideño sutil en la barra de búsqueda */
+.search-input::placeholder {
+    animation: christmasMessage 8s ease-in-out infinite;
+}
+
+@keyframes christmasMessage {
+    0%, 90%, 100% {
+        opacity: 1;
+    }
+    45%, 55% {
+        opacity: 0.7;
+    }
+}
+
+/* ==================== ANIMACIONES AL HOVER ==================== */
+.desktop-icon:hover {
+    animation: jingleBell 0.5s ease-in-out;
+}
+
+@keyframes jingleBell {
+    0%, 100% {
+        transform: rotate(0deg);
+    }
+    25% {
+        transform: rotate(-5deg);
+    }
+    75% {
+        transform: rotate(5deg);
+    }
+}
+
+/* ==================== MUÑECO DE NIEVE ANIMADO ==================== */
+.snowman-container {
+    position: fixed;
+    bottom: 40px; /* Justo encima de la taskbar */
+    right: 150px; /* Cerca de las notificaciones */
+    pointer-events: none;
+    z-index: 10001;
+    transform-origin: bottom center;
+}
+
+/* Bola base (grande) */
+.snowman-ball-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 60px;
+    background: radial-gradient(circle at 30% 30%, #ffffff, #e0f0ff 60%, #d0e8ff);
+    border-radius: 50%;
+    box-shadow:
+        inset -5px -5px 10px rgba(0, 0, 0, 0.1),
+        0 5px 15px rgba(0, 0, 0, 0.2);
+    animation: rollInBottom 2s ease-out forwards;
+    opacity: 0;
+}
+
+/* Bola media */
+.snowman-ball-middle {
+    position: absolute;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 45px;
+    height: 45px;
+    background: radial-gradient(circle at 30% 30%, #ffffff, #e0f0ff 60%, #d0e8ff);
+    border-radius: 50%;
+    box-shadow:
+        inset -5px -5px 10px rgba(0, 0, 0, 0.1),
+        0 5px 15px rgba(0, 0, 0, 0.2);
+    animation: rollInMiddle 2.5s ease-out 0.5s forwards;
+    opacity: 0;
+}
+
+/* Bola cabeza (pequeña) */
+.snowman-ball-head {
+    position: absolute;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 35px;
+    height: 35px;
+    background: radial-gradient(circle at 30% 30%, #ffffff, #e0f0ff 60%, #d0e8ff);
+    border-radius: 50%;
+    box-shadow:
+        inset -5px -5px 10px rgba(0, 0, 0, 0.1),
+        0 5px 15px rgba(0, 0, 0, 0.2);
+    animation: rollInHead 3s ease-out 1s forwards;
+    opacity: 0;
+}
+
+/* Ojos */
+.snowman-eye {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: #2c2c2c;
+    border-radius: 50%;
+    top: 12px;
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards, blink 4s ease-in-out 5s infinite;
+    opacity: 0;
+}
+
+.snowman-eye.left {
+    left: 10px;
+}
+
+.snowman-eye.right {
+    right: 10px;
+}
+
+/* Nariz zanahoria */
+.snowman-nose {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 10px solid #ff8c00;
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards, wiggleNose 3s ease-in-out 6s infinite;
+    opacity: 0;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+/* Sonrisa */
+.snowman-smile {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 8px;
+    border: 2px solid #2c2c2c;
+    border-top: none;
+    border-radius: 0 0 16px 16px;
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards;
+    opacity: 0;
+}
+
+/* Botones */
+.snowman-button {
+    position: absolute;
+    width: 5px;
+    height: 5px;
+    background: #2c2c2c;
+    border-radius: 50%;
+    left: 50%;
+    transform: translateX(-50%);
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards;
+    opacity: 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.snowman-button.btn1 {
+    top: 15px;
+    animation-delay: 3.6s;
+}
+
+.snowman-button.btn2 {
+    top: 25px;
+    animation-delay: 3.7s;
+}
+
+.snowman-button.btn3 {
+    top: 35px;
+    animation-delay: 3.8s;
+}
+
+/* Brazos (palitos) */
+.snowman-arm {
+    position: absolute;
+    width: 35px;
+    height: 2px;
+    background: linear-gradient(90deg, #8B4513 0%, #654321 100%);
+    top: 22px;
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards, waveArm 2s ease-in-out 6s infinite;
+    opacity: 0;
+    transform-origin: center left;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.snowman-arm.left {
+    left: 30px;
+    transform: rotate(-25deg);
+}
+
+.snowman-arm.right {
+    right: 60px;
+    transform: rotate(25deg) scaleX(-1);
+    transform-origin: center right;
+}
+
+/* Deditos del brazo */
+.snowman-arm::before,
+.snowman-arm::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 2px;
+    background: #654321;
+    right: -8px;
+}
+
+.snowman-arm::before {
+    transform: rotate(30deg);
+    top: 3px;
+}
+
+.snowman-arm::after {
+    transform: rotate(-30deg);
+    bottom: 3px;
+}
+
+/* Sombrero */
+.snowman-hat {
+    position: absolute;
+    bottom: 125px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 30px;
+    height: 20px;
+    background: #1a1a1a;
+    border-radius: 2px 2px 0 0;
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards, tipHat 4s ease-in-out 7s infinite;
+    opacity: 0;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.snowman-hat::before {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 6px;
+    background: #1a1a1a;
+    border-radius: 20px;
+}
+
+.snowman-hat::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: 3px;
+    width: 24px;
+    height: 8px;
+    background: #c41e3a;
+    border-radius: 1px;
+}
+
+/* Animaciones de entrada */
+@keyframes rollInBottom {
+    0% {
+        transform: translateX(-200px) translateX(-50%) rotate(0deg);
+        opacity: 1;
+    }
+    70% {
+        transform: translateX(10px) translateX(-50%) rotate(720deg);
+    }
+    100% {
+        transform: translateX(0) translateX(-50%) rotate(720deg);
+        opacity: 1;
+    }
+}
+
+@keyframes rollInMiddle {
+    0% {
+        transform: translateX(-200px) translateX(-50%) rotate(0deg);
+        opacity: 1;
+        bottom: 0;
+    }
+    60% {
+        transform: translateX(10px) translateX(-50%) rotate(720deg);
+        bottom: 0;
+    }
+    80% {
+        bottom: 65px;
+    }
+    100% {
+        transform: translateX(0) translateX(-50%) rotate(720deg);
+        opacity: 1;
+        bottom: 50px;
+    }
+}
+
+@keyframes rollInHead {
+    0% {
+        transform: translateX(-200px) translateX(-50%) rotate(0deg);
+        opacity: 1;
+        bottom: 0;
+    }
+    55% {
+        transform: translateX(10px) translateX(-50%) rotate(720deg);
+        bottom: 0;
+    }
+    75% {
+        bottom: 100px;
+    }
+    100% {
+        transform: translateX(0) translateX(-50%) rotate(720deg);
+        opacity: 1;
+        bottom: 90px;
+    }
+}
+
+@keyframes fadeInAccessory {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) scale(0);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+    }
+}
+
+/* Animaciones de permanencia (breathing) */
+.snowman-container.assembled {
+    animation: snowmanBreathing 3s ease-in-out infinite;
+}
+
+@keyframes snowmanBreathing {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.02);
+    }
+}
+
+@keyframes blink {
+    0%, 96%, 100% {
+        transform: scaleY(1);
+    }
+    98% {
+        transform: scaleY(0.1);
+    }
+}
+
+@keyframes wiggleNose {
+    0%, 100% {
+        transform: translateX(-50%) rotate(0deg);
+    }
+    25% {
+        transform: translateX(-50%) rotate(-5deg);
+    }
+    75% {
+        transform: translateX(-50%) rotate(5deg);
+    }
+}
+
+@keyframes waveArm {
+    0%, 100% {
+        transform: rotate(-25deg);
+    }
+    50% {
+        transform: rotate(-35deg);
+    }
+}
+
+.snowman-arm.right {
+    animation: fadeInAccessory 0.5s ease-out 3.5s forwards, waveArmRight 2s ease-in-out 6s infinite;
+}
+
+@keyframes waveArmRight {
+    0%, 100% {
+        transform: rotate(25deg) scaleX(-1);
+    }
+    50% {
+        transform: rotate(35deg) scaleX(-1);
+    }
+}
+
+@keyframes tipHat {
+    0%, 90%, 100% {
+        transform: translateX(-50%) rotate(0deg);
+    }
+    95% {
+        transform: translateX(-50%) rotate(-15deg);
+    }
+}
+
+/* Animaciones de salida */
+.snowman-container.leaving .snowman-ball-bottom {
+    animation: rollOutBottom 2s ease-in forwards;
+}
+
+.snowman-container.leaving .snowman-ball-middle {
+    animation: rollOutMiddle 2s ease-in 0.3s forwards;
+}
+
+.snowman-container.leaving .snowman-ball-head {
+    animation: rollOutHead 2s ease-in 0.6s forwards;
+}
+
+.snowman-container.leaving .snowman-eye,
+.snowman-container.leaving .snowman-nose,
+.snowman-container.leaving .snowman-smile,
+.snowman-container.leaving .snowman-button,
+.snowman-container.leaving .snowman-arm,
+.snowman-container.leaving .snowman-hat {
+    animation: fadeOutAccessory 0.5s ease-out forwards;
+}
+
+@keyframes rollOutBottom {
+    0% {
+        transform: translateX(0) translateX(-50%) rotate(720deg);
+        opacity: 1;
+    }
+    100% {
+        transform: translateX(300px) translateX(-50%) rotate(1440deg);
+        opacity: 0;
+    }
+}
+
+@keyframes rollOutMiddle {
+    0% {
+        transform: translateX(0) translateX(-50%) rotate(720deg);
+        opacity: 1;
+        bottom: 50px;
+    }
+    30% {
+        bottom: 0;
+    }
+    100% {
+        transform: translateX(300px) translateX(-50%) rotate(1440deg);
+        opacity: 0;
+        bottom: 0;
+    }
+}
+
+@keyframes rollOutHead {
+    0% {
+        transform: translateX(0) translateX(-50%) rotate(720deg);
+        opacity: 1;
+        bottom: 90px;
+    }
+    30% {
+        bottom: 0;
+    }
+    100% {
+        transform: translateX(300px) translateX(-50%) rotate(1440deg);
+        opacity: 0;
+        bottom: 0;
+    }
+}
+
+@keyframes fadeOutAccessory {
+    0% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 768px) {
+    .christmas-lights {
+        height: 30px;
+        gap: 15px;
+    }
+
+    .christmas-light {
+        width: 10px;
+        height: 10px;
+    }
+
+    .desktop-icon .icon-container::after {
+        font-size: 16px;
+        top: -12px;
+        right: -8px;
+    }
+
+    /* Muñeco de nieve más pequeño en móviles */
+    .snowman-container {
+        right: 80px;
+        transform: scale(0.8);
+    }
+}

@@ -56,6 +56,14 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.assignments.page.list"
         },
 
+        # ==================== LISTA DE TICKETS (ADMIN) ====================
+        {
+            "label": "Lista de Tickets",
+            "endpoint": "helpdesk_pages.admin_pages.tickets_list",
+            "icon": "fa-list-ul",
+            "permission": "helpdesk.tickets.page.list_all"
+        },
+
         # ==================== INVENTARIO (UNIFICADO) ====================
         {
             "label": "Inventario",

@@ -21,7 +21,7 @@ from itcj.core.sockets.notifications import push_notification
 api_coord_bp = Blueprint("api_coord", __name__)
 
 ALLOWED_DAYS = {date(2025,8,25), date(2025,8,26), date(2025,8,27)}
-DEFAULT_NIP = "1234"
+DEFAULT_NIP = "tecno#2K"
 
 def _current_user():
     try:
@@ -748,7 +748,7 @@ def coord_password_state():
     u = _current_user()
     if not u:
         return jsonify({"error":"user_not_found"}), 404
-    must_change = verify_nip(DEFAULT_NIP, u.nip_hash )
+    must_change = verify_nip(DEFAULT_NIP, u.password_hash )
     return jsonify({"must_change": must_change})
 
 @api_coord_bp.post("/change_password")
@@ -756,9 +756,8 @@ def coord_password_state():
 @api_app_required(app_key="agendatec", roles=["coordinator"])
 def change_password():
     """
-    Cambia el NIP (4 dígitos). Se hashea en servidor.
-    Si el usuario sigue con 1234, no exigimos current_password.
-    Si NO está en 1234, opcionalmente puedes exigir current_password (comentado).
+    Cambia la contraseña del coordinador. Se hashea en servidor.
+    Si el usuario sigue con la contraseña por defecto, no exigimos current_password.
     """
     u = _current_user()
     if not u:
@@ -767,12 +766,13 @@ def change_password():
     data = request.get_json(silent=True) or {}
     new_password = (data.get("new_password") or "").strip()
 
-    if not (new_password.isdigit() and len(new_password) == 4):
+    # Validar que la contraseña tenga al menos 4 caracteres
+    if len(new_password) < 4:
         return jsonify({"error":"invalid_new_password"}), 400
 
     # Guardar hash nuevo
     coord = db.session.query(Coordinator).filter_by(user_id=u.id).first()
-    coord.must_change_pw = False 
-    u.nip_hash = hash_nip(new_password)
+    coord.must_change_pw = False
+    u.password_hash = hash_nip(new_password)
     db.session.commit()
     return jsonify({"ok": True})

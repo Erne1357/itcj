@@ -11,7 +11,7 @@ import logging
 
 api_user_bp = Blueprint("api_user_bp", __name__)
 
-DEFAULT_PASSWORD = "1234"  
+DEFAULT_PASSWORD = "tecno#2K"  
 def _current_user():
     try:
         uid = int(g.current_user["sub"])
@@ -30,7 +30,7 @@ def user_password_state():
     if user_roles_in_app(u.id, "itcj").__contains__("student"):
         return jsonify({"must_change": False})
     # Verifica si la contraseña del usuario es la por defecto
-    must_change = verify_nip(DEFAULT_PASSWORD, u.nip_hash)
+    must_change = verify_nip(DEFAULT_PASSWORD, u.password_hash)
     return jsonify({"must_change": must_change})
 
 # Endpoint para cambiar la contraseña del usuario
@@ -43,18 +43,24 @@ def change_password():
     
     try:
         new_password = request.json.get("new_password")
-        if not new_password or not new_password.isdigit() or len(new_password) != 4:
-            return jsonify({"error": "invalid_password"}), 400
-        
+
+        # Validar que la contraseña tenga al menos 8 caracteres
+        if not new_password or len(new_password) < 8:
+            return jsonify({"error": "invalid_password", "message": "La contraseña debe tener al menos 8 caracteres"}), 400
+
+        # Validar que NO sea la contraseña por defecto
+        if new_password == DEFAULT_PASSWORD:
+            return jsonify({"error": "invalid_password", "message": "No puedes usar la contraseña por defecto"}), 400
+
         user = User.query.filter_by(id=u.id).first()
         if not user:
             return jsonify({"error": "user_not_found"}), 404
-        
+
         # Hashea y guarda la nueva contraseña
-        user.nip_hash = hash_nip(new_password)
+        user.password_hash = hash_nip(new_password)
         user.must_change_password = False
-        db.session.commit() 
-        
+        db.session.commit()
+
         return jsonify({"message": "password_updated"}), 200
         
     except Exception as e:
