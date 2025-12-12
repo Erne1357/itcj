@@ -16,7 +16,10 @@ class Category(db.Model):
     code = db.Column(db.String(50), nullable=False, unique=True, index=True)  # 'dev_sii', 'sop_hardware'
     name = db.Column(db.String(100), nullable=False)  # 'SII', 'Hardware'
     description = db.Column(db.Text)
-    
+
+    # Campos personalizados
+    field_template = db.Column(db.JSON, nullable=True)  # Plantilla de campos personalizados para esta categoría
+
     # Estado y orden
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     display_order = db.Column(db.Integer, default=0)  # Para ordenar en dropdowns
@@ -36,8 +39,8 @@ class Category(db.Model):
     def __repr__(self):
         return f'<Category {self.area}:{self.name}>'
     
-    def to_dict(self):
-        return {
+    def to_dict(self, include_field_template=False):
+        data = {
             'id': self.id,
             'area': self.area,
             'code': self.code,
@@ -46,3 +49,8 @@ class Category(db.Model):
             'is_active': self.is_active,
             'display_order': self.display_order
         }
+
+        if include_field_template:
+            data['field_template'] = self.field_template
+
+        return data

@@ -137,6 +137,8 @@ function renderTicketDetail(ticket) {
     // Description
     document.getElementById('ticketDescription').textContent = ticket.description;
 
+    // Custom Fields (if exist)
+    renderCustomFields(ticket);
 
     // Resolution (if exists)
     if (ticket.resolution_notes) {
@@ -205,6 +207,92 @@ function renderQuickActions(ticket) {
     `;
 
     menu.innerHTML = html;
+}
+
+// ==================== RENDER CUSTOM FIELDS ====================
+async function renderCustomFields(ticket) {
+    const container = document.getElementById('customFieldsContainer');
+    const content = document.getElementById('customFieldsContent');
+
+    // Si no hay custom_fields o está vacío, ocultar
+    if (!ticket.custom_fields || Object.keys(ticket.custom_fields).length === 0) {
+        container.classList.add('d-none');
+        return;
+    }
+
+    // Obtener category_id del ticket
+    const categoryId = ticket.category_id || ticket.category?.id;
+    if (!categoryId) {
+        container.classList.add('d-none');
+        return;
+    }
+
+    try {
+        // Obtener el field_template de la categoría
+        const response = await HelpdeskUtils.api.request(`/categories/${categoryId}/field-template`);
+        const fieldTemplate = response.field_template;
+
+        if (!fieldTemplate || !fieldTemplate.enabled) {
+            container.classList.add('d-none');
+            return;
+        }
+
+        // Renderizar los campos
+        const fields = fieldTemplate.fields || [];
+        let html = '';
+
+        fields.forEach(field => {
+            const value = ticket.custom_fields[field.key];
+
+            // Skip si no hay valor
+            if (value === undefined || value === null) {
+                return;
+            }
+
+            let displayValue = '';
+
+            // Formatear valor según tipo
+            if (field.type === 'checkbox') {
+                displayValue = value ? '<span class="badge bg-success">Sí</span>' : '<span class="badge bg-secondary">No</span>';
+            } else if (field.type === 'select' || field.type === 'radio') {
+                const option = field.options?.find(opt => opt.value === value);
+                displayValue = option ? option.label : value;
+            } else if (field.type === 'file') {
+                // Mostrar nombre del archivo o link si es ruta
+                if (typeof value === 'string' && value.includes('/')) {
+                    const filename = value.split('/').pop();
+                    displayValue = `<a href="${value}" target="_blank" class="text-decoration-none">
+                        <i class="fas fa-file me-1"></i>${filename}
+                    </a>`;
+                } else {
+                    displayValue = `<i class="fas fa-file me-1"></i>${value}`;
+                }
+            } else {
+                // text, textarea
+                displayValue = value;
+            }
+
+            html += `
+                <div class="col-md-6">
+                    <small class="text-muted d-block mb-1">
+                        <i class="fas fa-chevron-right me-1"></i>${field.label}
+                    </small>
+                    <strong>${displayValue}</strong>
+                </div>
+            `;
+        });
+
+        if (html) {
+            content.innerHTML = html;
+            container.classList.remove('d-none');
+        } else {
+            container.classList.add('d-none');
+        }
+
+    } catch (error) {
+        console.error('Error loading custom fields template:', error);
+        container.classList.add('d-none');
+    }
 }
 
 // ==================== RENDER COMMENTS ====================

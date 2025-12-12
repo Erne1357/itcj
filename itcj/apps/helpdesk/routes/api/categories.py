@@ -561,10 +561,122 @@ def get_categories_stats():
             'categories': categories_stats,
             'grouped': grouped
         }), 200
-        
+
     except Exception as e:
         logger.error(f"Error al obtener estadísticas de categorías: {e}")
         return jsonify({
             'error': 'stats_failed',
+            'message': str(e)
+        }), 500
+
+
+# ==================== GET CATEGORY FIELD TEMPLATE ====================
+@categories_api_bp.get('/<int:category_id>/field-template')
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.read'])
+def get_category_field_template(category_id):
+    """
+    Obtiene la plantilla de campos personalizados para una categoría.
+
+    Returns:
+        200: Plantilla de campos (o vacía si no está configurada)
+        404: Categoría no encontrada
+    """
+    try:
+        category = Category.query.get(category_id)
+
+        if not category:
+            return jsonify({
+                'error': 'not_found',
+                'message': 'Categoría no encontrada'
+            }), 404
+
+        field_template = category.field_template or {'enabled': False, 'fields': []}
+
+        return jsonify({
+            'category_id': category_id,
+            'category_name': category.name,
+            'field_template': field_template
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error al obtener field template para categoría {category_id}: {e}")
+        return jsonify({
+            'error': 'fetch_failed',
+            'message': str(e)
+        }), 500
+
+
+# ==================== UPDATE CATEGORY FIELD TEMPLATE ====================
+@categories_api_bp.put('/<int:category_id>/field-template')
+@api_app_required('helpdesk', perms=['helpdesk.categories.api.update'])
+def update_category_field_template(category_id):
+    """
+    Actualiza la plantilla de campos personalizados para una categoría.
+
+    Body:
+        {
+            "enabled": true,
+            "fields": [
+                {
+                    "key": "field_key",
+                    "type": "text|textarea|select|radio|checkbox|file",
+                    "label": "Field Label",
+                    "required": true/false,
+                    "order": 1,
+                    "visible_when": {"other_field": "value"},
+                    "options": [...],  // for select/radio
+                    "validation": {...}
+                }
+            ]
+        }
+
+    Returns:
+        200: Plantilla actualizada
+        400: Datos inválidos
+        404: Categoría no encontrada
+    """
+    data = request.get_json()
+    user_id = int(g.current_user['sub'])
+
+    try:
+        category = Category.query.get(category_id)
+
+        if not category:
+            return jsonify({
+                'error': 'not_found',
+                'message': 'Categoría no encontrada'
+            }), 404
+
+        # Validar estructura básica
+        if 'enabled' not in data:
+            return jsonify({
+                'error': 'missing_field',
+                'message': 'El campo "enabled" es requerido'
+            }), 400
+
+        if not isinstance(data.get('fields', []), list):
+            return jsonify({
+                'error': 'invalid_fields',
+                'message': 'El campo "fields" debe ser un array'
+            }), 400
+
+        # Actualizar field template
+        category.field_template = data
+        category.updated_at = datetime.now()
+
+        db.session.commit()
+
+        logger.info(f"Field template para categoría {category_id} actualizado por usuario {user_id}")
+
+        return jsonify({
+            'message': 'Plantilla de campos actualizada exitosamente',
+            'field_template': category.field_template
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al actualizar field template para categoría {category_id}: {e}")
+        return jsonify({
+            'error': 'update_failed',
             'message': str(e)
         }), 500

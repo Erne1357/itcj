@@ -317,6 +317,9 @@ const AreaSelection = {
             categorySection.style.display = 'none';
             equipmentSection.style.display = 'block';
             document.getElementById('category_id').required = false;
+
+            // Ocultar campos personalizados en SOPORTE
+            CustomFields.hideFields();
         } else {
             // Para DESARROLLO: mostrar categorías, ocultar equipos
             categorySection.style.display = 'block';
@@ -324,6 +327,20 @@ const AreaSelection = {
             document.getElementById('category_id').required = true;
             // Limpiar selección de equipo si había
             Equipment.clearSelection();
+
+            // Configurar listener para cambios de categoría
+            const categorySelect = document.getElementById('category_id');
+            if (categorySelect && !categorySelect.dataset.customFieldsListenerAdded) {
+                categorySelect.addEventListener('change', async (e) => {
+                    const categoryId = e.target.value;
+                    if (categoryId) {
+                        await CustomFields.loadFieldTemplate(parseInt(categoryId));
+                    } else {
+                        CustomFields.hideFields();
+                    }
+                });
+                categorySelect.dataset.customFieldsListenerAdded = 'true';
+            }
         }
     }
 };
@@ -1198,6 +1215,13 @@ const FormValidation = {
                     return false;
                 }
 
+                // Validar custom fields si existen
+                const customFieldsValid = CustomFields.validateVisibleFields();
+                if (!customFieldsValid.isValid) {
+                    HelpdeskUtils.showToast(customFieldsValid.errors[0], 'warning');
+                    return false;
+                }
+
                 return true;
 
             default:
@@ -1261,8 +1285,11 @@ const FormValidation = {
             const formData = this.getFormData();
             const photoFile = PhotoUpload.getFile();
 
-            // Si hay foto, usar FormData en lugar de JSON
-            if (photoFile) {
+            // Recolectar custom fields
+            const { values: customFieldValues, files: customFieldFiles } = CustomFields.collectValues();
+
+            // Si hay foto o archivos de custom fields, usar FormData en lugar de JSON
+            if (photoFile || Object.keys(customFieldFiles).length > 0) {
                 const formDataMultipart = new FormData();
 
                 // Agregar campos del ticket
@@ -1272,8 +1299,20 @@ const FormValidation = {
                     }
                 });
 
-                // Agregar foto
-                formDataMultipart.append('photo', photoFile);
+                // Agregar custom fields como JSON
+                if (Object.keys(customFieldValues).length > 0) {
+                    formDataMultipart.append('custom_fields', JSON.stringify(customFieldValues));
+                }
+
+                // Agregar archivos de custom fields
+                for (const [key, file] of Object.entries(customFieldFiles)) {
+                    formDataMultipart.append(`custom_field_${key}`, file);
+                }
+
+                // Agregar foto si existe
+                if (photoFile) {
+                    formDataMultipart.append('photo', photoFile);
+                }
 
                 // Enviar con fetch directamente
                 const response = await fetch('/api/help-desk/v1/tickets/', {
@@ -1299,7 +1338,11 @@ const FormValidation = {
                 }, 2000);
 
             } else {
-                // Sin foto, enviar JSON normal
+                // Sin foto ni archivos de custom fields, enviar JSON normal
+                if (Object.keys(customFieldValues).length > 0) {
+                    formData.custom_fields = customFieldValues;
+                }
+
                 const response = await HelpdeskUtils.api.createTicket(formData);
 
                 HelpdeskUtils.showToast(
@@ -1343,6 +1386,8 @@ const Navigation = {
 
             if (AppState.currentStep === AppState.totalSteps) {
                 this.showSummary();
+                // Remover required de custom fields para evitar error de validación cuando están ocultos
+                CustomFields.removeAllRequired();
             }
         }
     },
@@ -1351,6 +1396,11 @@ const Navigation = {
         if (AppState.currentStep > 1) {
             AppState.currentStep--;
             this.showStep(AppState.currentStep);
+
+            // Restaurar required en custom fields si volvemos al paso 2
+            if (AppState.currentStep === 2) {
+                CustomFields.restoreRequired();
+            }
         }
     },
 
@@ -1486,6 +1536,12 @@ const Navigation = {
             `;
         }
 
+        // Mostrar custom fields si existen
+        const customFieldsSummary = CustomFields.getSummaryHTML();
+        if (customFieldsSummary) {
+            summary += customFieldsSummary;
+        }
+
         summary += `</div>`;
 
         document.getElementById('ticketSummary').innerHTML = summary;
@@ -1585,6 +1641,469 @@ const PhotoUpload = {
 
     getFile() {
         return this.selectedFile;
+    }
+};
+
+// ==================== CUSTOM FIELDS MANAGEMENT ====================
+const CustomFields = {
+    currentTemplate: null,
+    values: {},
+    files: {},
+
+    async loadFieldTemplate(categoryId) {
+        try {
+            const response = await HelpdeskUtils.api.request(`/categories/${categoryId}/field-template`);
+            this.currentTemplate = response.field_template;
+
+            if (this.currentTemplate && this.currentTemplate.enabled) {
+                this.renderFields();
+            } else {
+                this.hideFields();
+            }
+
+        } catch (error) {
+            console.error('Error loading field template:', error);
+            this.hideFields();
+        }
+    },
+
+    renderFields() {
+        const container = document.getElementById('custom-fields-container');
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (!this.currentTemplate || !this.currentTemplate.enabled) {
+            container.style.display = 'none';
+            return;
+        }
+
+        const fields = this.currentTemplate.fields || [];
+        if (fields.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+
+        // Sort by order
+        const sortedFields = [...fields].sort((a, b) => a.order - b.order);
+
+        sortedFields.forEach(field => {
+            const fieldElement = this.createFieldElement(field);
+            container.appendChild(fieldElement);
+        });
+
+        // Set up visibility handlers
+        this.setupVisibilityHandlers();
+    },
+
+    createFieldElement(field) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mb-4 custom-field-wrapper';
+        wrapper.dataset.fieldKey = field.key;
+
+        // Check initial visibility
+        // Si el campo tiene visible_when, inicialmente está oculto y NO required
+        const isInitiallyVisible = !field.visible_when;
+        const shouldBeRequired = field.required && isInitiallyVisible;
+
+        if (field.visible_when) {
+            wrapper.style.display = 'none';
+        }
+
+        let inputHTML = '';
+
+        switch (field.type) {
+            case 'checkbox':
+                inputHTML = `
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input custom-field-input"
+                               id="custom_${field.key}" name="custom_${field.key}"
+                               data-field-key="${field.key}"
+                               ${shouldBeRequired ? 'required' : ''}>
+                        <label class="form-check-label" for="custom_${field.key}">
+                            ${field.label}
+                            ${field.required ? '<span class="text-danger">*</span>' : ''}
+                        </label>
+                    </div>
+                `;
+                break;
+
+            case 'text':
+                inputHTML = `
+                    <label for="custom_${field.key}" class="sitec-form-label ${field.required ? 'required' : ''}">
+                        ${field.label}
+                    </label>
+                    <input type="text" class="form-control sitec-form-control custom-field-input"
+                           id="custom_${field.key}" name="custom_${field.key}"
+                           data-field-key="${field.key}"
+                           ${shouldBeRequired ? 'required' : ''}
+                           ${field.validation?.minLength ? `minlength="${field.validation.minLength}"` : ''}
+                           ${field.validation?.maxLength ? `maxlength="${field.validation.maxLength}"` : ''}>
+                    <div class="invalid-feedback">Este campo es obligatorio</div>
+                `;
+                break;
+
+            case 'textarea':
+                inputHTML = `
+                    <label for="custom_${field.key}" class="sitec-form-label ${field.required ? 'required' : ''}">
+                        ${field.label}
+                    </label>
+                    <textarea class="form-control sitec-form-control custom-field-input"
+                              id="custom_${field.key}" name="custom_${field.key}"
+                              data-field-key="${field.key}"
+                              rows="4"
+                              ${shouldBeRequired ? 'required' : ''}
+                              ${field.validation?.minLength ? `minlength="${field.validation.minLength}"` : ''}
+                              ${field.validation?.maxLength ? `maxlength="${field.validation.maxLength}"` : ''}></textarea>
+                    <div class="invalid-feedback">Este campo es obligatorio</div>
+                `;
+                break;
+
+            case 'select':
+                const selectOptions = field.options || [];
+                inputHTML = `
+                    <label for="custom_${field.key}" class="sitec-form-label ${field.required ? 'required' : ''}">
+                        ${field.label}
+                    </label>
+                    <select class="form-select sitec-form-control custom-field-input"
+                            id="custom_${field.key}" name="custom_${field.key}"
+                            data-field-key="${field.key}"
+                            ${shouldBeRequired ? 'required' : ''}>
+                        <option value="">Selecciona una opción...</option>
+                        ${selectOptions.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
+                    </select>
+                    <div class="invalid-feedback">Por favor selecciona una opción</div>
+                `;
+                break;
+
+            case 'radio':
+                const radioOptions = field.options || [];
+                inputHTML = `
+                    <label class="sitec-form-label ${field.required ? 'required' : ''}">
+                        ${field.label}
+                    </label>
+                    <div class="custom-field-radio-group">
+                        ${radioOptions.map(opt => `
+                            <div class="form-check">
+                                <input type="radio" class="form-check-input custom-field-input"
+                                       id="custom_${field.key}_${opt.value}"
+                                       name="custom_${field.key}"
+                                       value="${opt.value}"
+                                       data-field-key="${field.key}"
+                                       ${shouldBeRequired ? 'required' : ''}>
+                                <label class="form-check-label" for="custom_${field.key}_${opt.value}">
+                                    ${opt.label}
+                                </label>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="invalid-feedback">Por favor selecciona una opción</div>
+                `;
+                break;
+
+            case 'file':
+                const validationDesc = field.validation?.description || '';
+                inputHTML = `
+                    <label for="custom_${field.key}" class="sitec-form-label ${field.required ? 'required' : ''}">
+                        ${field.label}
+                    </label>
+                    <input type="file" class="form-control sitec-form-control custom-field-input"
+                           id="custom_${field.key}" name="custom_${field.key}"
+                           data-field-key="${field.key}"
+                           ${shouldBeRequired ? 'required' : ''}
+                           accept="${field.validation?.allowedExtensions?.map(ext => '.' + ext).join(',') || ''}">
+                    ${validationDesc ? `<small class="form-text text-muted">${validationDesc}</small>` : ''}
+                    <div class="invalid-feedback">Por favor selecciona un archivo</div>
+                `;
+                break;
+        }
+
+        wrapper.innerHTML = inputHTML;
+        return wrapper;
+    },
+
+    setupVisibilityHandlers() {
+        const fields = this.currentTemplate.fields || [];
+
+        fields.forEach(field => {
+            if (field.trigger_fields && field.trigger_fields.length > 0) {
+                let inputElement;
+                if (field.type === 'radio') {
+                    inputElement = document.querySelector(`input[name="custom_${field.key}"]`);
+                } else {
+                    inputElement = document.getElementById(`custom_${field.key}`);
+                }
+
+                if (inputElement) {
+                    inputElement.addEventListener('change', (e) => {
+                        const value = e.target.checked || e.target.value;
+                        this.handleFieldChange(field.key, value);
+                    });
+                }
+            }
+        });
+    },
+
+    handleFieldChange(fieldKey, value) {
+        const fields = this.currentTemplate.fields || [];
+
+        const dependentFields = fields.filter(f =>
+            f.visible_when && f.visible_when[fieldKey] !== undefined
+        );
+
+        dependentFields.forEach(depField => {
+            const wrapper = document.querySelector(`.custom-field-wrapper[data-field-key="${depField.key}"]`);
+            if (!wrapper) return;
+
+            const shouldBeVisible = this.checkVisibility(depField.visible_when);
+
+            if (shouldBeVisible) {
+                wrapper.style.display = 'block';
+                if (depField.required) {
+                    this.setFieldRequired(depField.key, true, depField.type);
+                }
+            } else {
+                wrapper.style.display = 'none';
+                this.clearFieldValue(depField.key);
+                this.setFieldRequired(depField.key, false, depField.type);
+            }
+        });
+    },
+
+    setFieldRequired(fieldKey, isRequired, fieldType) {
+        if (fieldType === 'radio') {
+            // Para radio buttons, todos los inputs del grupo
+            const radios = document.querySelectorAll(`[name="custom_${fieldKey}"]`);
+            radios.forEach(radio => {
+                if (isRequired) {
+                    radio.setAttribute('required', '');
+                } else {
+                    radio.removeAttribute('required');
+                }
+            });
+        } else {
+            // Para otros tipos de campo, buscar por ID
+            const input = document.getElementById(`custom_${fieldKey}`);
+            if (input) {
+                if (isRequired) {
+                    input.setAttribute('required', '');
+                } else {
+                    input.removeAttribute('required');
+                }
+            }
+        }
+    },
+
+    checkVisibility(visibleWhen) {
+        for (const [key, expectedValue] of Object.entries(visibleWhen)) {
+            const input = document.getElementById(`custom_${key}`);
+            if (!input) return false;
+
+            let actualValue;
+            if (input.type === 'checkbox') {
+                actualValue = input.checked;
+            } else if (input.type === 'radio') {
+                const checked = document.querySelector(`[name="custom_${key}"]:checked`);
+                actualValue = checked ? checked.value : null;
+            } else {
+                actualValue = input.value;
+            }
+
+            if (actualValue !== expectedValue) {
+                return false;
+            }
+        }
+        return true;
+    },
+
+    clearFieldValue(fieldKey) {
+        // Buscar el input correcto por ID, no por data-field-key
+        const input = document.getElementById(`custom_${fieldKey}`);
+        if (!input) return;
+
+        if (input.type === 'checkbox') {
+            input.checked = false;
+        } else if (input.type === 'radio') {
+            document.querySelectorAll(`[name="custom_${fieldKey}"]`).forEach(radio => {
+                radio.checked = false;
+            });
+        } else if (input.type === 'file') {
+            input.value = '';
+        } else {
+            input.value = '';
+        }
+    },
+
+    hideFields() {
+        const container = document.getElementById('custom-fields-container');
+        if (container) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+        }
+    },
+
+    validateVisibleFields() {
+        const errors = [];
+
+        if (!this.currentTemplate || !this.currentTemplate.enabled) {
+            return { isValid: true, errors };
+        }
+
+        const fields = this.currentTemplate.fields || [];
+
+        fields.forEach(field => {
+            const wrapper = document.querySelector(`.custom-field-wrapper[data-field-key="${field.key}"]`);
+
+            // Skip if field is hidden
+            if (!wrapper || wrapper.style.display === 'none') {
+                return;
+            }
+
+            // Skip if not required
+            if (!field.required) {
+                return;
+            }
+
+            const input = document.getElementById(`custom_${field.key}`);
+            if (!input) return;
+
+            let isEmpty = false;
+
+            if (field.type === 'checkbox') {
+                isEmpty = !input.checked;
+            } else if (field.type === 'radio') {
+                const checked = document.querySelector(`[name="custom_${field.key}"]:checked`);
+                isEmpty = !checked;
+            } else if (field.type === 'file') {
+                isEmpty = !input.files || !input.files[0];
+            } else {
+                isEmpty = !input.value || input.value.trim() === '';
+            }
+
+            if (isEmpty) {
+                errors.push(`El campo "${field.label}" es obligatorio`);
+            }
+        });
+
+        return {
+            isValid: errors.length === 0,
+            errors
+        };
+    },
+
+    getSummaryHTML() {
+        if (!this.currentTemplate || !this.currentTemplate.enabled) {
+            return '';
+        }
+
+        const { values, files } = this.collectValues();
+
+        if (Object.keys(values).length === 0 && Object.keys(files).length === 0) {
+            return '';
+        }
+
+        const fields = this.currentTemplate.fields || [];
+        let html = '<div class="col-12"><hr><h6 class="text-primary"><i class="fas fa-list-ul me-2"></i>Campos Adicionales</h6></div>';
+
+        fields.forEach(field => {
+            const wrapper = document.querySelector(`.custom-field-wrapper[data-field-key="${field.key}"]`);
+            if (!wrapper || wrapper.style.display === 'none') {
+                return;
+            }
+
+            let displayValue = '';
+
+            if (field.type === 'checkbox') {
+                displayValue = values[field.key] ? 'Sí' : 'No';
+            } else if (field.type === 'select' || field.type === 'radio') {
+                const option = field.options?.find(opt => opt.value === values[field.key]);
+                displayValue = option ? option.label : values[field.key];
+            } else if (field.type === 'file') {
+                const file = files[field.key];
+                displayValue = file ? `<span class="badge bg-success"><i class="fas fa-file me-1"></i>${file.name}</span>` : 'No adjuntado';
+            } else {
+                displayValue = values[field.key] || '-';
+            }
+
+            html += `
+                <div class="col-md-6">
+                    <strong><i class="fas fa-chevron-right me-2 text-muted"></i>${field.label}:</strong><br>
+                    ${displayValue}
+                </div>
+            `;
+        });
+
+        return html;
+    },
+
+    collectValues() {
+        const values = {};
+        const files = {};
+
+        if (!this.currentTemplate || !this.currentTemplate.enabled) {
+            return { values, files };
+        }
+
+        const fields = this.currentTemplate.fields || [];
+
+        fields.forEach(field => {
+            const wrapper = document.querySelector(`.custom-field-wrapper[data-field-key="${field.key}"]`);
+
+            // Skip if field is hidden
+            if (wrapper && wrapper.style.display === 'none') {
+                return;
+            }
+
+            // Para radio, no buscamos por ID sino directamente el checked
+            if (field.type === 'radio') {
+                const checked = document.querySelector(`[name="custom_${field.key}"]:checked`);
+                if (checked) {
+                    values[field.key] = checked.value;
+                }
+                return;
+            }
+
+            // Para otros tipos, buscar por ID
+            const input = document.getElementById(`custom_${field.key}`);
+            if (!input) return;
+
+            if (field.type === 'checkbox') {
+                values[field.key] = input.checked;
+            } else if (field.type === 'file') {
+                if (input.files && input.files[0]) {
+                    files[field.key] = input.files[0];
+                }
+            } else {
+                values[field.key] = input.value;
+            }
+        });
+
+        return { values, files };
+    },
+
+    removeAllRequired() {
+        if (!this.currentTemplate || !this.currentTemplate.enabled) return;
+
+        const fields = this.currentTemplate.fields || [];
+        fields.forEach(field => {
+            this.setFieldRequired(field.key, false, field.type);
+        });
+    },
+
+    restoreRequired() {
+        if (!this.currentTemplate || !this.currentTemplate.enabled) return;
+
+        const fields = this.currentTemplate.fields || [];
+        fields.forEach(field => {
+            const wrapper = document.querySelector(`.custom-field-wrapper[data-field-key="${field.key}"]`);
+
+            // Solo restaurar required si el campo está visible Y es required en la configuración
+            if (wrapper && wrapper.style.display !== 'none' && field.required) {
+                this.setFieldRequired(field.key, true, field.type);
+            }
+        });
     }
 };
 

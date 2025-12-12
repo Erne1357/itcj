@@ -160,6 +160,7 @@ function createTicketCard(ticket) {
                     <div class="d-flex align-items-center gap-2 mb-2">
                         <h6 class="mb-0 fw-bold text-primary">${ticket.ticket_number}</h6>
                         ${HelpdeskUtils.getAreaBadge(ticket.area)}
+                        ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
                         <span class="badge badge-priority-${ticket.priority}">${ticket.priority}</span>
                     </div>
 
@@ -168,14 +169,6 @@ function createTicketCard(ticket) {
                     <div class="text-muted small mb-2">
                         ${truncateText(ticket.description, 100)}
                     </div>
-
-                    ${ticket.category ? `
-                        <div class="mb-2">
-                            <span class="badge bg-light text-dark">
-                                <i class="fas fa-tag me-1"></i>${ticket.category.name}
-                            </span>
-                        </div>
-                    ` : ''}
 
                     <div class="text-muted small">
                         <i class="fas fa-calendar-alt me-1"></i>
