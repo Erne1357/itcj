@@ -42,6 +42,11 @@ class ChristmasSnow {
         // Iniciar animación
         this.start();
 
+        // Variables para controlar el muñeco de nieve
+        this.snowmanActive = false;
+        this.snowmanTimeout = null;
+        this.snowmanInterval = null;
+
         // Iniciar muñeco de nieve (aparece cada 3 minutos)
         this.startSnowmanCycle();
 
@@ -198,17 +203,39 @@ class ChristmasSnow {
     startSnowmanCycle() {
         // Esperar 10 segundos antes del primer muñeco de nieve
         setTimeout(() => {
-            this.createSnowman();
-
-            // Luego aparecer cada 3 minutos (180000 ms)
-            this.snowmanInterval = setInterval(() => {
-                this.createSnowman();
-            }, 90000); // 1.5 minutos
+            this.scheduleNextSnowman();
         }, 10000); // 10 segundos
     }
 
+    scheduleNextSnowman() {
+        // Solo programar si no hay un muñeco activo
+        if (this.snowmanActive) {
+            console.log('⛄ Ya hay un muñeco activo, esperando...');
+            return;
+        }
+
+        this.createSnowman();
+
+        // Programar el siguiente después de que termine el ciclo completo
+        // El muñeco dura 3 minutos (180000ms) + animación de salida (3000ms)
+        // Esperamos 3 minutos después de que se vaya para el siguiente
+        const totalCycleDuration = 180000 + 3000; // 3 minutos visible + 3 segundos saliendo
+        const waitBetweenSnowmen = 180000; // 3 minutos de espera antes del siguiente
+
+        this.snowmanTimeout = setTimeout(() => {
+            this.scheduleNextSnowman();
+        }, totalCycleDuration + waitBetweenSnowmen); // Total: 6 minutos entre cada aparición
+    }
+
     createSnowman() {
+        // Verificar si ya hay un muñeco activo
+        if (this.snowmanActive) {
+            console.log('⛄ Ya hay un muñeco de nieve activo, saltando creación...');
+            return;
+        }
+
         console.log('⛄ Creando muñeco de nieve...');
+        this.snowmanActive = true;
 
         // Crear contenedor
         const container = document.createElement('div');
@@ -279,10 +306,10 @@ class ChristmasSnow {
             container.classList.add('assembled');
         }, 4000);
 
-        // Después de 25 segundos, comenzar a desarmarlo
+        // Después de 3 minutos, comenzar a desarmarlo
         setTimeout(() => {
             this.removeSnowman(container);
-        }, 80000); // 80 segundos de permanencia
+        }, 180000); // 3 minutos (180 segundos) de permanencia
     }
 
     removeSnowman(container) {
@@ -296,6 +323,9 @@ class ChristmasSnow {
             if (container && container.parentNode) {
                 container.parentNode.removeChild(container);
             }
+            // Liberar el flag después de que el muñeco se haya ido completamente
+            this.snowmanActive = false;
+            console.log('⛄ Muñeco de nieve eliminado. Listo para el siguiente.');
         }, 3000);
     }
 
@@ -397,6 +427,14 @@ class ChristmasSnow {
         if (this.snowmanInterval) {
             clearInterval(this.snowmanInterval);
         }
+        
+        // Cancelar timeout pendiente del muñeco
+        if (this.snowmanTimeout) {
+            clearTimeout(this.snowmanTimeout);
+        }
+
+        // Resetear flag
+        this.snowmanActive = false;
 
         // Eliminar todos los copos
         this.snowflakes.forEach(snowflake => {

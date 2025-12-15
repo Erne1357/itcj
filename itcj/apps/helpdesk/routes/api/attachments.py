@@ -265,7 +265,7 @@ def download_attachment(attachment_id):
 def delete_attachment(attachment_id):
     """
     Elimina un archivo adjunto (solo el uploader o admin).
-    
+
     Returns:
         200: Archivo eliminado
         403: Sin permiso
@@ -275,7 +275,7 @@ def delete_attachment(attachment_id):
     from itcj.core.services.authz_service import user_roles_in_app
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     is_admin = 'admin' in user_roles
-    
+
     try:
         attachment = Attachment.query.get(attachment_id)
         if not attachment:
@@ -283,29 +283,29 @@ def delete_attachment(attachment_id):
                 'error': 'not_found',
                 'message': 'Archivo no encontrado'
             }), 404
-        
+
         # Verificar permiso: admin o el que subió el archivo
         if not is_admin and attachment.uploaded_by_id != user_id:
             return jsonify({
                 'error': 'forbidden',
                 'message': 'Solo el uploader o admin pueden eliminar el archivo'
             }), 403
-        
+
         # Eliminar archivo físico
         if os.path.exists(attachment.filepath):
             os.remove(attachment.filepath)
             logger.info(f"Archivo físico eliminado: {attachment.filepath}")
-        
+
         # Eliminar registro de DB
         db.session.delete(attachment)
         db.session.commit()
-        
+
         logger.info(f"Attachment {attachment_id} eliminado por usuario {user_id}")
-        
+
         return jsonify({
             'message': 'Archivo eliminado exitosamente'
         }), 200
-        
+
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error al eliminar archivo {attachment_id}: {e}")
@@ -313,3 +313,83 @@ def delete_attachment(attachment_id):
             'error': 'delete_failed',
             'message': str(e)
         }), 500
+
+
+# ==================== DESCARGAR ARCHIVO DE CUSTOM FIELD ====================
+@attachments_api_bp.get('/custom-field/<int:ticket_id>/<string:field_key>')
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
+def download_custom_field_file(ticket_id, field_key):
+    """
+    Descarga un archivo de campo personalizado de un ticket.
+
+    Args:
+        ticket_id: ID del ticket
+        field_key: Clave del campo personalizado (ej: 'photo')
+
+    Returns:
+        200: Archivo descargado
+        403: Sin permiso
+        404: Archivo no encontrado
+    """
+    user_id = int(g.current_user['sub'])
+
+    try:
+        # Verificar que pueda acceder al ticket
+        ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
+
+        # Verificar que el ticket tenga custom_fields
+        if not ticket.custom_fields or field_key not in ticket.custom_fields:
+            return jsonify({
+                'error': 'field_not_found',
+                'message': f'El campo personalizado "{field_key}" no existe en este ticket'
+            }), 404
+
+        # Obtener la ruta del archivo desde custom_fields
+        file_value = ticket.custom_fields[field_key]
+
+        # Si el valor no es una ruta, retornar error
+        if not isinstance(file_value, str) or not file_value.startswith('/instance/'):
+            return jsonify({
+                'error': 'invalid_file_path',
+                'message': 'El campo no contiene una ruta de archivo válida'
+            }), 404
+
+        # Construir la ruta completa del archivo
+        # file_value es algo como: /instance/apps/helpdesk/custom_fields/TK-42_photo.jpg
+        # Necesitamos convertirlo a ruta absoluta
+        relative_path = file_value.lstrip('/')
+        filepath = os.path.join(os.getcwd(), relative_path)
+
+        # Verificar que el archivo existe
+        if not os.path.exists(filepath):
+            logger.error(f"Archivo de custom field no encontrado: {filepath}")
+            return jsonify({
+                'error': 'file_not_found',
+                'message': 'El archivo ya no está disponible en el servidor. Es posible que haya sido eliminado después de finalizar el ticket.'
+            }), 404
+
+        # Obtener el nombre original del archivo
+        filename = os.path.basename(filepath)
+
+        # Determinar el MIME type basado en la extensión
+        ext = filename.rsplit('.', 1)[-1].lower()
+        mime_types = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'pdf': 'application/pdf'
+        }
+        mime_type = mime_types.get(ext, 'application/octet-stream')
+
+        return send_file(
+            filepath,
+            mimetype=mime_type,
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        logger.error(f"Error al descargar archivo de custom field {field_key} del ticket {ticket_id}: {e}")
+        raise

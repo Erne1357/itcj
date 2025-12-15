@@ -10,6 +10,7 @@ from itcj.apps.helpdesk.services.custom_fields_file_service import CustomFieldsF
 from itcj.core.models.user import User
 from itcj.core.models.department import Department
 from sqlalchemy import and_, or_
+from sqlalchemy.orm.attributes import flag_modified
 import logging
 from flask import current_app
 from werkzeug.utils import secure_filename
@@ -245,7 +246,11 @@ def create_ticket(
                     if ticket.custom_fields is None:
                         ticket.custom_fields = {}
                     ticket.custom_fields[field_key] = file_path
-                    logger.info(f"Archivo de campo personalizado '{field_key}' guardado para ticket {ticket.id}")
+
+                    # IMPORTANTE: Marcar el campo como modificado para que SQLAlchemy lo persista
+                    flag_modified(ticket, 'custom_fields')
+
+                    logger.info(f"Archivo de campo personalizado '{field_key}' guardado para ticket {ticket.id}: {file_path}")
                 except Exception as e:
                     logger.error(f"Error al guardar archivo de campo personalizado '{field_key}' para ticket {ticket.id}: {e}")
                     db.session.rollback()
