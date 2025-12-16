@@ -1,4 +1,4 @@
-# ITCJ - Sistema Integral de Gestión
+# ITCJ - Plataforma Digital ITCJ
 
 ## Descripción General
 

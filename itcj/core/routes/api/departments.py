@@ -16,6 +16,17 @@ def get_direction():
         "data": direction.to_dict(include_children=True) if direction else None
     })
 
+@api_departments_bp.get("/union-delegation")
+@api_auth_required
+@api_app_required("itcj", perms=["core.departments.api.read.hierarchy"])
+def get_union_delegation():
+    """Obtiene la delegación sindical (departamento con code='union_delegation')"""
+    union_delegation = dept_svc.get_union_delegation()
+    return jsonify({
+        "status": "ok", 
+        "data": union_delegation.to_dict(include_children=True) if union_delegation else None
+    })
+
 @api_departments_bp.get("/subdirections")
 @api_auth_required
 @api_app_required("itcj", perms=["core.departments.api.read.hierarchy"])
