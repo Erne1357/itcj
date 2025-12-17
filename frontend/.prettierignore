@@ -1,0 +1,15 @@
+# Ignore build outputs
+dist
+build
+coverage
+
+# Ignore dependencies
+node_modules
+
+# Ignore generated files
+*.tsbuildinfo
+
+# Ignore lock files
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

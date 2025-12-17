@@ -1,0 +1,21 @@
+# Dockerfile para desarrollo del frontend React
+# Usa Node.js 20 LTS Alpine (liviano)
+FROM node:20-alpine
+
+# Instalar dependencias del sistema necesarias
+RUN apk add --no-cache git
+
+# Establecer zona horaria
+ENV TZ=America/Chihuahua
+
+# Establecer directorio de trabajo
+WORKDIR /app
+
+# El código se monta como volumen desde docker-compose
+# No copiamos nada aquí, solo preparamos el entorno
+
+# Exponer puerto de Vite dev server
+EXPOSE 5173
+
+# Comando por defecto (puede ser sobrescrito en docker-compose)
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

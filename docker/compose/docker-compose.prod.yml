@@ -1,6 +1,20 @@
 name: itcj
 
 services:
+  # Frontend React (Producci贸n)
+  frontend:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/frontend/Dockerfile.prod
+    container_name: itcj-frontend-prod
+    # No exponemos puerto, nginx lo maneja
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   redis:
     restart: always
     image: redis:7

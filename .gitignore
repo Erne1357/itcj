@@ -56,9 +56,34 @@ __cache__/
 .claude/
 
 # --- Frontend ---
+# Node.js
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build outputs
 dist/
+dist-ssr/
 build/
+
+# Vite
+.vite/
+.vite-inspect/
+
+# Environment variables
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.local
 
 # --- IDE / Editor ---
 .vscode/
