@@ -6,25 +6,34 @@ class User(db.Model):
     __tablename__ = "core_users"
 
     id = db.Column(db.BigInteger, primary_key=True)
-    role_id = db.Column(db.Integer, db.ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="RESTRICT"), nullable=True)
 
     username = db.Column(db.Text, unique=True)  # nullable for students
     control_number = db.Column(db.CHAR(8), unique=True)  # nullable for staff
     password_hash = db.Column(db.Text)
-    
+
     # Nombre dividido en partes (nuevo estándar)
     first_name = db.Column(db.Text, nullable=False)  # Nombre(s) - OBLIGATORIO
     last_name = db.Column(db.Text, nullable=False)   # Apellido paterno - OBLIGATORIO
     middle_name = db.Column(db.Text, nullable=True)  # Apellido materno - OPCIONAL
-    
+
     email = db.Column(db.Text)
     is_active = db.Column(db.Boolean, nullable=False, server_default=db.text("TRUE"))
     must_change_password = db.Column(db.Boolean, nullable=False, server_default=db.text("FALSE"))
 
+    # Role (deprecated - usar sistema de roles por app, pero mantener por compatibilidad)
+    role_id = db.Column(db.Integer, db.ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="SET NULL"), nullable=True)
+
+    # Audit fields
+    created_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="SET NULL"), nullable=True, server_default=db.text("10"))
+    updated_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="SET NULL"), nullable=True, server_default=db.text("10"))
+
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
 
+    # Relationships
     role = db.relationship("Role", back_populates="users")
+    created_by = db.relationship("User", foreign_keys=[created_by_id], remote_side=[id], uselist=False)
+    updated_by = db.relationship("User", foreign_keys=[updated_by_id], remote_side=[id], uselist=False)
     coordinator = db.relationship("Coordinator", back_populates="user", uselist=False, cascade="all, delete", passive_deletes=True)
 
     # one-to-many
@@ -51,11 +60,11 @@ class User(db.Model):
     def full_name(cls):
         """Expresión SQL para full_name (para queries y ordenamiento)"""
         return case(
-            (cls.middle_name.isnot(None), 
+            (cls.middle_name.isnot(None),
              func.concat(cls.last_name, ' ', cls.middle_name, ' ', cls.first_name)),
             else_=func.concat(cls.last_name, ' ', cls.first_name)
         )
-    
+
     def __repr__(self) -> str:
         return f"<User {self.id} {self.full_name}>"
     
@@ -95,10 +104,9 @@ class User(db.Model):
             "email": self.email,
             "is_active": self.is_active,
             "must_change_password": self.must_change_password,
-            "role": {
-                "id": self.role.id,
-                "name": self.role.name
-            } if self.role else None,
+            "role": self.role.name if self.role else None,  # Puede ser None
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_by_id": self.created_by_id,
+            "updated_by_id": self.updated_by_id
         }

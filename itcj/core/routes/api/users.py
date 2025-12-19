@@ -64,7 +64,7 @@ def list_users():
         if role_filter:
             from itcj.core.models.role import Role
             query = query.join(Role).filter(Role.name == role_filter)
-        
+
         # TODO: Filtro por app (requiere consulta a las tablas de autorización)
         # Esto es más complejo, ya que necesitas revisar las tablas de autorización
         

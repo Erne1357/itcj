@@ -22,14 +22,20 @@ export const useLogin = () => {
     mutationFn: (credentials: LoginCredentials) => authApi.login(credentials),
 
     onSuccess: (data) => {
-      if (data.ok && data.user) {
-        // Login exitoso - actualizar store
-        setUser(data.user);
+      if (data.user) {
+        // Login exitoso - actualizar store con información del usuario
+        // Normalizamos la respuesta del backend al formato del User del store
+        setUser({
+          id: data.user.id,
+          control_number: '', // El backend no lo devuelve en login, se obtiene en /me
+          full_name: data.user.full_name,
+          role: data.user.role,
+        });
 
-        // Invalidar la query de current-user para que se actualice
+        // Invalidar la query de current-user para obtener datos completos
         queryClient.invalidateQueries({ queryKey: ['auth', 'current-user'] });
       } else {
-        // Login fallido - el backend devolvió ok: false
+        // Login fallido - el backend devolvió error
         throw new Error(data.error?.message || 'Credenciales inválidas');
       }
     },

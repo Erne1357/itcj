@@ -12,8 +12,8 @@ import type {
  */
 export const authApi = {
   /**
-   * Inicia sesión con username y password
-   * @param credentials - Username y password del usuario
+   * Inicia sesión con control_number y nip
+   * @param credentials - Control number/CURP y NIP del usuario
    * @returns Respuesta con información del usuario si es exitoso
    */
   login: async (credentials: LoginCredentials): Promise<LoginResponse> => {
@@ -23,6 +23,7 @@ export const authApi = {
 
   /**
    * Obtiene la información del usuario actual basado en la cookie JWT
+   * Cookie: itcj_token (HttpOnly)
    * @returns Información del usuario si está autenticado
    */
   getCurrentUser: async (): Promise<CurrentUserResponse> => {
@@ -32,6 +33,7 @@ export const authApi = {
 
   /**
    * Cierra la sesión del usuario actual
+   * Invalida la cookie itcj_token
    * @returns Confirmación de logout
    */
   logout: async (): Promise<LogoutResponse> => {

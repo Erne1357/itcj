@@ -43,10 +43,11 @@ export const useAuth = () => {
   // Sincronizar el resultado de la query con el store
   useEffect(() => {
     if (data) {
-      if (data.ok && data.user) {
+      if (data.user) {
+        // Sesión activa - actualizar store con información del usuario
         setUser(data.user);
       } else {
-        // No hay sesión activa
+        // No hay sesión activa o hay un error
         setUser(null);
       }
     } else if (error) {
