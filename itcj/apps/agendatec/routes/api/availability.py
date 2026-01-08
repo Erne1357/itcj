@@ -10,11 +10,11 @@ from itcj.core.models.coordinator import Coordinator
 from itcj.core.models.program_coordinator import ProgramCoordinator
 from itcj.apps.agendatec.models.time_slot import TimeSlot            # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), is_booked
 from itcj.apps.agendatec.models.availability_window import AvailabilityWindow  # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), slot_minutes
+from itcj.core.services import period_service
 
 api_avail_bp = Blueprint("api_avail", __name__)
 
-# Días permitidos (según alcance)
-ALLOWED_DAYS = {date(2025, 8, 25), date(2025, 8, 26), date(2025, 8, 27)}
+# NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
 
 # ---------- Helpers ----------
 def _parse_day_query():
@@ -31,7 +31,12 @@ def _parse_day_body(x: str):
     return datetime.strptime(x, "%Y-%m-%d").date()
 
 def _require_allowed_day(d: date):
-    return d in ALLOWED_DAYS
+    """Valida que el día esté habilitado en el período activo"""
+    period = period_service.get_active_period()
+    if not period:
+        return False
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    return d in enabled_days
 
 def _current_coordinator_id(fallback_id: int | None = None):
     """
@@ -135,7 +140,9 @@ def create_availability_window():
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
     if not _require_allowed_day(d):
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+        period = period_service.get_active_period()
+        enabled_days = period_service.get_enabled_days(period.id) if period else []
+        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(enabled_days)]}), 400
 
     # validar horas HH:MM
     try:
@@ -186,11 +193,14 @@ def api_generate_slots():
 
     # Parse + validar días
     parsed_days: list[date] = []
+    period = period_service.get_active_period()
+    enabled_days = set(period_service.get_enabled_days(period.id)) if period else set()
+
     try:
         for s in days:
             d = _parse_day_body(str(s))
             if not _require_allowed_day(d):
-                return jsonify({"error":"day_not_allowed","day":str(d),"allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+                return jsonify({"error":"day_not_allowed","day":str(d),"allowed":[str(x) for x in sorted(enabled_days)]}), 400
             parsed_days.append(d)
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
@@ -246,7 +256,9 @@ def list_my_windows():
     if not d:
         return jsonify({"error":"invalid_day_format"}), 400
     if not _require_allowed_day(d):
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+        period = period_service.get_active_period()
+        enabled_days = period_service.get_enabled_days(period.id) if period else []
+        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(enabled_days)]}), 400
 
     coord_id_q = request.args.get("coordinator_id")
     cid = None

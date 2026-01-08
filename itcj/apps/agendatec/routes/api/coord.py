@@ -17,10 +17,11 @@ from itcj.core.utils.security import verify_nip, hash_nip
 from itcj.core.sockets.requests import broadcast_request_status_changed
 from itcj.core.utils.notify import create_notification
 from itcj.core.sockets.notifications import push_notification
+from itcj.core.services import period_service
 
 api_coord_bp = Blueprint("api_coord", __name__)
 
-ALLOWED_DAYS = {date(2025,8,25), date(2025,8,26), date(2025,8,27)}
+# NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
 DEFAULT_NIP = "tecno#2K"
 
 def _current_user():
@@ -107,18 +108,25 @@ def coord_dashboard_summary():
     if not coord_id:
         return jsonify({"error":"coordinator_not_found"}), 404
 
-    # Citas (appointments) del coordinador en días permitidos
+    # Obtener días habilitados del período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+
+    # Citas (appointments) del coordinador en días habilitados
     ap_base = (db.session.query(Appointment.id)
                .join(TimeSlot, TimeSlot.id == Appointment.slot_id)
                .filter(Appointment.coordinator_id == coord_id,
-                       TimeSlot.day.in_(ALLOWED_DAYS)))
+                       TimeSlot.day.in_(enabled_days)))
     ap_total = ap_base.count()
 
     ap_pending = (db.session.query(func.count(Request.id))
                   .join(Appointment, Appointment.request_id == Request.id)
                   .join(TimeSlot, TimeSlot.id == Appointment.slot_id)
                   .filter(Appointment.coordinator_id == coord_id,
-                          TimeSlot.day.in_(ALLOWED_DAYS),
+                          TimeSlot.day.in_(enabled_days),
                           Request.status == "PENDING")
                   ).scalar() or 0
 
@@ -134,9 +142,9 @@ def coord_dashboard_summary():
                              Request.status == "PENDING")
                      ).scalar() or 0
 
-    # Recordatorios: días permitidos SIN ventanas configuradas
+    # Recordatorios: días habilitados SIN ventanas configuradas
     missing = []
-    for d in sorted(ALLOWED_DAYS):
+    for d in sorted(enabled_days):
         has_win = (db.session.query(AvailabilityWindow.id)
                    .filter(AvailabilityWindow.coordinator_id == coord_id,
                            AvailabilityWindow.day == d)
@@ -145,7 +153,7 @@ def coord_dashboard_summary():
             missing.append(str(d))
 
     return jsonify({
-        "days_allowed": [str(x) for x in sorted(ALLOWED_DAYS)],
+        "days_allowed": [str(x) for x in sorted(enabled_days)],
         "appointments": {"total": ap_total, "pending": ap_pending},
         "drops": {"total": drops_total, "pending": drops_pending},
         "missing_slots": missing
@@ -163,8 +171,15 @@ def get_day_config():
         d = datetime.strptime(day_s, "%Y-%m-%d").date()
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
-    if d not in ALLOWED_DAYS:
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+
+    # Validar que el día esté habilitado en el período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    if d not in enabled_days:
+        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(enabled_days)]}), 400
 
     wins = (db.session.query(AvailabilityWindow)
             .filter(AvailabilityWindow.coordinator_id == coord_id,
@@ -205,8 +220,15 @@ def set_day_config():
         d = datetime.strptime(day_s, "%Y-%m-%d").date()
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
-    if d not in ALLOWED_DAYS:
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+
+    # Validar que el día esté habilitado en el período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    if d not in enabled_days:
+        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(enabled_days)]}), 400
 
     now = datetime.now()
     d = datetime.strptime(day_s, "%Y-%m-%d").date()
@@ -349,7 +371,14 @@ def delete_day_range():
         d = datetime.strptime(day_s, "%Y-%m-%d").date()
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
-    if d not in ALLOWED_DAYS:
+
+    # Validar que el día esté habilitado en el período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    if d not in enabled_days:
         return jsonify({"error":"day_not_allowed"}), 400
     today = date.today()
     if today >= d:
@@ -429,7 +458,14 @@ def coord_appointments():
         d = datetime.strptime(day_s, "%Y-%m-%d").date()
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
-    if d not in ALLOWED_DAYS:
+
+    # Validar que el día esté habilitado en el período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    if d not in enabled_days:
         return jsonify({"error":"day_not_allowed"}), 400
 
     # Para vista lista (solo con citas existentes)

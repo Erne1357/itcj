@@ -7,11 +7,11 @@ from itcj.core.utils.decorators import api_auth_required, api_role_required, api
 from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
 from itcj.apps.agendatec.models import db
 from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.core.services import period_service
 
 api_slots_bp = Blueprint("api_slots", __name__)
 
-# Mismos 3 días de operación
-ALLOWED_DAYS = {date(2025, 8, 25), date(2025, 8, 26), date(2025, 8, 27)}
+# NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
 
 # Convención de claves en Redis
 def k_slot_hold(slot_id: int) -> str:
@@ -47,8 +47,18 @@ def hold_slot():
         return jsonify({"error":"slot_not_found"}), 404
     if slot.is_booked:
         return jsonify({"error":"slot_unavailable"}), 409
-    if slot.day not in ALLOWED_DAYS:
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+
+    # Validar que el día esté habilitado en el período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    if slot.day not in enabled_days:
+        return jsonify({
+            "error": "day_not_enabled",
+            "enabled_days": [d.isoformat() for d in sorted(enabled_days)]
+        }), 400
 
     skey = k_slot_hold(slot_id)
     ukey = k_user_hold(uid)

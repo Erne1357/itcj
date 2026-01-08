@@ -1,13 +1,14 @@
 # routes/api/requests.py
-from datetime import date
+from datetime import date, datetime
 from flask import Blueprint, request, jsonify, g, current_app
 from sqlalchemy.exc import IntegrityError
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed,api_app_required
+from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed, api_app_required
 from itcj.apps.agendatec.models import db
 from itcj.core.models.user import User
 from itcj.core.models.program import Program
 from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.apps.agendatec.models.time_slot import TimeSlot    # id, coordinator_id, day (DATE), start_time (TIME), is_booked
+from itcj.core.models.academic_period import AcademicPeriod
+from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.apps.agendatec.models.request import Request
 from itcj.apps.agendatec.models.appointment import Appointment
 import logging
@@ -15,11 +16,11 @@ from itcj.core.utils.redis_conn import get_redis
 from itcj.core.sockets.requests import broadcast_appointment_created, broadcast_drop_created, broadcast_request_status_changed
 from itcj.core.utils.notify import create_notification
 from itcj.core.sockets.notifications import push_notification
-from datetime import datetime
+from itcj.core.services import period_service
 
 api_req_bp = Blueprint("api_requests", __name__)
-# Días permitidos
-ALLOWED_DAYS = {date(2025, 8, 25), date(2025, 8, 26), date(2025, 8, 27)}
+
+# NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
 
 def _get_current_student():
     uid = g.current_user["sub"]
@@ -74,18 +75,36 @@ def create_request():
     u = _get_current_student()
     data = request.get_json(silent=True) or {}
     req_type = (data.get("type") or "").upper()
-
-    exists = (db.session.query(Request)
-              .filter(Request.student_id == u.id)
-              .first())
     socketio = current_app.extensions.get('socketio')
-    if exists and exists.status != "CANCELED":
-        return jsonify({"error": "already_has_petition"}), 409
+
+    # ==================== VALIDACIÓN DE PERÍODO ====================
+    # Obtener período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period", "message": "No hay un período académico activo"}), 503
+
+    # Validar que el estudiante NO tenga ya una solicitud en este período
+    # (excepto si está CANCELED, en ese caso sí puede crear otra)
+    existing_request = (db.session.query(Request)
+                       .filter(Request.student_id == u.id,
+                               Request.period_id == period.id,
+                               Request.status != "CANCELED")
+                       .first())
+
+    if existing_request:
+        return jsonify({
+            "error": "already_has_request_in_period",
+            "message": f"Ya tienes una solicitud en el período '{period.name}'.",
+            "existing_request_id": existing_request.id,
+            "existing_request_status": existing_request.status
+        }), 409
+    # ================================================================
 
     if req_type == "DROP":
         r = Request(
             student_id=u.id,
             program_id=int(data.get("program_id")),
+            period_id=period.id,  # NUEVO: vincular al período activo
             description=data.get("description"),
             type="DROP",
             status="PENDING"
@@ -144,10 +163,17 @@ def create_request():
     if not slot or slot.is_booked:
         return jsonify({"error": "slot_unavailable"}), 409
 
-    
-    # Día permitido (directo desde slot.day)
-    if slot.day not in ALLOWED_DAYS:
-        return jsonify({"error": "day_not_allowed", "allowed": [str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+    # ==================== VALIDACIÓN DE DÍA HABILITADO ====================
+    # Obtener días habilitados del período activo
+    enabled_days = set(period_service.get_enabled_days(period.id))
+
+    if slot.day not in enabled_days:
+        return jsonify({
+            "error": "day_not_enabled",
+            "message": "El día seleccionado no está habilitado para este período",
+            "enabled_days": [d.isoformat() for d in sorted(enabled_days)]
+        }), 400
+    # =====================================================================
     
     now = datetime.now()
     slot_datetime = datetime.combine(slot.day, slot.start_time)
@@ -171,7 +197,14 @@ def create_request():
             db.session.rollback()
             return jsonify({"error": "slot_conflict"}), 409
 
-        r = Request(student_id=u.id, program_id = data.get("program_id"),description = data.get("description"), type="APPOINTMENT", status="PENDING")
+        r = Request(
+            student_id=u.id,
+            program_id=data.get("program_id"),
+            period_id=period.id,  # NUEVO: vincular al período activo
+            description=data.get("description"),
+            type="APPOINTMENT",
+            status="PENDING"
+        )
         db.session.add(r)
         db.session.flush()
 
@@ -253,10 +286,36 @@ def cancel_request(req_id: int):
          .filter(Request.id == req_id, Request.student_id == u.id)
          .first())
     socketio = current_app.extensions.get('socketio')
+
     if not r:
         return jsonify({"error": "request_not_found"}), 404
     if r.status != "PENDING":
-        return jsonify({"error": "not_pending"}), 400
+        return jsonify({"error": "not_pending", "message": "Solo se pueden cancelar solicitudes en estado PENDING"}), 400
+
+    # ==================== VALIDACIONES DE CANCELACIÓN ====================
+    # 1. Verificar que el período académico esté activo
+    period = db.session.query(AcademicPeriod).filter_by(id=r.period_id).first()
+    if period and period.status != "ACTIVE":
+        return jsonify({
+            "error": "period_closed",
+            "message": f"No se puede cancelar porque el período '{period.name}' ya cerró."
+        }), 403
+
+    # 2. Si es APPOINTMENT, verificar que la cita no haya pasado
+    if r.type == "APPOINTMENT":
+        ap = db.session.query(Appointment).filter(Appointment.request_id == r.id).first()
+        if ap:
+            slot = db.session.query(TimeSlot).get(ap.slot_id)
+            if slot:
+                now = datetime.now()
+                slot_datetime = datetime.combine(slot.day, slot.start_time)
+
+                if now >= slot_datetime:
+                    return jsonify({
+                        "error": "appointment_time_passed",
+                        "message": "No se puede cancelar porque la cita ya pasó."
+                    }), 403
+    # =====================================================================
 
     if r.type == "APPOINTMENT":
         ap = db.session.query(Appointment).filter(Appointment.request_id == r.id).first()
