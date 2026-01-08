@@ -2,39 +2,35 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 
-// https://vite.dev/config/
+// Configuración para desarrollo con tunnelmole
+// Uso: npm run dev:tunnel
 export default defineConfig({
   plugins: [react()],
 
-  // Path aliases para imports limpios
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
 
-  // Configuración del servidor de desarrollo
   server: {
     port: 5173,
-    host: true, // Necesario para Docker
+    host: true,
     strictPort: true,
 
-    // Configuración HMR para tunnelmole/desarrollo móvil
-    // Para probar en celular con tunnelmole, descomenta y actualiza el clientPort:
-    // hmr: {
-    //   clientPort: 443, // Puerto HTTPS de tunnelmole
-    //   host: 'pclf9l-ip-201-174-23-164.tunnelmole.net', // Tu URL de tunnelmole
-    // },
+    // Configuración HMR para tunnelmole
+    hmr: {
+      clientPort: 443, // Puerto HTTPS de tunnelmole
+      // Actualiza este host con tu URL de tunnelmole actual
+      host: 'pclf9l-ip-201-174-23-164.tunnelmole.net',
+    },
 
-    // Proxy para llamadas API al backend Flask
     proxy: {
-      // Proxy para APIs
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
       },
-      // Proxy para apps legacy (Jinja2) - para desarrollo fuera de Docker
       '/help-desk': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -45,7 +41,6 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      // Proxy para archivos estáticos del backend
       '/static': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -54,11 +49,9 @@ export default defineConfig({
     },
   },
 
-  // Configuración de build para producción
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // Optimizaciones de chunk
     rollupOptions: {
       output: {
         manualChunks: {
