@@ -11,10 +11,11 @@ from .request import Request
 from .appointment import Appointment
 from ....core.models.notification import Notification
 from .audit_log import AuditLog
+from .period_enabled_day import PeriodEnabledDay
 
 __all__ = [
     "db",
     "Role", "User", "Program", "Coordinator", "ProgramCoordinator",
     "AvailabilityWindow", "TimeSlot", "Request", "Appointment",
-    "Notification", "AuditLog",
+    "Notification", "AuditLog", "PeriodEnabledDay",
 ]

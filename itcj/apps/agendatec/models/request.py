@@ -16,6 +16,15 @@ class Request(db.Model):
     student_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     program_id = db.Column(db.Integer, db.ForeignKey("core_programs.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
+    # Período académico al que pertenece la solicitud
+    # Nullable inicialmente para permitir migración de datos existentes
+    period_id = db.Column(
+        db.Integer,
+        db.ForeignKey("core_academic_periods.id", onupdate="CASCADE", ondelete="RESTRICT"),
+        nullable=True,
+        index=True
+    )
+
     type = db.Column(request_type_pg_enum, nullable=False)
     description = db.Column(db.Text)
     status = db.Column(request_status_pg_enum, nullable=False, server_default="PENDING")
@@ -26,6 +35,7 @@ class Request(db.Model):
 
     student = db.relationship("User", back_populates="requests")
     program = db.relationship("Program", back_populates="requests")
+    period = db.relationship("AcademicPeriod", back_populates="requests")
     # 1:1 with Appointment (appointments.request_id is UNIQUE)
     appointment = db.relationship("Appointment", back_populates="request", uselist=False, cascade="all, delete", passive_deletes=True)
 
