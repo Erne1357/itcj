@@ -22,6 +22,7 @@ from .routes.api.coord import api_coord_bp
 from .routes.api.social import api_social_bp
 from .routes.api.admin import api_admin_bp
 from .routes.api.notifications import api_notifications_bp
+from .routes.api.periods import api_periods_bp
 
 agendatec_api_bp.register_blueprint(api_programs_bp, url_prefix="/programs")
 agendatec_api_bp.register_blueprint(api_avail_bp, url_prefix="/availability")
@@ -31,6 +32,7 @@ agendatec_api_bp.register_blueprint(api_coord_bp, url_prefix="/coord")
 agendatec_api_bp.register_blueprint(api_social_bp, url_prefix="/social")
 agendatec_api_bp.register_blueprint(api_admin_bp, url_prefix="/admin")
 agendatec_api_bp.register_blueprint(api_notifications_bp, url_prefix="/notifications")
+agendatec_api_bp.register_blueprint(api_periods_bp, url_prefix="/periods")
 
 # Registrar páginas
 from .routes.pages.student import student_pages_bp
