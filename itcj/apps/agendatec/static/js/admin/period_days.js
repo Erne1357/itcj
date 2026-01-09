@@ -6,8 +6,80 @@ let flatpickrInstance;
 let selectedDates = [];
 let periodData = null;
 let hasUnsavedChanges = false;
+let mdlMessage;
+
+// Modal helper functions
+function showMessage(type, title, message) {
+  const header = document.getElementById("mdlMessageHeader");
+  const titleEl = document.getElementById("mdlMessageTitle");
+  const icon = document.getElementById("mdlMessageIcon");
+  const body = document.getElementById("mdlMessageBody");
+  const footer = document.getElementById("mdlMessageFooter");
+
+  header.className = "modal-header";
+
+  const configs = {
+    success: {
+      headerClass: "bg-success text-white",
+      icon: '<i class="bi bi-check-circle-fill text-success"></i>',
+      btnClass: "btn-success"
+    },
+    error: {
+      headerClass: "bg-danger text-white",
+      icon: '<i class="bi bi-x-circle-fill text-danger"></i>',
+      btnClass: "btn-danger"
+    },
+    warning: {
+      headerClass: "bg-warning text-dark",
+      icon: '<i class="bi bi-exclamation-triangle-fill text-warning"></i>',
+      btnClass: "btn-warning"
+    },
+    info: {
+      headerClass: "bg-info text-white",
+      icon: '<i class="bi bi-info-circle-fill text-info"></i>',
+      btnClass: "btn-info"
+    }
+  };
+
+  const config = configs[type] || configs.info;
+  header.classList.add(...config.headerClass.split(" "));
+  titleEl.textContent = title;
+  icon.innerHTML = config.icon;
+  body.innerHTML = message.replace(/\n/g, "<br>");
+  footer.innerHTML = `<button type="button" class="btn ${config.btnClass}" data-bs-dismiss="modal">Cerrar</button>`;
+
+  mdlMessage.show();
+}
+
+function showConfirm(title, message, onConfirm) {
+  const header = document.getElementById("mdlMessageHeader");
+  const titleEl = document.getElementById("mdlMessageTitle");
+  const icon = document.getElementById("mdlMessageIcon");
+  const body = document.getElementById("mdlMessageBody");
+  const footer = document.getElementById("mdlMessageFooter");
+
+  header.className = "modal-header bg-warning text-dark";
+  titleEl.textContent = title;
+  icon.innerHTML = '<i class="bi bi-question-circle-fill text-warning"></i>';
+  body.innerHTML = message.replace(/\n/g, "<br>");
+
+  footer.innerHTML = `
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
+  `;
+
+  document.getElementById("btnConfirmAction").addEventListener("click", () => {
+    mdlMessage.hide();
+    if (onConfirm) onConfirm();
+  });
+
+  mdlMessage.show();
+}
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Initialize modals
+  mdlMessage = new bootstrap.Modal(document.getElementById("mdlMessage"));
+
   // Event listeners
   document.getElementById("btnReload").addEventListener("click", loadData);
   document.getElementById("btnSave").addEventListener("click", saveDays);
@@ -58,7 +130,7 @@ async function loadData() {
     hasUnsavedChanges = false;
   } catch (err) {
     console.error(err);
-    alert("Error al cargar datos: " + err.message);
+    showMessage("error", "Error al cargar", "No se pudieron cargar los datos: " + err.message);
   }
 }
 
@@ -158,25 +230,38 @@ function removeDay(dateStr) {
 }
 
 function clearAllDays() {
-  if (!confirm("¿Deseas limpiar todos los días seleccionados?")) return;
-  selectedDates = [];
-  flatpickrInstance.clear();
-  renderSelectedDays();
-  hasUnsavedChanges = true;
+  showConfirm(
+    "Limpiar días",
+    "¿Deseas limpiar todos los días seleccionados?",
+    () => {
+      selectedDates = [];
+      flatpickrInstance.clear();
+      renderSelectedDays();
+      hasUnsavedChanges = true;
+    }
+  );
 }
 
 async function saveDays() {
   if (!hasUnsavedChanges) {
-    alert("No hay cambios para guardar");
+    showMessage("info", "Sin cambios", "No hay cambios para guardar");
     return;
   }
 
   if (selectedDates.length === 0) {
-    if (!confirm("⚠️ Vas a eliminar TODOS los días habilitados.\n\nLos estudiantes NO podrán crear solicitudes en este período.\n\n¿Continuar?")) {
-      return;
-    }
+    showConfirm(
+      "Advertencia",
+      "⚠️ Vas a eliminar TODOS los días habilitados.\n\nLos estudiantes NO podrán crear solicitudes en este período.\n\n¿Continuar?",
+      async () => {
+        await performSave();
+      }
+    );
+  } else {
+    await performSave();
   }
+}
 
+async function performSave() {
   try {
     const resp = await fetch(cfg.saveEnabledDaysUrl, {
       method: "POST",
@@ -191,12 +276,12 @@ async function saveDays() {
       throw new Error(data.message || data.error || "Error al guardar");
     }
 
-    alert(`✓ Días guardados correctamente\n\nDías habilitados: ${data.enabled_days_count}`);
+    showMessage("success", "Días guardados", `Días guardados correctamente\n\nDías habilitados: ${data.enabled_days_count}`);
     hasUnsavedChanges = false;
     loadData(); // Recargar para actualizar stats
   } catch (err) {
     console.error(err);
-    alert("Error al guardar: " + err.message);
+    showMessage("error", "Error al guardar", err.message);
   }
 }
 

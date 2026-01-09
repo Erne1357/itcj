@@ -4,11 +4,82 @@ let currentPeriods = [];
 let editingId = null;
 
 // Bootstrap modals
-let mdlPeriod, mdlDetails;
+let mdlPeriod, mdlDetails, mdlMessage;
+
+// Modal helper functions
+function showMessage(type, title, message) {
+  const header = document.getElementById("mdlMessageHeader");
+  const titleEl = document.getElementById("mdlMessageTitle");
+  const icon = document.getElementById("mdlMessageIcon");
+  const body = document.getElementById("mdlMessageBody");
+  const footer = document.getElementById("mdlMessageFooter");
+
+  // Reset header classes
+  header.className = "modal-header";
+
+  // Configure based on type
+  const configs = {
+    success: {
+      headerClass: "bg-success text-white",
+      icon: '<i class="bi bi-check-circle-fill text-success"></i>',
+      btnClass: "btn-success"
+    },
+    error: {
+      headerClass: "bg-danger text-white",
+      icon: '<i class="bi bi-x-circle-fill text-danger"></i>',
+      btnClass: "btn-danger"
+    },
+    warning: {
+      headerClass: "bg-warning text-dark",
+      icon: '<i class="bi bi-exclamation-triangle-fill text-warning"></i>',
+      btnClass: "btn-warning"
+    },
+    info: {
+      headerClass: "bg-info text-white",
+      icon: '<i class="bi bi-info-circle-fill text-info"></i>',
+      btnClass: "btn-info"
+    }
+  };
+
+  const config = configs[type] || configs.info;
+  header.classList.add(...config.headerClass.split(" "));
+  titleEl.textContent = title;
+  icon.innerHTML = config.icon;
+  body.innerHTML = message.replace(/\n/g, "<br>");
+  footer.innerHTML = `<button type="button" class="btn ${config.btnClass}" data-bs-dismiss="modal">Cerrar</button>`;
+
+  mdlMessage.show();
+}
+
+function showConfirm(title, message, onConfirm) {
+  const header = document.getElementById("mdlMessageHeader");
+  const titleEl = document.getElementById("mdlMessageTitle");
+  const icon = document.getElementById("mdlMessageIcon");
+  const body = document.getElementById("mdlMessageBody");
+  const footer = document.getElementById("mdlMessageFooter");
+
+  header.className = "modal-header bg-warning text-dark";
+  titleEl.textContent = title;
+  icon.innerHTML = '<i class="bi bi-question-circle-fill text-warning"></i>';
+  body.innerHTML = message.replace(/\n/g, "<br>");
+
+  footer.innerHTML = `
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
+  `;
+
+  document.getElementById("btnConfirmAction").addEventListener("click", () => {
+    mdlMessage.hide();
+    if (onConfirm) onConfirm();
+  });
+
+  mdlMessage.show();
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   mdlPeriod = new bootstrap.Modal(document.getElementById("mdlPeriod"));
   mdlDetails = new bootstrap.Modal(document.getElementById("mdlDetails"));
+  mdlMessage = new bootstrap.Modal(document.getElementById("mdlMessage"));
 
   // Event listeners
   document.getElementById("btnReload").addEventListener("click", loadPeriods);
@@ -35,7 +106,7 @@ async function loadPeriods() {
     renderPeriods();
   } catch (err) {
     console.error(err);
-    alert("Error al cargar períodos: " + err.message);
+    showMessage("error", "Error al cargar", "No se pudieron cargar los períodos: " + err.message);
   }
 }
 
@@ -136,7 +207,7 @@ async function savePeriod() {
   const status = document.getElementById("fStatus").value;
 
   if (!name || !startDate || !endDate || !deadlineDate || !deadlineTime) {
-    alert("Por favor completa todos los campos obligatorios");
+    showMessage("warning", "Campos incompletos", "Por favor completa todos los campos obligatorios");
     return;
   }
 
@@ -176,58 +247,66 @@ async function savePeriod() {
 
     mdlPeriod.hide();
     loadPeriods();
-    alert(editingId ? "Período actualizado correctamente" : "Período creado correctamente");
+    showMessage("success", "Operación exitosa", editingId ? "Período actualizado correctamente" : "Período creado correctamente");
   } catch (err) {
     console.error(err);
-    alert("Error: " + err.message);
+    showMessage("error", "Error al guardar", err.message);
   }
 }
 
 async function activatePeriod(periodId) {
   const period = currentPeriods.find(p => p.id === periodId);
-  if (!confirm(`¿Desactivar el período activo actual y activar "${period.name}"?`)) return;
+  showConfirm(
+    "Activar período",
+    `¿Desactivar el período activo actual y activar "${period.name}"?`,
+    async () => {
+      try {
+        const resp = await fetch(cfg.activateBase + periodId, {
+          method: "POST",
+          credentials: "same-origin"
+        });
 
-  try {
-    const resp = await fetch(cfg.activateBase + periodId, {
-      method: "POST",
-      credentials: "same-origin"
-    });
+        const data = await resp.json();
 
-    const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.message || data.error || "Error al activar");
+        }
 
-    if (!resp.ok) {
-      throw new Error(data.message || data.error || "Error al activar");
+        showMessage("success", "Período activado", "Período activado correctamente");
+        loadPeriods();
+      } catch (err) {
+        console.error(err);
+        showMessage("error", "Error al activar", err.message);
+      }
     }
-
-    alert("Período activado correctamente");
-    loadPeriods();
-  } catch (err) {
-    console.error(err);
-    alert("Error: " + err.message);
-  }
+  );
 }
 
 async function deletePeriod(periodId) {
   const period = currentPeriods.find(p => p.id === periodId);
-  if (!confirm(`¿Eliminar el período "${period.name}"?\n\nEsta acción no se puede deshacer.`)) return;
+  showConfirm(
+    "Eliminar período",
+    `¿Eliminar el período "${period.name}"?\n\nEsta acción no se puede deshacer.`,
+    async () => {
+      try {
+        const resp = await fetch(cfg.deleteBase + periodId, {
+          method: "DELETE",
+          credentials: "same-origin"
+        });
 
-  try {
-    const resp = await fetch(cfg.deleteBase + periodId, {
-      method: "DELETE",
-      credentials: "same-origin"
-    });
+        if (!resp.ok) {
+          const data = await resp.json();
+          throw new Error(data.message || data.error || "Error al eliminar");
+        }
 
-    if (!resp.ok) {
-      const data = await resp.json();
-      throw new Error(data.message || data.error || "Error al eliminar");
+        showMessage("success", "Período eliminado", "Período eliminado correctamente");
+        loadPeriods();
+      } catch (err) {
+        console.error(err);
+        showMessage("error", "Error al eliminar", err.message);
+      }
     }
-
-    alert("Período eliminado correctamente");
-    loadPeriods();
-  } catch (err) {
-    console.error(err);
-    alert("Error: " + err.message);
-  }
+  );
 }
 
 async function viewDetails(periodId) {
@@ -278,7 +357,7 @@ async function viewDetails(periodId) {
     mdlDetails.show();
   } catch (err) {
     console.error(err);
-    alert("Error al cargar detalles: " + err.message);
+    showMessage("error", "Error al cargar detalles", "No se pudieron cargar los detalles del período: " + err.message);
   }
 }
 

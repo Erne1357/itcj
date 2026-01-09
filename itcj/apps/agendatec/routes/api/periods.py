@@ -116,7 +116,9 @@ def list_periods():
 
     periods = query.all()
 
-    return jsonify([p.to_dict() for p in periods]), 200
+    items = [p.to_dict() for p in periods]
+
+    return jsonify({"items": items}), 200
 
 
 @api_periods_bp.route("", methods=["POST"])
@@ -343,7 +345,7 @@ def get_enabled_days(period_id: int):
         period_id=period_id
     ).order_by(PeriodEnabledDay.day).all()
 
-    return jsonify([ed.to_dict() for ed in enabled_days]), 200
+    return jsonify({"days": [ed.to_dict() for ed in enabled_days]}), 200
 
 
 @api_periods_bp.route("/<int:period_id>/enabled-days", methods=["POST"])
@@ -410,8 +412,9 @@ def set_enabled_days(period_id: int):
     db.session.commit()
 
     return jsonify({
+        "ok": True,
         "message": "enabled_days_updated",
-        "count": len(days),
+        "enabled_days_count": len(days),
         "days": [d.isoformat() for d in days]
     }), 200
 
@@ -496,13 +499,18 @@ def get_period_stats(period_id: int):
         Request.type, Request.status
     ).all()
 
+    # Obtener días habilitados
+    enabled_days_objs = period_service.get_enabled_days(period_id)
+    enabled_days_list = [d.isoformat() for d in enabled_days_objs]
+
     # Organizar estadísticas
     stats_dict = {
         "period": period.to_dict(),
         "total_requests": period_service.count_requests_in_period(period_id),
         "by_type": {},
         "by_status": {},
-        "enabled_days_count": len(period_service.get_enabled_days(period_id))
+        "enabled_days_count": len(enabled_days_objs),
+        "enabled_days": enabled_days_list
     }
 
     for req_type, status, count in stats:
@@ -515,5 +523,13 @@ def get_period_stats(period_id: int):
         if status not in stats_dict["by_status"]:
             stats_dict["by_status"][status] = 0
         stats_dict["by_status"][status] += count
+
+    # Agregar campos calculados para el frontend
+    stats_dict["pending_requests"] = stats_dict["by_status"].get("PENDING", 0)
+    stats_dict["resolved_requests"] = (
+        stats_dict["by_status"].get("APPROVED", 0) +
+        stats_dict["by_status"].get("REJECTED", 0) +
+        stats_dict["by_status"].get("COMPLETED", 0)
+    )
 
     return jsonify(stats_dict), 200

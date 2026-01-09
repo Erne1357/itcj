@@ -76,6 +76,27 @@
     </div>
   </div>
 </div>
+
+<!-- Modal de Mensajes (Success/Error/Warning/Confirm) -->
+<div class="modal fade" id="mdlMessage" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" id="mdlMessageHeader">
+        <h5 class="modal-title" id="mdlMessageTitle">Mensaje</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-start gap-3">
+          <div id="mdlMessageIcon" class="fs-1"></div>
+          <div id="mdlMessageBody" class="flex-grow-1"></div>
+        </div>
+      </div>
+      <div class="modal-footer" id="mdlMessageFooter">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -88,7 +109,7 @@
   window.__periodId = {{ period_id }};
   window.__periodDaysCfg = {
     periodDetailUrl: "{{ url_for('agendatec_api.api_periods.get_period', period_id=period_id) }}",
-    enabledDaysUrl: "{{ url_for('agendatec_api.api_periods.list_enabled_days', period_id=period_id) }}",
+    enabledDaysUrl: "{{ url_for('agendatec_api.api_periods.get_enabled_days', period_id=period_id) }}",
     saveEnabledDaysUrl: "{{ url_for('agendatec_api.api_periods.set_enabled_days', period_id=period_id) }}",
     statsUrl: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=period_id) }}"
   };
