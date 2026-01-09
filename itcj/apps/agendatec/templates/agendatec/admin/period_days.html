@@ -5,76 +5,135 @@
 <!-- Flatpickr CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <style>
-  /* Asegurar que Flatpickr tenga el tamaño y estilo correcto */
-  .flatpickr-calendar {
+  /* Estilos específicos para Flatpickr con mayor especificidad */
+  .flatpickr-wrapper .flatpickr-calendar.inline {
     width: 100% !important;
+    max-width: 100% !important;
     box-shadow: none !important;
+    border: 1px solid #dee2e6 !important;
+    border-radius: 0.375rem !important;
   }
 
-  .flatpickr-months {
-    padding: 10px !important;
+  .flatpickr-wrapper .flatpickr-months {
+    padding: 15px !important;
+    background-color: #f8f9fa !important;
   }
 
-  .flatpickr-month {
+  .flatpickr-wrapper .flatpickr-month {
     height: auto !important;
   }
 
-  .flatpickr-current-month {
+  .flatpickr-wrapper .flatpickr-current-month {
+    font-size: 1.1rem !important;
+    padding: 10px 0 !important;
+    height: auto !important;
+    line-height: normal !important;
+  }
+
+  .flatpickr-wrapper .flatpickr-current-month .flatpickr-monthDropdown-months {
     font-size: 1rem !important;
-    padding: 5px 0 !important;
+    padding: 2px 5px !important;
   }
 
-  .flatpickr-prev-month,
-  .flatpickr-next-month {
-    padding: 5px 10px !important;
+  .flatpickr-wrapper .flatpickr-current-month .numInputWrapper {
+    width: 70px !important;
   }
 
-  .flatpickr-prev-month svg,
-  .flatpickr-next-month svg {
-    width: 14px !important;
-    height: 14px !important;
-    fill: currentColor !important;
+  .flatpickr-wrapper .flatpickr-current-month input.cur-year {
+    font-size: 1rem !important;
+    padding: 2px !important;
   }
 
-  .flatpickr-weekdays {
-    height: 35px !important;
+  .flatpickr-wrapper .flatpickr-prev-month,
+  .flatpickr-wrapper .flatpickr-next-month {
+    padding: 10px !important;
+    height: 40px !important;
+    width: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .flatpickr-wrapper .flatpickr-prev-month svg,
+  .flatpickr-wrapper .flatpickr-next-month svg {
+    width: 16px !important;
+    height: 16px !important;
+    fill: #495057 !important;
+  }
+
+  .flatpickr-wrapper .flatpickr-weekdays {
+    height: 40px !important;
     margin-top: 10px !important;
+    background-color: #fff !important;
+    display: flex !important;
+    align-items: center !important;
   }
 
-  .flatpickr-weekday {
+  .flatpickr-wrapper .flatpickr-weekday {
     font-size: 0.875rem !important;
     font-weight: 600 !important;
     color: #495057 !important;
+    flex: 1 !important;
+    text-align: center !important;
+    line-height: 40px !important;
   }
 
-  .flatpickr-days {
+  .flatpickr-wrapper .flatpickr-days {
     width: 100% !important;
+    padding: 10px !important;
   }
 
-  .flatpickr-day {
-    height: 39px !important;
-    line-height: 39px !important;
-    max-width: 39px !important;
+  .flatpickr-wrapper .dayContainer {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(7, 1fr) !important;
+    gap: 4px !important;
+  }
+
+  .flatpickr-wrapper .flatpickr-day {
+    height: 40px !important;
+    line-height: 40px !important;
+    width: 100% !important;
+    max-width: 100% !important;
     font-size: 0.875rem !important;
-    border-radius: 6px !important;
-    margin: 2px !important;
+    border-radius: 0.375rem !important;
+    margin: 0 !important;
+    flex: none !important;
+    border: 1px solid transparent !important;
   }
 
-  .flatpickr-day.selected {
+  .flatpickr-wrapper .flatpickr-day.selected {
     background-color: #0d6efd !important;
     border-color: #0d6efd !important;
+    color: white !important;
+    font-weight: 600 !important;
   }
 
-  .flatpickr-day.today {
+  .flatpickr-wrapper .flatpickr-day.today {
     border-color: #0d6efd !important;
+    font-weight: 600 !important;
   }
 
-  .flatpickr-day:hover {
+  .flatpickr-wrapper .flatpickr-day:hover:not(.selected):not(.flatpickr-disabled) {
     background-color: #e9ecef !important;
+    border-color: #dee2e6 !important;
   }
 
-  .flatpickr-day.selected:hover {
+  .flatpickr-wrapper .flatpickr-day.selected:hover {
     background-color: #0b5ed7 !important;
+    border-color: #0b5ed7 !important;
+  }
+
+  .flatpickr-wrapper .flatpickr-day.prevMonthDay,
+  .flatpickr-wrapper .flatpickr-day.nextMonthDay {
+    color: #adb5bd !important;
+  }
+
+  .flatpickr-wrapper .flatpickr-day.flatpickr-disabled {
+    color: #dee2e6 !important;
+    cursor: not-allowed !important;
   }
 </style>
 {% endblock %}
@@ -106,7 +165,7 @@
         </p>
 
         <!-- Calendario inline con Flatpickr -->
-        <div id="calendarContainer" class="mb-3"></div>
+        <div id="calendarContainer" class="flatpickr-wrapper mb-3"></div>
 
         <div class="alert alert-info small mb-0">
           <i class="bi bi-info-circle"></i> Haz clic en los días para seleccionarlos o deseleccionarlos.
