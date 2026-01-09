@@ -77,22 +77,23 @@
   </div>
 </div>
 
-<!-- Modal de Mensajes (Success/Error/Warning/Confirm) -->
-<div class="modal fade" id="mdlMessage" tabindex="-1">
+<!-- Modal de Confirmación -->
+<div class="modal fade" id="mdlConfirm" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-header" id="mdlMessageHeader">
-        <h5 class="modal-title" id="mdlMessageTitle">Mensaje</h5>
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="d-flex align-items-start gap-3">
-          <div id="mdlMessageIcon" class="fs-1"></div>
-          <div id="mdlMessageBody" class="flex-grow-1"></div>
+          <div class="fs-1"><i class="bi bi-question-circle-fill text-warning"></i></div>
+          <div id="mdlConfirmBody" class="flex-grow-1"></div>
         </div>
       </div>
-      <div class="modal-footer" id="mdlMessageFooter">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
       </div>
     </div>
   </div>

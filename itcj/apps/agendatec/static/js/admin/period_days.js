@@ -6,79 +6,31 @@ let flatpickrInstance;
 let selectedDates = [];
 let periodData = null;
 let hasUnsavedChanges = false;
-let mdlMessage;
+let mdlConfirm;
 
-// Modal helper functions
-function showMessage(type, title, message) {
-  const header = document.getElementById("mdlMessageHeader");
-  const titleEl = document.getElementById("mdlMessageTitle");
-  const icon = document.getElementById("mdlMessageIcon");
-  const body = document.getElementById("mdlMessageBody");
-  const footer = document.getElementById("mdlMessageFooter");
-
-  header.className = "modal-header";
-
-  const configs = {
-    success: {
-      headerClass: "bg-success text-white",
-      icon: '<i class="bi bi-check-circle-fill text-success"></i>',
-      btnClass: "btn-success"
-    },
-    error: {
-      headerClass: "bg-danger text-white",
-      icon: '<i class="bi bi-x-circle-fill text-danger"></i>',
-      btnClass: "btn-danger"
-    },
-    warning: {
-      headerClass: "bg-warning text-dark",
-      icon: '<i class="bi bi-exclamation-triangle-fill text-warning"></i>',
-      btnClass: "btn-warning"
-    },
-    info: {
-      headerClass: "bg-info text-white",
-      icon: '<i class="bi bi-info-circle-fill text-info"></i>',
-      btnClass: "btn-info"
-    }
-  };
-
-  const config = configs[type] || configs.info;
-  header.classList.add(...config.headerClass.split(" "));
-  titleEl.textContent = title;
-  icon.innerHTML = config.icon;
-  body.innerHTML = message.replace(/\n/g, "<br>");
-  footer.innerHTML = `<button type="button" class="btn ${config.btnClass}" data-bs-dismiss="modal">Cerrar</button>`;
-
-  mdlMessage.show();
-}
-
+// Confirmation modal helper
 function showConfirm(title, message, onConfirm) {
-  const header = document.getElementById("mdlMessageHeader");
-  const titleEl = document.getElementById("mdlMessageTitle");
-  const icon = document.getElementById("mdlMessageIcon");
-  const body = document.getElementById("mdlMessageBody");
-  const footer = document.getElementById("mdlMessageFooter");
+  const titleEl = document.getElementById("mdlConfirmTitle");
+  const body = document.getElementById("mdlConfirmBody");
 
-  header.className = "modal-header bg-warning text-dark";
   titleEl.textContent = title;
-  icon.innerHTML = '<i class="bi bi-question-circle-fill text-warning"></i>';
   body.innerHTML = message.replace(/\n/g, "<br>");
 
-  footer.innerHTML = `
-    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
-  `;
+  const btnConfirm = document.getElementById("btnConfirmAction");
+  const newBtn = btnConfirm.cloneNode(true);
+  btnConfirm.parentNode.replaceChild(newBtn, btnConfirm);
 
-  document.getElementById("btnConfirmAction").addEventListener("click", () => {
-    mdlMessage.hide();
+  newBtn.addEventListener("click", () => {
+    mdlConfirm.hide();
     if (onConfirm) onConfirm();
   });
 
-  mdlMessage.show();
+  mdlConfirm.show();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   // Initialize modals
-  mdlMessage = new bootstrap.Modal(document.getElementById("mdlMessage"));
+  mdlConfirm = new bootstrap.Modal(document.getElementById("mdlConfirm"));
 
   // Event listeners
   document.getElementById("btnReload").addEventListener("click", loadData);
@@ -130,7 +82,7 @@ async function loadData() {
     hasUnsavedChanges = false;
   } catch (err) {
     console.error(err);
-    showMessage("error", "Error al cargar", "No se pudieron cargar los datos: " + err.message);
+    showToast("Error al cargar datos: " + err.message, "error");
   }
 }
 
@@ -244,7 +196,7 @@ function clearAllDays() {
 
 async function saveDays() {
   if (!hasUnsavedChanges) {
-    showMessage("info", "Sin cambios", "No hay cambios para guardar");
+    showToast("No hay cambios para guardar", "info");
     return;
   }
 
@@ -276,12 +228,12 @@ async function performSave() {
       throw new Error(data.message || data.error || "Error al guardar");
     }
 
-    showMessage("success", "Días guardados", `Días guardados correctamente\n\nDías habilitados: ${data.enabled_days_count}`);
+    showToast(`Días guardados correctamente (${data.enabled_days_count} días habilitados)`, "success");
     hasUnsavedChanges = false;
     loadData(); // Recargar para actualizar stats
   } catch (err) {
     console.error(err);
-    showMessage("error", "Error al guardar", err.message);
+    showToast("Error al guardar: " + err.message, "error");
   }
 }
 

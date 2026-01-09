@@ -113,22 +113,23 @@
   </div>
 </div>
 
-<!-- Modal de Mensajes (Success/Error/Warning/Confirm) -->
-<div class="modal fade" id="mdlMessage" tabindex="-1">
+<!-- Modal de Confirmación -->
+<div class="modal fade" id="mdlConfirm" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-header" id="mdlMessageHeader">
-        <h5 class="modal-title" id="mdlMessageTitle">Mensaje</h5>
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div class="d-flex align-items-start gap-3">
-          <div id="mdlMessageIcon" class="fs-1"></div>
-          <div id="mdlMessageBody" class="flex-grow-1"></div>
+          <div class="fs-1"><i class="bi bi-question-circle-fill text-warning"></i></div>
+          <div id="mdlConfirmBody" class="flex-grow-1"></div>
         </div>
       </div>
-      <div class="modal-footer" id="mdlMessageFooter">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
       </div>
     </div>
   </div>
@@ -141,12 +142,12 @@
   window.__adminPeriodsCfg = {
     listUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}",
     createUrl: "{{ url_for('agendatec_api.api_periods.create_period') }}",
-    detailBase: "{{ url_for('agendatec_api.api_periods.get_period', period_id=0) }}".replace(/0$/, ''),
-    updateBase: "{{ url_for('agendatec_api.api_periods.update_period', period_id=0) }}".replace(/0$/, ''),
-    deleteBase: "{{ url_for('agendatec_api.api_periods.delete_period', period_id=0) }}".replace(/0$/, ''),
-    activateBase: "{{ url_for('agendatec_api.api_periods.activate_period', period_id=0) }}".replace(/0$/, ''),
-    statsBase: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=0) }}".replace(/0$/, ''),
-    daysPageBase: "{{ url_for('agendatec_pages.admin_pages.admin_period_days', period_id=0) }}".replace(/0$/, '')
+    detail: "{{ url_for('agendatec_api.api_periods.get_period', period_id=999999) }}".replace('999999', '{id}'),
+    update: "{{ url_for('agendatec_api.api_periods.update_period', period_id=999999) }}".replace('999999', '{id}'),
+    delete: "{{ url_for('agendatec_api.api_periods.delete_period', period_id=999999) }}".replace('999999', '{id}'),
+    activate: "{{ url_for('agendatec_api.api_periods.activate_period', period_id=999999) }}".replace('999999', '{id}'),
+    stats: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=999999) }}".replace('999999', '{id}'),
+    daysPage: "{{ url_for('agendatec_pages.admin_pages.admin_period_days', period_id=999999) }}".replace('999999', '{id}')
   };
 </script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/periods.js') }}?v={{ static_version }}"></script>
