@@ -3,6 +3,8 @@ from itcj.core.models.user import User
 from itcj.core.models.role import Role
 from itcj.core.utils.security import verify_nip
 from flask import current_app
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 def authenticate(control_number: str, nip: str):
     """
@@ -22,6 +24,10 @@ def authenticate(control_number: str, nip: str):
     if not verify_nip(nip, user.password_hash):
         return None
 
+    # Actualiza last_login
+    user.last_login = datetime.now()
+    db.session.commit()
+
     role_name = user.role.name if user.role else None
 
     return {
@@ -40,6 +46,11 @@ def authenticate_by_username(username: str, nip: str):
         return None
     if not verify_nip(nip, u.password_hash):
         return None
+    
+    # Actualiza last_login
+    u.last_login = datetime.now(ZoneInfo("America/Monterrey"))
+    db.session.commit()
+    
     role = db.session.query(Role).get(u.role_id)
     return {
         "id": u.id,

@@ -123,6 +123,7 @@ def get_agendatec_navigation(user_permissions: set[str], student_window_open: bo
         {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests.page.list", "icon": "bi-clipboard-data"},
         {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.page.view", "icon": "bi-graph-up"},
         {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.page.list", "icon": "bi-list-check"},
+        {"label": "Períodos", "endpoint": "agendatec_pages.admin_pages.admin_periods", "permission": "agendatec.periods.page.list", "icon": "bi-calendar-check"},
         # Servicio Social
         {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home", "permission": "agendatec.social.page.home", "icon": "bi-calendar-heart"}
     ]
