@@ -27,3 +27,15 @@ def admin_requests():
 @app_required(app_key="agendatec", perms=["agendatec.reports.page.view"])
 def admin_reports():
     return render_template("agendatec/admin/reports.html", page_title="Admin · Reportes")
+
+@admin_pages_bp.get("/periods")
+@login_required
+@app_required(app_key="agendatec", perms=["agendatec.periods.page.list"])
+def admin_periods():
+    return render_template("agendatec/admin/periods.html", page_title="Admin · Períodos Académicos")
+
+@admin_pages_bp.get("/periods/<int:period_id>/days")
+@login_required
+@app_required(app_key="agendatec", perms=["agendatec.periods.page.edit"])
+def admin_period_days(period_id):
+    return render_template("agendatec/admin/period_days.html", page_title="Admin · Configurar Días", period_id=period_id)

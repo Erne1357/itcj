@@ -1,0 +1,132 @@
+{% extends "agendatec/base.html" %}
+{% block title %}Admin · Períodos Académicos{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0">Períodos Académicos</h1>
+  <div class="d-flex gap-2">
+    <select id="fltStatus" class="form-select form-select-sm">
+      <option value="">Todos los estados</option>
+      <option value="ACTIVE">Activo</option>
+      <option value="INACTIVE">Inactivo</option>
+      <option value="ARCHIVED">Archivado</option>
+    </select>
+    <button id="btnReload" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i></button>
+    <button id="btnNew" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Nuevo Período</button>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Nombre</th>
+          <th>Inicio</th>
+          <th>Fin</th>
+          <th>Fecha Límite Admisión</th>
+          <th>Estado</th>
+          <th>Solicitudes</th>
+          <th style="width: 200px;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="tblPeriodsBody">
+        <!-- filas vía JS -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Nuevo/Editar Período -->
+<div class="modal fade" id="mdlPeriod" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="mdlTitle" class="modal-title">Nuevo Período</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Nombre del Período <span class="text-danger">*</span></label>
+            <input id="fName" class="form-control" placeholder="Ej: Ago-Dic 2025" required>
+            <div class="form-text">Ejemplo: "Ago-Dic 2025", "Ene-Jun 2026", "Verano 2026"</div>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Fecha de Inicio <span class="text-danger">*</span></label>
+            <input id="fStartDate" type="date" class="form-control" required>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Fecha de Fin <span class="text-danger">*</span></label>
+            <input id="fEndDate" type="date" class="form-control" required>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Fecha Límite de Admisión <span class="text-danger">*</span></label>
+            <input id="fDeadlineDate" type="date" class="form-control" required>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Hora Límite de Admisión <span class="text-danger">*</span></label>
+            <input id="fDeadlineTime" type="time" class="form-control" value="18:00" required>
+            <div class="form-text">Hora zona: America/Ciudad_Juarez</div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Estado</label>
+            <select id="fStatus" class="form-select">
+              <option value="INACTIVE">Inactivo</option>
+              <option value="ACTIVE">Activo</option>
+              <option value="ARCHIVED">Archivado</option>
+            </select>
+            <div class="form-text">Solo puede haber un período ACTIVO a la vez</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button id="btnSavePeriod" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Ver Detalles -->
+<div class="modal fade" id="mdlDetails" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Detalles del Período</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="detailsContent">
+          <!-- contenido dinámico -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Endpoints a usar desde JS:
+  window.__adminPeriodsCfg = {
+    listUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}",
+    createUrl: "{{ url_for('agendatec_api.api_periods.create_period') }}",
+    detailBase: "{{ url_for('agendatec_api.api_periods.get_period', period_id=0) }}".replace(/0$/, ''),
+    updateBase: "{{ url_for('agendatec_api.api_periods.update_period', period_id=0) }}".replace(/0$/, ''),
+    deleteBase: "{{ url_for('agendatec_api.api_periods.delete_period', period_id=0) }}".replace(/0$/, ''),
+    activateBase: "{{ url_for('agendatec_api.api_periods.activate_period', period_id=0) }}".replace(/0$/, ''),
+    statsBase: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=0) }}".replace(/0$/, ''),
+    daysPageBase: "{{ url_for('agendatec_pages.admin_pages.admin_period_days', period_id=0) }}".replace(/0$/, '')
+  };
+</script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/periods.js') }}?v={{ static_version }}"></script>
+{% endblock %}
