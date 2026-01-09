@@ -120,14 +120,13 @@
 
                 <div id="calendarBlock" class="expand-fade-enter">
                     <div class="row g-2 align-items-end">
-                        <div class="col-12 col-sm-4">
-                            <label class="form-label">Día disponible</label>
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-outline-secondary day-btn" data-day="2025-08-25">25 Ago</button>
-                                <button class="btn btn-outline-secondary day-btn" data-day="2025-08-26">26 Ago</button>
-                                <button class="btn btn-outline-secondary day-btn" data-day="2025-08-27">27 Ago</button>
+                        <div class="col-12">
+                            <label class="form-label">Días disponibles</label>
+                            <div class="d-flex gap-2 flex-wrap day-buttons-container">
+                                <!-- Los botones se generan dinámicamente desde el período activo -->
+                                <p class="text-muted">Cargando días habilitados...</p>
                             </div>
-                            <div class="form-text">Los demás días están bloqueados.</div>
+                            <div class="form-text">Solo los días habilitados en el período actual están disponibles.</div>
                         </div>
                     </div>
 

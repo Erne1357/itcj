@@ -2,7 +2,8 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  const ALLOWED_DAYS = ["2025-08-25", "2025-08-26", "2025-08-27"];
+  // NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
+  let enabledDays = []; // Se carga desde /api/agendatec/v1/periods/active
 
   // State
   const state = {
@@ -13,6 +14,7 @@
     description: null,
     selectedHour: null,
     currentRoom: null,     // Para trackear la room actual
+    periodLoaded: false,   // Para controlar la carga del período
   };
 
   // Variables globales para sockets
@@ -285,6 +287,76 @@
   //Empezar con el botón submit sin mostrarse
   btnSubmit.hidden = true;
 
+  // ------------- Cargar período activo al inicio -------------
+  async function loadActivePeriod() {
+    try {
+      const r = await fetch("/api/agendatec/v1/periods/active", { credentials: "include" });
+      if (!r.ok) {
+        throw new Error("No hay período activo");
+      }
+      const data = await r.json();
+      enabledDays = (data.enabled_days || []).sort();
+      state.periodLoaded = true;
+
+      // Renderizar botones de días dinámicamente
+      renderDayButtons();
+    } catch (error) {
+      console.error("Error al cargar período activo:", error);
+      showToast("No hay período activo disponible. Contacta al administrador.", "error");
+      // Deshabilitar todo el flujo si no hay período
+      state.periodLoaded = false;
+    }
+  }
+
+  // Renderizar botones de días dinámicamente
+  function renderDayButtons() {
+    const calendarBlock = $("#calendarBlock");
+    const dayButtonsContainer = $(".day-buttons-container");
+
+    if (!dayButtonsContainer || !enabledDays.length) {
+      if (dayButtonsContainer) {
+        dayButtonsContainer.innerHTML = '<p class="text-muted text-center">No hay días habilitados en el período actual.</p>';
+      }
+      return;
+    }
+
+    dayButtonsContainer.innerHTML = enabledDays.map(day => {
+      const d = new Date(day + "T00:00:00");
+      const dayName = d.toLocaleDateString("es-MX", { weekday: "short" });
+      const dayNum = d.getDate();
+      const monthName = d.toLocaleDateString("es-MX", { month: "short" });
+
+      return `
+        <button class="btn btn-outline-primary day-btn" data-day="${day}">
+          <div class="day-name">${dayName}</div>
+          <div class="day-number">${dayNum}</div>
+          <div class="month-name">${monthName}</div>
+        </button>
+      `;
+    }).join("");
+
+    // Re-agregar event listeners para los nuevos botones
+    $$(".day-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const day = btn.getAttribute("data-day");
+        if (!enabledDays.includes(day)) return;
+        state.day = day;
+
+        // Hacer join al día seleccionado
+        await joinDay(day);
+
+        // Registrar eventos de socket si no están registrados
+        registerSocketEvents();
+
+        // Cargar slots después del join
+        setTimeout(() => loadSlots(), 500);
+      });
+    });
+  }
+
+  // Cargar período activo al iniciar
+  loadActivePeriod();
+
   // ------------- Paso 1: elegir tipo -------------
   $("[data-type='DROP']").addEventListener("click", () => chooseType("DROP"));
   $("[data-type='APPOINTMENT']").addEventListener("click", () => chooseType("APPOINTMENT"));
@@ -366,22 +438,7 @@
     }
   });
 
-  $$(".day-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const day = btn.getAttribute("data-day");
-      if (!ALLOWED_DAYS.includes(day)) return;
-      state.day = day;
-
-      // Hacer join al día seleccionado
-      await joinDay(day);
-
-      // Registrar eventos de socket si no están registrados
-      registerSocketEvents();
-
-      // Cargar slots después del join
-      setTimeout(() => loadSlots(), 500);
-    });
-  });
+  // NOTA: Event listeners de .day-btn ahora se agregan dinámicamente en renderDayButtons()
 
   $("#btnChangeDay").addEventListener("click", () => {
     // "Elegir otro día": resetea slots y vuelve a mostrar botones de día
@@ -561,12 +618,18 @@
         const err = await r.json().catch(() => ({}));
         if (err.error === "already_has_petition") {
           showToast("Ya tienes una solicitud.", "warn");
+        } else if (err.error === "already_has_request_in_period") {
+          showToast(err.message || "Ya tienes una solicitud activa en este período.", "warn");
+        } else if (err.error === "no_active_period") {
+          showToast("No hay un período activo disponible.", "error");
         } else if (err.error === "slot_unavailable") {
           showToast("El horario ya no está disponible.", "warn");
         } else if (err.error === "slot_time_passed"){
           showToast("El horario ya pasó.", "warn");
         } else if (err.error === "slot_conflict") {
           showToast("Conflicto al reservar, intenta otro horario.", "warn");
+        } else if (err.error === "day_not_enabled") {
+          showToast("Ese día no está habilitado en este período.", "warn");
         } else if (err.error === "day_not_allowed") {
           showToast("Ese día no está permitido.", "warn");
         } else {
