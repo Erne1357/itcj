@@ -31,10 +31,12 @@ def create_app():
     register_blueprints(app)
     register_error_handlers(app)
 
-    #Registrar comandos 
+    #Registrar comandos
     from itcj.apps.helpdesk.commands import register_helpdesk_commands
+    from itcj.apps.agendatec.commands import register_agendatec_commands
     from itcj.core.commands import register_commands
     register_helpdesk_commands(app)
+    register_agendatec_commands(app)
     register_commands(app)
 
     @app.before_request
