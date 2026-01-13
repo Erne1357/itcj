@@ -8,6 +8,31 @@ let periodData = null;
 let hasUnsavedChanges = false;
 let mdlConfirm;
 
+// Toast notification helper
+function showToast(message, type = "info") {
+  // Si existe Toastify (librería global)
+  if (window.Toastify) {
+    const bgColors = {
+      success: "linear-gradient(to right, #00b09b, #96c93d)",
+      error: "linear-gradient(to right, #ff5f6d, #ffc371)",
+      warn: "linear-gradient(to right, #f09819, #ff512f)",
+      info: "linear-gradient(to right, #4facfe, #00f2fe)"
+    };
+
+    Toastify({
+      text: message,
+      duration: 3000,
+      gravity: "top",
+      position: "right",
+      background: bgColors[type] || bgColors.info,
+      stopOnFocus: true
+    }).showToast();
+  } else {
+    // Fallback a alert si no hay Toastify
+    alert(message);
+  }
+}
+
 // Confirmation modal helper
 function showConfirm(title, message, onConfirm) {
   const titleEl = document.getElementById("mdlConfirmTitle");
@@ -102,12 +127,102 @@ function initFlatpickr() {
     defaultDate: selectedDates,
     minDate: periodData.start_date,
     maxDate: periodData.end_date,
-    onChange: (selectedDatesObj) => {
+    appendTo: container,
+    onChange: (selectedDatesObj, dateStr, instance) => {
       selectedDates = selectedDatesObj.map(d => formatDateISO(d));
       renderSelectedDays();
       hasUnsavedChanges = true;
+      // Reaplicar estilos después de seleccionar/deseleccionar
+      setTimeout(() => fixFlatpickrStyles(instance), 10);
+    },
+    static: true,
+    onReady: function(selectedDates, dateStr, instance) {
+      // Aplicar estilos forzados después de que Flatpickr renderiza
+      fixFlatpickrStyles(instance);
+    },
+    onMonthChange: function(selectedDates, dateStr, instance) {
+      // Reaplicar estilos cuando cambia el mes
+      fixFlatpickrStyles(instance);
+    },
+    onYearChange: function(selectedDates, dateStr, instance) {
+      // Reaplicar estilos cuando cambia el año
+      fixFlatpickrStyles(instance);
     }
   });
+}
+
+function fixFlatpickrStyles(instance) {
+  // Esperar un momento para que Flatpickr termine de renderizar
+  setTimeout(() => {
+    const calendar = instance.calendarContainer;
+
+    // Arreglar el dayContainer para usar grid
+    const dayContainer = calendar.querySelector('.dayContainer');
+    if (dayContainer) {
+      dayContainer.style.display = 'grid';
+      dayContainer.style.gridTemplateColumns = 'repeat(7, 1fr)';
+      dayContainer.style.width = '100%';
+      dayContainer.style.gap = '5px';
+    }
+
+    // Arreglar los días individuales
+    const days = calendar.querySelectorAll('.flatpickr-day');
+    days.forEach(day => {
+      // Aplicar solo los estilos de layout necesarios
+      day.style.float = 'none';
+      day.style.height = '38px';
+      day.style.lineHeight = '38px';
+      day.style.width = '100%';
+      day.style.maxWidth = '100%';
+      day.style.flex = 'none';
+      day.style.margin = '0';
+      day.style.padding = '0';
+      day.style.display = 'flex';
+      day.style.alignItems = 'center';
+      day.style.justifyContent = 'center';
+      day.style.borderRadius = '0.375rem';
+
+      // IMPORTANTE: Limpiar estilos inline de Flatpickr que bloquean el hover
+      // Solo para días normales (no seleccionados, no deshabilitados, no de otros meses)
+      if (!day.classList.contains('selected') &&
+          !day.classList.contains('flatpickr-disabled') &&
+          !day.classList.contains('prevMonthDay') &&
+          !day.classList.contains('nextMonthDay')) {
+        // Remover estilos inline para que el CSS funcione
+        day.style.removeProperty('background-color');
+        day.style.removeProperty('border');
+        day.style.removeProperty('border-color');
+      }
+    });
+
+    // Arreglar el contenedor principal
+    const rContainer = calendar.querySelector('.flatpickr-rContainer');
+    if (rContainer) {
+      rContainer.style.display = 'block';
+      rContainer.style.width = '100%';
+    }
+
+    const innerContainer = calendar.querySelector('.flatpickr-innerContainer');
+    if (innerContainer) {
+      innerContainer.style.display = 'block';
+      innerContainer.style.width = '100%';
+    }
+
+    const daysContainer = calendar.querySelector('.flatpickr-days');
+    if (daysContainer) {
+      daysContainer.style.width = '100%';
+    }
+
+    // Arreglar los nombres de los días de la semana
+    const weekdays = calendar.querySelectorAll('.flatpickr-weekday');
+    weekdays.forEach(weekday => {
+      weekday.style.fontSize = '0.85rem';
+      weekday.style.fontWeight = '700';
+      weekday.style.color = '#212529';
+      weekday.style.textTransform = 'uppercase';
+      weekday.style.letterSpacing = '0.5px';
+    });
+  }, 10);
 }
 
 function renderSelectedDays() {

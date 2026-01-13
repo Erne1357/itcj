@@ -12,10 +12,11 @@ from .appointment import Appointment
 from ....core.models.notification import Notification
 from .audit_log import AuditLog
 from .period_enabled_day import PeriodEnabledDay
+from .agendatec_period_config import AgendaTecPeriodConfig
 
 __all__ = [
     "db",
     "Role", "User", "Program", "Coordinator", "ProgramCoordinator",
     "AvailabilityWindow", "TimeSlot", "Request", "Appointment",
-    "Notification", "AuditLog", "PeriodEnabledDay",
+    "Notification", "AuditLog", "PeriodEnabledDay", "AgendaTecPeriodConfig",
 ]

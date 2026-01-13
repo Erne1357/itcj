@@ -1,10 +1,9 @@
 # routes/templates/student.py
-from flask import Blueprint, render_template,g, current_app,request,url_for,redirect
-from itcj.core.utils.decorators import login_required, role_required_page,app_required
+from flask import Blueprint, render_template, g, current_app, request, url_for, redirect
+from itcj.core.utils.decorators import login_required, role_required_page, app_required
 from itcj.apps.agendatec.services.student.home import has_request
-from itcj.core.utils.admit_window import is_student_window_open, get_student_window, fmt_spanish
-import os
-from datetime import datetime
+from itcj.apps.agendatec.utils.period_utils import is_student_window_open, get_student_window, fmt_spanish
+
 student_pages_bp = Blueprint("student_pages", __name__)
 
 @student_pages_bp.before_request
@@ -21,12 +20,8 @@ def gate_student_period():
 
 @student_pages_bp.get("/home")
 @login_required
-@app_required("agendatec",roles=["student"])
+@app_required("agendatec", roles=["student"])
 def student_home():
-    last_time_str = os.getenv('LAST_TIME_STUDENT_ADMIT')    
-    last_time = datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S')            
-    if datetime.now() > last_time:
-        return render_template("agendatec/student/close.html", title = "Periodo terminado")
     g.current_user["has_appointment"] = has_request(g.current_user["sub"])
     return render_template("agendatec/student/home.html", title="Alumno - Inicio")
 

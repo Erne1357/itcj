@@ -34,6 +34,8 @@ function getCoordId() {
 (() => {
 
   const $ = (sel) => document.querySelector(sel);
+  const periodNameEl = $("#periodName");
+
   const statusTone = (s) => ({
     "PENDING": "warning",
     "RESOLVED_SUCCESS": "success",
@@ -85,10 +87,19 @@ function getCoordId() {
       const r = await fetch(url, { credentials: "include" });
       if (!r.ok) throw new Error();
       const data = await r.json();
+
+      // Actualizar nombre del período
+      if (data?.period?.name && periodNameEl) {
+        periodNameEl.textContent = data.period.name;
+      }
+
       if (useTable) renderTable(data.slots || []);
       else renderList((data.items || []));
     } catch (e) {
       showToast("Error al cargar citas.", "error");
+      if (periodNameEl) {
+        periodNameEl.textContent = "Error al cargar";
+      }
     }
   });
 
@@ -263,8 +274,14 @@ function getCoordId() {
     }
   }
 
-  // Carga inicial
-  try { $("#btnLoadAppointments").click(); } catch { }
+  // Esperar a que appointments_init.js termine de cargar los días
+  document.addEventListener('appointmentsInitReady', (e) => {
+    const selectedDay = e.detail?.selectedDay;
+    if (selectedDay) {
+      // Solo cargar si hay un día seleccionado
+      $("#btnLoadAppointments").click();
+    }
+  });
 
   function escapeHtml(str) {
     return (str || "")

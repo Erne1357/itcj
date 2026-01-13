@@ -9,14 +9,17 @@
     <div class="col-12">
         <div class="card shadow-sm">
             <div class="card-body">
-                <h5 class="card-title mb-3">Configurar horario del día</h5>
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                    <h5 class="card-title mb-0">Configurar horario del día</h5>
+                    <div class="badge bg-primary fs-6 px-3 py-2" id="currentPeriod" style="white-space: nowrap;">
+                        <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
+                    </div>
+                </div>
                 <form id="dayConfigForm" class="row g-2 align-items-end">
                     <div class="col-12 col-sm-4">
                         <label class="form-label">Día</label>
-                        <select class="form-select" id="cfgDay" required>
-                            <option value="2025-08-25">Lun 25 Ago</option>
-                            <option value="2025-08-26">Mar 26 Ago</option>
-                            <option value="2025-08-27">Mié 27 Ago</option>
+                        <select class="form-select" id="cfgDay" required disabled>
+                            <option value="">Cargando días habilitados...</option>
                         </select>
                     </div>
                     <div class="col-6 col-sm-2">
@@ -114,10 +117,8 @@
         <div class="row g-2 align-items-end">
             <div class="col-12 col-sm-4">
                 <label class="form-label">Día</label>
-                <select class="form-select" id="cfgDayDel" required>
-                    <option value="2025-08-25">Lun 25 Ago</option>
-                    <option value="2025-08-26">Mar 26 Ago</option>
-                    <option value="2025-08-27">Mié 27 Ago</option>
+                <select class="form-select" id="cfgDayDel" required disabled>
+                    <option value="">Cargando días habilitados...</option>
                 </select>
             </div>
             <div class="col-6 col-sm-2">
@@ -141,6 +142,8 @@
 {%endblock%}
 {% block extra_js %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<!-- IMPORTANTE: slots_init.js debe cargarse PRIMERO para llenar los selects de días -->
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_init.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_view.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots.js') }}?v={{ static_version }}"></script>

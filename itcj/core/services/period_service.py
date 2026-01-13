@@ -51,11 +51,12 @@ def get_period_by_id(period_id: int) -> Optional[AcademicPeriod]:
 
 def is_student_window_open() -> bool:
     """
-    Verifica si la ventana de admisión para estudiantes está abierta.
+    Verifica si la ventana de admisión para estudiantes de AgendaTec está abierta.
 
     Condiciones que deben cumplirse:
     - Debe existir un período activo
     - El período debe tener status='ACTIVE'
+    - Debe existir configuración de AgendaTec para ese período
     - La fecha/hora actual debe ser <= student_admission_deadline
 
     Returns:
@@ -65,7 +66,12 @@ def is_student_window_open() -> bool:
     if not period:
         return False
 
-    return period.is_student_window_open()
+    # Verificar que exista configuración de AgendaTec para este período
+    config = get_agendatec_config(period.id)
+    if not config:
+        return False
+
+    return config.is_student_window_open()
 
 
 def is_period_active(period_id: int) -> bool:
@@ -202,6 +208,116 @@ def archive_period(period_id: int) -> bool:
     db.session.commit()
 
     return True
+
+
+# ==================== CONFIGURACIÓN DE AGENDATEC ====================
+
+def get_agendatec_config(period_id: Optional[int] = None):
+    """
+    Obtiene la configuración de AgendaTec para un período.
+
+    Args:
+        period_id: ID del período (opcional, por defecto el activo)
+
+    Returns:
+        AgendaTecPeriodConfig | None: La configuración o None si no existe
+    """
+    from itcj.apps.agendatec.models.agendatec_period_config import AgendaTecPeriodConfig
+
+    if period_id is None:
+        period = get_active_period()
+        if not period:
+            return None
+        period_id = period.id
+
+    return db.session.query(AgendaTecPeriodConfig).filter_by(
+        period_id=period_id
+    ).first()
+
+
+def create_agendatec_config(period_id: int, student_admission_deadline: datetime,
+                            max_cancellations: int = 2,
+                            allow_drop: bool = True,
+                            allow_appointment: bool = True,
+                            created_by_id: Optional[int] = None):
+    """
+    Crea la configuración de AgendaTec para un período.
+
+    Args:
+        period_id: ID del período
+        student_admission_deadline: Fecha/hora límite para admisión de estudiantes
+        max_cancellations: Límite de cancelaciones por estudiante (default: 2)
+        allow_drop: Permitir solicitudes de tipo DROP (default: True)
+        allow_appointment: Permitir solicitudes de tipo APPOINTMENT (default: True)
+        created_by_id: ID del usuario que crea la configuración
+
+    Returns:
+        AgendaTecPeriodConfig: La configuración creada
+
+    Raises:
+        ValueError: Si ya existe configuración para ese período o el período no existe
+    """
+    from itcj.apps.agendatec.models.agendatec_period_config import AgendaTecPeriodConfig
+
+    # Verificar que el período existe
+    period = get_period_by_id(period_id)
+    if not period:
+        raise ValueError(f"Período con ID {period_id} no encontrado")
+
+    # Verificar que no exista ya una configuración
+    existing = get_agendatec_config(period_id)
+    if existing:
+        raise ValueError(f"Ya existe configuración de AgendaTec para el período {period_id}")
+
+    # Crear configuración
+    config = AgendaTecPeriodConfig(
+        period_id=period_id,
+        student_admission_deadline=student_admission_deadline,
+        max_cancellations_per_student=max_cancellations,
+        allow_drop_requests=allow_drop,
+        allow_appointment_requests=allow_appointment,
+        created_by_id=created_by_id
+    )
+
+    db.session.add(config)
+    db.session.commit()
+
+    return config
+
+
+def update_agendatec_config(period_id: int, **kwargs):
+    """
+    Actualiza la configuración de AgendaTec para un período.
+
+    Args:
+        period_id: ID del período
+        **kwargs: Campos a actualizar (student_admission_deadline, max_cancellations_per_student,
+                 allow_drop_requests, allow_appointment_requests)
+
+    Returns:
+        AgendaTecPeriodConfig | None: La configuración actualizada o None si no existe
+
+    Raises:
+        ValueError: Si el período no tiene configuración
+    """
+    config = get_agendatec_config(period_id)
+    if not config:
+        raise ValueError(f"No existe configuración de AgendaTec para el período {period_id}")
+
+    # Actualizar campos permitidos
+    if "student_admission_deadline" in kwargs:
+        config.student_admission_deadline = kwargs["student_admission_deadline"]
+    if "max_cancellations_per_student" in kwargs:
+        config.max_cancellations_per_student = kwargs["max_cancellations_per_student"]
+    if "allow_drop_requests" in kwargs:
+        config.allow_drop_requests = kwargs["allow_drop_requests"]
+    if "allow_appointment_requests" in kwargs:
+        config.allow_appointment_requests = kwargs["allow_appointment_requests"]
+
+    config.updated_at = datetime.now(_get_tz())
+    db.session.commit()
+
+    return config
 
 
 # ==================== ESTADÍSTICAS ====================

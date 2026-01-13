@@ -10,7 +10,9 @@ from zoneinfo import ZoneInfo
 from itcj.core.extensions import db
 from itcj.core.models.academic_period import AcademicPeriod
 from itcj.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
+from itcj.apps.agendatec.models.agendatec_period_config import AgendaTecPeriodConfig
 from itcj.apps.agendatec.models.request import Request
+from itcj.core.services import period_service
 
 
 @click.command('seed-periods')
@@ -45,11 +47,20 @@ def seed_periods_command():
             name="Ago-Dic 2025",
             start_date=date(2025, 8, 19),
             end_date=date(2025, 12, 13),
-            student_admission_deadline=datetime(2025, 8, 27, 18, 0, 0, tzinfo=tz),
             status="INACTIVE"
         )
         db.session.add(period1)
         db.session.flush()  # Para obtener el ID
+
+        # Crear configuración de AgendaTec para este período
+        config1 = AgendaTecPeriodConfig(
+            period_id=period1.id,
+            student_admission_deadline=datetime(2025, 8, 27, 18, 0, 0, tzinfo=tz),
+            max_cancellations_per_student=2,
+            allow_drop_requests=True,
+            allow_appointment_requests=True
+        )
+        db.session.add(config1)
 
         # Configurar días habilitados para Ago-Dic 2025
         enabled_days_p1 = [
@@ -83,11 +94,20 @@ def seed_periods_command():
             name="Ene-Jun 2026",
             start_date=date(2026, 1, 19),
             end_date=date(2026, 6, 12),
-            student_admission_deadline=datetime(2026, 1, 27, 18, 0, 0, tzinfo=tz),
             status="ACTIVE"
         )
         db.session.add(period2)
         db.session.flush()
+
+        # Crear configuración de AgendaTec para este período
+        config2 = AgendaTecPeriodConfig(
+            period_id=period2.id,
+            student_admission_deadline=datetime(2026, 1, 27, 18, 0, 0, tzinfo=tz),
+            max_cancellations_per_student=2,
+            allow_drop_requests=True,
+            allow_appointment_requests=True
+        )
+        db.session.add(config2)
 
         # Configurar días habilitados para Ene-Jun 2026 (ejemplo: 26, 27, 28 de enero)
         enabled_days_p2 = [
@@ -145,10 +165,12 @@ def activate_period_command(period_id):
         period = activate_service(period_id)
 
         if period:
+            config = period_service.get_agendatec_config(period.id)
             click.echo(f'✅ Período "{period.name}" activado correctamente')
             click.echo(f'   • ID: {period.id}')
             click.echo(f'   • Rango: {period.start_date} a {period.end_date}')
-            click.echo(f'   • Admisión hasta: {period.student_admission_deadline}')
+            if config:
+                click.echo(f'   • Admisión hasta: {config.student_admission_deadline}')
         else:
             click.echo(f'❌ No se pudo activar el período ID: {period_id}')
 
@@ -179,11 +201,13 @@ def list_periods_command():
 
         enabled_days_count = db.session.query(PeriodEnabledDay).filter_by(period_id=p.id).count()
         requests_count = db.session.query(Request).filter_by(period_id=p.id).count()
+        config = period_service.get_agendatec_config(p.id)
 
         click.echo(f'{status_emoji} {p.name} (ID: {p.id})')
         click.echo(f'   Estado: {p.status}')
         click.echo(f'   Rango: {p.start_date} → {p.end_date}')
-        click.echo(f'   Admisión hasta: {p.student_admission_deadline}')
+        if config:
+            click.echo(f'   Admisión hasta: {config.student_admission_deadline}')
         click.echo(f'   Días habilitados: {enabled_days_count}')
         click.echo(f'   Solicitudes: {requests_count}')
         click.echo()

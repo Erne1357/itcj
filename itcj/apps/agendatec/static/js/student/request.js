@@ -640,7 +640,7 @@
 
       // Éxito → redirigir a Mis solicitudes
       showToast("Solicitud creada correctamente.", "success");
-      setTimeout(() => { window.location.href = "/student/requests"; }, 500);
+      setTimeout(() => { window.location.href = "/agendatec/student/requests"; }, 500);
 
     } catch {
       showToast("No se pudo conectar.", "error");

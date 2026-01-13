@@ -1,6 +1,5 @@
 from functools import wraps
-from flask import g, request, redirect, url_for, jsonify, current_app,abort
-from .admit_window import is_student_window_open
+from flask import g, request, redirect, url_for, jsonify, current_app, abort
 import logging, os
 from datetime import datetime
 from itcj.core.extensions import db

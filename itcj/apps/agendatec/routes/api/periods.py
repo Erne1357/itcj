@@ -125,7 +125,7 @@ def list_periods():
 @api_app_required("agendatec", perms=["agendatec.periods.api.create"])
 def create_period():
     """
-    Crea un nuevo período académico.
+    Crea un nuevo período académico con su configuración de AgendaTec.
 
     Body (JSON):
         - name: str (requerido) - Nombre del período
@@ -133,9 +133,12 @@ def create_period():
         - end_date: str (requerido) - Fecha fin (YYYY-MM-DD)
         - student_admission_deadline: str (requerido) - Fecha/hora límite ISO
         - status: str (opcional) - ACTIVE/INACTIVE/ARCHIVED (default: INACTIVE)
+        - max_cancellations_per_student: int (opcional) - Límite de cancelaciones (default: 2)
+        - allow_drop_requests: bool (opcional) - Permitir bajas (default: true)
+        - allow_appointment_requests: bool (opcional) - Permitir citas (default: true)
 
     Returns:
-        201: Período creado
+        201: Período creado con su configuración
         400: Datos inválidos
     """
     data = request.json
@@ -162,14 +165,15 @@ def create_period():
     if existing:
         return jsonify({"error": "period_name_already_exists"}), 409
 
+    current_user_id = _get_current_user_id()
+
     # Crear período
     period = AcademicPeriod(
         name=data["name"],
         start_date=start_date,
         end_date=end_date,
-        student_admission_deadline=admission_deadline,
         status=data.get("status", "INACTIVE"),
-        created_by_id=_get_current_user_id()
+        created_by_id=current_user_id
     )
 
     # Si se marca como ACTIVE, desactivar los demás
@@ -177,9 +181,31 @@ def create_period():
         db.session.query(AcademicPeriod).update({"status": "INACTIVE"})
 
     db.session.add(period)
+    db.session.flush()  # Para obtener el ID del período
+
+    # Crear configuración de AgendaTec automáticamente
+    try:
+        period_service.create_agendatec_config(
+            period_id=period.id,
+            student_admission_deadline=admission_deadline,
+            max_cancellations=data.get("max_cancellations_per_student", 2),
+            allow_drop=data.get("allow_drop_requests", True),
+            allow_appointment=data.get("allow_appointment_requests", True),
+            created_by_id=current_user_id
+        )
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"error": "failed_to_create_config", "message": str(e)}), 500
+
     db.session.commit()
 
-    return jsonify(period.to_dict()), 201
+    # Incluir configuración en la respuesta
+    result = period.to_dict()
+    config = period_service.get_agendatec_config(period.id)
+    if config:
+        result["agendatec_config"] = config.to_dict()
+
+    return jsonify(result), 201
 
 
 @api_periods_bp.route("/<int:period_id>", methods=["GET"])
@@ -204,13 +230,16 @@ def get_period(period_id: int):
 @api_app_required("agendatec", perms=["agendatec.periods.api.update"])
 def update_period(period_id: int):
     """
-    Actualiza un período académico.
+    Actualiza un período académico y su configuración de AgendaTec.
 
     Body (JSON) - todos los campos son opcionales:
         - name: str
         - start_date: str (YYYY-MM-DD)
         - end_date: str (YYYY-MM-DD)
         - student_admission_deadline: str (ISO datetime)
+        - max_cancellations_per_student: int
+        - allow_drop_requests: bool
+        - allow_appointment_requests: bool
         - status: str (ACTIVE/INACTIVE/ARCHIVED)
 
     Returns:
@@ -225,7 +254,7 @@ def update_period(period_id: int):
 
     data = request.json
 
-    # Actualizar campos permitidos
+    # Actualizar campos del período
     if "name" in data:
         # Validar que el nombre no exista en otro período
         existing = db.session.query(AcademicPeriod).filter(
@@ -248,12 +277,6 @@ def update_period(period_id: int):
             return jsonify({"error": "invalid_end_date_format"}), 400
         period.end_date = end_date
 
-    if "student_admission_deadline" in data:
-        deadline = _parse_datetime(data["student_admission_deadline"])
-        if not deadline:
-            return jsonify({"error": "invalid_deadline_format"}), 400
-        period.student_admission_deadline = deadline
-
     # Validar rango de fechas
     if period.end_date < period.start_date:
         return jsonify({"error": "end_date_before_start_date"}), 400
@@ -267,9 +290,40 @@ def update_period(period_id: int):
         period.status = data["status"]
 
     period.updated_at = datetime.now(_get_tz())
+
+    # Actualizar configuración de AgendaTec si se proporcionan campos
+    config_fields = {}
+    if "student_admission_deadline" in data:
+        deadline = _parse_datetime(data["student_admission_deadline"])
+        if not deadline:
+            return jsonify({"error": "invalid_deadline_format"}), 400
+        config_fields["student_admission_deadline"] = deadline
+
+    if "max_cancellations_per_student" in data:
+        config_fields["max_cancellations_per_student"] = data["max_cancellations_per_student"]
+
+    if "allow_drop_requests" in data:
+        config_fields["allow_drop_requests"] = data["allow_drop_requests"]
+
+    if "allow_appointment_requests" in data:
+        config_fields["allow_appointment_requests"] = data["allow_appointment_requests"]
+
+    # Actualizar configuración si hay campos
+    if config_fields:
+        try:
+            period_service.update_agendatec_config(period_id, **config_fields)
+        except ValueError as e:
+            return jsonify({"error": "config_not_found", "message": str(e)}), 404
+
     db.session.commit()
 
-    return jsonify(period.to_dict()), 200
+    # Incluir configuración en la respuesta
+    result = period.to_dict()
+    config = period_service.get_agendatec_config(period.id)
+    if config:
+        result["agendatec_config"] = config.to_dict()
+
+    return jsonify(result), 200
 
 
 @api_periods_bp.route("/<int:period_id>/activate", methods=["POST"])
@@ -454,7 +508,7 @@ def get_active_period():
     para obtener información del período activo y los días habilitados.
 
     Returns:
-        200: Datos del período activo con días habilitados
+        200: Datos del período activo con días habilitados y configuración
         404: No hay período activo
     """
     period = period_service.get_active_period()
@@ -465,9 +519,17 @@ def get_active_period():
     # Incluir días habilitados
     enabled_days = period_service.get_enabled_days(period.id)
 
+    # Incluir configuración de AgendaTec
+    config = period_service.get_agendatec_config(period.id)
+
     result = period.to_dict()
     result["enabled_days"] = [d.isoformat() for d in enabled_days]
-    result["is_window_open"] = period.is_student_window_open()
+
+    if config:
+        result["agendatec_config"] = config.to_dict()
+        result["is_window_open"] = config.is_student_window_open()
+    else:
+        result["is_window_open"] = False
 
     return jsonify(result), 200
 

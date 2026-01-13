@@ -102,7 +102,7 @@ def _split_or_delete_windows(coord_id, d, time_ge, time_lt):
 
 @api_coord_bp.get("/dashboard")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.coord_dashboard.read"])
+@api_app_required(app_key="agendatec", perms=["agendatec.coord_dashboard.api.read"])
 def coord_dashboard_summary():
     coord_id = _current_coordinator_id()
     if not coord_id:
@@ -130,15 +130,17 @@ def coord_dashboard_summary():
                           Request.status == "PENDING")
                   ).scalar() or 0
 
-    # Drops de los programas del coordinador
+    # Drops de los programas del coordinador (filtrado por período activo)
     prog_ids = _coord_program_ids(coord_id)
     drop_q = (db.session.query(Request.id)
               .filter(Request.type == "DROP",
-                      Request.program_id.in_(prog_ids)))
+                      Request.program_id.in_(prog_ids),
+                      Request.period_id == period.id))
     drops_total = drop_q.count()
     drops_pending = (db.session.query(func.count(Request.id))
                      .filter(Request.type == "DROP",
                              Request.program_id.in_(prog_ids),
+                             Request.period_id == period.id,
                              Request.status == "PENDING")
                      ).scalar() or 0
 
@@ -152,7 +154,16 @@ def coord_dashboard_summary():
         if not has_win:
             missing.append(str(d))
 
+    # Incluir información del período activo
+    period_info = {
+        "id": period.id,
+        "name": period.name,
+        "start_date": period.start_date.isoformat(),
+        "end_date": period.end_date.isoformat()
+    }
+
     return jsonify({
+        "period": period_info,
         "days_allowed": [str(x) for x in sorted(enabled_days)],
         "appointments": {"total": ap_total, "pending": ap_pending},
         "drops": {"total": drops_total, "pending": drops_pending},
@@ -515,8 +526,21 @@ def coord_appointments():
             "request_status": req.status
         })
 
+    # Información del período para incluir en la respuesta
+    period_info = {
+        "id": period.id,
+        "name": period.name,
+        "start_date": period.start_date.isoformat(),
+        "end_date": period.end_date.isoformat()
+    }
+
     if not include_empty:
-        return jsonify({"day": str(d), "total": total, "items": items})
+        return jsonify({
+            "period": period_info,
+            "day": str(d),
+            "total": total,
+            "items": items
+        })
 
     # Vista tabla: devolver TODOS los slots del coordinador en ese día (con o sin cita)
     # Left join: time_slots LEFT JOIN appointments (del coordinador y día)
@@ -531,6 +555,7 @@ def coord_appointments():
             "request_id": req.id,
             "program": {"id": prog.id, "name": prog.name},
             "description": req.description,
+            "coordinator_comment": req.coordinator_comment,
             "student": {"id": stu.id, "full_name": stu.full_name, "control_number": stu.control_number, "username" : stu.username},
             "request_status": req.status
         }
@@ -543,7 +568,11 @@ def coord_appointments():
         }
         slots.append(entry)
 
-    return jsonify({"day": str(d), "slots": slots})
+    return jsonify({
+        "period": period_info,
+        "day": str(d),
+        "slots": slots
+    })
 
 # ----------------- APPOINTMENT STATUS UPDATE -----------------
 @api_coord_bp.patch("/appointments/<int:ap_id>")
@@ -615,6 +644,11 @@ def coord_drops():
         if not prog_ids:
             return jsonify({"total": 0, "items": []})
 
+    # Obtener período activo para filtrar
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
     status = (request.args.get("status") or "ALL").upper()
     program_id = request.args.get("program_id")
     request_id = request.args.get("request_id")
@@ -623,7 +657,8 @@ def coord_drops():
 
     q = (db.session.query(Request, User)
          .join(User, User.id == Request.student_id)
-         .filter(Request.type == "DROP"))
+         .filter(Request.type == "DROP",
+                 Request.period_id == period.id))  # Filtrar por período activo
 
     # 🔒 filtro de pertenencia por programa (solo coordinador; admin ve todo)
     if not is_admin:
@@ -676,6 +711,7 @@ def coord_drops():
         "description": r.description,
         "created_at": r.created_at.isoformat(),
         "comment": r.coordinator_comment,
+        "coordinator_comment": r.coordinator_comment,
         "student": {
             "id": u.id,
             "full_name": u.full_name,
@@ -684,7 +720,19 @@ def coord_drops():
         }
     } for r, u in rows]
 
-    return jsonify({"total": total, "items": items})
+    # Incluir información del período activo
+    period_info = {
+        "id": period.id,
+        "name": period.name,
+        "start_date": period.start_date.isoformat(),
+        "end_date": period.end_date.isoformat()
+    }
+
+    return jsonify({
+        "period": period_info,
+        "total": total,
+        "items": items
+    })
 
 @api_coord_bp.patch("/requests/<int:req_id>/status")
 @api_auth_required

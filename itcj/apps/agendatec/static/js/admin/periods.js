@@ -80,12 +80,13 @@ function renderPeriods() {
       ARCHIVED: "Archivado"
     }[p.status] || p.status;
 
+    const deadline = p.agendatec_config?.student_admission_deadline || '-';
     return `
       <tr>
         <td><strong>${escapeHtml(p.name)}</strong></td>
         <td>${formatDate(p.start_date)}</td>
         <td>${formatDate(p.end_date)}</td>
-        <td>${formatDateTime(p.student_admission_deadline)}</td>
+        <td>${formatDateTime(deadline)}</td>
         <td><span class="badge bg-${statusClass}">${statusText}</span></td>
         <td>${p.request_count || 0}</td>
         <td>
@@ -129,10 +130,15 @@ function openModal(periodId) {
     document.getElementById("fStartDate").value = period.start_date;
     document.getElementById("fEndDate").value = period.end_date;
 
-    // Parse deadline
-    const deadline = new Date(period.student_admission_deadline);
-    document.getElementById("fDeadlineDate").value = deadline.toISOString().split('T')[0];
-    document.getElementById("fDeadlineTime").value = deadline.toTimeString().slice(0, 5);
+    // Parse deadline from agendatec_config
+    if (period.agendatec_config?.student_admission_deadline) {
+      const deadline = new Date(period.agendatec_config.student_admission_deadline);
+      document.getElementById("fDeadlineDate").value = deadline.toISOString().split('T')[0];
+      document.getElementById("fDeadlineTime").value = deadline.toTimeString().slice(0, 5);
+    } else {
+      document.getElementById("fDeadlineDate").value = "";
+      document.getElementById("fDeadlineTime").value = "18:00";
+    }
 
     document.getElementById("fStatus").value = period.status;
   } else {
@@ -271,6 +277,10 @@ async function viewDetails(periodId) {
     const period = await periodResp.json();
     const stats = await statsResp.json();
 
+    const deadlineDisplay = period.agendatec_config?.student_admission_deadline
+      ? formatDateTime(period.agendatec_config.student_admission_deadline)
+      : '-';
+
     const content = document.getElementById("detailsContent");
     content.innerHTML = `
       <div class="row g-3">
@@ -281,7 +291,7 @@ async function viewDetails(periodId) {
             <tr><th>Estado:</th><td><span class="badge bg-${period.status === 'ACTIVE' ? 'success' : 'secondary'}">${period.status}</span></td></tr>
             <tr><th>Fecha Inicio:</th><td>${formatDate(period.start_date)}</td></tr>
             <tr><th>Fecha Fin:</th><td>${formatDate(period.end_date)}</td></tr>
-            <tr><th>Fecha Límite Admisión:</th><td>${formatDateTime(period.student_admission_deadline)}</td></tr>
+            <tr><th>Fecha Límite Admisión:</th><td>${deadlineDisplay}</td></tr>
           </table>
         </div>
         <div class="col-12">

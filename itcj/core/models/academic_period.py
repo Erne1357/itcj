@@ -8,10 +8,11 @@ class AcademicPeriod(db.Model):
     """
     Modelo para gestionar períodos académicos (semestres).
 
-    Permite configurar períodos reutilizables con:
-    - Ventana de admisión para estudiantes
-    - Días habilitados configurables
-    - Un solo período activo a la vez
+    Este modelo contiene SOLO información general del semestre que es compartida
+    por todas las aplicaciones del sistema.
+
+    Configuraciones específicas de cada aplicación (ej: AgendaTec) se almacenan
+    en modelos separados relacionados a este período.
 
     Ejemplos de períodos:
     - "Ago-Dic 2025"
@@ -30,11 +31,6 @@ class AcademicPeriod(db.Model):
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
 
-    # Ventana de admisión para estudiantes
-    # Después de esta fecha, los estudiantes no pueden crear solicitudes
-    student_admission_deadline = db.Column(db.DateTime(timezone=True), nullable=False)
-    # Ej: "2025-08-27 18:00:00-07:00"
-
     # Estado del período
     # Solo un período puede estar ACTIVE a la vez (validado en aplicación)
     status = db.Column(
@@ -49,6 +45,15 @@ class AcademicPeriod(db.Model):
     created_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id"), nullable=True)
 
     # Relaciones
+    # Relación con configuración específica de AgendaTec
+    agendatec_config = db.relationship(
+        "AgendaTecPeriodConfig",
+        back_populates="period",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
+
     enabled_days = db.relationship(
         "PeriodEnabledDay",
         back_populates="period",
@@ -85,7 +90,6 @@ class AcademicPeriod(db.Model):
             "name": self.name,
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
-            "student_admission_deadline": self.student_admission_deadline.isoformat() if self.student_admission_deadline else None,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
@@ -102,24 +106,6 @@ class AcademicPeriod(db.Model):
         """
         return AcademicPeriod.query.filter_by(status="ACTIVE").first()
 
-    def is_student_window_open(self) -> bool:
-        """
-        Verifica si la ventana de admisión para estudiantes está abierta.
-
-        Condiciones:
-        - El período debe estar ACTIVE
-        - La fecha/hora actual debe ser <= student_admission_deadline
-
-        Returns:
-            bool: True si la ventana está abierta, False en caso contrario
-        """
-        if self.status != "ACTIVE":
-            return False
-
-        tz = ZoneInfo("America/Ciudad_Juarez")
-        now = datetime.now(tz)
-
-        return now <= self.student_admission_deadline
 
     def is_within_period(self, date) -> bool:
         """

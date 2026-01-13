@@ -135,7 +135,7 @@ def get_agendatec_navigation(user_permissions: set[str], student_window_open: bo
 @agendatec_pages_bp.context_processor
 def inject_agendatec_nav():
     """Inyecta navegación específica de AgendaTec en todas las páginas"""
-    from itcj.core.utils.admit_window import is_student_window_open
+    from itcj.apps.agendatec.utils.period_utils import is_student_window_open
     
     nav_items = []
     

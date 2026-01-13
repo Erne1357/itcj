@@ -122,9 +122,15 @@
   $("#ssDay").addEventListener("change", () => $("#btnLoadSS").click());
   $("#ssProgram").addEventListener("change", () => $("#btnLoadSS").click());
 
-  // Init
-  (async () => {
-    await loadPrograms();
-    $("#btnLoadSS").click();
-  })();
+  // Esperar a que home_init.js termine de cargar los días
+  document.addEventListener('socialHomeInitReady', (e) => {
+    const selectedDay = e.detail?.selectedDay;
+    if (selectedDay) {
+      // Solo cargar si hay un día seleccionado
+      $("#btnLoadSS").click();
+    }
+  });
+
+  // Cargar programas al inicio
+  loadPrograms();
 })();

@@ -3,6 +3,8 @@
 
 (() => {
   const $ = (sel) => document.querySelector(sel);
+  const periodNameEl = $("#periodName");
+
   function getCoordId() {
     try { return Number(document.body?.dataset?.coordId || 0); } catch { return 0; }
   }
@@ -63,9 +65,18 @@
       const r = await fetch(url, { credentials: "include" });
       if (!r.ok) throw new Error();
       const data = await r.json();
+
+      // Actualizar nombre del período
+      if (data?.period?.name && periodNameEl) {
+        periodNameEl.textContent = data.period.name;
+      }
+
       renderDrops(data.items || []);
     } catch {
       showToast("Error al cargar solicitudes de baja.", "error");
+      if (periodNameEl) {
+        periodNameEl.textContent = "Error al cargar";
+      }
     }
   });
 

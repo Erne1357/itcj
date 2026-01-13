@@ -6,23 +6,26 @@
   <div class="col-12">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 class="card-title mb-3">Citas del día</h5>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+          <h5 class="card-title mb-0">Citas del día</h5>
+          <div class="badge bg-primary fs-6 px-3 py-2" id="currentPeriod" style="white-space: nowrap;">
+            <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
+          </div>
+        </div>
 
         <div class="row g-2 mb-2">
           <div class="col-12 col-sm-3">
             <label class="form-label">Día</label>
-            <select class="form-select" id="apDay">
-              <option value="2025-08-25">25 Ago</option>
-              <option value="2025-08-26">26 Ago</option>
-              <option value="2025-08-27">27 Ago</option>
+            <select class="form-select" id="apDay" disabled>
+              <option value="">Cargando días...</option>
             </select>
           </div>
 
           <div class="col-12 col-sm-3">
             <label class="form-label">Estado de solicitud</label>
             <select class="form-select" id="reqStatus">
-              <option value="ALL" selected>Todas</option>
-              <option value="PENDING">Pendientes</option>
+              <option value="ALL">Todas</option>
+              <option value="PENDING" selected>Pendientes</option>
               <option value="RESOLVED_SUCCESS">Resueltas</option>
               <option value="RESOLVED_NOT_COMPLETED">No resueltas</option>
               <option value="NO_SHOW">No asistió</option>
@@ -78,6 +81,8 @@
 
 {% block extra_js %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<!-- Cargar días habilitados del período activo -->
+<script src="{{ url_for('static', filename='agendatec/js/coord/appointments_init.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/appointments.js') }}?v={{ static_version }}"></script>
 {% endblock %}

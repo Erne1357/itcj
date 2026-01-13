@@ -4,8 +4,8 @@ def has_request(user_id) -> bool:
     """
     Check if the user has an request.
     """
-    from models.user import User
-    from models.request import Request
+    from itcj.core.models.user import User
+    from itcj.apps.agendatec.models.request import Request
 
     user = User.query.get(user_id)
     if not user:

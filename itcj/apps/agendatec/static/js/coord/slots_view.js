@@ -139,6 +139,16 @@
     // Bind change
     daySel.addEventListener("change", onDayChange);
 
+    // Esperar a que slots_init.js termine de cargar los días
+    document.addEventListener('slotsInitReady', (e) => {
+        const d = e.detail?.selectedDay;
+        if (d) {
+            joinDayRoomsWhenSocketReady(d);
+            loadAndRender(d);
+            if (dayDel) dayDel.value = d;
+        }
+    });
+
     // Sockets: refrescar vista al vuelo
     (function wireSocketRefresh() {
         const s = slotsSock();
@@ -162,13 +172,6 @@
         s.on("slot_released", (p) => refreshIfDay(p?.day));
     })();
 
-    // Carga inicial
-    try {
-        const d = currentDay();
-        if (d) {
-            joinDayRoomsWhenSocketReady(d);
-            loadAndRender(d);
-            if (dayDel) dayDel.value = d;
-        }
-    } catch { }
+    // NOTA: La carga inicial ahora se hace desde el evento 'slotsInitReady'
+    // disparado por slots_init.js cuando los días están listos
 })();
