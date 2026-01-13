@@ -32,17 +32,69 @@ def _get_current_student():
 @api_app_required(app_key="agendatec", roles=["student"])
 def my_requests():
     u = _get_current_student()
-    active = (db.session.query(Request)
-              .filter(Request.student_id == u.id, Request.status == "PENDING")
-              .order_by(Request.created_at.desc())
-              .first())
+
+    # Get active period and admission deadline
+    active_period = period_service.get_active_period()
+    active_period_info = None
+    student_admission_deadline = None
+
+    if active_period:
+        config = period_service.get_agendatec_config(active_period.id)
+        active_period_info = {
+            "id": active_period.id,
+            "name": active_period.name,
+            "status": active_period.status,
+            "end_date": active_period.end_date.isoformat() if active_period.end_date else None
+        }
+        if config:
+            student_admission_deadline = config.student_admission_deadline.isoformat() if config.student_admission_deadline else None
+            active_period_info["student_admission_deadline"] = student_admission_deadline
+
+    # Get active request (PENDING) in the active period
+    active = None
+    if active_period:
+        active = (db.session.query(Request)
+                  .filter(Request.student_id == u.id,
+                          Request.period_id == active_period.id,
+                          Request.status == "PENDING")
+                  .order_by(Request.created_at.desc())
+                  .first())
+
+    # Get all history (non-PENDING requests)
     history = (db.session.query(Request)
                .filter(Request.student_id == u.id, Request.status != "PENDING")
                .order_by(Request.created_at.desc())
-               .limit(10).all())
+               .all())
+
+    # Collect all unique periods from requests for grouping
+    period_ids = set()
+    if active:
+        period_ids.add(active.period_id)
+    for h in history:
+        if h.period_id:
+            period_ids.add(h.period_id)
+
+    periods_dict = {}
+    for pid in period_ids:
+        p = db.session.query(AcademicPeriod).get(pid)
+        if p:
+            periods_dict[pid] = {
+                "id": p.id,
+                "name": p.name,
+                "status": p.status
+            }
 
     def to_dict(r: Request):
-        item = {"id": r.id, "type": r.type,"description": r.description ,"status": r.status, "created_at": r.created_at.isoformat(), "comment" : r.coordinator_comment}
+        item = {
+            "id": r.id,
+            "type": r.type,
+            "description": r.description,
+            "status": r.status,
+            "created_at": r.created_at.isoformat(),
+            "comment": r.coordinator_comment,
+            "period_id": r.period_id,
+            "period": periods_dict.get(r.period_id) if r.period_id else None
+        }
         if r.type == "APPOINTMENT":
             ap = db.session.query(Appointment).filter(Appointment.request_id == r.id).first()
             if ap:
@@ -55,7 +107,7 @@ def my_requests():
                         "id": sl.id,
                         "day": sl.day.isoformat(),
                         "start_time": sl.start_time.isoformat(),
-                        "end_time": sl.end_time.isoformat(),  
+                        "end_time": sl.end_time.isoformat(),
                         "is_booked": sl.is_booked
                     },
                     "status": ap.status
@@ -63,8 +115,10 @@ def my_requests():
         return item
 
     return jsonify({
+        "active_period": active_period_info,
         "active": to_dict(active) if active else None,
-        "history": [to_dict(x) for x in history]
+        "history": [to_dict(x) for x in history],
+        "periods": periods_dict
     })
 
 @api_req_bp.post("")
