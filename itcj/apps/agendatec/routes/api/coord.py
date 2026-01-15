@@ -678,6 +678,8 @@ def coord_drops():
     # Filtro por estado
     if status != "ALL":
         q = q.filter(Request.status == status)
+    else : 
+        q = q.filter(Request.status != "CANCELED")
 
     # Filtro por programa explícito (valida pertenencia si no eres admin)
     if program_id:
@@ -736,7 +738,7 @@ def coord_drops():
 
 @api_coord_bp.patch("/requests/<int:req_id>/status")
 @api_auth_required
-@api_app_required(app_key="agendatec", perms=["agendatec.appointments.edit", "agendatec.drops.edit"])
+@api_app_required(app_key="agendatec", perms=["agendatec.appointments.api.update.own", "agendatec.drops.api.update.own"])
 def update_request_status(req_id: int):
     coord_id = _current_coordinator_id()
     if not coord_id:

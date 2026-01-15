@@ -239,6 +239,14 @@
     if (activePeriodId && !groupedByPeriod[activePeriodId]) {
       periodIds.unshift(activePeriodId);
       groupedByPeriod[activePeriodId] = [];
+      // Asegurar que el período activo esté en el diccionario de períodos
+      if (!periods[activePeriodId] && activePeriod) {
+        periods[activePeriodId] = {
+          id: activePeriod.id,
+          name: activePeriod.name,
+          status: activePeriod.status
+        };
+      }
     }
 
     let html = `
@@ -280,7 +288,13 @@
         if (periodItems.length === 0 && isActivePeriod) {
           html += `
             <div class="alert alert-info mb-3" style="font-size: 0.9rem;">
-              <i class="bi bi-info-circle me-1"></i> Sin solicitudes en este período.
+              <i class="bi bi-info-circle me-1"></i> No tienes solicitudes cerradas en este periodo.
+            </div>
+          `;
+        } else if (periodItems.length === 0 && !isActivePeriod) {
+          html += `
+            <div class="alert alert-secondary mb-3" style="font-size: 0.9rem;">
+              <i class="bi bi-info-circle me-1"></i> Solicitudes cerradas.
             </div>
           `;
         } else if (periodItems.length > 0) {

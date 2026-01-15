@@ -188,6 +188,35 @@ function getCoordId() {
       </div>`;
   }
 
+  // Helper para mostrar modal de confirmación
+  function showConfirmModal(message) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById("confirmActionModal");
+      const messageEl = document.getElementById("confirmMessage");
+      const confirmBtn = document.getElementById("confirmActionBtn");
+
+      messageEl.textContent = message;
+
+      const bsModal = new bootstrap.Modal(modal);
+      bsModal.show();
+
+      // Limpiar listeners previos clonando el botón
+      const newConfirmBtn = confirmBtn.cloneNode(true);
+      confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+      // Handler para confirmar
+      newConfirmBtn.addEventListener("click", () => {
+        bsModal.hide();
+        resolve(true);
+      });
+
+      // Handler para cancelar (cuando se cierra el modal sin confirmar)
+      modal.addEventListener("hidden.bs.modal", () => {
+        resolve(false);
+      }, { once: true });
+    });
+  }
+
   // Acciones (cambiar estado de la SOLICITUD)
   document.addEventListener("click", async (e) => {
     const act = e.target.closest("button[data-req][data-st]");
@@ -204,7 +233,11 @@ function getCoordId() {
         "ATTENDED_OTHER_SLOT": "Marcar asistió en otro horario",
         "CANCELED": "Cancelar solicitud"
       }[st] || `Cambiar a ${st}`;
-      if (!confirm(`${label} (#${id})`)) return;
+
+      // Mostrar modal de confirmación
+      const confirmed = await showConfirmModal(`¿Confirmar: ${label} (#${id})?`);
+      if (!confirmed) return;
+
       await patchRequest(id, st, coordComment);
       $("#btnLoadAppointments").click();
       return;

@@ -3,8 +3,11 @@
   const $ = (s) => document.querySelector(s);
   const cfg = window.__adminDashboard || {};
   const fetchUrl = cfg.fetchUrl || cfg.Url || "/api/agendatec/v1/admin/stats/overview";
+  const periodsUrl = cfg.periodsUrl || "/api/agendatec/v1/periods";
 
   let chSeries;
+  let activePeriodId = null;
+  let periodsData = {};
   const stateMap = {
     PENDING: "#mPending",
     RESOLVED_SUCCESS: "#mSolved",
@@ -14,12 +17,71 @@
     CANCELED: "#mCanceled",
   };
 
-  // Rango por defecto: últimos 7 días
-  function initDates() {
-    //const to = new Date();
-    //const from = new Date(Date.now() - 7 * 86400000);
-    const to = new Date ('2025-08-27');
-    const from = new Date('2025-08-24');
+  // Cargar períodos y establecer fechas
+  async function loadPeriods() {
+    try {
+      const r = await fetch(periodsUrl, { credentials: "include" });
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      const periods = Array.isArray(data) ? data : (data.items || data.periods || []);
+
+      // Guardar períodos para referencia
+      periods.forEach(p => {
+        periodsData[p.id] = p;
+      });
+
+      // Encontrar período activo
+      const activePeriod = periods.find(p => p.status === "ACTIVE");
+      if (activePeriod) {
+        activePeriodId = activePeriod.id;
+      }
+
+      // Llenar select
+      const periodSelect = $("#fltPeriod");
+      const options = [
+        { id: "all", name: "Todos los períodos" },
+        ...periods.map(p => ({ id: p.id, name: p.name }))
+      ];
+
+      periodSelect.innerHTML = options
+        .map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`)
+        .join("");
+
+      // Preseleccionar período activo
+      if (activePeriodId) {
+        periodSelect.value = activePeriodId;
+        setPeriodDates(activePeriodId);
+      } else {
+        // Si no hay período activo, usar "Todos" y últimos 7 días
+        periodSelect.value = "all";
+        initDefaultDates();
+      }
+    } catch (e) {
+      console.error("Error loading periods:", e);
+      initDefaultDates();
+    }
+  }
+
+  // Establecer fechas según el período seleccionado
+  function setPeriodDates(periodId) {
+    const period = periodsData[periodId];
+    if (!period) return;
+
+    const startDate = period.start_date ? new Date(period.start_date) : null;
+    const endDate = period.end_date ? new Date(period.end_date) : null;
+
+    if (startDate) {
+      $("#fltFrom").value = startDate.toISOString().slice(0, 10);
+    }
+    if (endDate) {
+      $("#fltTo").value = endDate.toISOString().slice(0, 10);
+    }
+  }
+
+  // Fechas por defecto (últimos 7 días)
+  function initDefaultDates() {
+    const to = new Date();
+    const from = new Date(Date.now() - 7 * 86400000);
     $("#fltTo").value = to.toISOString().slice(0, 10);
     $("#fltFrom").value = from.toISOString().slice(0, 10);
   }
@@ -102,15 +164,19 @@
           if (!combined[x.coordinator_id]) combined[x.coordinator_id] = { name: x.coordinator_name, pending_app: 0, pending_drop: 0 };
           combined[x.coordinator_id].pending_drop = x.pending;
         });
-        const items = Object.values(combined).map(x => `
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span>${escapeHtml(x.name || "—")}</span>
-            <div>
-              <span class="badge text-bg-primary me-2">${x.pending_app || 0}</span>
-              <span class="badge text-bg-danger">${x.pending_drop || 0}</span>
+        const items = Object.values(combined).map(x => {
+          const totalPending = (x.pending_app || 0) + (x.pending_drop || 0);
+          return `
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+            <span class="small">${escapeHtml(x.name || "—")}</span>
+            <div class="d-flex gap-2 align-items-center">
+              <span class="badge bg-primary" style="min-width: 28px;">${x.pending_app || 0}</span>
+              <span class="badge bg-danger" style="min-width: 28px;">${x.pending_drop || 0}</span>
+              <span class="badge bg-secondary" style="min-width: 35px;">${totalPending}</span>
             </div>
-          </li>`).join("");
-        ul.innerHTML = items || `<li class="list-group-item text-muted">Sin pendientes.</li>`;
+          </li>`;
+        }).join("");
+        ul.innerHTML = items || `<li class="list-group-item text-muted small">Sin pendientes.</li>`;
       }
     } catch (e) {
       showToast?.("Error al cargar estadísticas", "error");
@@ -137,6 +203,22 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
   }
+
+  // Cambio de período
+  $("#fltPeriod")?.addEventListener("change", (e) => {
+    const periodId = e.target.value;
+    if (periodId && periodId !== "all") {
+      setPeriodDates(periodId);
+    } else if (periodId === "all") {
+      // Si selecciona "Todos", usar rango amplio
+      initDefaultDates();
+    }
+    loadOverview();
+    const tab = document.querySelector("#leftTabs .nav-link.active")?.id;
+    if (tab === "tabPieGlobal" || tab === "tabPieMini") {
+      window.__reloadPies?.();
+    }
+  });
 
   // Rango
   $("#btnApplyRange")?.addEventListener("click", () => {
@@ -188,6 +270,8 @@
     let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); };
   }
 
-  initDates();
-  loadOverview(); // primera carga
+  // Inicializar: cargar períodos y luego overview
+  loadPeriods().then(() => {
+    loadOverview();
+  });
 })();

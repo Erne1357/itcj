@@ -60,13 +60,27 @@ def my_requests():
                   .order_by(Request.created_at.desc())
                   .first())
 
-    # Get all history (non-PENDING requests)
-    history = (db.session.query(Request)
-               .filter(Request.student_id == u.id, Request.status != "PENDING")
-               .order_by(Request.created_at.desc())
-               .all())
+    # Get all history:
+    # - Non-PENDING requests (completed/canceled)
+    # - PENDING requests from periods that are no longer active
+    from sqlalchemy import or_, and_
+    history_query = db.session.query(Request).filter(Request.student_id == u.id)
 
-    # Collect all unique periods from requests for grouping
+    if active_period:
+        # Include: non-PENDING OR (PENDING from inactive periods)
+        history_query = history_query.filter(
+            or_(
+                Request.status != "PENDING",
+                and_(Request.status == "PENDING", Request.period_id != active_period.id)
+            )
+        )
+    else:
+        # If no active period, all requests go to history
+        history_query = history_query
+
+    history = history_query.order_by(Request.created_at.desc()).all()
+
+    # Collect all unique periods from ALL requests for grouping
     period_ids = set()
     if active:
         period_ids.add(active.period_id)
@@ -74,15 +88,27 @@ def my_requests():
         if h.period_id:
             period_ids.add(h.period_id)
 
+    # Build periods dictionary for all periods
     periods_dict = {}
+
+    # Always include active period in the dictionary
+    if active_period:
+        periods_dict[active_period.id] = {
+            "id": active_period.id,
+            "name": active_period.name,
+            "status": active_period.status
+        }
+
+    # Add other periods
     for pid in period_ids:
-        p = db.session.query(AcademicPeriod).get(pid)
-        if p:
-            periods_dict[pid] = {
-                "id": p.id,
-                "name": p.name,
-                "status": p.status
-            }
+        if pid not in periods_dict:
+            p = db.session.query(AcademicPeriod).get(pid)
+            if p:
+                periods_dict[pid] = {
+                    "id": p.id,
+                    "name": p.name,
+                    "status": p.status
+                }
 
     def to_dict(r: Request):
         item = {

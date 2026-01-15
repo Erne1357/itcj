@@ -44,8 +44,8 @@
             remindersEl.innerHTML = `<div class="text-muted small">No tienes pendientes de configuración de horario.</div>`;
             return;
         }
-        // Muestra hasta 3 recordatorios
-        const items = missingDays.slice(0, 3).map(d => `
+        // Muestra hasta 5 recordatorios
+        const items = missingDays.slice(0, 5).map(d => `
       <div class="d-flex align-items-center justify-content-between p-2 border rounded-3">
         <div><i class="bi bi-exclamation-triangle text-warning me-2"></i>
              <span>Falta configurar horario para <strong>${d}</strong></span></div>

@@ -121,6 +121,7 @@ def get_agendatec_navigation(user_permissions: set[str], student_window_open: bo
         {"label": "Dashboard Admin", "endpoint": "agendatec_pages.admin_pages.admin_home", "permission": "agendatec.admin_dashboard.page.view", "icon": "bi-bar-chart-fill"},
         {"label": "Usuarios", "endpoint": "agendatec_pages.admin_pages.admin_users", "permission": "agendatec.users.page.list", "icon": "bi-people"},
         {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests.page.list", "icon": "bi-clipboard-data"},
+        {"label": "Crear Solicitud", "endpoint": "agendatec_pages.admin_pages.admin_create_request", "permission": "agendatec.requests.page.create", "icon": "bi-plus-circle"},
         {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.page.view", "icon": "bi-graph-up"},
         {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.page.list", "icon": "bi-list-check"},
         {"label": "Períodos", "endpoint": "agendatec_pages.admin_pages.admin_periods", "permission": "agendatec.periods.page.list", "icon": "bi-calendar-check"},

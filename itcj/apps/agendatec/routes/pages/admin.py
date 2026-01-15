@@ -22,6 +22,12 @@ def admin_users():
 def admin_requests():
     return render_template("agendatec/admin/requests.html", page_title="Admin · Solicitudes")
 
+@admin_pages_bp.get("/requests/create")
+@login_required
+@app_required(app_key="agendatec", perms=["agendatec.requests.page.create"])
+def admin_create_request():
+    return render_template("agendatec/admin/create_request.html", page_title="Admin · Crear Solicitud")
+
 @admin_pages_bp.get("/reports")
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.reports.page.view"])

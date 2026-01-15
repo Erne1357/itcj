@@ -24,8 +24,8 @@
           <div class="col-12 col-sm-3">
             <label class="form-label">Estado de solicitud</label>
             <select class="form-select" id="reqStatus">
-              <option value="ALL">Todas</option>
-              <option value="PENDING" selected>Pendientes</option>
+              <option value="ALL" selected>Todas</option>
+              <option value="PENDING" >Pendientes</option>
               <option value="RESOLVED_SUCCESS">Resueltas</option>
               <option value="RESOLVED_NOT_COMPLETED">No resueltas</option>
               <option value="NO_SHOW">No asistió</option>
@@ -73,6 +73,25 @@
       <div class="modal-footer">
         <div class="btn-group btn-group-sm me-auto" id="reqDetailActions"></div>
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Confirmación -->
+<div class="modal fade" id="confirmActionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Confirmar acción</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage" class="mb-0"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmActionBtn">Confirmar</button>
       </div>
     </div>
   </div>
