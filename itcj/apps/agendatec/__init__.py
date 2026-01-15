@@ -39,13 +39,13 @@ from .routes.pages.student import student_pages_bp
 from .routes.pages.coord import coord_pages_bp
 from .routes.pages.social import social_pages_bp
 from .routes.pages.admin import admin_pages_bp
-from .routes.pages.admin_surveys import admin_surveys_pages
+from .routes.pages.admin_surveys import admin_surveys_pages_bp
 
 agendatec_pages_bp.register_blueprint(student_pages_bp, url_prefix="/student")
 agendatec_pages_bp.register_blueprint(coord_pages_bp, url_prefix="/coord")
 agendatec_pages_bp.register_blueprint(social_pages_bp, url_prefix="/social")
 agendatec_pages_bp.register_blueprint(admin_pages_bp, url_prefix="/admin")
-agendatec_pages_bp.register_blueprint(admin_surveys_pages, url_prefix="/surveys")
+agendatec_pages_bp.register_blueprint(admin_surveys_pages_bp, url_prefix="/surveys")
 
 # Error handlers específicos para AgendaTec
 def register_agendatec_error_handlers():

@@ -1,6 +1,16 @@
-# routes/templates/coord.py
-from flask import Blueprint, render_template, redirect,url_for,g
-from itcj.core.utils.decorators import login_required, role_required_page, pw_changed_required,app_required
+# routes/pages/coord.py
+"""
+Páginas de coordinadores para AgendaTec.
+
+Incluye: dashboard, citas, bajas y configuración de horarios.
+"""
+from flask import Blueprint, redirect, render_template, url_for
+
+from itcj.core.utils.decorators import (
+    app_required,
+    login_required,
+    pw_changed_required,
+)
 
 coord_pages_bp = Blueprint("coord_pages", __name__)
 

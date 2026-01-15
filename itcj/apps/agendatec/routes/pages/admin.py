@@ -1,6 +1,12 @@
-# backend/routes/pages/admin.py
+# routes/pages/admin.py
+"""
+Páginas de administración para AgendaTec.
+
+Incluye: dashboard, usuarios, solicitudes, reportes y períodos.
+"""
 from flask import Blueprint, render_template
-from itcj.core.utils.decorators import role_required_page, login_required,app_required
+
+from itcj.core.utils.decorators import app_required, login_required
 
 admin_pages_bp = Blueprint("admin_pages", __name__)
 

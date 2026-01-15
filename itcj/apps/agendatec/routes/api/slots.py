@@ -1,28 +1,39 @@
 # routes/api/slots.py
-from datetime import date
+"""
+API de slots de tiempo para AgendaTec.
+
+Este módulo contiene los endpoints para gestión de holds temporales en slots:
+- Crear hold temporal sobre un slot
+- Liberar hold
+- Consultar estado de un slot
+"""
 import json
-from flask import Blueprint, request, jsonify, g
-from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
-from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
+
+from flask import Blueprint, g, jsonify, request
+
+from itcj.apps.agendatec.config.constants import (
+    ENFORCE_SINGLE_HOLD_PER_USER,
+    REDIS_SLOT_HOLD_PREFIX,
+    REDIS_USER_HOLD_PREFIX,
+)
 from itcj.apps.agendatec.models import db
 from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.core.services import period_service
+from itcj.core.utils.decorators import api_app_required, api_auth_required
+from itcj.core.utils.redis_conn import get_hold_ttl, get_redis
 
 api_slots_bp = Blueprint("api_slots", __name__)
 
-# NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
 
-# Convención de claves en Redis
 def k_slot_hold(slot_id: int) -> str:
-    return f"slot_hold:{slot_id}"
+    """Genera clave Redis para hold de un slot."""
+    return f"{REDIS_SLOT_HOLD_PREFIX}{slot_id}"
+
 
 def k_user_hold(user_id: int) -> str:
-    # Si prefieres permitir múltiples holds por usuario, suprime esta llave y solo usa la de slot.
-    return f"user_hold:{user_id}"
+    """Genera clave Redis para hold de un usuario."""
+    return f"{REDIS_USER_HOLD_PREFIX}{user_id}"
 
-# Por ahora: 1 hold por usuario a la vez (simple y práctico)
-ENFORCE_SINGLE_HOLD_PER_USER = True
 
 # --------------------------------------------------------------------
 # POST /slots/hold  -> crea un hold temporal (TTL) sobre un slot libre

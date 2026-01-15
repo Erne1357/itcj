@@ -8,28 +8,27 @@ Este módulo proporciona endpoints CRUD completos para:
 - Consulta del período activo (endpoint público para estudiantes)
 """
 from __future__ import annotations
-from datetime import datetime, date
-from typing import Optional
 
-from flask import Blueprint, request, jsonify, g
+from datetime import date, datetime
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func
 
 from itcj.apps.agendatec.models import db
-from itcj.core.models.academic_period import AcademicPeriod
 from itcj.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
+from itcj.core.models.academic_period import AcademicPeriod
 from itcj.core.models.user import User
 from itcj.core.services import period_service
 from itcj.core.utils.decorators import api_app_required
-from zoneinfo import ZoneInfo
 
-
-# Blueprint con prefijo /api/agendatec/v1/periods
 api_periods_bp = Blueprint("api_periods", __name__)
 
 
 # ==================== HELPERS ====================
 
-def _get_tz():
+def _get_tz() -> ZoneInfo:
     """Timezone de la aplicación"""
     return ZoneInfo("America/Ciudad_Juarez")
 
@@ -79,21 +78,30 @@ def _get_current_user_id() -> Optional[int]:
 @api_app_required("agendatec", perms=["agendatec.periods.api.read"])
 def list_periods():
     """
-    Lista todos los períodos académicos.
+    Lista todos los períodos académicos con su configuración de AgendaTec.
 
     Query params:
         - include_archived: bool (default=false) - Incluir períodos archivados
+        - status: str (opcional) - Filtrar por estado (ACTIVE, INACTIVE, ARCHIVED)
         - order_by: str (default=start_date) - Campo de ordenamiento
         - order: str (default=desc) - Dirección (asc/desc)
 
     Returns:
-        200: Lista de períodos
+        200: Lista de períodos con configuración de AgendaTec
     """
+    from sqlalchemy.orm import joinedload
+
     include_archived = request.args.get("include_archived", "false").lower() == "true"
+    status_filter = request.args.get("status")
 
-    query = db.session.query(AcademicPeriod)
+    query = db.session.query(AcademicPeriod).options(
+        joinedload(AcademicPeriod.agendatec_config)
+    )
 
-    if not include_archived:
+    # Filtro por estado específico
+    if status_filter:
+        query = query.filter(AcademicPeriod.status == status_filter)
+    elif not include_archived:
         query = query.filter(AcademicPeriod.status != "ARCHIVED")
 
     # Ordenamiento
@@ -116,7 +124,18 @@ def list_periods():
 
     periods = query.all()
 
-    items = [p.to_dict() for p in periods]
+    # Construir respuesta con agendatec_config incluido
+    items = []
+    for p in periods:
+        period_dict = p.to_dict()
+        # Incluir configuración de AgendaTec
+        if p.agendatec_config:
+            period_dict["agendatec_config"] = p.agendatec_config.to_dict()
+        else:
+            period_dict["agendatec_config"] = None
+        # Incluir conteo de solicitudes
+        period_dict["request_count"] = period_service.count_requests_in_period(p.id)
+        items.append(period_dict)
 
     return jsonify({"items": items}), 200
 
@@ -212,18 +231,27 @@ def create_period():
 @api_app_required("agendatec", perms=["agendatec.periods.api.read"])
 def get_period(period_id: int):
     """
-    Obtiene un período específico por ID.
+    Obtiene un período específico por ID con su configuración de AgendaTec.
 
     Returns:
-        200: Datos del período
+        200: Datos del período con configuración
         404: Período no encontrado
     """
-    period = db.session.query(AcademicPeriod).filter_by(id=period_id).first()
+    from sqlalchemy.orm import joinedload
+
+    period = db.session.query(AcademicPeriod).options(
+        joinedload(AcademicPeriod.agendatec_config)
+    ).filter_by(id=period_id).first()
 
     if not period:
         return jsonify({"error": "period_not_found"}), 404
 
-    return jsonify(period.to_dict()), 200
+    result = period.to_dict()
+    # Incluir configuración de AgendaTec
+    if period.agendatec_config:
+        result["agendatec_config"] = period.agendatec_config.to_dict()
+
+    return jsonify(result), 200
 
 
 @api_periods_bp.route("/<int:period_id>", methods=["PATCH"])

@@ -1,6 +1,12 @@
-# routes/templates/social.py
+# routes/pages/social.py
+"""
+Páginas de servicio social para AgendaTec.
+
+Incluye: vista de citas del día.
+"""
 from flask import Blueprint, render_template
-from itcj.core.utils.decorators import login_required, role_required_page,app_required
+
+from itcj.core.utils.decorators import app_required, login_required
 
 social_pages_bp = Blueprint("social_pages", __name__)
 

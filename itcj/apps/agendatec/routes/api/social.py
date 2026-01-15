@@ -1,14 +1,21 @@
 # routes/api/social.py
+"""
+API de servicio social para AgendaTec.
+
+Este módulo contiene los endpoints para servicio social:
+- Consulta de citas del día (vista simplificada)
+"""
 from datetime import datetime
-from flask import Blueprint, request, jsonify
-from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
+
+from flask import Blueprint, jsonify, request
+
 from itcj.apps.agendatec.models import db
-from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.apps.agendatec.models.appointment import Appointment
 from itcj.apps.agendatec.models.request import Request
+from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.core.models.program import Program
 from itcj.core.models.user import User
+from itcj.core.utils.decorators import api_app_required, api_auth_required
 
 api_social_bp = Blueprint("api_social", __name__)
 

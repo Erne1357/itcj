@@ -1,31 +1,51 @@
 # routes/api/requests.py
-from datetime import date, datetime
-from flask import Blueprint, request, jsonify, g, current_app
+"""
+API de solicitudes para AgendaTec.
+
+Este módulo contiene los endpoints para gestión de solicitudes de estudiantes:
+- Consulta de solicitudes propias
+- Creación de solicitudes (citas y bajas)
+- Cancelación de solicitudes
+"""
+from datetime import datetime
+
+from flask import Blueprint, current_app, g, jsonify, request
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_closed, api_app_required
+
 from itcj.apps.agendatec.models import db
-from itcj.core.models.user import User
+from itcj.apps.agendatec.models.appointment import Appointment
+from itcj.apps.agendatec.models.request import Request
+from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.core.models.academic_period import AcademicPeriod
 from itcj.core.models.program import Program
 from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.academic_period import AcademicPeriod
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.apps.agendatec.models.request import Request
-from itcj.apps.agendatec.models.appointment import Appointment
-import logging
-from itcj.core.utils.redis_conn import get_redis
-from itcj.core.sockets.requests import broadcast_appointment_created, broadcast_drop_created, broadcast_request_status_changed
-from itcj.core.utils.notify import create_notification
-from itcj.core.sockets.notifications import push_notification
+from itcj.core.models.user import User
 from itcj.core.services import period_service
+from itcj.core.sockets.notifications import push_notification
+from itcj.core.sockets.requests import (
+    broadcast_appointment_created,
+    broadcast_drop_created,
+    broadcast_request_status_changed,
+)
+from itcj.core.utils.decorators import api_app_required, api_auth_required, api_closed
+from itcj.core.utils.notify import create_notification
+from itcj.core.utils.redis_conn import get_redis
 
 api_req_bp = Blueprint("api_requests", __name__)
 
-# NOTA: ALLOWED_DAYS eliminado - ahora se obtiene dinámicamente del período activo
 
-def _get_current_student():
+def _get_current_student() -> User:
+    """
+    Obtiene el objeto User del estudiante autenticado.
+
+    Returns:
+        Instancia del modelo User correspondiente al token JWT actual.
+    """
     uid = g.current_user["sub"]
     u = db.session.query(User).get(uid)
     return u
+
 
 @api_req_bp.get("/mine")
 @api_auth_required
