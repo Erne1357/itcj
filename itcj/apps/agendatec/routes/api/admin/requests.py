@@ -140,7 +140,7 @@ def admin_change_request_status(req_id: int):
     Returns:
         JSON con resultado de la operación
     """
-    from itcj.apps.agendatec.services.request_status import admin_change_request_status as change_status
+    from itcj.apps.agendatec.services.request_ops import admin_change_request_status as change_status
 
     data = request.get_json(silent=True) or {}
     new_status: str = data.get("status")

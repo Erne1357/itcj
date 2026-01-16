@@ -29,9 +29,9 @@ def get_student_window() -> Tuple[Optional[datetime], Optional[datetime]]:
     Obtiene las fechas de inicio y fin de la ventana de admisión del período activo.
 
     Returns:
-        Tupla (start_date, deadline) donde:
-        - start_date: Fecha de inicio del período activo
-        - deadline: Fecha límite de admisión (student_admission_deadline)
+        Tupla (admission_start, admission_deadline) donde:
+        - admission_start: Fecha/hora de inicio de admisión (student_admission_start)
+        - admission_deadline: Fecha/hora límite de admisión (student_admission_deadline)
 
         Retorna (None, None) si no hay período activo o no tiene configuración.
     """
@@ -43,7 +43,29 @@ def get_student_window() -> Tuple[Optional[datetime], Optional[datetime]]:
     if not config:
         return None, None
 
-    return period.start_date, config.student_admission_deadline
+    return config.student_admission_start, config.student_admission_deadline
+
+
+def get_window_status() -> dict:
+    """
+    Obtiene el estado detallado de la ventana de admisión.
+
+    Returns:
+        dict con:
+        - is_open: bool - Si la ventana está abierta
+        - reason: str - Razón del estado (window_open, window_not_started, window_closed, etc.)
+        - starts_at: str - ISO datetime de inicio
+        - ends_at: str - ISO datetime de fin
+    """
+    period = period_service.get_active_period()
+    if not period:
+        return {"is_open": False, "reason": "no_active_period", "starts_at": None, "ends_at": None}
+
+    config = period_service.get_agendatec_config(period.id)
+    if not config:
+        return {"is_open": False, "reason": "no_config", "starts_at": None, "ends_at": None}
+
+    return config.get_window_status()
 
 
 def get_enabled_days_for_active_period() -> list[datetime]:

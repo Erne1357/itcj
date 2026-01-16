@@ -15,15 +15,17 @@ class AcademicPeriod(db.Model):
     en modelos separados relacionados a este período.
 
     Ejemplos de períodos:
-    - "Ago-Dic 2025"
-    - "Ene-Jun 2026"
-    - "Verano 2026"
+    - "Ago-Dic 2025" Code : 20253
+    - "Ene-Jun 2026" Code : 20261
+    - "Verano 2026" Code : 20262
     """
     __tablename__ = "core_academic_periods"
 
     id = db.Column(db.Integer, primary_key=True)
 
     # Identificación del período
+    code = db.Column(db.String(6), nullable=False, unique=True)
+    # Ej: "20253" para Ago-Dic 2025, "20261" para Ene-Jun 2026, "20262" para Verano 2026
     name = db.Column(db.String(100), nullable=False, unique=True)
     # Ej: "Ago-Dic 2025", "Ene-Jun 2026"
 
@@ -87,6 +89,7 @@ class AcademicPeriod(db.Model):
         """Serialización para API"""
         return {
             "id": self.id,
+            "code": self.code,
             "name": self.name,
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,

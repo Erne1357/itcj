@@ -26,6 +26,17 @@ from .period_utils import (
     fmt_spanish,
 )
 
+from .logging import (
+    ContextLogger,
+    get_logger,
+    set_request_context,
+    set_operation_context,
+    clear_context,
+    with_logging_context,
+    configure_structured_logging,
+    logger,
+)
+
 __all__ = [
     # Responses
     "api_error",
@@ -46,4 +57,13 @@ __all__ = [
     "get_student_window",
     "get_enabled_days_for_active_period",
     "fmt_spanish",
+    # Logging
+    "ContextLogger",
+    "get_logger",
+    "set_request_context",
+    "set_operation_context",
+    "clear_context",
+    "with_logging_context",
+    "configure_structured_logging",
+    "logger",
 ]

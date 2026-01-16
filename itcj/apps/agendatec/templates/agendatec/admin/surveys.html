@@ -105,7 +105,7 @@
     const f = $("#fromDate").value, t=$("#toDate").value, test=$("#testMode").checked?1:0;
     const out = $("#out");
     out.textContent = "Enviando…\n";
-    const u = new URL("{{ url_for('agendatec_api.api_admin.send_surveys') }}", window.location.origin);
+    const u = new URL("{{ url_for('agendatec_api.api_admin.admin_surveys.send_surveys') }}", window.location.origin);
     if (f) u.searchParams.set("from", f);
     if (t) u.searchParams.set("to", t);
     u.searchParams.set("test", String(test));

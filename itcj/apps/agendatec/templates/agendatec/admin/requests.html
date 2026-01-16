@@ -110,10 +110,10 @@
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
 <script>
   window.__adminRequestsCfg = {
-    listUrl: "{{ url_for('agendatec_api.api_admin.admin_list_requests') }}",
-    statusBase: "{{ url_for('agendatec_api.api_admin.admin_change_request_status', req_id=0) }}".replace(/0$/, ''),
+    listUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_list_requests') }}",
+    statusBase: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_change_request_status', req_id=0) }}".replace(/0$/, ''),
     programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
-    coordsUrl: "{{ url_for('agendatec_api.api_admin.list_coordinators') }}",
+    coordsUrl: "{{ url_for('agendatec_api.api_admin.admin_users.list_coordinators') }}",
     periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
   };
 </script>

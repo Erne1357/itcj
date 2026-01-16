@@ -1,18 +1,64 @@
 #!/usr/bin/env python3
 """
-Comandos Flask para AgendaTec - Inicialización de períodos académicos
+Comandos Flask para AgendaTec - Inicialización de períodos académicos e importación de datos
 """
+import csv
+import os
+from datetime import date, datetime
+from pathlib import Path
+from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
+
 import click
 from flask import current_app
 from flask.cli import with_appcontext
-from datetime import date, datetime
-from zoneinfo import ZoneInfo
+from sqlalchemy import text
+
+from itcj.apps.agendatec.models.agendatec_period_config import AgendaTecPeriodConfig
+from itcj.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
+from itcj.apps.agendatec.models.request import Request
 from itcj.core.extensions import db
 from itcj.core.models.academic_period import AcademicPeriod
-from itcj.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
-from itcj.apps.agendatec.models.agendatec_period_config import AgendaTecPeriodConfig
-from itcj.apps.agendatec.models.request import Request
+from itcj.core.models.user import User
 from itcj.core.services import period_service
+from itcj.core.utils.security import hash_nip
+
+
+def _execute_sql_scripts(scripts_dir: str) -> int:
+    """
+    Ejecuta todos los scripts SQL de un directorio en orden alfabético.
+    
+    Args:
+        scripts_dir: Ruta al directorio con los scripts SQL.
+        
+    Returns:
+        Número de scripts ejecutados.
+    """
+    scripts_path = Path(scripts_dir)
+    
+    if not scripts_path.exists():
+        click.echo(f'   ⚠️  Directorio no encontrado: {scripts_dir}')
+        return 0
+    
+    # Obtener scripts SQL ordenados
+    sql_files = sorted(scripts_path.glob('*.sql'))
+    
+    if not sql_files:
+        click.echo(f'   ℹ️  No hay scripts SQL en: {scripts_dir}')
+        return 0
+    
+    executed = 0
+    for sql_file in sql_files:
+        try:
+            click.echo(f'   📄 Ejecutando: {sql_file.name}')
+            sql_content = sql_file.read_text(encoding='utf-8')
+            db.session.execute(text(sql_content))
+            executed += 1
+        except Exception as e:
+            click.echo(f'   ❌ Error en {sql_file.name}: {str(e)}')
+            raise
+    
+    return executed
 
 
 @click.command('seed-periods')
@@ -40,14 +86,26 @@ def seed_periods_command():
             return
 
     try:
+        # ==================== EJECUTAR SCRIPTS SQL DE PERMISOS ====================
+        click.echo('🔐 Ejecutando scripts de permisos para módulo de períodos...')
+        
+        # Determinar la ruta base del proyecto
+        base_path = Path(current_app.root_path).parent  # itcj/ -> raíz del proyecto
+        scripts_dir = base_path / 'database' / 'DML' / 'agendatec' / 'periods'
+        
+        scripts_executed = _execute_sql_scripts(str(scripts_dir))
+        click.echo(f'   ✓ {scripts_executed} script(s) ejecutado(s)\n')
+
         # ==================== PERÍODO 1: Ago-Dic 2025 ====================
         click.echo('📅 Creando período: Ago-Dic 2025')
 
         period1 = AcademicPeriod(
+            code="20253",
             name="Ago-Dic 2025",
             start_date=date(2025, 8, 19),
             end_date=date(2025, 12, 13),
-            status="INACTIVE"
+            status="INACTIVE",
+            created_by_id=10
         )
         db.session.add(period1)
         db.session.flush()  # Para obtener el ID
@@ -55,6 +113,7 @@ def seed_periods_command():
         # Crear configuración de AgendaTec para este período
         config1 = AgendaTecPeriodConfig(
             period_id=period1.id,
+            student_admission_start=datetime(2025, 8, 25, 0, 0, 0, tzinfo=tz),
             student_admission_deadline=datetime(2025, 8, 27, 18, 0, 0, tzinfo=tz),
             max_cancellations_per_student=2,
             allow_drop_requests=True,
@@ -91,10 +150,12 @@ def seed_periods_command():
         click.echo('\n📅 Creando período: Ene-Jun 2026')
 
         period2 = AcademicPeriod(
+            code="20261",
             name="Ene-Jun 2026",
             start_date=date(2026, 1, 19),
             end_date=date(2026, 6, 12),
-            status="ACTIVE"
+            status="ACTIVE",
+            created_by_id=10
         )
         db.session.add(period2)
         db.session.flush()
@@ -102,7 +163,8 @@ def seed_periods_command():
         # Crear configuración de AgendaTec para este período
         config2 = AgendaTecPeriodConfig(
             period_id=period2.id,
-            student_admission_deadline=datetime(2026, 1, 27, 18, 0, 0, tzinfo=tz),
+            student_admission_start=datetime(2026, 1, 26, 0, 0, 0, tzinfo=tz),
+            student_admission_deadline=datetime(2026, 1, 28, 18, 0, 0, tzinfo=tz),
             max_cancellations_per_student=2,
             allow_drop_requests=True,
             allow_appointment_requests=True
@@ -218,3 +280,248 @@ def register_agendatec_commands(app):
     app.cli.add_command(seed_periods_command)
     app.cli.add_command(activate_period_command)
     app.cli.add_command(list_periods_command)
+    app.cli.add_command(import_students_command)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# IMPORTACIÓN DE ESTUDIANTES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _build_full_name(ap_pat: str, ap_mat: str, nombre: str) -> str:
+    """Construye el nombre completo desde las partes."""
+    parts = [ap_pat.strip(), ap_mat.strip(), nombre.strip()]
+    return " ".join(p for p in parts if p)
+
+
+def _normalize_str(s: Optional[str]) -> str:
+    """Normaliza una cadena eliminando espacios."""
+    return (s or "").strip()
+
+
+def _parse_student_row(row: dict) -> Tuple[dict, list]:
+    """
+    Parsea una fila del CSV de estudiantes.
+    
+    Args:
+        row: Diccionario con los datos de la fila.
+        
+    Returns:
+        Tupla con (payload para User, lista de warnings).
+    """
+    warnings = []
+
+    no_de_control = _normalize_str(row.get("no_de_control"))
+    apellido_paterno = _normalize_str(row.get("apellido_paterno"))
+    apellido_materno = _normalize_str(row.get("apellido_materno"))
+    nombre_alumno = _normalize_str(row.get("nombre_alumno"))
+    nip = _normalize_str(row.get("nip"))
+
+    if not nombre_alumno and not (apellido_paterno or apellido_materno):
+        warnings.append("Nombre vacío")
+    if not nip:
+        warnings.append("NIP vacío")
+
+    full_name = _build_full_name(apellido_paterno, apellido_materno, nombre_alumno)
+
+    username: Optional[str] = None
+    control_number: Optional[str] = None
+
+    if no_de_control:
+        first = no_de_control[0]
+        if first.isalpha():
+            username = no_de_control.upper()
+        else:
+            control_number = no_de_control.upper()
+            if len(control_number) != 8:
+                warnings.append(f"control_number '{control_number}' con longitud != 8")
+
+    payload = {
+        "role_id": 1,  # estudiantes
+        "username": username or None,
+        "control_number": control_number or None,
+        "password_hash": hash_nip(nip) if nip else None,
+        "full_name": full_name or None,
+        "is_active": True,
+    }
+    return payload, warnings
+
+
+def _upsert_student(payload: dict, dry_run: bool = False) -> Tuple[str, Optional[int]]:
+    """
+    Inserta o actualiza un estudiante.
+    
+    Args:
+        payload: Datos del estudiante.
+        dry_run: Si es True, no realiza cambios en la base de datos.
+        
+    Returns:
+        Tupla con (status: 'created'|'updated'|'skipped', user_id).
+    """
+    username = payload.get("username")
+    control_number = payload.get("control_number")
+
+    existing = None
+    if control_number:
+        existing = User.query.filter_by(control_number=control_number).first()
+    elif username:
+        existing = User.query.filter_by(username=username).first()
+
+    if existing:
+        changed = False
+        for field in ("full_name", "password_hash", "role_id", "is_active"):
+            val = payload.get(field)
+            if val is not None and getattr(existing, field) != val:
+                setattr(existing, field, val)
+                changed = True
+
+        if username and existing.username != username:
+            existing.username = username
+            changed = True
+        if control_number and existing.control_number != control_number:
+            existing.control_number = control_number
+            changed = True
+
+        if changed and not dry_run:
+            db.session.add(existing)
+        return ("updated" if changed else "skipped", existing.id)
+    else:
+        user = User(
+            role_id=payload["role_id"],
+            username=payload.get("username"),
+            control_number=payload.get("control_number"),
+            password_hash=payload.get("password_hash"),
+            full_name=payload.get("full_name") or "SIN NOMBRE",
+            is_active=payload.get("is_active", True),
+        )
+        if not dry_run:
+            db.session.add(user)
+        return ("created", None)
+
+
+@click.command("import-students")
+@click.option(
+    "--csv-path",
+    default="database/CSV/Activos.csv",
+    help="Ruta al archivo CSV (default: database/CSV/Activos.csv)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Simular sin escribir cambios a la base de datos",
+)
+@click.option(
+    "--commit-every",
+    type=int,
+    default=500,
+    help="Confirma cada N operaciones (default: 500)",
+)
+@with_appcontext
+def import_students_command(csv_path: str, dry_run: bool, commit_every: int):
+    """
+    Importa/actualiza estudiantes desde un archivo CSV.
+
+    El CSV debe tener los siguientes encabezados (separados por punto y coma):
+    - no_de_control: Número de control o username
+    - apellido_paterno: Apellido paterno
+    - apellido_materno: Apellido materno
+    - nombre_alumno: Nombre(s)
+    - nip: Contraseña (NIP)
+
+    Otros campos opcionales: nombre_carrera, carrera, reticula, estatus_alumno
+
+    Ejemplos:
+        flask import-students
+        flask import-students --csv-path mi_archivo.csv
+        flask import-students --dry-run
+    """
+    click.echo(f"📚 Importando estudiantes desde: {csv_path}")
+    if dry_run:
+        click.echo("⚠️  Modo DRY-RUN: No se realizarán cambios")
+    click.echo()
+
+    created = updated = skipped = warnings_total = 0
+    row_idx = 0
+    to_commit = 0
+
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f, delimiter=";")
+            
+            # Validar encabezados requeridos
+            required_headers = {
+                "no_de_control",
+                "apellido_paterno",
+                "apellido_materno",
+                "nombre_alumno",
+                "nip",
+            }
+            actual_headers = set(reader.fieldnames or [])
+            missing_headers = required_headers - actual_headers
+            
+            if missing_headers:
+                click.echo(f"❌ El CSV no tiene los encabezados esperados.")
+                click.echo(f"   Faltan: {', '.join(sorted(missing_headers))}")
+                return
+
+            for row in reader:
+                row_idx += 1
+                payload, warns = _parse_student_row(row)
+                
+                if warns:
+                    warnings_total += len(warns)
+                    click.echo(f"[WARN fila {row_idx}] " + " | ".join(warns))
+
+                # Validar datos mínimos
+                if not payload.get("username") and not payload.get("control_number"):
+                    click.echo(f"[SKIP fila {row_idx}] Sin username/control_number")
+                    skipped += 1
+                    continue
+                if not payload.get("password_hash"):
+                    click.echo(f"[SKIP fila {row_idx}] Sin NIP")
+                    skipped += 1
+                    continue
+
+                status, _ = _upsert_student(payload, dry_run=dry_run)
+                if status == "created":
+                    created += 1
+                    to_commit += 1
+                elif status == "updated":
+                    updated += 1
+                    to_commit += 1
+                else:
+                    skipped += 1
+
+                if not dry_run and to_commit >= commit_every:
+                    db.session.commit()
+                    to_commit = 0
+                    click.echo(f"   💾 Commit parcial ({row_idx} filas procesadas)")
+
+            if not dry_run and to_commit > 0:
+                db.session.commit()
+
+        # Resumen
+        click.echo()
+        click.echo("=" * 50)
+        click.echo("📊 RESUMEN DE IMPORTACIÓN")
+        click.echo("=" * 50)
+        click.echo(f"   Archivo: {csv_path}")
+        click.echo(f"   Filas procesadas: {row_idx}")
+        click.echo(f"   ✅ Creados: {created}")
+        click.echo(f"   🔄 Actualizados: {updated}")
+        click.echo(f"   ⏭️  Omitidos: {skipped}")
+        click.echo(f"   ⚠️  Warnings: {warnings_total}")
+        
+        if dry_run:
+            click.echo()
+            click.echo("💡 DRY-RUN: No se realizaron cambios en la base de datos")
+        else:
+            click.echo()
+            click.echo("✅ Importación completada exitosamente")
+
+    except FileNotFoundError:
+        click.echo(f"❌ Error: No se encontró el archivo '{csv_path}'")
+    except Exception as e:
+        db.session.rollback()
+        click.echo(f"❌ Error durante la importación: {str(e)}")
+        raise

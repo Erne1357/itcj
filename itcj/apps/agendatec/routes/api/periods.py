@@ -163,31 +163,42 @@ def create_period():
     data = request.json
 
     # Validar campos requeridos
-    required = ["name", "start_date", "end_date", "student_admission_deadline"]
+    required = ["code", "name", "start_date", "end_date", "student_admission_start", "student_admission_deadline"]
     if not all(k in data for k in required):
         return jsonify({"error": "missing_fields", "required": required}), 400
 
     # Parsear fechas
     start_date = _parse_date(data["start_date"])
     end_date = _parse_date(data["end_date"])
+    admission_start = _parse_datetime(data["student_admission_start"])
     admission_deadline = _parse_datetime(data["student_admission_deadline"])
 
-    if not start_date or not end_date or not admission_deadline:
+    if not start_date or not end_date or not admission_start or not admission_deadline:
         return jsonify({"error": "invalid_date_format"}), 400
 
-    # Validar rango de fechas
+    # Validar rango de fechas del período
     if end_date < start_date:
         return jsonify({"error": "end_date_before_start_date"}), 400
+
+    # Validar rango de ventana de admisión
+    if admission_deadline < admission_start:
+        return jsonify({"error": "admission_deadline_before_start", "message": "La fecha límite de admisión debe ser posterior al inicio"}), 400
 
     # Validar que el nombre no exista
     existing = db.session.query(AcademicPeriod).filter_by(name=data["name"]).first()
     if existing:
         return jsonify({"error": "period_name_already_exists"}), 409
 
+    # Validar que el código no exista
+    existing_code = db.session.query(AcademicPeriod).filter_by(code=data["code"]).first()
+    if existing_code:
+        return jsonify({"error": "period_code_already_exists"}), 409
+
     current_user_id = _get_current_user_id()
 
     # Crear período
     period = AcademicPeriod(
+        code=data["code"],
         name=data["name"],
         start_date=start_date,
         end_date=end_date,
@@ -206,6 +217,7 @@ def create_period():
     try:
         period_service.create_agendatec_config(
             period_id=period.id,
+            student_admission_start=admission_start,
             student_admission_deadline=admission_deadline,
             max_cancellations=data.get("max_cancellations_per_student", 2),
             allow_drop=data.get("allow_drop_requests", True),
@@ -283,6 +295,16 @@ def update_period(period_id: int):
     data = request.json
 
     # Actualizar campos del período
+    if "code" in data:
+        # Validar que el código no exista en otro período
+        existing = db.session.query(AcademicPeriod).filter(
+            AcademicPeriod.code == data["code"],
+            AcademicPeriod.id != period_id
+        ).first()
+        if existing:
+            return jsonify({"error": "period_code_already_exists"}), 409
+        period.code = data["code"]
+
     if "name" in data:
         # Validar que el nombre no exista en otro período
         existing = db.session.query(AcademicPeriod).filter(
@@ -321,11 +343,22 @@ def update_period(period_id: int):
 
     # Actualizar configuración de AgendaTec si se proporcionan campos
     config_fields = {}
+    if "student_admission_start" in data:
+        admission_start = _parse_datetime(data["student_admission_start"])
+        if not admission_start:
+            return jsonify({"error": "invalid_admission_start_format"}), 400
+        config_fields["student_admission_start"] = admission_start
+
     if "student_admission_deadline" in data:
         deadline = _parse_datetime(data["student_admission_deadline"])
         if not deadline:
             return jsonify({"error": "invalid_deadline_format"}), 400
         config_fields["student_admission_deadline"] = deadline
+
+    # Validar que el deadline sea posterior al start si ambos se proporcionan
+    if "student_admission_start" in config_fields and "student_admission_deadline" in config_fields:
+        if config_fields["student_admission_deadline"] < config_fields["student_admission_start"]:
+            return jsonify({"error": "admission_deadline_before_start"}), 400
 
     if "max_cancellations_per_student" in data:
         config_fields["max_cancellations_per_student"] = data["max_cancellations_per_student"]
@@ -556,8 +589,10 @@ def get_active_period():
     if config:
         result["agendatec_config"] = config.to_dict()
         result["is_window_open"] = config.is_student_window_open()
+        result["window_status"] = config.get_window_status()
     else:
         result["is_window_open"] = False
+        result["window_status"] = {"is_open": False, "reason": "no_config"}
 
     return jsonify(result), 200
 

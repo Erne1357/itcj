@@ -66,9 +66,9 @@
 {% block extra_js %}
 <script>
   window.__adminReportsCfg = {
-    xlsxUrl: "{{ url_for('agendatec_api.api_admin.export_requests_xlsx') }}",
+    xlsxUrl: "{{ url_for('agendatec_api.api_admin.admin_reports.export_requests_xlsx') }}",
     programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
-    coordsUrl: "{{ url_for('agendatec_api.api_admin.list_coordinators') }}",
+    coordsUrl: "{{ url_for('agendatec_api.api_admin.admin_users.list_coordinators') }}",
     periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
   };
 </script>

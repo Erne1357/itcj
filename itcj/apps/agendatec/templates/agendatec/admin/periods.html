@@ -21,10 +21,11 @@
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>
+          <th>Código</th>
           <th>Nombre</th>
           <th>Inicio</th>
           <th>Fin</th>
-          <th>Fecha Límite Admisión</th>
+          <th>Ventana Admisión</th>
           <th>Estado</th>
           <th>Solicitudes</th>
           <th style="width: 200px;">Acciones</th>
@@ -47,7 +48,13 @@
       </div>
       <div class="modal-body">
         <div class="row g-3">
-          <div class="col-12">
+          <div class="col-md-4">
+            <label class="form-label">Código <span class="text-danger">*</span></label>
+            <input id="fCode" class="form-control" placeholder="Ej: 20261" maxlength="6" required>
+            <div class="form-text">Ej: 20253 (Ago-Dic), 20261 (Ene-Jun), 20262 (Verano)</div>
+          </div>
+
+          <div class="col-md-8">
             <label class="form-label">Nombre del Período <span class="text-danger">*</span></label>
             <input id="fName" class="form-control" placeholder="Ej: Ago-Dic 2025" required>
             <div class="form-text">Ejemplo: "Ago-Dic 2025", "Ene-Jun 2026", "Verano 2026"</div>
@@ -61,6 +68,22 @@
           <div class="col-md-6">
             <label class="form-label">Fecha de Fin <span class="text-danger">*</span></label>
             <input id="fEndDate" type="date" class="form-control" required>
+          </div>
+
+          <div class="col-12">
+            <hr class="my-2">
+            <h6 class="text-muted">Ventana de Admisión de Solicitudes</h6>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Fecha Inicio Admisión <span class="text-danger">*</span></label>
+            <input id="fAdmissionStartDate" type="date" class="form-control" required>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Hora Inicio Admisión <span class="text-danger">*</span></label>
+            <input id="fAdmissionStartTime" type="time" class="form-control" value="00:00" required>
+            <div class="form-text">Hora zona: America/Ciudad_Juarez</div>
           </div>
 
           <div class="col-md-6">

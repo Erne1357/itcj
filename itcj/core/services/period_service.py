@@ -235,7 +235,9 @@ def get_agendatec_config(period_id: Optional[int] = None):
     ).first()
 
 
-def create_agendatec_config(period_id: int, student_admission_deadline: datetime,
+def create_agendatec_config(period_id: int,
+                            student_admission_start: datetime,
+                            student_admission_deadline: datetime,
                             max_cancellations: int = 2,
                             allow_drop: bool = True,
                             allow_appointment: bool = True,
@@ -245,6 +247,7 @@ def create_agendatec_config(period_id: int, student_admission_deadline: datetime
 
     Args:
         period_id: ID del período
+        student_admission_start: Fecha/hora de inicio para admisión de estudiantes
         student_admission_deadline: Fecha/hora límite para admisión de estudiantes
         max_cancellations: Límite de cancelaciones por estudiante (default: 2)
         allow_drop: Permitir solicitudes de tipo DROP (default: True)
@@ -272,6 +275,7 @@ def create_agendatec_config(period_id: int, student_admission_deadline: datetime
     # Crear configuración
     config = AgendaTecPeriodConfig(
         period_id=period_id,
+        student_admission_start=student_admission_start,
         student_admission_deadline=student_admission_deadline,
         max_cancellations_per_student=max_cancellations,
         allow_drop_requests=allow_drop,
@@ -305,6 +309,8 @@ def update_agendatec_config(period_id: int, **kwargs):
         raise ValueError(f"No existe configuración de AgendaTec para el período {period_id}")
 
     # Actualizar campos permitidos
+    if "student_admission_start" in kwargs:
+        config.student_admission_start = kwargs["student_admission_start"]
     if "student_admission_deadline" in kwargs:
         config.student_admission_deadline = kwargs["student_admission_deadline"]
     if "max_cancellations_per_student" in kwargs:

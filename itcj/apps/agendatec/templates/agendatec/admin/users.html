@@ -41,27 +41,84 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label">Nombre</label>
-            <input id="fName" class="form-control" required>
+        <!-- Selector de modo (solo visible al crear) -->
+        <div id="modeSelector" class="mb-3">
+          <label class="form-label fw-semibold">Tipo de registro</label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="coordMode" id="modeNew" value="new" checked>
+              <label class="form-check-label" for="modeNew">
+                <i class="bi bi-person-plus me-1"></i>Usuario nuevo
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="coordMode" id="modeExisting" value="existing">
+              <label class="form-check-label" for="modeExisting">
+                <i class="bi bi-person-check me-1"></i>Usuario existente
+              </label>
+            </div>
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Correo</label>
-            <input id="fEmail" class="form-control" type="email">
+        </div>
+
+        <!-- Sección: Usuario existente -->
+        <div id="existingUserSection" class="d-none">
+          <div class="mb-3">
+            <label class="form-label">Buscar usuario</label>
+            <div class="position-relative">
+              <input id="fUserSearch" class="form-control" placeholder="Escribe nombre, correo o username..." autocomplete="off">
+              <div id="userSearchResults" class="position-absolute w-100 bg-white border rounded shadow-sm d-none" style="z-index: 1050; max-height: 200px; overflow-y: auto;"></div>
+            </div>
+            <div class="form-text">Busca usuarios del personal que no sean coordinadores aún.</div>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">NIP inicial</label>
-            <input id="fNip" class="form-control" maxlength="4" placeholder="1234">
+          <!-- Usuario seleccionado -->
+          <div id="selectedUserCard" class="alert alert-info d-none">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <strong id="selectedUserName"></strong>
+                <br><small id="selectedUserEmail" class="text-muted"></small>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClearUser">
+                <i class="bi bi-x-lg"></i> Cambiar
+              </button>
+            </div>
+            <input type="hidden" id="fUserId">
           </div>
-          <div class="col-md-8">
-            <label class="form-label">Programas</label>
-            <select id="fPrograms" multiple class="form-select"></select>
-            <div class="form-text">Mantén CTRL/⌘ para elegir varios.</div>
+        </div>
+
+        <!-- Sección: Usuario nuevo -->
+        <div id="newUserSection">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Nombre completo <span class="text-danger">*</span></label>
+              <input id="fName" class="form-control" placeholder="Ej: Juan Pérez García" required>
+              <div class="form-text">Nombre(s) y apellidos</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Correo electrónico</label>
+              <input id="fEmail" class="form-control" type="email" placeholder="correo@ejemplo.com">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Username (para login)</label>
+              <input id="fUsername" class="form-control" placeholder="Ej: jperez">
+              <div class="form-text">Opcional. Si no se especifica, el usuario usará su correo para ingresar.</div>
+            </div>
           </div>
+          <div class="alert alert-secondary mt-3 mb-0">
+            <small><i class="bi bi-info-circle me-1"></i>La contraseña inicial será <code>tecno#2K</code>. El usuario deberá cambiarla en su primer inicio de sesión.</small>
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Programas (siempre visible) -->
+        <div class="mb-3">
+          <label class="form-label">Programas académicos</label>
+          <select id="fPrograms" multiple class="form-select" size="5"></select>
+          <div class="form-text">Mantén CTRL/⌘ para elegir varios programas.</div>
         </div>
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button id="btnSaveCoord" class="btn btn-primary">Guardar</button>
       </div>
     </div>
@@ -73,10 +130,11 @@
 <script>
   // Endpoints a usar desde JS:
   window.__adminUsersCfg = {
-    listUrl: "{{ url_for('agendatec_api.api_admin.list_coordinators') }}",
-    createUrl: "{{ url_for('agendatec_api.api_admin.create_coordinator') }}",
-    updateBase: "{{ url_for('agendatec_api.api_admin.update_coordinator', coord_id=0) }}".replace(/0$/, ''),
-    programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}"
+    listUrl: "{{ url_for('agendatec_api.api_admin.admin_users.list_coordinators') }}",
+    createUrl: "{{ url_for('agendatec_api.api_admin.admin_users.create_coordinator') }}",
+    updateBase: "{{ url_for('agendatec_api.api_admin.admin_users.update_coordinator', coord_id=0) }}".replace(/0$/, ''),
+    programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
+    searchUsersUrl: "{{ url_for('agendatec_api.api_admin.admin_users.search_users_for_coordinator') }}"
   };
 </script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/users.js') }}?v={{ static_version }}"></script>

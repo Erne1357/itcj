@@ -21,6 +21,7 @@ def upgrade():
     # Crear tabla de períodos académicos (CORE - sin configuraciones específicas de apps)
     op.create_table('core_academic_periods',
     sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('code', sa.String(length=6), nullable=False),
     sa.Column('name', sa.String(length=100), nullable=False),
     sa.Column('start_date', sa.Date(), nullable=False),
     sa.Column('end_date', sa.Date(), nullable=False),
@@ -31,6 +32,7 @@ def upgrade():
     sa.CheckConstraint('end_date >= start_date', name='check_period_dates'),
     sa.ForeignKeyConstraint(['created_by_id'], ['core_users.id'], ),
     sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('code'),
     sa.UniqueConstraint('name')
     )
     with op.batch_alter_table('core_academic_periods', schema=None) as batch_op:
@@ -41,6 +43,7 @@ def upgrade():
     op.create_table('agendatec_period_config',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('period_id', sa.Integer(), nullable=False),
+    sa.Column('student_admission_start', sa.DateTime(timezone=True), nullable=False),
     sa.Column('student_admission_deadline', sa.DateTime(timezone=True), nullable=False),
     sa.Column('max_cancellations_per_student', sa.Integer(), nullable=False, server_default='2'),
     sa.Column('allow_drop_requests', sa.Boolean(), nullable=False, server_default='true'),

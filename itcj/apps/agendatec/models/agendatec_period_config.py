@@ -29,6 +29,10 @@ class AgendaTecPeriodConfig(db.Model):
     )
 
     # Ventana de admisión para estudiantes
+    # A partir de esta fecha/hora, los estudiantes pueden crear solicitudes
+    student_admission_start = db.Column(db.DateTime(timezone=True), nullable=False)
+    # Ej: "2025-08-25 00:00:00-07:00"
+
     # Después de esta fecha/hora, los estudiantes no pueden crear solicitudes
     student_admission_deadline = db.Column(db.DateTime(timezone=True), nullable=False)
     # Ej: "2025-08-27 18:00:00-07:00"
@@ -64,6 +68,7 @@ class AgendaTecPeriodConfig(db.Model):
         return {
             "id": self.id,
             "period_id": self.period_id,
+            "student_admission_start": self.student_admission_start.isoformat() if self.student_admission_start else None,
             "student_admission_deadline": self.student_admission_deadline.isoformat() if self.student_admission_deadline else None,
             "max_cancellations_per_student": self.max_cancellations_per_student,
             "allow_drop_requests": self.allow_drop_requests,
@@ -79,6 +84,7 @@ class AgendaTecPeriodConfig(db.Model):
 
         Condiciones:
         - El período asociado debe estar ACTIVE
+        - La fecha/hora actual debe ser >= student_admission_start
         - La fecha/hora actual debe ser <= student_admission_deadline
 
         Returns:
@@ -90,7 +96,48 @@ class AgendaTecPeriodConfig(db.Model):
         tz = ZoneInfo("America/Ciudad_Juarez")
         now = datetime.now(tz)
 
-        return now <= self.student_admission_deadline
+        return self.student_admission_start <= now <= self.student_admission_deadline
+
+    def get_window_status(self) -> dict:
+        """
+        Obtiene el estado detallado de la ventana de admisión.
+
+        Returns:
+            dict con is_open, reason, starts_at, ends_at
+        """
+        tz = ZoneInfo("America/Ciudad_Juarez")
+        now = datetime.now(tz)
+
+        if not self.period or self.period.status != "ACTIVE":
+            return {
+                "is_open": False,
+                "reason": "period_not_active",
+                "starts_at": self.student_admission_start.isoformat() if self.student_admission_start else None,
+                "ends_at": self.student_admission_deadline.isoformat() if self.student_admission_deadline else None
+            }
+
+        if now < self.student_admission_start:
+            return {
+                "is_open": False,
+                "reason": "window_not_started",
+                "starts_at": self.student_admission_start.isoformat(),
+                "ends_at": self.student_admission_deadline.isoformat()
+            }
+
+        if now > self.student_admission_deadline:
+            return {
+                "is_open": False,
+                "reason": "window_closed",
+                "starts_at": self.student_admission_start.isoformat(),
+                "ends_at": self.student_admission_deadline.isoformat()
+            }
+
+        return {
+            "is_open": True,
+            "reason": "window_open",
+            "starts_at": self.student_admission_start.isoformat(),
+            "ends_at": self.student_admission_deadline.isoformat()
+        }
 
     def can_request_type(self, request_type: str) -> bool:
         """

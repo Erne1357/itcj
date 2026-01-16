@@ -54,6 +54,54 @@ function getCoordId() {
   }[s] || s);
 
   let useTable = true; // false = lista, true = tabla
+  let sharedCoordinators = [];
+  let currentCoordinatorId = null;
+
+  // Cargar coordinadores compartidos al inicio
+  (async function loadSharedCoordinators() {
+    try {
+      const r = await fetch("/api/agendatec/v1/coord/shared-coordinators", { credentials: "include" });
+      if (!r.ok) return;
+      const data = await r.json();
+      
+      currentCoordinatorId = data.current_coordinator_id;
+      sharedCoordinators = data.coordinators || [];
+      
+      // Si hay múltiples coordinadores, mostrar el filtro
+      if (data.has_multiple_coordinators) {
+        const filterContainer = document.getElementById("coordFilterContainer");
+        const filterSelect = document.getElementById("coordFilter");
+        
+        if (filterContainer && filterSelect) {
+          filterContainer.style.display = "block";
+          
+          // Limpiar y agregar opciones
+          filterSelect.innerHTML = '<option value="ALL">Todos los coordinadores</option>';
+          filterSelect.innerHTML += '<option value="MINE">Solo mis citas</option>';
+          
+          // Agregar cada coordinador
+          sharedCoordinators.forEach(coord => {
+            if (!coord.is_me) {
+              const option = document.createElement("option");
+              option.value = coord.id;
+              option.textContent = coord.name;
+              filterSelect.appendChild(option);
+            }
+          });
+          
+          // Agregar event listener para recargar al cambiar
+          filterSelect.addEventListener("change", () => {
+            const daySelect = document.getElementById("apDay");
+            if (daySelect && daySelect.value) {
+              document.getElementById("btnLoadAppointments")?.click();
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error cargando coordinadores compartidos:", e);
+    }
+  })();
 
   $("#btnViewList").addEventListener("click", () => {
     useTable = false;
@@ -69,10 +117,21 @@ function getCoordId() {
   $("#btnLoadAppointments").addEventListener("click", async () => {
     const day = $("#apDay").value;
     const reqStatus = $("#reqStatus").value;
+    const coordFilter = $("#coordFilter")?.value || "ALL";
+    
     const url = new URL("/api/agendatec/v1/coord/appointments", window.location.origin);
     url.searchParams.set("day", day);
     // status de solicitud (ALL = no filtra)
     if (reqStatus && reqStatus !== "ALL") url.searchParams.set("req_status", reqStatus);
+    
+    // Filtro de coordinador
+    if (coordFilter === "MINE" && currentCoordinatorId) {
+      url.searchParams.set("coordinator_id", currentCoordinatorId);
+    } else if (coordFilter !== "ALL" && coordFilter !== "MINE") {
+      // Es el ID de otro coordinador específico
+      url.searchParams.set("coordinator_id", coordFilter);
+    }
+    
     // para vista "tabla", necesitamos TODOS los slots del día (incluso vacíos)
     url.searchParams.set("include_empty", useTable ? "1" : "0");
 
@@ -109,12 +168,16 @@ function getCoordId() {
       el.innerHTML = `<div class="text-muted">Sin citas.</div>`;
       return;
     }
+    
+    const showCoordColumn = sharedCoordinators.length > 1;
+    
     let html = `<table class="table table-sm table-striped align-middle">
       <thead>
         <tr>
           <th>Hora</th>
           <th>Alumno</th>
           <th>Carrera</th>
+          ${showCoordColumn ? '<th>Coordinador</th>' : ''}
           <th>Estado (solicitud)</th>
           <th>Descripción</th>
           <th class="text-end">Acciones</th>
@@ -123,10 +186,14 @@ function getCoordId() {
     for (const it of items) {
       const alumno = it.student ? `${it.student.full_name || "—"}<br><span class="text-muted small">${it.student.control_number || it.student.username || "—"}</span>` : "—";
       const st = it.request_status;
+      const coordName = it.assigned_coordinator?.name || "—";
+      const coordBadge = showCoordColumn ? `<td><span class="badge bg-secondary">${coordName}</span></td>` : '';
+      
       html += `<tr>
         <td>${it.slot.start_time}–${it.slot.end_time}</td>
         <td>${alumno}</td>
         <td>${it.program.name}</td>
+        ${coordBadge}
         <td><span class="badge text-bg-${statusTone(st)}">${statusES(st)}</span></td>
         <td class="text-truncate" style="max-width:360px;" title="${escapeHtml(it.description || "Sin descripción")}">${escapeHtml(it.description || "Sin descripción")}</td>
         <td class="text-end">
@@ -144,14 +211,29 @@ function getCoordId() {
       el.innerHTML = `<div class="text-muted">Sin horarios configurados para este día.</div>`;
       return;
     }
+    
+    const showCoordColumn = sharedCoordinators.length > 1;
+    
     let html = `<table class="table table-sm table-bordered align-middle">
-      <thead><tr><th style="width:120px">Hora</th><th>Alumno</th><th>Carrera</th><th>Solicitud</th><th class="text-end">Acciones</th></tr></thead><tbody>`;
+      <thead><tr>
+        <th style="width:120px">Hora</th>
+        <th>Alumno</th>
+        <th>Carrera</th>
+        ${showCoordColumn ? '<th>Coordinador</th>' : ''}
+        <th>Solicitud</th>
+        <th class="text-end">Acciones</th>
+      </tr></thead><tbody>`;
+      
     for (const s of slots) {
+      const slotCoordName = s.coordinator_name || "—";
+      const slotCoordBadge = showCoordColumn ? `<td><span class="badge bg-info text-dark">${slotCoordName}</span></td>` : '';
+      
       if (!s.appointment) {
         html += `<tr>
           <td>${s.start}–${s.end}</td>
           <td class="text-muted">Libre</td>
           <td class="text-muted">—</td>
+          ${slotCoordBadge}
           <td class="text-muted">—</td>
           <td class="text-end text-muted small">—</td>
         </tr>`;
@@ -159,11 +241,14 @@ function getCoordId() {
       }
       const it = s.appointment;
       const alumno = it.student ? `${it.student.full_name || "—"}<br><span class="text-muted small">${it.student.control_number || it.student.username || "--"}</span>` : "—";
+      const appointmentCoordName = it.assigned_coordinator?.name || slotCoordName;
+      const coordCell = showCoordColumn ? `<td><span class="badge bg-secondary">${appointmentCoordName}</span></td>` : '';
       const st = it.request_status;
       html += `<tr>
         <td>${s.start}–${s.end}</td>
         <td>${alumno}</td>
         <td>${it.program.name}</td>
+        ${coordCell}
         <td>
           <div><span class="badge text-bg-${statusTone(st)}">${statusES(st)}</span></div>
           <div class="small text-truncate" style="max-width:420px" title="${escapeHtml(it.description || "Sin descripción")}">${escapeHtml(it.description || "Sin descripción")}</div>

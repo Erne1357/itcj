@@ -1,4 +1,5 @@
 // static/js/admin/period_days.js
+// Usa showToast global definido en toast.js (cargado desde base.html)
 const cfg = window.__periodDaysCfg;
 const periodId = window.__periodId;
 
@@ -7,31 +8,6 @@ let selectedDates = [];
 let periodData = null;
 let hasUnsavedChanges = false;
 let mdlConfirm;
-
-// Toast notification helper
-function showToast(message, type = "info") {
-  // Si existe Toastify (librería global)
-  if (window.Toastify) {
-    const bgColors = {
-      success: "linear-gradient(to right, #00b09b, #96c93d)",
-      error: "linear-gradient(to right, #ff5f6d, #ffc371)",
-      warn: "linear-gradient(to right, #f09819, #ff512f)",
-      info: "linear-gradient(to right, #4facfe, #00f2fe)"
-    };
-
-    Toastify({
-      text: message,
-      duration: 3000,
-      gravity: "top",
-      position: "right",
-      background: bgColors[type] || bgColors.info,
-      stopOnFocus: true
-    }).showToast();
-  } else {
-    // Fallback a alert si no hay Toastify
-    alert(message);
-  }
-}
 
 // Confirmation modal helper
 function showConfirm(title, message, onConfirm) {

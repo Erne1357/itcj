@@ -107,11 +107,11 @@
 }
 
 /* ==================== NIEVE ACUMULADA EN ÍCONOS ==================== */
+/* COMENTADO: Ya pasó la navidad (enero 2026)
 .desktop-icon {
     position: relative;
 }
 
-/* Capa de nieve acumulada en la parte superior del icono */
 .desktop-icon::before {
     content: '';
     position: absolute;
@@ -135,7 +135,6 @@
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
 }
 
-/* Goteos de nieve cayendo (estilo carámbanos pequeños) */
 .desktop-icon::after {
     content: '';
     position: absolute;
@@ -152,7 +151,6 @@
     animation: snowDrip 3s ease-in-out infinite;
 }
 
-/* Segundo goteo (varía por icono) */
 .desktop-icon:nth-child(odd)::after {
     left: 60%;
     animation-delay: 1.5s;
@@ -175,7 +173,6 @@
     }
 }
 
-/* Goteos adicionales de nieve (creados por JS) */
 .snow-drip-extra {
     position: absolute;
     top: 2px;
@@ -208,7 +205,6 @@
     }
 }
 
-/* Brillo sutil para simular reflejo de la nieve */
 .desktop-icon .icon-container {
     position: relative;
 }
@@ -240,6 +236,7 @@
         opacity: 0.5;
     }
 }
+FIN COMENTADO: Nieve en íconos */
 
 /* ==================== TASKBAR NAVIDEÑA ==================== */
 /* Decoración en la parte superior de la taskbar sin modificar su posición */

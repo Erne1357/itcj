@@ -243,8 +243,8 @@
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
 <script>
     window.__adminDashboard = {
-        fetchUrl: "{{ url_for('agendatec_api.api_admin.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
-        piesUrl: "{{ url_for('agendatec_api.api_admin.stats_coordinators') }}",
+        fetchUrl: "{{ url_for('agendatec_api.api_admin.admin_stats.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
+        piesUrl: "{{ url_for('agendatec_api.api_admin.admin_stats.stats_coordinators') }}",
         periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
     };
 </script>

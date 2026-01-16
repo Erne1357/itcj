@@ -5,17 +5,21 @@ from datetime import datetime
 from flask import current_app
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
-from models import db
-from models.user import User
-from models.request import Request
-from models.appointment import Appointment
-from models.time_slot import TimeSlot
-from models.program_coordinator import ProgramCoordinator
-from models.audit_log import AuditLog
-from sockets import socketio
-from sockets.requests import broadcast_request_status_changed
-from utils.notify import create_notification
-from sockets.notifications import push_notification
+from itcj.apps.agendatec.models import db
+from itcj.core.models.user import User
+from itcj.apps.agendatec.models.request import Request
+from itcj.apps.agendatec.models.appointment import Appointment
+from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.core.models.program_coordinator import ProgramCoordinator
+from itcj.apps.agendatec.models.audit_log import AuditLog
+from itcj.core.sockets.requests import broadcast_request_status_changed
+from itcj.core.utils.notify import create_notification
+from itcj.core.sockets.notifications import push_notification
+
+
+def _get_socketio():
+    """Obtiene la instancia de SocketIO de la aplicación actual (evita import circular)."""
+    return current_app.extensions.get("socketio")
 
 _ALLOWED_FROM_PENDING = {
     "RESOLVED_SUCCESS", "RESOLVED_NOT_COMPLETED",
@@ -100,14 +104,14 @@ def admin_change_request_status(*, actor_user_id: int|None, req_id: int, new_sta
         }
         if r.type == "APPOINTMENT" and ap:
             # a un coordinador específico
-            broadcast_request_status_changed(socketio, ap.coordinator_id, payload)
+            broadcast_request_status_changed(_get_socketio(), ap.coordinator_id, payload)
         else:
             # DROP → a todos los coordinadores del programa
             coord_ids = [row[0] for row in db.session
                 .query(ProgramCoordinator.coordinator_id)
                 .filter_by(program_id=r.program_id).all()]
             for cid in coord_ids:
-                broadcast_request_status_changed(socketio, cid, payload)
+                broadcast_request_status_changed(_get_socketio(), cid, payload)
     except Exception:
         current_app.logger.exception("Failed to broadcast request_status_changed (admin)")
 
@@ -126,7 +130,7 @@ def admin_change_request_status(*, actor_user_id: int|None, req_id: int, new_sta
                 program_id=r.program_id
             )
             db.session.commit()
-            push_notification(socketio, stu_id, n.to_dict())
+            push_notification(_get_socketio(), stu_id, n.to_dict())
     except Exception:
         current_app.logger.exception("Failed to create/push status-change notification (admin)")
 

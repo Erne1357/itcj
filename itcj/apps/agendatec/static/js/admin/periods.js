@@ -63,7 +63,7 @@ async function loadPeriods() {
 function renderPeriods() {
   const tbody = document.getElementById("tblPeriodsBody");
   if (!currentPeriods.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">No hay períodos registrados</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No hay períodos registrados</td></tr>`;
     return;
   }
 
@@ -81,12 +81,17 @@ function renderPeriods() {
     }[p.status] || p.status;
 
     const deadline = p.agendatec_config?.student_admission_deadline || '-';
+    const admissionStart = p.agendatec_config?.student_admission_start || '-';
+    const windowDisplay = admissionStart !== '-' && deadline !== '-'
+      ? `${formatDateTime(admissionStart)}<br><small class="text-muted">a</small><br>${formatDateTime(deadline)}`
+      : '-';
     return `
       <tr>
+        <td><code>${escapeHtml(p.code || '-')}</code></td>
         <td><strong>${escapeHtml(p.name)}</strong></td>
         <td>${formatDate(p.start_date)}</td>
         <td>${formatDate(p.end_date)}</td>
-        <td>${formatDateTime(deadline)}</td>
+        <td class="small">${windowDisplay}</td>
         <td><span class="badge bg-${statusClass}">${statusText}</span></td>
         <td>${p.request_count || 0}</td>
         <td>
@@ -126,9 +131,20 @@ function openModal(periodId) {
     const period = currentPeriods.find(p => p.id === periodId);
     if (!period) return;
 
+    document.getElementById("fCode").value = period.code || "";
     document.getElementById("fName").value = period.name;
     document.getElementById("fStartDate").value = period.start_date;
     document.getElementById("fEndDate").value = period.end_date;
+
+    // Parse admission start from agendatec_config
+    if (period.agendatec_config?.student_admission_start) {
+      const admStart = new Date(period.agendatec_config.student_admission_start);
+      document.getElementById("fAdmissionStartDate").value = admStart.toISOString().split('T')[0];
+      document.getElementById("fAdmissionStartTime").value = admStart.toTimeString().slice(0, 5);
+    } else {
+      document.getElementById("fAdmissionStartDate").value = "";
+      document.getElementById("fAdmissionStartTime").value = "00:00";
+    }
 
     // Parse deadline from agendatec_config
     if (period.agendatec_config?.student_admission_deadline) {
@@ -143,9 +159,12 @@ function openModal(periodId) {
     document.getElementById("fStatus").value = period.status;
   } else {
     title.textContent = "Nuevo Período";
+    document.getElementById("fCode").value = "";
     document.getElementById("fName").value = "";
     document.getElementById("fStartDate").value = "";
     document.getElementById("fEndDate").value = "";
+    document.getElementById("fAdmissionStartDate").value = "";
+    document.getElementById("fAdmissionStartTime").value = "00:00";
     document.getElementById("fDeadlineDate").value = "";
     document.getElementById("fDeadlineTime").value = "18:00";
     document.getElementById("fStatus").value = "INACTIVE";
@@ -155,25 +174,37 @@ function openModal(periodId) {
 }
 
 async function savePeriod() {
+  const code = document.getElementById("fCode").value.trim();
   const name = document.getElementById("fName").value.trim();
   const startDate = document.getElementById("fStartDate").value;
   const endDate = document.getElementById("fEndDate").value;
+  const admissionStartDate = document.getElementById("fAdmissionStartDate").value;
+  const admissionStartTime = document.getElementById("fAdmissionStartTime").value;
   const deadlineDate = document.getElementById("fDeadlineDate").value;
   const deadlineTime = document.getElementById("fDeadlineTime").value;
   const status = document.getElementById("fStatus").value;
 
-  if (!name || !startDate || !endDate || !deadlineDate || !deadlineTime) {
+  if (!code || !name || !startDate || !endDate || !admissionStartDate || !admissionStartTime || !deadlineDate || !deadlineTime) {
     showToast("Por favor completa todos los campos obligatorios", "warn");
     return;
   }
 
-  // Construir deadline con timezone
+  // Construir fechas con timezone
+  const admissionStartISO = `${admissionStartDate}T${admissionStartTime}:00-07:00`;
   const deadlineISO = `${deadlineDate}T${deadlineTime}:00-07:00`;
 
+  // Validar que el deadline sea posterior al inicio
+  if (new Date(deadlineISO) <= new Date(admissionStartISO)) {
+    showToast("La fecha límite debe ser posterior a la fecha de inicio de admisión", "warn");
+    return;
+  }
+
   const payload = {
+    code,
     name,
     start_date: startDate,
     end_date: endDate,
+    student_admission_start: admissionStartISO,
     student_admission_deadline: deadlineISO,
     status
   };
@@ -277,6 +308,10 @@ async function viewDetails(periodId) {
     const period = await periodResp.json();
     const stats = await statsResp.json();
 
+    const admissionStartDisplay = period.agendatec_config?.student_admission_start
+      ? formatDateTime(period.agendatec_config.student_admission_start)
+      : '-';
+
     const deadlineDisplay = period.agendatec_config?.student_admission_deadline
       ? formatDateTime(period.agendatec_config.student_admission_deadline)
       : '-';
@@ -287,11 +322,18 @@ async function viewDetails(periodId) {
         <div class="col-12">
           <h6>Información General</h6>
           <table class="table table-sm">
+            <tr><th>Código:</th><td><code>${escapeHtml(period.code || '-')}</code></td></tr>
             <tr><th>Nombre:</th><td>${escapeHtml(period.name)}</td></tr>
             <tr><th>Estado:</th><td><span class="badge bg-${period.status === 'ACTIVE' ? 'success' : 'secondary'}">${period.status}</span></td></tr>
             <tr><th>Fecha Inicio:</th><td>${formatDate(period.start_date)}</td></tr>
             <tr><th>Fecha Fin:</th><td>${formatDate(period.end_date)}</td></tr>
-            <tr><th>Fecha Límite Admisión:</th><td>${deadlineDisplay}</td></tr>
+          </table>
+        </div>
+        <div class="col-12">
+          <h6>Ventana de Admisión</h6>
+          <table class="table table-sm">
+            <tr><th>Inicio Admisión:</th><td>${admissionStartDisplay}</td></tr>
+            <tr><th>Fin Admisión:</th><td>${deadlineDisplay}</td></tr>
           </table>
         </div>
         <div class="col-12">
