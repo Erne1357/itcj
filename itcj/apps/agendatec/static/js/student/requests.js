@@ -85,14 +85,26 @@
         </div>
       `;
 
-      // Wire cancelar si existe botón
+      // Wire cancelar si existe botón (usando modal en lugar de confirm)
       const cancelBtn = document.getElementById("btnCancelRequest");
       if (cancelBtn) {
-        cancelBtn.addEventListener("click", async () => {
+        const modalEl = document.getElementById("modalCancelRequest");
+        const modal = new bootstrap.Modal(modalEl);
+        const btnConfirm = document.getElementById("btnConfirmCancelRequest");
+
+        cancelBtn.addEventListener("click", () => {
           const reqId = cancelBtn.getAttribute("data-id");
-          const ok = window.confirm("¿Seguro que deseas cancelar tu solicitud? Esta acción no se puede deshacer.");
-          if (!ok) return;
-          await doCancel(reqId);
+          // Guardar el ID para usarlo cuando se confirme
+          btnConfirm.setAttribute("data-pending-id", reqId);
+          modal.show();
+        });
+
+        btnConfirm?.addEventListener("click", async () => {
+          const reqId = btnConfirm.getAttribute("data-pending-id");
+          modal.hide();
+          if (reqId) {
+            await doCancel(reqId);
+          }
         });
       }
     } catch (e) {

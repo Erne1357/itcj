@@ -238,6 +238,47 @@
 </div>
 {% endblock %}
 
+{% block modals %}
+<!-- Modal de confirmación para envío de encuestas (prueba/producción) -->
+<div class="modal fade" id="modalSurveyConfirm" tabindex="-1" aria-labelledby="modalSurveyConfirmLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalSurveyConfirmLabel">Confirmar envío</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p id="modalSurveyConfirmMsg">¿Deseas enviar las encuestas?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmSurvey">Enviar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de error para envío de encuestas -->
+<div class="modal fade" id="modalSurveyError" tabindex="-1" aria-labelledby="modalSurveyErrorLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="modalSurveyErrorLabel">
+                    <i class="bi bi-exclamation-circle me-2"></i>Error al enviar
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Error al enviar: revisa la consola/servidor.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>

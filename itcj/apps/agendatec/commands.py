@@ -163,7 +163,7 @@ def seed_periods_command():
         # Crear configuración de AgendaTec para este período
         config2 = AgendaTecPeriodConfig(
             period_id=period2.id,
-            student_admission_start=datetime(2026, 1, 26, 0, 0, 0, tzinfo=tz),
+            student_admission_start=datetime(2026, 1, 24, 0, 0, 0, tzinfo=tz),
             student_admission_deadline=datetime(2026, 1, 28, 18, 0, 0, tzinfo=tz),
             max_cancellations_per_student=2,
             allow_drop_requests=True,

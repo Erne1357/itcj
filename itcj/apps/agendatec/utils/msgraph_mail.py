@@ -14,8 +14,8 @@ REDIRECT_URI  = os.getenv("MS_REDIRECT_URI", "http://localhost:8080/auth/ms/call
 _SCOPES_RAW = (os.getenv("MS_SCOPES") or "Mail.send").split()
 _RESERVED = {"openid","profile","offline_access"}
 
-CACHE_PATH    = os.getenv("MS_CACHE_PATH", "instance/msal_cache.json")
-ACCT_PATH     = os.getenv("MS_ACCOUNT_PATH", "instance/msal_account.json")  # quién inició sesión
+CACHE_PATH    = os.getenv("MS_CACHE_PATH", "instance/apps/agendatec/email/msal_cache.json")
+ACCT_PATH     = os.getenv("MS_ACCOUNT_PATH", "instance/apps/agendatec/email/msal_account.json")  # quién inició sesión
 LOCK = threading.Lock()
 
 def _scopes_for_auth():

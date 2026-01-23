@@ -7,7 +7,7 @@ Incluye: gestión de encuestas y conexión con Microsoft Graph.
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 from itcj.core.utils.decorators import app_required, login_required
-from itcj.core.utils.msgraph_mail import (
+from itcj.apps.agendatec.utils.msgraph_mail import (
     acquire_token_silent,
     build_auth_url,
     clear_account_and_cache,

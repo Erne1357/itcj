@@ -140,6 +140,28 @@
     </div>
 </div>
 {%endblock%}
+
+{% block modals %}
+<!-- Modal de confirmación para eliminar rango de horarios -->
+<div class="modal fade" id="modalDeleteSlots" tabindex="-1" aria-labelledby="modalDeleteSlotsLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalDeleteSlotsLabel">Confirmar eliminación</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p id="modalDeleteSlotsMsg">¿Deseas eliminar este rango de horarios?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmDeleteSlots">Eliminar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
 {% block extra_js %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <!-- IMPORTANTE: slots_init.js debe cargarse PRIMERO para llenar los selects de días -->

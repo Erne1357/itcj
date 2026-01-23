@@ -13,6 +13,28 @@
 
   const endpoint = "/api/agendatec/v1/admin/surveys/send";
 
+  // Modales
+  const modalConfirmEl = $("#modalSurveyConfirm");
+  const modalErrorEl = $("#modalSurveyError");
+
+  if (!modalConfirmEl || !modalErrorEl) return;
+
+  const modalConfirm = new bootstrap.Modal(modalConfirmEl);
+  const modalError = new bootstrap.Modal(modalErrorEl);
+  const modalConfirmMsg = $("#modalSurveyConfirmMsg");
+  const modalConfirmTitle = $("#modalSurveyConfirmLabel");
+  const btnConfirm = $("#btnConfirmSurvey");
+
+  let pendingBatch = null;
+
+  btnConfirm?.addEventListener("click", () => {
+    modalConfirm.hide();
+    if (pendingBatch !== null) {
+      executeRunBatches(pendingBatch);
+      pendingBatch = null;
+    }
+  });
+
   function currentRangeQS() {
     const q = new URLSearchParams();
     const f = $("#fltFrom")?.value;
@@ -30,16 +52,24 @@
     return r.json();
   }
 
-  async function runBatches({ test }) {
-    let offset = 0;
-    const limit = 200;
-
-    // Confirmaciones
+  function runBatches({ test }) {
+    // Mostrar modal de confirmación
+    pendingBatch = test;
     if (test) {
-      if (!confirm("¿Enviar lote de PRUEBA? Todo irá al destinatario de prueba.")) return;
+      modalConfirmTitle.textContent = "Confirmar envío de PRUEBA";
+      modalConfirmMsg.textContent = "¿Enviar lote de PRUEBA? Todo irá al destinatario de prueba.";
+      btnConfirm.className = "btn btn-warning";
     } else {
-      if (!confirm("¿Enviar lote en PRODUCCIÓN a alumnos?")) return;
+      modalConfirmTitle.textContent = "Confirmar envío en PRODUCCIÓN";
+      modalConfirmMsg.textContent = "¿Enviar lote en PRODUCCIÓN a alumnos?";
+      btnConfirm.className = "btn btn-danger";
     }
+    modalConfirm.show();
+  }
+
+  async function executeRunBatches(test) {
+    const limit = 200;
+    const offset = 0;
 
     // Enviar UN solo lote por clic (rápido). Si quieres en bucle, descomenta el while.
     try {
@@ -62,7 +92,7 @@
     } catch (e) {
       log("Falló el envío: " + (e?.message || e));
       console.error(e);
-      alert("Error al enviar: revisa la consola/servidor.");
+      modalError.show();
     }
   }
 

@@ -9,7 +9,22 @@
 
   if (!btn) return;
 
-  btn.addEventListener("click", async () => {
+  // Modal de confirmación
+  const modal = new bootstrap.Modal($("#modalDeleteSlots"));
+  const modalMsg = $("#modalDeleteSlotsMsg");
+  const btnConfirm = $("#btnConfirmDeleteSlots");
+
+  let pendingDelete = null;
+
+  btnConfirm?.addEventListener("click", async () => {
+    modal.hide();
+    if (pendingDelete) {
+      await executeDelete(pendingDelete.day, pendingDelete.start, pendingDelete.end);
+      pendingDelete = null;
+    }
+  });
+
+  btn.addEventListener("click", () => {
     const day = (dayEl?.value || "").trim();
     const start = (sEl?.value || "").trim();
     const end = (eEl?.value || "").trim();
@@ -21,9 +36,14 @@
       showToast("El rango es inválido.", "warn");
       return;
     }
-    const ok = confirm(`Eliminar ${start}–${end} del ${day}?`);
-    if (!ok) return;
 
+    // Mostrar modal de confirmación
+    pendingDelete = { day, start, end };
+    modalMsg.textContent = `¿Eliminar horarios de ${start} a ${end} del ${day}?`;
+    modal.show();
+  });
+
+  async function executeDelete(day, start, end) {
     try {
       const r = await fetch("/api/agendatec/v1/coord/day-config", {
         method: "DELETE",
@@ -49,5 +69,5 @@
       console.error(e);
       showToast("No se pudo conectar.", "error");
     }
-  });
+  }
 })();
