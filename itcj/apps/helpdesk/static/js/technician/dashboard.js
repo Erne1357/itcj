@@ -304,6 +304,11 @@ function openStartWorkModal(ticketId) {
         </div>
     `;
     
+    // Reiniciar estado del botón
+    const btn = document.getElementById('btnConfirmStart');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-play me-2"></i>Sí, Iniciar';
+    
     const modal = new bootstrap.Modal(document.getElementById('startWorkModal'));
     modal.show();
 }
@@ -361,6 +366,11 @@ function openResolveModal(ticketId) {
     document.getElementById('resolutionSuccess').checked = true;
     document.getElementById('resolutionNotes').value = '';
     document.getElementById('timeInvested').value = '';
+    
+    // Reiniciar estado del botón
+    const btn = document.getElementById('btnConfirmResolve');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Resolver Ticket';
     
     const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
     modal.show();
