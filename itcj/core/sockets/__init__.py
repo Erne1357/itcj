@@ -6,13 +6,26 @@ from itcj.core.extensions import db
 import os
 import redis
 
-# CORS
-CORS_ORIGINS = [
-    "http://localhost:8080",
-    "http://127.0.0.1:8080", 
-    "http://localhost:8000",
-    "http://127.0.0.1:8000"
-] if os.getenv("FLASK_ENV") == "development" else ["*"]
+# CORS - con credenciales NO se puede usar "*", hay que especificar orígenes
+def get_cors_origins():
+    if os.getenv("FLASK_ENV") == "development":
+        return [
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000"
+        ]
+    # Producción: leer de variable de entorno o usar dominio por defecto
+    cors_env = os.getenv("CORS_ORIGINS", "")
+    if cors_env:
+        return [origin.strip() for origin in cors_env.split(",")]
+    # Fallback: dominios conocidos de producción
+    return [
+        "https://enlinea.cdjuarez.tecnm.mx",
+        "https://siiapec.cdjuarez.tecnm.mx"
+    ]
+
+CORS_ORIGINS = get_cors_origins()
 
 def init_socketio(app):
     """Inicializa SocketIO con Redis message_queue."""
