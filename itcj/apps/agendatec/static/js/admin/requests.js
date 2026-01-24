@@ -6,9 +6,11 @@
   const statusBase = cfg.statusBase || "/api/agendatec/v1/admin/requests/"; // + id + /status
   const programsUrl = cfg.programsUrl || "/api/agendatec/v1/programs";
   const coordsUrl = cfg.coordsUrl || "/api/agendatec/v1/admin/users/coordinators";
+  const periodsUrl = cfg.periodsUrl || "/api/agendatec/v1/periods";
 
   let page = 0;
   const pageSize = 10;
+  let activePeriodId = null;
 
   const statusTone = (s) =>
     ({
@@ -38,16 +40,36 @@
 
   async function loadProgramsAndCoords() {
     try {
-      const [rp, rc] = await Promise.all([
+      const [rp, rc, rper] = await Promise.all([
         fetch(programsUrl, { credentials: "include" }),
         fetch(coordsUrl, { credentials: "include" }),
+        fetch(periodsUrl, { credentials: "include" }),
       ]);
       const pj = (await rp.json());
       const cj = (await rc.json());
+      const perj = (await rper.json());
+
       const progs = Array.isArray(pj) ? pj : (pj.items || pj.programs || []);
       const coords = (cj.items || []);
+      const periods = Array.isArray(perj) ? perj : (perj.items || perj.periods || []);
+
       fillSelect($("#fltProgram"), [{ id: "", name: "Programa" }, ...progs]);
       fillSelect($("#fltCoordinator"), [{ id: "", name: "Coordinador" }, ...coords.map(c => ({ id: c.id, name: c.name }))]);
+
+      // Find active period
+      const activePeriod = periods.find(p => p.status === "ACTIVE");
+      if (activePeriod) {
+        activePeriodId = activePeriod.id;
+      }
+
+      // Fill periods select with "Todos" as first option and active period preselected
+      const periodOptions = [{ id: "", name: "Todos los períodos" }, ...periods.map(p => ({ id: p.id, name: p.name }))];
+      fillSelect($("#fltPeriod"), periodOptions);
+
+      // Set active period as default
+      if (activePeriodId) {
+        $("#fltPeriod").value = activePeriodId;
+      }
     } catch { /* silent */ }
   }
 
@@ -65,6 +87,7 @@
     const status = $("#fltStatus")?.value;
     const prog = $("#fltProgram")?.value;
     const coord = $("#fltCoordinator")?.value;
+    const period = $("#fltPeriod")?.value;
     const text = $("#txtQ")?.value?.trim();
 
     if (from) q.set("from", from);
@@ -72,6 +95,7 @@
     if (status) q.set("status", status);
     if (prog) q.set("program_id", prog);
     if (coord) q.set("coordinator_id", coord);
+    if (period) q.set("period_id", period);
     if (text) q.set("q", text);
     q.set("limit", pageSize);
     q.set("offset", page * pageSize);
@@ -83,6 +107,8 @@
       const r = await fetch(`${listUrl}?${buildQs()}`, { credentials: "include" });
       if (!r.ok) throw new Error();
       const j = await r.json();
+      console.log("Loaded requests:", j);
+
       renderTable(j.items || []);
       $("#lblTotal").textContent = `${j.total || 0} registros`;
       togglePager(j.total || 0);
@@ -102,11 +128,11 @@
         const badge = `<span class="badge text-bg-${statusTone(r.status)}">${statusES(r.status)}</span>`;
         return `<tr>
           <td>#${r.id}</td>
-          <td>${escapeHtml(r.type)}</td>
+          <td>${escapeHtml(r.type == "DROP" ? "Baja" : "Cita")}</td>
           <td>${badge}</td>
           <td>${escapeHtml(r.program || "—")}</td>
           <td>${escapeHtml(r.student || "—")}</td>
-          <td>${escapeHtml(r.appointment?.coordinator_name || "—")}</td>
+          <td>${escapeHtml(r.coordinator_name || "—")}</td>
           <td>${fmtDate(r.created_at)}</td>
           <td class="text-end">
             ${
@@ -176,6 +202,10 @@
       reload();
     }
   });
+  $("#fltPeriod")?.addEventListener("change", () => {
+    page = 0;
+    reload();
+  });
 
   // Cambio de estado (modal)
   let currentReqId = null;
@@ -234,6 +264,8 @@
 
   // Boot
   initDates();
-  loadProgramsAndCoords();
-  reload();
+  loadProgramsAndCoords().then(() => {
+    // Reload after loading periods so the active period is preselected
+    reload();
+  });
 })();

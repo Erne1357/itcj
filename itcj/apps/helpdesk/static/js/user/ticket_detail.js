@@ -137,6 +137,8 @@ function renderTicketDetail(ticket) {
     // Description
     document.getElementById('ticketDescription').textContent = ticket.description;
 
+    // Custom Fields (if exist)
+    renderCustomFields(ticket);
 
     // Resolution (if exists)
     if (ticket.resolution_notes) {
@@ -205,6 +207,124 @@ function renderQuickActions(ticket) {
     `;
 
     menu.innerHTML = html;
+}
+
+// ==================== RENDER CUSTOM FIELDS ====================
+async function renderCustomFields(ticket) {
+    const container = document.getElementById('customFieldsContainer');
+    const content = document.getElementById('customFieldsContent');
+
+    // Si no hay custom_fields o está vacío, ocultar
+    if (!ticket.custom_fields || Object.keys(ticket.custom_fields).length === 0) {
+        container.classList.add('d-none');
+        return;
+    }
+
+    // Obtener category_id del ticket
+    const categoryId = ticket.category_id || ticket.category?.id;
+    if (!categoryId) {
+        container.classList.add('d-none');
+        return;
+    }
+
+    try {
+        // Obtener el field_template de la categoría
+        const response = await HelpdeskUtils.api.request(`/categories/${categoryId}/field-template`);
+        const fieldTemplate = response.field_template;
+
+        if (!fieldTemplate || !fieldTemplate.enabled) {
+            container.classList.add('d-none');
+            return;
+        }
+
+        // Renderizar los campos
+        const fields = fieldTemplate.fields || [];
+        let html = '';
+
+        fields.forEach(field => {
+            const value = ticket.custom_fields[field.key];
+
+            // Skip si no hay valor
+            if (value === undefined || value === null) {
+                return;
+            }
+
+            let displayValue = '';
+
+            // Formatear valor según tipo
+            if (field.type === 'checkbox') {
+                displayValue = value ? '<span class="badge bg-success">Sí</span>' : '<span class="badge bg-secondary">No</span>';
+            } else if (field.type === 'select' || field.type === 'radio') {
+                const option = field.options?.find(opt => opt.value === value);
+                displayValue = option ? option.label : value;
+            } else if (field.type === 'file') {
+                // Verificar si el valor es una ruta de archivo válida
+                // Las rutas de custom fields empiezan con /instance/
+                if (typeof value === 'string' && (value.startsWith('/instance/') || value.includes('/'))) {
+                    const filename = value.split('/').pop();
+                    const fileExt = filename.split('.').pop().toLowerCase();
+                    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+                    const isImage = imageExtensions.includes(fileExt);
+
+                    // URL para descargar usando el nuevo endpoint
+                    const downloadUrl = `/api/help-desk/v1/attachments/custom-field/${ticket.id}/${field.key}`;
+
+                    if (isImage) {
+                        // Si es una imagen, mostrar botón de descarga con icono de imagen
+                        displayValue = `
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="fas fa-image text-primary"></i>
+                                <span class="me-2">${filename}</span>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary"
+                                        onclick="downloadCustomFieldFile('${downloadUrl}', '${filename}')"
+                                        title="Descargar foto">
+                                    <i class="fas fa-download me-1"></i>Descargar
+                                </button>
+                            </div>
+                        `;
+                    } else {
+                        // Si es otro tipo de archivo, mostrar botón también
+                        displayValue = `
+                            <button type="button"
+                                    class="btn btn-sm btn-link text-decoration-none p-0"
+                                    onclick="downloadCustomFieldFile('${downloadUrl}', '${filename}')">
+                                <i class="fas fa-file me-1"></i>${filename}
+                            </button>
+                        `;
+                    }
+                } else {
+                    displayValue = `<i class="fas fa-file me-1"></i>${value}`;
+                }
+            } else {
+                // text, textarea
+                displayValue = value;
+            }
+
+            // Usar col-md-12 para archivos/imágenes para que tengan más espacio
+            const colClass = field.type === 'file' ? 'col-md-12' : 'col-md-6';
+
+            html += `
+                <div class="${colClass} mb-3">
+                    <small class="text-muted d-block mb-1">
+                        <i class="fas fa-chevron-right me-1"></i>${field.label}
+                    </small>
+                    <strong>${displayValue}</strong>
+                </div>
+            `;
+        });
+
+        if (html) {
+            content.innerHTML = html;
+            container.classList.remove('d-none');
+        } else {
+            container.classList.add('d-none');
+        }
+
+    } catch (error) {
+        console.error('Error loading custom fields template:', error);
+        container.classList.add('d-none');
+    }
 }
 
 // ==================== RENDER COMMENTS ====================
@@ -824,6 +944,65 @@ function openPhotoModal(photoUrl) {
     modal.show();
 }
 
+// ==================== DOWNLOAD CUSTOM FIELD FILE ====================
+/**
+ * Descarga un archivo de campo personalizado con manejo de errores
+ * @param {string} downloadUrl - URL del endpoint de descarga
+ * @param {string} filename - Nombre del archivo
+ */
+async function downloadCustomFieldFile(downloadUrl, filename) {
+    console.log(`📥 Intentando descargar: ${filename}`);
+
+    try {
+        // Hacer fetch para verificar si el archivo existe
+        const response = await fetch(downloadUrl);
+
+        if (!response.ok) {
+            // Parsear el error del servidor
+            let errorMessage = 'El archivo no existe o no está disponible en el servidor';
+
+            try {
+                const errorData = await response.json();
+                if (errorData.message) {
+                    errorMessage = errorData.message;
+                }
+            } catch (e) {
+                // Si no se puede parsear el JSON, usar mensaje por defecto
+            }
+
+            // Mostrar Toast de error
+            HelpdeskUtils.showToast(errorMessage, 'warning');
+            console.warn(`⚠️ Error al descargar ${filename}:`, errorMessage);
+            return;
+        }
+
+        // Si la respuesta es exitosa, descargar el archivo
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+
+        // Limpiar
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        console.log(`✅ Archivo descargado: ${filename}`);
+        HelpdeskUtils.showToast('Archivo descargado exitosamente', 'success');
+
+    } catch (error) {
+        console.error('❌ Error al descargar archivo:', error);
+        HelpdeskUtils.showToast(
+            'Error al descargar el archivo. Por favor, intenta nuevamente.',
+            'error'
+        );
+    }
+}
+
 // ==================== EXPORT GLOBAL FUNCTIONS ====================
 // Exportar funciones para que el tutorial pueda acceder a ellas
 window.loadTicketDetail = loadTicketDetail;
+window.downloadCustomFieldFile = downloadCustomFieldFile;

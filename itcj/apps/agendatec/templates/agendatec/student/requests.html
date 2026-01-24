@@ -11,6 +11,30 @@
   </div>
 </div>
 {% endblock %}
+
+{% block modals %}
+<!-- Modal de confirmación para cancelar solicitud -->
+<div class="modal fade" id="modalCancelRequest" tabindex="-1" aria-labelledby="modalCancelRequestLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title" id="modalCancelRequestLabel">
+                    <i class="bi bi-exclamation-triangle text-warning me-2"></i>Confirmar cancelación
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">¿Seguro que deseas cancelar tu solicitud? <strong>Esta acción no se puede deshacer.</strong></p>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">No, mantener</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmCancelRequest">Sí, cancelar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
 {% block extra_js %}
 <script src="{{ url_for('static', filename='agendatec/js/student/requests.js') }}?v={{ static_version }}"></script>
 {% endblock %}

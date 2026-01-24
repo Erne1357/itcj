@@ -1,42 +1,91 @@
 # routes/api/availability.py
-from datetime import datetime, timedelta, date
-from flask import Blueprint, request, jsonify, g
-from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
+"""
+API de disponibilidad para AgendaTec.
+
+Este módulo contiene los endpoints para gestión de disponibilidad:
+- Listar slots disponibles para un programa
+- Crear ventanas de disponibilidad (coordinadores)
+- Generar slots a partir de ventanas
+"""
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+from flask import Blueprint, g, jsonify, request
+
+from itcj.apps.agendatec.config import VALID_SLOT_MINUTES
 from itcj.apps.agendatec.models import db
-from itcj.core.models.program import Program
-from itcj.core.models.user import User
+from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
+from itcj.apps.agendatec.models.time_slot import TimeSlot
 from itcj.core.models.coordinator import Coordinator
+from itcj.core.models.program import Program
 from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.apps.agendatec.models.time_slot import TimeSlot            # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), is_booked
-from itcj.apps.agendatec.models.availability_window import AvailabilityWindow  # id, coordinator_id, day (DATE), start_time (TIME), end_time (TIME), slot_minutes
+from itcj.core.models.user import User
+from itcj.core.services import period_service
+from itcj.core.utils.decorators import api_app_required, api_auth_required
 
 api_avail_bp = Blueprint("api_avail", __name__)
 
-# Días permitidos (según alcance)
-ALLOWED_DAYS = {date(2025, 8, 25), date(2025, 8, 26), date(2025, 8, 27)}
 
 # ---------- Helpers ----------
-def _parse_day_query():
+
+def _parse_day_query() -> Optional[date]:
+    """
+    Extrae y parsea el parámetro 'day' de la query string.
+
+    Returns:
+        date parseado, date.today() si no se envía, o None si es inválido.
+    """
     s = (request.args.get("day") or "").strip()
     if not s:
-        # Si no envían ?day, toma el día de hoy del servidor (date naive)
         return date.today()
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except ValueError:
         return None
 
-def _parse_day_body(x: str):
+
+def _parse_day_body(x: str) -> date:
+    """
+    Parsea una fecha en formato YYYY-MM-DD desde el body.
+
+    Args:
+        x: Cadena con fecha
+
+    Returns:
+        Objeto date
+    """
     return datetime.strptime(x, "%Y-%m-%d").date()
 
-def _require_allowed_day(d: date):
-    return d in ALLOWED_DAYS
 
-def _current_coordinator_id(fallback_id: int | None = None):
+def _require_allowed_day(d: date) -> bool:
     """
-    Si el usuario autenticado es 'coordinator', resuelve su coordinator_id por user_id.
-    Si es admin y manda coordinator_id en body/query, úsalo.
+    Valida que el día esté habilitado en el período activo.
+
+    Args:
+        d: Fecha a validar
+
+    Returns:
+        True si el día está habilitado, False en caso contrario.
+    """
+    period = period_service.get_active_period()
+    if not period:
+        return False
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    return d in enabled_days
+
+
+def _current_coordinator_id(fallback_id: Optional[int] = None) -> Optional[int]:
+    """
+    Obtiene el coordinator_id del usuario autenticado.
+
+    Si el usuario es coordinador, resuelve su ID. Si es admin y se
+    proporciona un fallback_id, lo utiliza.
+
+    Args:
+        fallback_id: ID alternativo (para uso de admins)
+
+    Returns:
+        El coordinator_id o None si no aplica.
     """
     try:
         uid = int(g.current_user["sub"])
@@ -50,16 +99,23 @@ def _current_coordinator_id(fallback_id: int | None = None):
                 return c.id
     return fallback_id
 
+
 # =========================================================
 #            API ALUMNO: LISTAR SLOTS POR DÍA
 # =========================================================
+
 @api_avail_bp.get("/program/<int:program_id>/slots")
 @api_auth_required
 @api_app_required(app_key="agendatec", roles=["student"])
 def list_slots_for_program_day(program_id: int):
     """
-    Une coordinadores asignados al programa y devuelve slots LIBRES (is_booked=false) para un día.
-    Respuesta: { day, program_id, items: [ {slot_id, coordinator_id, day, start_time, end_time}, ... ] }
+    Lista slots libres para un programa en un día específico.
+
+    Query params:
+        day: Fecha en formato YYYY-MM-DD (default: hoy)
+
+    Returns:
+        JSON con day, program_id y lista de slots disponibles
     """
     d = _parse_day_query()
     if not d:
@@ -83,15 +139,27 @@ def list_slots_for_program_day(program_id: int):
              .order_by(TimeSlot.start_time.asc())
              .all())
 
+    # Obtener información de coordinadores si hay múltiples
+    coordinators_info = {}
+    if len(coor_ids) > 1:
+        coords = db.session.query(Coordinator, User).join(User, User.id == Coordinator.user_id).filter(Coordinator.id.in_(coor_ids)).all()
+        coordinators_info = {c.id: u.full_name for c, u in coords}
+    
     items = [{
         "slot_id": s.id,
         "coordinator_id": s.coordinator_id,
+        "coordinator_name": coordinators_info.get(s.coordinator_id) if coordinators_info else None,
         "day": str(s.day),
         "start_time": s.start_time.strftime("%H:%M"),
         "end_time": s.end_time.strftime("%H:%M")
     } for s in slots]
-
-    return jsonify({"day": str(d), "program_id": program_id, "items": items})
+    
+    # Información de coordinadores del programa
+    response = {"day": str(d), "program_id": program_id, "items": items}
+    if coordinators_info:
+        response["coordinators"] = [{"id": cid, "name": name} for cid, name in coordinators_info.items()]
+    
+    return jsonify(response)
 
 # =========================================================
 #     API COORD/ADMIN: CREAR VENTANA DE DISPONIBILIDAD
@@ -135,7 +203,9 @@ def create_availability_window():
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
     if not _require_allowed_day(d):
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+        period = period_service.get_active_period()
+        enabled_days = period_service.get_enabled_days(period.id) if period else []
+        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(enabled_days)]}), 400
 
     # validar horas HH:MM
     try:
@@ -186,11 +256,14 @@ def api_generate_slots():
 
     # Parse + validar días
     parsed_days: list[date] = []
+    period = period_service.get_active_period()
+    enabled_days = set(period_service.get_enabled_days(period.id)) if period else set()
+
     try:
         for s in days:
             d = _parse_day_body(str(s))
             if not _require_allowed_day(d):
-                return jsonify({"error":"day_not_allowed","day":str(d),"allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+                return jsonify({"error":"day_not_allowed","day":str(d),"allowed":[str(x) for x in sorted(enabled_days)]}), 400
             parsed_days.append(d)
     except Exception:
         return jsonify({"error":"invalid_day_format"}), 400
@@ -246,7 +319,9 @@ def list_my_windows():
     if not d:
         return jsonify({"error":"invalid_day_format"}), 400
     if not _require_allowed_day(d):
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+        period = period_service.get_active_period()
+        enabled_days = period_service.get_enabled_days(period.id) if period else []
+        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(enabled_days)]}), 400
 
     coord_id_q = request.args.get("coordinator_id")
     cid = None

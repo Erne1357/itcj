@@ -1,11 +1,19 @@
 # routes/api/programs_academic.py
-from flask import Blueprint, request, jsonify
-from itcj.core.utils.decorators import api_auth_required
+"""
+API de programas académicos para AgendaTec.
+
+Este módulo contiene los endpoints para consulta de programas:
+- Listar programas
+- Obtener coordinadores de un programa
+"""
+from flask import Blueprint, jsonify, request
+
 from itcj.apps.agendatec.models import db
-from itcj.core.models.program import Program
-from itcj.core.models.user import User
 from itcj.core.models.coordinator import Coordinator
+from itcj.core.models.program import Program
 from itcj.core.models.program_coordinator import ProgramCoordinator
+from itcj.core.models.user import User
+from itcj.core.utils.decorators import api_auth_required
 
 api_programs_bp = Blueprint("api_programs", __name__)
 

@@ -1,0 +1,196 @@
+{% extends "agendatec/base.html" %}
+{% block title %}Admin · Crear Solicitud{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 mb-0">Crear Solicitud por Estudiante</h1>
+  <a href="{{ url_for('agendatec_pages.admin_pages.admin_requests') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i> Volver a solicitudes
+  </a>
+</div>
+
+<div class="row">
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <form id="frmCreateRequest">
+          <!-- Estudiante -->
+          <div class="mb-3">
+            <label for="txtSearchStudent" class="form-label">Estudiante <span class="text-danger">*</span></label>
+            <input type="text" id="txtSearchStudent" class="form-control mb-2" placeholder="Buscar por nombre o número de control...">
+            <select id="selStudent" class="form-select" required size="8" style="height: auto;">
+              <option value="">Seleccionar estudiante...</option>
+            </select>
+            <div class="form-text">Escribe para buscar, luego selecciona un estudiante de la lista</div>
+          </div>
+
+          <!-- Tipo de solicitud -->
+          <div class="mb-3">
+            <label for="selType" class="form-label">Tipo de solicitud <span class="text-danger">*</span></label>
+            <select id="selType" class="form-select" required>
+              <option value="">Seleccionar tipo...</option>
+              <option value="APPOINTMENT">Cita (Alta / Alta y Baja)</option>
+              <option value="DROP">Baja únicamente</option>
+            </select>
+          </div>
+
+          <!-- Programa -->
+          <div class="mb-3">
+            <label for="selProgram" class="form-label">Programa <span class="text-danger">*</span></label>
+            <select id="selProgram" class="form-select" required>
+              <option value="">Seleccionar programa...</option>
+            </select>
+          </div>
+
+          <!-- Campos de alta/baja -->
+          <div id="detailsSection" style="display: none;">
+            <div id="altaFields" class="mb-3" style="display: none;">
+              <h6 class="mb-2"><i class="bi bi-plus-circle me-1"></i>Alta de materia</h6>
+              <div class="row g-2">
+                <div class="col-12 col-sm-6">
+                  <label class="form-label">Materia a dar de alta</label>
+                  <input type="text" class="form-control" id="altaMateria" placeholder="Ej. Cálculo Integral">
+                </div>
+                <div class="col-12 col-sm-6 d-flex align-items-end">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="altaNoSe" />
+                    <label class="form-check-label" for="altaNoSe">No sé qué materia quiero</label>
+                  </div>
+                </div>
+                <div class="col-12 col-sm-6">
+                  <label class="form-label">Horario de la materia (si lo conoces)</label>
+                  <input type="text" class="form-control" id="altaHorario" placeholder="Ej. Lu-Mi 9:00–10:50">
+                </div>
+              </div>
+              <div class="form-text mt-1">
+                Recuerda: la alta depende de cupos/requisitos, no siempre es posible.
+              </div>
+            </div>
+
+            <div id="bajaFields" class="mb-3" style="display: none;">
+              <h6 class="mb-2"><i class="bi bi-dash-circle me-1"></i>Baja de materia</h6>
+              <div class="row g-2">
+                <div class="col-12 col-sm-6">
+                  <label class="form-label">Materia a dar de baja <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="bajaMateria" placeholder="Ej. Física I">
+                </div>
+                <div class="col-12 col-sm-6">
+                  <label class="form-label">Horario de la materia <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="bajaHorario" placeholder="Ej. Ma-Ju 11:00–12:50">
+                </div>
+              </div>
+              <div class="form-text mt-1">
+                Verifica que al dar de baja el estudiante no quede con <strong>&lt; 20 créditos</strong>.
+              </div>
+            </div>
+          </div>
+
+          <!-- Sección de cita (solo visible si tipo = APPOINTMENT) -->
+          <div id="appointmentSection" class="border rounded p-3 mb-3" style="display: none;">
+            <h6 class="mb-3">Detalles de la Cita</h6>
+
+            <!-- Día -->
+            <div class="mb-3">
+              <label for="selDay" class="form-label">Día <span class="text-danger">*</span></label>
+              <select id="selDay" class="form-select">
+                <option value="">Seleccionar día...</option>
+              </select>
+            </div>
+
+            <!-- Horarios disponibles -->
+            <div class="mb-3">
+              <label for="selSlot" class="form-label">Horario disponible <span class="text-danger">*</span></label>
+              <select id="selSlot" class="form-select">
+                <option value="">Primero selecciona un día</option>
+              </select>
+              <div class="form-text">Solo se muestran horarios disponibles del coordinador del programa</div>
+            </div>
+          </div>
+
+          <!-- Botones -->
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-circle me-1"></i> Crear Solicitud
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="window.history.back()">
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel de ayuda -->
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="card-title">
+          <i class="bi bi-info-circle"></i> Información
+        </h6>
+        <ul class="small mb-0">
+          <li>Esta solicitud aparecerá como si el estudiante la hubiera creado</li>
+          <li>El estudiante recibirá una notificación sobre la solicitud</li>
+          <li>Solo se puede tener una solicitud activa por período</li>
+          <li><strong>Baja únicamente</strong>: Llenar materia y horario de baja (obligatorios). No requiere agendar cita</li>
+          <li><strong>Cita</strong>: Puede ser solo alta, solo baja, o ambas. Requiere agendar día y horario de cita</li>
+          <li>La descripción se genera automáticamente a partir de los campos llenados</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3">
+      <div class="card-body">
+        <h6 class="card-title">
+          <i class="bi bi-shield-check"></i> Restricciones
+        </h6>
+        <ul class="small mb-0">
+          <li>El estudiante no debe tener solicitudes activas en el período actual</li>
+          <li>El horario debe estar disponible</li>
+          <li>El coordinador debe estar asignado al programa</li>
+          <li>El día debe estar habilitado en el período activo</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal de confirmación -->
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-question-circle text-primary me-2"></i>Confirmar creación
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p id="mdlConfirmMessage" class="mb-0"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x-circle me-1"></i>Cancelar
+        </button>
+        <button type="button" id="btnConfirmCreate" class="btn btn-primary">
+          <i class="bi bi-check-circle me-1"></i>Sí, crear solicitud
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.__createRequestCfg = {
+    studentsUrl: "{{ url_for('agendatec_api.api_admin.admin_users.list_students') }}",
+    programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
+    periodsUrl: "{{ url_for('agendatec_api.api_periods.get_active_period') }}",
+    createUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_create_request') }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/create_request.js') }}?v={{ static_version }}"></script>
+{% endblock %}

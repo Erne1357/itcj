@@ -6,15 +6,20 @@
   <div class="col-12 ">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h5 class="card-title d-flex align-items-center gap-2">
-          <i class="bi bi-speedometer2"></i> Panel del coordinador
-        </h5>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+          <h5 class="card-title d-flex align-items-center gap-2 mb-0">
+            <i class="bi bi-speedometer2"></i> Panel del coordinador
+          </h5>
+          <div class="badge bg-primary fs-6 px-3 py-2" id="currentPeriod" style="white-space: nowrap;">
+            <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
+          </div>
+        </div>
         <div class="row g-3 mt-2" id="dashKpis">
           <div class="col-12 col-md-6">
             <div class="border rounded-3 p-3 h-100">
               <div class="d-flex align-items-center justify-content-between">
                 <div class="fw-semibold">
-                  <a href="/coord/appointments"><i class="bi bi-calendar-check me-1"></i> Citas
+                  <a href="/agendatec/coord/appointments"><i class="bi bi-calendar-check me-1"></i> Citas
                 </div>
                 </a>
               </div>
@@ -34,7 +39,7 @@
             <div class="border rounded-3 p-3 h-100">
               <div class="d-flex align-items-center justify-content-between">
                 <div class="fw-semibold">
-                  <a href="/coord/drops"><i class="bi bi-arrow-down-circle me-1"></i> Bajas
+                  <a href="/agendatec/coord/drops"><i class="bi bi-arrow-down-circle me-1"></i> Bajas
                 </div>
                 </a>
               </div>

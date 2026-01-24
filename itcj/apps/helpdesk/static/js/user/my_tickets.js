@@ -151,6 +151,7 @@ function createTicketCard(ticket) {
                     <div class="d-flex align-items-center gap-2 mb-2">
                         <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
                         ${HelpdeskUtils.getAreaBadge(ticket.area)}
+                        ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
                         ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
                     </div>
                     

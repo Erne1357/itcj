@@ -1,29 +1,31 @@
-// static/js/student/requests.js (REEMPLAZO COMPLETO)
+// static/js/student/requests.js
 (async () => {
   const panel = document.getElementById("reqPanel");
   const RELEVANT_TYPES = new Set([
-    "REQUEST_STATUS_CHANGED",    // cambio de estado por coordinador
-    "APPOINTMENT_CREATED",       // cuando se agenda la cita
-    "APPOINTMENT_CANCELED",      // cancelación
-    "DROP_CREATED"               // solicitud de baja creada
+    "REQUEST_STATUS_CHANGED",
+    "APPOINTMENT_CREATED",
+    "APPOINTMENT_CANCELED",
+    "DROP_CREATED"
   ]);
+
   let __reloadTimer = null;
   const scheduleReload = () => {
     clearTimeout(__reloadTimer);
-    __reloadTimer = setTimeout(() => load().catch(() => { }), 300); // debounced
+    __reloadTimer = setTimeout(() => load().catch(() => { }), 300);
   };
+
   document.addEventListener("notif:push", (e) => {
     const t = e?.detail?.type;
     if (RELEVANT_TYPES.has(t)) {
-      // Opcional: feedback mínimo en consola
       scheduleReload();
     }
   });
+
   // --- Helpers de mapeo a español (UI) ---
   const mapType = (t) => ({
     "APPOINTMENT": "CITA",
     "DROP": "BAJA",
-    "BOTH": "ALTA Y BAJA" // por si en el futuro muestran combinadas
+    "BOTH": "ALTA Y BAJA"
   }[t] || t);
 
   const mapReqStatus = (s) => ({
@@ -53,15 +55,12 @@
 
   const dayRange = (slot) => {
     if (!slot) return "";
-    // slot.day ya suele venir YYYY-MM-DD; start_time/end_time tipo HH:MM
     return `${slot.day} • ${slot.start_time}–${slot.end_time}`;
   };
 
-  // Render badge minimalista
   const badge = (text, tone = "secondary") =>
     `<span class="badge text-bg-${tone}" style="letter-spacing:.3px">${text}</span>`;
 
-  // Botón primario minimalista
   const btn = (label, { id = "", cls = "btn btn-sm btn-outline-danger", attrs = "" } = {}) =>
     `<button ${id ? `id="${id}"` : ""} class="${cls}" ${attrs}>${label}</button>`;
 
@@ -76,8 +75,9 @@
       if (!r.ok) throw 0;
       const data = await r.json();
 
-      const activeHtml = renderActive(data.active);
-      const historyHtml = renderHistory(data.history || []);
+      const activeHtml = renderActive(data.active, data.active_period);
+      const historyHtml = renderHistory(data.history || [], data.active_period, data.periods || {});
+
       panel.innerHTML = `
         <div class="d-flex flex-column gap-3">
           ${activeHtml}
@@ -85,15 +85,26 @@
         </div>
       `;
 
-      // Wire cancelar si existe botón
+      // Wire cancelar si existe botón (usando modal en lugar de confirm)
       const cancelBtn = document.getElementById("btnCancelRequest");
       if (cancelBtn) {
-        cancelBtn.addEventListener("click", async () => {
+        const modalEl = document.getElementById("modalCancelRequest");
+        const modal = new bootstrap.Modal(modalEl);
+        const btnConfirm = document.getElementById("btnConfirmCancelRequest");
+
+        cancelBtn.addEventListener("click", () => {
           const reqId = cancelBtn.getAttribute("data-id");
-          // Confirm mínimo viable, puedes cambiarlo por un modal bootstrap si prefieres
-          const ok = window.confirm("¿Seguro que deseas cancelar tu solicitud? Esta acción no se puede deshacer.");
-          if (!ok) return;
-          await doCancel(reqId);
+          // Guardar el ID para usarlo cuando se confirme
+          btnConfirm.setAttribute("data-pending-id", reqId);
+          modal.show();
+        });
+
+        btnConfirm?.addEventListener("click", async () => {
+          const reqId = btnConfirm.getAttribute("data-pending-id");
+          modal.hide();
+          if (reqId) {
+            await doCancel(reqId);
+          }
         });
       }
     } catch (e) {
@@ -102,8 +113,8 @@
     }
   }
 
-  // --- Render “Solicitud activa” ---
-  function renderActive(active) {
+  // --- Render "Solicitud activa" ---
+  function renderActive(active, activePeriod) {
     if (!active) {
       return `
         <div class="card border-0 shadow-sm">
@@ -112,7 +123,7 @@
               <h6 class="mb-0">Solicitud activa</h6>
               ${badge("NINGUNA", "secondary")}
             </div>
-            <div class="text-muted small mt-2">No tienes solicitud activa.</div>
+            <div class="text-muted small mt-2">No tienes solicitud activa en el período actual.</div>
           </div>
         </div>
       `;
@@ -123,7 +134,6 @@
     const created = fmtDate(active.created_at);
     const desc = (active.description || "Sin descripción").trim();
 
-    // Si tiene cita asociada, mostramos datos de la cita
     const hasAppt = !!active.appointment;
     const appt = active.appointment || null;
     const apptStatus = hasAppt ? mapApptStatus(appt.status) : null;
@@ -134,16 +144,11 @@
          </div>`
       : "";
 
-    // Elegimos tono del estatus
     const statusTone = toneForStatus(active.status);
     const typeTone = active.type === "DROP" ? "warning" : "primary";
 
-    // Elegibilidad para cancelar:
-    // - Request PENDING
-    // - Si trae cita: que la cita esté SCHEDULED (programada)
-    const canCancel =
-      active.status === "PENDING" &&
-      (!hasAppt || (hasAppt && appt.status === "SCHEDULED"));
+    // Determine if cancel button should be shown
+    const canCancel = canCancelRequest(active, activePeriod);
 
     return `
       <div class="card border-0 shadow-sm">
@@ -165,62 +170,175 @@
             <div class="small mt-1">${escapeHtml(desc)}</div>
           </div>
 
+          ${canCancel ? `
           <div class="mt-3 d-flex gap-2">
-            ${canCancel ? btn("Cancelar solicitud", {
-      id: "btnCancelRequest",
-      cls: "btn btn-sm btn-outline-danger",
-      attrs: `data-id="${active.id}"`
-    }) : ""}
+            ${btn("Cancelar solicitud", {
+              id: "btnCancelRequest",
+              cls: "btn btn-sm btn-outline-danger",
+              attrs: `data-id="${active.id}"`
+            })}
           </div>
+          ` : ""}
         </div>
       </div>
     `;
   }
 
-  // --- Render “Historial” ---
-  function renderHistory(items) {
-    if (!items.length) {
-      return `
-        <div class="card border-0 shadow-sm">
-          <div class="card-body">
-            <h6 class="mb-2">Historial</h6>
-            <div class="text-muted small">Sin historial.</div>
-          </div>
-        </div>
-      `;
+  // --- Determinar si se puede cancelar una solicitud ---
+  function canCancelRequest(request, activePeriod) {
+    // Solo se puede cancelar si el estado es PENDING
+    if (request.status !== "PENDING") {
+      return false;
     }
 
-    // Ordenar descendente por fecha de creación (asumiendo created_at ISO)
-    items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    // Verificar que el período esté activo
+    const period = request.period;
+    if (!period || period.status !== "ACTIVE") {
+      return false;
+    }
 
-    const lis = items.map(h => {
-      const t = mapType(h.type);
-      const s = mapReqStatus(h.status);
-      const when = fmtDate(h.created_at);
-      const comment = h.comment;
-      const tone = toneForStatus(h.status);
-      return `
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          <div class="d-flex flex-column">
-            <span class="fw-semibold">${t}</span>
-            <span class="small text-muted">${comment ? "Comentarios : " + comment : ""}</span>
-            <span class="small text-muted">${when}</span>
-          </div>
-          ${badge(s, tone)}
-        </li>
-      `;
-    }).join("");
+    // Si hay un student_admission_deadline, verificar que no haya pasado
+    if (activePeriod && activePeriod.student_admission_deadline) {
+      const now = new Date();
+      const deadline = new Date(activePeriod.student_admission_deadline);
+      if (now > deadline) {
+        return false;
+      }
+    }
 
-    return `
+    // Si es APPOINTMENT, verificar que la cita no haya pasado
+    if (request.type === "APPOINTMENT" && request.appointment) {
+      const slot = request.appointment.slot;
+      if (slot) {
+        const now = new Date();
+        const slotDateTime = new Date(`${slot.day}T${slot.start_time}`);
+        if (now >= slotDateTime) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  // --- Render "Historial" agrupado por período ---
+  function renderHistory(items, activePeriod, periods) {
+    // Agrupar solicitudes por período
+    const groupedByPeriod = {};
+
+    for (const item of items) {
+      const periodId = item.period_id || "sin_periodo";
+      if (!groupedByPeriod[periodId]) {
+        groupedByPeriod[periodId] = [];
+      }
+      groupedByPeriod[periodId].push(item);
+    }
+
+    // Ordenar períodos: primero el activo, luego los demás por ID descendente
+    const activePeriodId = activePeriod ? activePeriod.id : null;
+    const periodIds = Object.keys(groupedByPeriod).map(id => id === "sin_periodo" ? id : parseInt(id));
+
+    // Ordenar: activo primero, luego descendente
+    periodIds.sort((a, b) => {
+      if (a === activePeriodId) return -1;
+      if (b === activePeriodId) return 1;
+      if (a === "sin_periodo") return 1;
+      if (b === "sin_periodo") return -1;
+      return b - a;
+    });
+
+    // Si hay período activo pero no tiene solicitudes en el historial, agregarlo
+    if (activePeriodId && !groupedByPeriod[activePeriodId]) {
+      periodIds.unshift(activePeriodId);
+      groupedByPeriod[activePeriodId] = [];
+      // Asegurar que el período activo esté en el diccionario de períodos
+      if (!periods[activePeriodId] && activePeriod) {
+        periods[activePeriodId] = {
+          id: activePeriod.id,
+          name: activePeriod.name,
+          status: activePeriod.status
+        };
+      }
+    }
+
+    let html = `
       <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <h6 class="mb-2">Historial</h6>
-          <ul class="list-group list-group-flush">
-            ${lis}
-          </ul>
+          <h6 class="mb-3">Historial</h6>
+    `;
+
+    if (periodIds.length === 0) {
+      html += `<div class="text-muted small">Sin historial.</div>`;
+    } else {
+      for (const periodId of periodIds) {
+        const period = periodId === "sin_periodo" ? null : periods[periodId];
+        const periodName = period ? period.name : "Sin período asignado";
+        const isActivePeriod = periodId === activePeriodId;
+        const periodItems = groupedByPeriod[periodId] || [];
+
+        // Divisor de período (muy visible)
+        html += `
+          <div class="period-divider ${isActivePeriod ? 'active' : ''}" style="
+            background: ${isActivePeriod ? 'linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%)' : 'linear-gradient(135deg, #6c757d 0%, #495057 100%)'};
+            color: white;
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          ">
+            <i class="bi bi-calendar3"></i>
+            <span>${escapeHtml(periodName)}</span>
+            ${isActivePeriod ? '<span class="badge bg-light text-primary ms-auto" style="font-size: 0.75rem;">Período actual</span>' : ''}
+          </div>
+        `;
+
+        // Solicitudes del período
+        if (periodItems.length === 0 && isActivePeriod) {
+          html += `
+            <div class="alert alert-info mb-3" style="font-size: 0.9rem;">
+              <i class="bi bi-info-circle me-1"></i> No tienes solicitudes cerradas en este periodo.
+            </div>
+          `;
+        } else if (periodItems.length === 0 && !isActivePeriod) {
+          html += `
+            <div class="alert alert-secondary mb-3" style="font-size: 0.9rem;">
+              <i class="bi bi-info-circle me-1"></i> Solicitudes cerradas.
+            </div>
+          `;
+        } else if (periodItems.length > 0) {
+          html += `<ul class="list-group list-group-flush mb-3">`;
+          for (const h of periodItems) {
+            const t = mapType(h.type);
+            const s = mapReqStatus(h.status);
+            const when = fmtDate(h.created_at);
+            const comment = h.comment;
+            const tone = toneForStatus(h.status);
+            html += `
+              <li class="list-group-item d-flex justify-content-between align-items-start">
+                <div class="d-flex flex-column">
+                  <span class="fw-semibold">${t}</span>
+                  ${comment ? `<span class="small text-muted">Comentarios: ${escapeHtml(comment)}</span>` : ''}
+                  <span class="small text-muted">${when}</span>
+                </div>
+                ${badge(s, tone)}
+              </li>
+            `;
+          }
+          html += `</ul>`;
+        }
+      }
+    }
+
+    html += `
         </div>
       </div>
     `;
+
+    return html;
   }
 
   // --- Cancelar solicitud ---
@@ -236,13 +354,17 @@
           showToast("La solicitud ya no está pendiente.", "warn");
         } else if (err.error === "request_not_found") {
           showToast("Solicitud no encontrada.", "warn");
+        } else if (err.error === "period_closed") {
+          showToast(err.message || "El período ya cerró.", "error");
+        } else if (err.error === "appointment_time_passed") {
+          showToast(err.message || "La cita ya pasó.", "error");
         } else {
           showToast("No se pudo cancelar la solicitud.", "error");
         }
         return;
       }
       showToast("Solicitud cancelada.", "success");
-      await load(); // recargar vista
+      await load();
     } catch (e) {
       console.error(e);
       showToast("No se pudo conectar.", "error");

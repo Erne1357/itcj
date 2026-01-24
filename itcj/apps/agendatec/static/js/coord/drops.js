@@ -3,9 +3,54 @@
 
 (() => {
   const $ = (sel) => document.querySelector(sel);
+  const periodNameEl = $("#periodName");
+  let sharedCoordinators = [];
+  let currentCoordinatorId = null;
+
   function getCoordId() {
     try { return Number(document.body?.dataset?.coordId || 0); } catch { return 0; }
   }
+  
+  // Cargar coordinadores compartidos al inicio
+  (async function loadSharedCoordinators() {
+    try {
+      const r = await fetch("/api/agendatec/v1/coord/shared-coordinators", { credentials: "include" });
+      if (!r.ok) return;
+      const data = await r.json();
+      
+      currentCoordinatorId = data.current_coordinator_id;
+      sharedCoordinators = data.coordinators || [];
+      
+      // Si hay múltiples coordinadores, mostrar el filtro
+      if (data.has_multiple_coordinators) {
+        const filterContainer = document.getElementById("coordFilterContainer");
+        const filterSelect = document.getElementById("coordFilter");
+        
+        if (filterContainer && filterSelect) {
+          filterContainer.style.display = "block";
+          
+          // Para bajas, el filtro es informativo ya que todas son compartidas
+          // Pero se puede usar para UI/organización visual
+          filterSelect.innerHTML = '<option value="ALL">Todas las bajas del programa</option>';
+          
+          // Nota: Las bajas no tienen coordinador asignado, todas son compartidas
+          const coordNames = sharedCoordinators.map(c => c.name).join(", ");
+          const infoText = document.createElement("small");
+          infoText.className = "text-muted d-block mt-1";
+          infoText.textContent = `Coordinadores: ${coordNames}`;
+          if (filterContainer.parentElement) {
+            const existingInfo = filterContainer.parentElement.querySelector(".coord-info");
+            if (existingInfo) existingInfo.remove();
+            infoText.className += " coord-info";
+            filterContainer.parentElement.appendChild(infoText);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error cargando coordinadores compartidos:", e);
+    }
+  })();
+  
   (function wireRealtimeDrops() {
     const sock = () => window.__reqSocket;
     const shouldRefreshForStatus = () => {
@@ -63,9 +108,18 @@
       const r = await fetch(url, { credentials: "include" });
       if (!r.ok) throw new Error();
       const data = await r.json();
+
+      // Actualizar nombre del período
+      if (data?.period?.name && periodNameEl) {
+        periodNameEl.textContent = data.period.name;
+      }
+
       renderDrops(data.items || []);
     } catch {
       showToast("Error al cargar solicitudes de baja.", "error");
+      if (periodNameEl) {
+        periodNameEl.textContent = "Error al cargar";
+      }
     }
   });
 
@@ -161,6 +215,35 @@
     }
   }
 
+  // Helper para mostrar modal de confirmación
+  function showConfirmModal(message) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById("confirmActionModal");
+      const messageEl = document.getElementById("confirmMessage");
+      const confirmBtn = document.getElementById("confirmActionBtn");
+
+      messageEl.textContent = message;
+
+      const bsModal = new bootstrap.Modal(modal);
+      bsModal.show();
+
+      // Limpiar listeners previos clonando el botón
+      const newConfirmBtn = confirmBtn.cloneNode(true);
+      confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+      // Handler para confirmar
+      newConfirmBtn.addEventListener("click", () => {
+        bsModal.hide();
+        resolve(true);
+      });
+
+      // Handler para cancelar (cuando se cierra el modal sin confirmar)
+      modal.addEventListener("hidden.bs.modal", () => {
+        resolve(false);
+      }, { once: true });
+    });
+  }
+
   // Acciones desde el modal
   document.addEventListener("click", async (e) => {
     const act = e.target.closest("button[data-drop][data-st]");
@@ -175,7 +258,9 @@
       "CANCELED": "Cancelar solicitud"
     }[st] || `Cambiar a ${st}`;
 
-    if (!confirm(`${label} (#${id})`)) return;
+    // Mostrar modal de confirmación
+    const confirmed = await showConfirmModal(`¿Confirmar: ${label} (#${id})?`);
+    if (!confirmed) return;
 
     try {
       const r = await fetch(`/api/agendatec/v1/coord/requests/${id}/status`, {

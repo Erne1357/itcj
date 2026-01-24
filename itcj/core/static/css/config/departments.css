@@ -18,6 +18,34 @@
     color: var(--bs-primary);
 }
 
+/* Tarjetas de nivel superior (Dirección y Sindicato) */
+.top-level-card {
+    cursor: pointer;
+    transition: all 0.4s ease;
+    border: 3px solid transparent;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.top-level-card:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(13, 110, 253, 0.2);
+    border-color: var(--bs-primary);
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+}
+
+.top-level-card:hover .top-level-icon i {
+    transform: translateY(-5px);
+    color: var(--bs-primary);
+}
+
+.top-level-icon {
+    transition: all 0.3s ease;
+}
+
+.top-level-icon i {
+    transition: all 0.3s ease;
+}
+
 /* Tarjetas de subdirecciones */
 .subdirection-card {
     cursor: pointer;

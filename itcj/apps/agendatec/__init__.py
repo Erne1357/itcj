@@ -22,6 +22,7 @@ from .routes.api.coord import api_coord_bp
 from .routes.api.social import api_social_bp
 from .routes.api.admin import api_admin_bp
 from .routes.api.notifications import api_notifications_bp
+from .routes.api.periods import api_periods_bp
 
 agendatec_api_bp.register_blueprint(api_programs_bp, url_prefix="/programs")
 agendatec_api_bp.register_blueprint(api_avail_bp, url_prefix="/availability")
@@ -31,19 +32,20 @@ agendatec_api_bp.register_blueprint(api_coord_bp, url_prefix="/coord")
 agendatec_api_bp.register_blueprint(api_social_bp, url_prefix="/social")
 agendatec_api_bp.register_blueprint(api_admin_bp, url_prefix="/admin")
 agendatec_api_bp.register_blueprint(api_notifications_bp, url_prefix="/notifications")
+agendatec_api_bp.register_blueprint(api_periods_bp, url_prefix="/periods")
 
 # Registrar páginas
 from .routes.pages.student import student_pages_bp
 from .routes.pages.coord import coord_pages_bp
 from .routes.pages.social import social_pages_bp
 from .routes.pages.admin import admin_pages_bp
-from .routes.pages.admin_surveys import admin_surveys_pages
+from .routes.pages.admin_surveys import admin_surveys_pages_bp
 
 agendatec_pages_bp.register_blueprint(student_pages_bp, url_prefix="/student")
 agendatec_pages_bp.register_blueprint(coord_pages_bp, url_prefix="/coord")
 agendatec_pages_bp.register_blueprint(social_pages_bp, url_prefix="/social")
 agendatec_pages_bp.register_blueprint(admin_pages_bp, url_prefix="/admin")
-agendatec_pages_bp.register_blueprint(admin_surveys_pages, url_prefix="/surveys")
+agendatec_pages_bp.register_blueprint(admin_surveys_pages_bp, url_prefix="/surveys")
 
 # Error handlers específicos para AgendaTec
 def register_agendatec_error_handlers():
@@ -119,8 +121,10 @@ def get_agendatec_navigation(user_permissions: set[str], student_window_open: bo
         {"label": "Dashboard Admin", "endpoint": "agendatec_pages.admin_pages.admin_home", "permission": "agendatec.admin_dashboard.page.view", "icon": "bi-bar-chart-fill"},
         {"label": "Usuarios", "endpoint": "agendatec_pages.admin_pages.admin_users", "permission": "agendatec.users.page.list", "icon": "bi-people"},
         {"label": "Solicitudes", "endpoint": "agendatec_pages.admin_pages.admin_requests", "permission": "agendatec.requests.page.list", "icon": "bi-clipboard-data"},
+        {"label": "Crear Solicitud", "endpoint": "agendatec_pages.admin_pages.admin_create_request", "permission": "agendatec.requests.page.create", "icon": "bi-plus-circle"},
         {"label": "Reportes", "endpoint": "agendatec_pages.admin_pages.admin_reports", "permission": "agendatec.reports.page.view", "icon": "bi-graph-up"},
         {"label": "Encuestas", "endpoint": "agendatec_pages.admin_surveys_pages.admin_surveys", "permission": "agendatec.surveys.page.list", "icon": "bi-list-check"},
+        {"label": "Períodos", "endpoint": "agendatec_pages.admin_pages.admin_periods", "permission": "agendatec.periods.page.list", "icon": "bi-calendar-check"},
         # Servicio Social
         {"label": "Citas", "endpoint": "agendatec_pages.social_pages.social_home", "permission": "agendatec.social.page.home", "icon": "bi-calendar-heart"}
     ]
@@ -132,7 +136,7 @@ def get_agendatec_navigation(user_permissions: set[str], student_window_open: bo
 @agendatec_pages_bp.context_processor
 def inject_agendatec_nav():
     """Inyecta navegación específica de AgendaTec en todas las páginas"""
-    from itcj.core.utils.admit_window import is_student_window_open
+    from itcj.apps.agendatec.utils.period_utils import is_student_window_open
     
     nav_items = []
     

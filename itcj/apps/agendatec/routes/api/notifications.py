@@ -1,11 +1,26 @@
 # routes/api/notifications.py
+"""
+API de notificaciones para AgendaTec.
+
+Este módulo contiene los endpoints para gestión de notificaciones:
+- Listar notificaciones
+- Marcar como leída
+- Marcar todas como leídas
+"""
 from datetime import datetime
-from flask import Blueprint, request, jsonify, g
-from itcj.core.utils.decorators import api_auth_required
+
+from flask import Blueprint, g, jsonify, request
+
+from itcj.apps.agendatec.config.constants import (
+    NOTIFICATIONS_DEFAULT_LIMIT,
+    NOTIFICATIONS_MAX_LIMIT,
+)
 from itcj.apps.agendatec.models import db
 from itcj.core.models.notification import Notification
+from itcj.core.utils.decorators import api_auth_required
 
 api_notifications_bp = Blueprint("api_notifications", __name__)
+
 
 def _current_uid() -> int:
     return int(g.current_user["sub"])

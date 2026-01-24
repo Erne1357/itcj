@@ -1,28 +1,39 @@
 # routes/api/slots.py
-from datetime import date
+"""
+API de slots de tiempo para AgendaTec.
+
+Este módulo contiene los endpoints para gestión de holds temporales en slots:
+- Crear hold temporal sobre un slot
+- Liberar hold
+- Consultar estado de un slot
+"""
 import json
-from flask import Blueprint, request, jsonify, g
-from sqlalchemy import and_
-from itcj.core.utils.decorators import api_auth_required, api_role_required, api_app_required
-from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
+
+from flask import Blueprint, g, jsonify, request
+
+from itcj.apps.agendatec.config.constants import (
+    ENFORCE_SINGLE_HOLD_PER_USER,
+    REDIS_SLOT_HOLD_PREFIX,
+    REDIS_USER_HOLD_PREFIX,
+)
 from itcj.apps.agendatec.models import db
 from itcj.apps.agendatec.models.time_slot import TimeSlot
+from itcj.core.services import period_service
+from itcj.core.utils.decorators import api_app_required, api_auth_required
+from itcj.core.utils.redis_conn import get_hold_ttl, get_redis
 
 api_slots_bp = Blueprint("api_slots", __name__)
 
-# Mismos 3 días de operación
-ALLOWED_DAYS = {date(2025, 8, 25), date(2025, 8, 26), date(2025, 8, 27)}
 
-# Convención de claves en Redis
 def k_slot_hold(slot_id: int) -> str:
-    return f"slot_hold:{slot_id}"
+    """Genera clave Redis para hold de un slot."""
+    return f"{REDIS_SLOT_HOLD_PREFIX}{slot_id}"
+
 
 def k_user_hold(user_id: int) -> str:
-    # Si prefieres permitir múltiples holds por usuario, suprime esta llave y solo usa la de slot.
-    return f"user_hold:{user_id}"
+    """Genera clave Redis para hold de un usuario."""
+    return f"{REDIS_USER_HOLD_PREFIX}{user_id}"
 
-# Por ahora: 1 hold por usuario a la vez (simple y práctico)
-ENFORCE_SINGLE_HOLD_PER_USER = True
 
 # --------------------------------------------------------------------
 # POST /slots/hold  -> crea un hold temporal (TTL) sobre un slot libre
@@ -47,8 +58,18 @@ def hold_slot():
         return jsonify({"error":"slot_not_found"}), 404
     if slot.is_booked:
         return jsonify({"error":"slot_unavailable"}), 409
-    if slot.day not in ALLOWED_DAYS:
-        return jsonify({"error":"day_not_allowed","allowed":[str(x) for x in sorted(ALLOWED_DAYS)]}), 400
+
+    # Validar que el día esté habilitado en el período activo
+    period = period_service.get_active_period()
+    if not period:
+        return jsonify({"error": "no_active_period"}), 503
+
+    enabled_days = set(period_service.get_enabled_days(period.id))
+    if slot.day not in enabled_days:
+        return jsonify({
+            "error": "day_not_enabled",
+            "enabled_days": [d.isoformat() for d in sorted(enabled_days)]
+        }), 400
 
     skey = k_slot_hold(slot_id)
     ukey = k_user_hold(uid)

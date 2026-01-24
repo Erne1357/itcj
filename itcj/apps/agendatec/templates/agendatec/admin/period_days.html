@@ -1,0 +1,123 @@
+{% extends "agendatec/base.html" %}
+{% block title %}Admin · Configurar Días{% endblock %}
+
+{% block extra_css %}
+<!-- Flatpickr CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<!-- Period Days Custom CSS -->
+<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/period_days.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <a href="{{ url_for('agendatec_pages.admin_pages.admin_periods') }}" class="btn btn-sm btn-outline-secondary mb-2">
+      <i class="bi bi-arrow-left"></i> Volver a Períodos
+    </a>
+    <h1 class="h4 mb-0">Configurar Días Habilitados</h1>
+    <p class="text-muted mb-0" id="periodName">Período: <span class="fw-bold">Cargando...</span></p>
+  </div>
+  <div class="d-flex gap-2">
+    <button id="btnReload" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i></button>
+    <button id="btnSave" class="btn btn-primary btn-sm"><i class="bi bi-check-lg"></i> Guardar Cambios</button>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-light">
+        <h6 class="mb-0">Seleccionar Días</h6>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Selecciona múltiples días en el calendario. Los días habilitados permiten a los estudiantes crear solicitudes.
+        </p>
+
+        <!-- Calendario inline con Flatpickr -->
+        <div id="calendarContainer" class="flatpickr-wrapper mb-3"></div>
+
+        <div class="alert alert-info small mb-0">
+          <i class="bi bi-info-circle"></i> Haz clic en los días para seleccionarlos o deseleccionarlos.
+          Los días resaltados en azul están actualmente habilitados.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">Días Seleccionados (<span id="selectedCount">0</span>)</h6>
+        <button id="btnClearAll" class="btn btn-sm btn-outline-danger">
+          <i class="bi bi-x-circle"></i> Limpiar Todo
+        </button>
+      </div>
+      <div class="card-body">
+        <div id="selectedDaysList" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+          <!-- Lista de días seleccionados -->
+        </div>
+        <div id="emptyMessage" class="text-center text-muted py-4">
+          No hay días seleccionados
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header bg-light">
+        <h6 class="mb-0">Estadísticas del Período</h6>
+      </div>
+      <div class="card-body">
+        <div id="statsContent">
+          <div class="text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <p class="small mb-0 mt-2">Cargando estadísticas...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal de Confirmación -->
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-start gap-3">
+          <div class="fs-1"><i class="bi bi-question-circle-fill text-warning"></i></div>
+          <div id="mdlConfirmBody" class="flex-grow-1"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmAction">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+
+<script>
+  // Config desde Flask
+  window.__periodId = {{ period_id }};
+  window.__periodDaysCfg = {
+    periodDetailUrl: "{{ url_for('agendatec_api.api_periods.get_period', period_id=period_id) }}",
+    enabledDaysUrl: "{{ url_for('agendatec_api.api_periods.get_enabled_days', period_id=period_id) }}",
+    saveEnabledDaysUrl: "{{ url_for('agendatec_api.api_periods.set_enabled_days', period_id=period_id) }}",
+    statsUrl: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=period_id) }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/period_days.js') }}?v={{ static_version }}"></script>
+{% endblock %}

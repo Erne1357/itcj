@@ -203,10 +203,10 @@ class WindowsDesktop {
             </div>
         </div>
         <div class="window-content">
-            <iframe class="window-iframe" 
-                    src="${config.iframeSrc}" 
-                    title="${config.name} Application" 
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups">
+            <iframe class="window-iframe"
+                    src="${config.iframeSrc}"
+                    title="${config.name} Application"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads">
             </iframe>
         </div>
     `

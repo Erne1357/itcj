@@ -1,4 +1,4 @@
-"""rename nip_hash to password_hash in core_users
+"""rename nip_hash to password_hash and add last_login to core_users
 
 Revision ID: f1a2b3c4d5e6
 Revises: split_fullname_to_parts
@@ -23,9 +23,17 @@ def upgrade():
                               new_column_name='password_hash',
                               existing_type=sa.Text(),
                               nullable=False)
+    
+    # Agregar columna last_login
+    with op.batch_alter_table('core_users', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('last_login', sa.DateTime(), nullable=True))
 
 
 def downgrade():
+    # Eliminar columna last_login
+    with op.batch_alter_table('core_users', schema=None) as batch_op:
+        batch_op.drop_column('last_login')
+    
     # Revertir el cambio: renombrar password_hash a nip_hash
     with op.batch_alter_table('core_users', schema=None) as batch_op:
         batch_op.alter_column('password_hash',

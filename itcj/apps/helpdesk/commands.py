@@ -56,10 +56,15 @@ DEPARTMENT_MAPPING = {
     'INDUSTRIAL': 'industrial_eng',
     'INDUSTRIAL ': 'industrial_eng',
     'LABORATORIO DE ELECTRICA': 'elec_electronics',
+    'DELEGACIÓN SINDICAL' : ''
 }
 
+# Mapeo para Delegación Sindical
+DEPARTMENT_MAPPING['DELEGACIÓN SINDICAL'] = 'union_delegation'
+DEPARTMENT_MAPPING['SINDICATO'] = 'union_delegation'
+
 # Departamentos a ignorar
-IGNORE_DEPARTMENTS = ['DELEGACIÓN SINDICAL', 'GUILLOT', 'GUILLOT ']
+IGNORE_DEPARTMENTS = ['GUILLOT', 'GUILLOT ']
 
 
 def normalize_storage(storage_str):

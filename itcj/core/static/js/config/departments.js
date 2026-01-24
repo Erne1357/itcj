@@ -2,18 +2,19 @@
 class DepartmentsManager {
     constructor() {
         this.apiBase = '/api/core/v1';
-        this.currentView = 'direction'; // 'direction' | 'subdirections' | 'departments'
-        this.selectedDirection = null;
+        this.currentView = 'top-level'; // 'top-level' | 'subdirections' | 'departments'
+        this.selectedTopLevel = null; // Dirección o Sindicato
         this.selectedSubdirection = null;
-        this.direction = null;
+        this.topLevelEntities = []; // Dirección y Sindicato
         this.subdirections = [];
         this.departments = [];
         this.navigationStack = [];
         
         // Mapeo de iconos por código
         this.ICON_MAP = {
-            // Dirección
+            // Dirección y Sindicato
             'direction': 'bi-briefcase',
+            'union_delegation': 'bi-people-fill',
             
             // Subdirecciones
             'sub_planning': 'bi-diagram-3',
@@ -53,8 +54,8 @@ class DepartmentsManager {
     async init() {
         this.bindEvents();
         this.initModals();
-        await this.loadDirection();
-        this.renderDirectionView();
+        await this.loadTopLevelEntities();
+        this.renderTopLevelView();
     }
 
     bindEvents() {
@@ -106,17 +107,28 @@ class DepartmentsManager {
         }
     }
 
-    async loadDirection() {
+    async loadTopLevelEntities() {
         try {
-            const response = await fetch(`${this.apiBase}/departments/direction`);
-            const result = await response.json();
+            // Cargar dirección
+            const dirResponse = await fetch(`${this.apiBase}/departments/direction`);
+            const dirResult = await dirResponse.json();
             
-            if (response.ok && result.data) {
-                this.direction = result.data;
+            // Cargar sindicato
+            const unionResponse = await fetch(`${this.apiBase}/departments/union-delegation`);
+            const unionResult = await unionResponse.json();
+            
+            this.topLevelEntities = [];
+            
+            if (dirResponse.ok && dirResult.data) {
+                this.topLevelEntities.push(dirResult.data);
+            }
+            
+            if (unionResponse.ok && unionResult.data) {
+                this.topLevelEntities.push(unionResult.data);
             }
         } catch (error) {
-            console.error('Error loading direction:', error);
-            this.showError('Error al cargar la dirección');
+            console.error('Error loading top level entities:', error);
+            this.showError('Error al cargar la estructura organizacional');
         }
     }
 
@@ -148,45 +160,48 @@ class DepartmentsManager {
         }
     }
 
-    renderDirectionView() {
-        this.currentView = 'direction';
+    renderTopLevelView() {
+        this.currentView = 'top-level';
         const container = document.getElementById('mainContainer');
         
         // Update header
-        document.getElementById('currentBreadcrumb').textContent = 'Dirección';
-        document.getElementById('pageTitle').innerHTML = '<i class="bi bi-briefcase me-2"></i>Dirección';
-        document.getElementById('pageSubtitle').textContent = 'Estructura organizacional del instituto';
+        document.getElementById('currentBreadcrumb').textContent = 'Estructura Organizacional';
+        document.getElementById('pageTitle').innerHTML = '<i class="bi bi-building me-2"></i>Estructura Organizacional';
+        document.getElementById('pageSubtitle').textContent = 'Dirección y Delegación Sindical del instituto';
         document.getElementById('backBtn').style.display = 'none';
         this.navigationStack = [];
 
-        if (!this.direction) {
+        if (this.topLevelEntities.length === 0) {
             container.innerHTML = `
                 <div class="text-center py-5">
-                    <i class="bi bi-briefcase display-1 text-muted"></i>
-                    <h5 class="text-muted mt-3">No hay dirección registrada</h5>
-                    <p class="text-muted">Crea la dirección institucional</p>
+                    <i class="bi bi-building display-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No hay estructura organizacional registrada</h5>
+                    <p class="text-muted">Crea la dirección o delegación sindical</p>
                 </div>
             `;
             return;
         }
 
-        // Renderizar dirección como card principal
+        // Renderizar entidades de nivel superior lado a lado
         container.innerHTML = `
-            <div class="row justify-content-center">
-                <div class="col-12 col-lg-8">
-                    ${this.createDirectionCard(this.direction)}
-                </div>
+            <div class="row justify-content-center g-4">
+                ${this.topLevelEntities.map(entity => `
+                    <div class="col-12 col-lg-6">
+                        ${this.createTopLevelCard(entity)}
+                    </div>
+                `).join('')}
             </div>
         `;
 
         // Bind click events
-        document.querySelectorAll('.direction-card').forEach(card => {
+        document.querySelectorAll('.top-level-card').forEach(card => {
             card.addEventListener('click', async (e) => {
                 if (e.target.closest('.admin-btn')) {
                     e.stopPropagation();
                     return;
                 }
-                await this.selectDirection();
+                const entityId = parseInt(card.dataset.entityId);
+                await this.selectTopLevel(entityId);
             });
         });
 
@@ -205,9 +220,9 @@ class DepartmentsManager {
         const container = document.getElementById('mainContainer');
         
         // Update header
-        document.getElementById('currentBreadcrumb').textContent = this.direction.name;
+        document.getElementById('currentBreadcrumb').textContent = this.selectedTopLevel.name;
         document.getElementById('pageTitle').innerHTML = `
-            <i class="${this.getIcon(this.direction.code, this.direction.icon_class)} me-2"></i>${this.direction.name}
+            <i class="${this.getIcon(this.selectedTopLevel.code, this.selectedTopLevel.icon_class)} me-2"></i>${this.selectedTopLevel.name}
         `;
         document.getElementById('pageSubtitle').textContent = 'Selecciona una subdirección para ver sus departamentos';
         document.getElementById('backBtn').style.display = 'inline-block';
@@ -252,33 +267,36 @@ class DepartmentsManager {
         });
     }
 
-    createDirectionCard(direction) {
-        const icon = this.getIcon(direction.code, direction.icon_class);
+    createTopLevelCard(entity) {
+        const icon = this.getIcon(entity.code, entity.icon_class);
+        const isDirection = entity.code === 'direction';
+        const childrenLabel = isDirection ? 'Subdirecciones' : 'Departamentos';
+        const childrenIcon = isDirection ? 'bi-diagram-3' : 'bi-building';
         
         return `
-            <div class="card direction-card shadow-lg border-0 fade-in" data-dir-id="${direction.id}">
+            <div class="card top-level-card shadow-lg border-0 fade-in" data-entity-id="${entity.id}">
                 <div class="card-body text-center p-5 position-relative">
                     <!-- Botón de administración discreto -->
                     <button class="btn btn-sm btn-outline-secondary admin-btn position-absolute top-0 end-0 m-3" 
-                            data-dept-id="${direction.id}" title="Administrar dirección">
+                            data-dept-id="${entity.id}" title="Administrar ${entity.name}">
                         <i class="bi bi-gear"></i>
                     </button>
                     
-                    <div class="direction-icon mb-4">
+                    <div class="top-level-icon mb-4">
                         <i class="${icon}" style="font-size: 4rem; color: #0d6efd;"></i>
                     </div>
-                    <h2 class="card-title mb-3">${direction.name}</h2>
-                    ${direction.description ? 
-                        `<p class="card-text text-muted mb-4">${direction.description}</p>` : 
+                    <h2 class="card-title mb-3">${entity.name}</h2>
+                    ${entity.description ? 
+                        `<p class="card-text text-muted mb-4">${entity.description}</p>` : 
                         ''
                     }
                     <div class="mt-4">
                         <span class="badge bg-primary fs-5">
-                            <i class="bi bi-diagram-3 me-1"></i>${direction.children_count} Subdirecciones
+                            <i class="${childrenIcon} me-1"></i>${entity.children_count} ${childrenLabel}
                         </span>
                     </div>
                     <div class="mt-4">
-                        <p class="text-muted small">Haz clic para explorar la estructura organizacional</p>
+                        <p class="text-muted small">Haz clic para explorar</p>
                     </div>
                 </div>
             </div>
@@ -317,18 +335,35 @@ class DepartmentsManager {
         `;
     }
 
-    async selectDirection() {
-        // Animación de expansión para la dirección
-        const directionCard = document.querySelector('.direction-card');
-        if (directionCard) {
-            directionCard.classList.add('expand-direction');
-            await new Promise(resolve => setTimeout(resolve, 400));
+    async selectTopLevel(entityId) {
+        const entity = this.topLevelEntities.find(e => e.id === entityId);
+        if (!entity) return;
+        
+        // Si no tiene hijos, ir directo al detalle
+        if (!entity.children_count || entity.children_count === 0) {
+            window.location.href = `/itcj/config/departments/${entityId}`;
+            return;
         }
         
-        this.navigationStack.push({view: 'direction'});
-        this.selectedDirection = this.direction;
-        await this.loadSubdirections();
-        this.renderSubdirectionsView();
+        // Animación de expansión
+        const card = document.querySelector(`.top-level-card[data-entity-id="${entityId}"]`);
+        if (card) {
+            card.classList.add('expand-out');
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        this.navigationStack.push({view: 'top-level'});
+        this.selectedTopLevel = entity;
+        
+        // Si es dirección, cargar subdirecciones
+        if (entity.code === 'direction') {
+            await this.loadSubdirections();
+            this.renderSubdirectionsView();
+        } else {
+            // Si es sindicato u otra entidad, cargar departamentos directamente
+            await this.loadDepartmentsByParent(entityId);
+            this.renderDepartmentsView();
+        }
     }
 
     async selectSubdirection(subdirId, cardElement) {
@@ -351,21 +386,24 @@ class DepartmentsManager {
     renderDepartmentsView() {
         this.currentView = 'departments';
         const container = document.getElementById('mainContainer');
-        const sub = this.selectedSubdirection;
+        
+        // Determinar si es subdirección o entidad de nivel superior (sindicato)
+        const parent = this.selectedSubdirection || this.selectedTopLevel;
         
         // Update header
-        document.getElementById('currentBreadcrumb').textContent = sub.name;
+        document.getElementById('currentBreadcrumb').textContent = parent.name;
         document.getElementById('pageTitle').innerHTML = `
-            <i class="${this.getIcon(sub.code, sub.icon_class)} me-2"></i>${sub.name}
+            <i class="${this.getIcon(parent.code, parent.icon_class)} me-2"></i>${parent.name}
         `;
-        document.getElementById('pageSubtitle').textContent = sub.description || 'Departamentos de esta subdirección';
+        document.getElementById('pageSubtitle').textContent = parent.description || 'Departamentos';
         document.getElementById('backBtn').style.display = 'inline-block';
 
         if (this.departments.length === 0) {
+            const parentType = this.selectedSubdirection ? 'subdirección' : 'dependencia';
             container.innerHTML = `
                 <div class="text-center py-5 fade-in">
                     <i class="bi bi-building display-1 text-muted"></i>
-                    <h5 class="text-muted mt-3">No hay departamentos en esta subdirección</h5>
+                    <h5 class="text-muted mt-3">No hay departamentos en esta ${parentType}</h5>
                     <p class="text-muted">Crea el primer departamento</p>
                 </div>
             `;
@@ -447,30 +485,30 @@ class DepartmentsManager {
         const previousView = this.navigationStack.pop();
         
         if (!previousView) {
-            // Si no hay vista anterior, ir a la dirección
-            await this.goToDirection();
+            // Si no hay vista anterior, ir a nivel superior
+            await this.goToTopLevel();
             return;
         }
         
         switch (previousView.view) {
-            case 'direction':
-                await this.goToDirection();
+            case 'top-level':
+                await this.goToTopLevel();
                 break;
             case 'subdirections':
                 await this.goToSubdirections();
                 break;
             default:
-                await this.goToDirection();
+                await this.goToTopLevel();
         }
     }
 
-    async goToDirection() {
-        this.selectedDirection = null;
+    async goToTopLevel() {
+        this.selectedTopLevel = null;
         this.selectedSubdirection = null;
         this.departments = [];
         this.navigationStack = [];
-        await this.loadDirection();
-        this.renderDirectionView();
+        await this.loadTopLevelEntities();
+        this.renderTopLevelView();
     }
 
     async goToSubdirections() {
@@ -514,9 +552,9 @@ class DepartmentsManager {
                 
                 // Recargar vista actual
                 switch (this.currentView) {
-                    case 'direction':
-                        await this.loadDirection();
-                        this.renderDirectionView();
+                    case 'top-level':
+                        await this.loadTopLevelEntities();
+                        this.renderTopLevelView();
                         break;
                     case 'subdirections':
                         await this.loadSubdirections();
@@ -525,6 +563,9 @@ class DepartmentsManager {
                     case 'departments':
                         if (this.selectedSubdirection) {
                             await this.loadDepartmentsByParent(this.selectedSubdirection.id);
+                            this.renderDepartmentsView();
+                        } else if (this.selectedTopLevel) {
+                            await this.loadDepartmentsByParent(this.selectedTopLevel.id);
                             this.renderDepartmentsView();
                         }
                         break;

@@ -8,11 +8,14 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
     <h1 class="h4 mb-0">Dashboard de Administración</h1>
-    <div class="d-flex gap-2">
-        <input id="fltFrom" type="date" class="form-control form-control-sm">
-        <input id="fltTo" type="date" class="form-control form-control-sm">
-        <button id="btnApplyRange" class="btn btn-primary btn-sm">
-            <i class="bi bi-arrow-repeat"></i> Actualizar
+    <div class="d-flex gap-1 align-items-center">
+        <select id="fltPeriod" class="form-select form-select-sm text-muted" style="width: auto; min-width: 160px; font-size: 0.8rem; border-color: #dee2e6;">
+            <option value="">Cargando...</option>
+        </select>
+        <input id="fltFrom" type="date" class="form-control form-control-sm text-muted" style="width: 120px; font-size: 0.75rem; border-color: #dee2e6;">
+        <input id="fltTo" type="date" class="form-control form-control-sm text-muted" style="width: 120px; font-size: 0.75rem; border-color: #dee2e6;">
+        <button id="btnApplyRange" class="btn btn-outline-secondary btn-sm" style="font-size: 0.75rem;">
+            <i class="bi bi-arrow-repeat"></i>
         </button>
     </div>
 </div>
@@ -210,22 +213,66 @@
                 <span class="fw-semibold">Pendientes por coordinador</span>
             </div>
             <div class="card-body card-scroll">
-                <div class="text-center mb-2">
-                    <span class="me-3">
-                        <span class="d-inline-block rounded-circle bg-primary me-1"
-                            style="width:10px;height:10px;vertical-align:middle;"></span>
+                <div class="d-flex justify-content-center mb-2 small text-muted" style="font-size: 0.75rem;">
+                    <span class="me-2">
+                        <span class="badge bg-primary" style="font-size: 0.65rem; padding: 2px 6px;">0</span>
                         Citas
                     </span>
-                    <span class="me-3">
-                        <span class="d-inline-block rounded-circle bg-danger me-1"
-                            style="width:10px;height:10px;vertical-align:middle;"></span>
+                    <span class="me-2">
+                        <span class="badge bg-danger" style="font-size: 0.65rem; padding: 2px 6px;">0</span>
                         Bajas
+                    </span>
+                    <span>
+                        <span class="badge bg-secondary" style="font-size: 0.65rem; padding: 2px 6px;">0</span>
+                        Total
                     </span>
                 </div>
                 <ul id="lstPendingByCoord" class="list-group list-group-flush small"></ul>
             </div>
-            <div class="card-footer">
-                Porcentaje inasistencias: <span id="lblNoShowRate" class="fw-semibold">–</span>
+            <div class="card-footer small text-muted">
+                <i class="bi bi-person-x me-1"></i>
+                Inasistencias: <span id="lblNoShowRate" class="fw-semibold text-dark">–</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal de confirmación para envío de encuestas (prueba/producción) -->
+<div class="modal fade" id="modalSurveyConfirm" tabindex="-1" aria-labelledby="modalSurveyConfirmLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalSurveyConfirmLabel">Confirmar envío</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p id="modalSurveyConfirmMsg">¿Deseas enviar las encuestas?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmSurvey">Enviar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de error para envío de encuestas -->
+<div class="modal fade" id="modalSurveyError" tabindex="-1" aria-labelledby="modalSurveyErrorLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="modalSurveyErrorLabel">
+                    <i class="bi bi-exclamation-circle me-2"></i>Error al enviar
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Error al enviar: revisa la consola/servidor.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
             </div>
         </div>
     </div>
@@ -237,8 +284,9 @@
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
 <script>
     window.__adminDashboard = {
-        fetchUrl: "{{ url_for('agendatec_api.api_admin.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
-        piesUrl: "{{ url_for('agendatec_api.api_admin.stats_coordinators') }}"
+        fetchUrl: "{{ url_for('agendatec_api.api_admin.admin_stats.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
+        piesUrl: "{{ url_for('agendatec_api.api_admin.admin_stats.stats_coordinators') }}",
+        periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
     };
 </script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/home.js') }}?v={{ static_version }}"></script>

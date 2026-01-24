@@ -5,7 +5,14 @@ from itcj.core.extensions import db
 def get_direction():
     """Obtiene la dirección (departamento raíz)"""
     return Department.query.filter_by(
-        parent_id=None,
+        code='direction',
+        is_active=True
+    ).first()
+
+def get_union_delegation():
+    """Obtiene la delegación sindical"""
+    return Department.query.filter_by(
+        code='union_delegation',
         is_active=True
     ).first()
 

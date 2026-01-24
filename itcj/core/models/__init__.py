@@ -12,3 +12,4 @@ from .user_app_perm import UserAppPerm
 from .coordinator import Coordinator
 from .program import Program
 from .program_coordinator import ProgramCoordinator
+from .academic_period import AcademicPeriod

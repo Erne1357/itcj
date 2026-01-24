@@ -1,6 +1,5 @@
 from functools import wraps
-from flask import g, request, redirect, url_for, jsonify, current_app,abort
-from .admit_window import is_student_window_open
+from flask import g, request, redirect, url_for, jsonify, current_app, abort
 import logging, os
 from datetime import datetime
 from itcj.core.extensions import db
@@ -78,18 +77,45 @@ def pw_changed_required(view):
     return wrapper
 
 def student_app_closed(view):
+    """
+    Decorador para páginas que verifica si la ventana de admisión está abierta.
+
+    Ahora usa el sistema de períodos académicos dinámico.
+    Si la ventana está cerrada, redirige a la página de cierre.
+    """
     @wraps(view)
     def wrapper(*args, **kwargs):
-        if not is_student_window_open():
+        # Importación lazy para evitar circular imports
+        from itcj.core.services.period_service import is_student_window_open as period_window_open
+
+        if not period_window_open():
             return redirect(url_for('agendatec_pages.student_pages.student_close'))
         return view(*args, **kwargs)
     return wrapper
 
 def api_closed(view):
+    """
+    Decorador para verificar si la ventana de admisión de estudiantes está abierta.
+
+    Ahora usa el sistema de períodos académicos dinámico en lugar de variables de entorno.
+    Verifica:
+    - Que exista un período activo
+    - Que la fecha/hora actual esté dentro de la ventana de admisión del período
+
+    Returns:
+        423 Locked si la ventana está cerrada
+    """
     @wraps(view)
     def wrapper(*args, **kwargs):
-        if not is_student_window_open():
-            return jsonify({'status':'error','message':'El período de admisión ha finalizado.'}), 423
+        # Importación lazy para evitar circular imports
+        from itcj.core.services.period_service import is_student_window_open as period_window_open
+
+        if not period_window_open():
+            return jsonify({
+                'status': 'error',
+                'error': 'student_window_closed',
+                'message': 'La ventana de admisión para estudiantes ha cerrado.'
+            }), 423
         return view(*args, **kwargs)
     return wrapper
 

@@ -158,6 +158,7 @@ function renderTickets(tickets) {
                         <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
                         ${HelpdeskUtils.getStatusBadge(ticket.status)}
                         ${HelpdeskUtils.getAreaBadge(ticket.area)}
+                        ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
                         ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
                     </div>
                     

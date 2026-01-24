@@ -5,9 +5,12 @@ from itcj.core.extensions import db
 from itcj.apps.helpdesk.models import Ticket, Category, Comment, StatusLog
 from itcj.apps.helpdesk.utils.ticket_number_generator import generate_ticket_number
 from itcj.apps.helpdesk.utils.timezone_utils import now_local
+from itcj.apps.helpdesk.utils.custom_fields_validator import CustomFieldsValidator
+from itcj.apps.helpdesk.services.custom_fields_file_service import CustomFieldsFileService
 from itcj.core.models.user import User
 from itcj.core.models.department import Department
 from sqlalchemy import and_, or_
+from sqlalchemy.orm.attributes import flag_modified
 import logging
 from flask import current_app
 from werkzeug.utils import secure_filename
@@ -112,8 +115,10 @@ def create_ticket(
     priority: str = 'MEDIA',
     location: str = None,
     office_folio: str = None,
-    inventory_item_ids: list = None,  
+    inventory_item_ids: list = None,
     photo_file = None,
+    custom_fields: dict = None,
+    custom_field_files: dict = None,
     created_by_id: int = None
 ) -> Ticket:
     """
@@ -147,10 +152,22 @@ def create_ticket(
     category = Category.query.get(category_id)
     if not category or not category.is_active:
         abort(400, description='Categoría inválida o inactiva')
-    
+
     # Validar que la categoría corresponda al área
     if category.area != area:
         abort(400, description=f'La categoría no corresponde al área {area}')
+
+    # Validar campos personalizados
+    if custom_fields or custom_field_files:
+        if category.field_template and category.field_template.get('enabled'):
+            is_valid, errors = CustomFieldsValidator.validate(
+                category.field_template,
+                custom_fields or {},
+                custom_field_files or {}
+            )
+
+            if not is_valid:
+                abort(400, description=f"Campos personalizados inválidos: {'; '.join(errors)}")
     
     # Validar área
     if area not in ['DESARROLLO', 'SOPORTE']:
@@ -190,6 +207,7 @@ def create_ticket(
         description=description,
         location=location,
         office_document_folio=office_folio,
+        custom_fields=custom_fields or {},
         status='PENDING',
         created_by_id=created_by_id or requester_id,
         updated_by_id=created_by_id or requester_id
@@ -209,6 +227,34 @@ def create_ticket(
             # No abortar, el ticket se crea sin equipos
             db.session.rollback()
             raise
+
+    # Guardar archivos de campos personalizados
+    if custom_field_files and category.field_template:
+        fields_config = category.field_template.get('fields', [])
+        file_fields = {f['key']: f for f in fields_config if f['type'] == 'file'}
+
+        for field_key, file in custom_field_files.items():
+            if field_key in file_fields:
+                try:
+                    file_path = CustomFieldsFileService.save_custom_field_file(
+                        ticket.id,
+                        field_key,
+                        file,
+                        file_fields[field_key]
+                    )
+                    # Actualizar custom_fields con la ruta del archivo
+                    if ticket.custom_fields is None:
+                        ticket.custom_fields = {}
+                    ticket.custom_fields[field_key] = file_path
+
+                    # IMPORTANTE: Marcar el campo como modificado para que SQLAlchemy lo persista
+                    flag_modified(ticket, 'custom_fields')
+
+                    logger.info(f"Archivo de campo personalizado '{field_key}' guardado para ticket {ticket.id}: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error al guardar archivo de campo personalizado '{field_key}' para ticket {ticket.id}: {e}")
+                    db.session.rollback()
+                    raise
 
     if photo_file:
         try: 

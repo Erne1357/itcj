@@ -20,6 +20,7 @@ class User(db.Model):
     email = db.Column(db.Text)
     is_active = db.Column(db.Boolean, nullable=False, server_default=db.text("TRUE"))
     must_change_password = db.Column(db.Boolean, nullable=False, server_default=db.text("FALSE"))
+    last_login = db.Column(db.DateTime, nullable=True)  # Último inicio de sesión
 
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
@@ -95,6 +96,7 @@ class User(db.Model):
             "email": self.email,
             "is_active": self.is_active,
             "must_change_password": self.must_change_password,
+            "last_login": self.last_login.isoformat() if self.last_login else None,
             "role": {
                 "id": self.role.id,
                 "name": self.role.name

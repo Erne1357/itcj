@@ -46,7 +46,8 @@ def init_database_command():
             '07_insert_position_app_perm.sql',
             '08_insert_technician_user.sql',
             '09_insert_user_role_technician.sql',
-            '11_insert_user_position_technician.sql'
+            '11_insert_user_position_technician.sql',
+            '12_insert_configure_moodle_custom_fields.sql'
         ])
     ]
     

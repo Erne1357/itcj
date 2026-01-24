@@ -33,6 +33,11 @@
       </select>
     </div>
     <div class="col-auto">
+      <select id="fltPeriod" class="form-select form-select-sm">
+        <option value="">Cargando períodos...</option>
+      </select>
+    </div>
+    <div class="col-auto">
       <input id="txtQ" class="form-control form-control-sm" placeholder="No. control / Alumno">
     </div>
     <div class="col-auto">
@@ -67,9 +72,11 @@
     </div>
   </div>
 </div>
+{% endblock %}
 
+{% block modals %}
 <!-- Modal cambio de estado -->
-<div class="modal fade" id="mdlStatus" tabindex="-1">
+<div class="modal fade" id="mdlStatus" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
@@ -105,11 +112,11 @@
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
 <script>
   window.__adminRequestsCfg = {
-    listUrl: "{{ url_for('agendatec_api.api_admin.admin_list_requests') }}",
-    statusBase: "{{ url_for('agendatec_api.api_admin.admin_change_request_status', req_id=0) }}".replace(/0$/, ''),
+    listUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_list_requests') }}",
+    statusBase: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_change_request_status', req_id=0) }}".replace(/0$/, ''),
     programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
-    // si expones un listado de coordinadores:
-    coordsUrl: "{{ url_for('agendatec_api.api_admin.list_coordinators') }}"
+    coordsUrl: "{{ url_for('agendatec_api.api_admin.admin_users.list_coordinators') }}",
+    periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
   };
 </script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/requests.js') }}?v={{ static_version }}"></script>

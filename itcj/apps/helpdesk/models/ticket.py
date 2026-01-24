@@ -27,6 +27,10 @@ class Ticket(db.Model):
     description = db.Column(db.Text, nullable=False)
     location = db.Column(db.String(200), nullable=True)  # Ubicación física (opcional)
     office_document_folio = db.Column(db.String(50), nullable=True)  # Folio de oficio (opcional)
+
+    # Campos personalizados (JSON)
+    custom_fields = db.Column(db.JSON, nullable=True)  # Valores de campos personalizados específicos de la categoría
+
     # ==================== ESTADO Y ASIGNACIÓN ====================
     status = db.Column(db.String(30), nullable=False, default='PENDING', index=True)
     # Estados posibles:
@@ -183,6 +187,7 @@ class Ticket(db.Model):
             'priority': self.priority,
             'status': self.status,
             'office_document_folio': self.office_document_folio,
+            'custom_fields': self.custom_fields,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'created_by_id': self.created_by_id,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,

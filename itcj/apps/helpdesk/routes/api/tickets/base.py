@@ -73,10 +73,36 @@ def create_ticket():
 
         # Obtener archivo de foto
         photo_file = request.files.get('photo')
+
+        # Extraer custom_fields y archivos de custom fields
+        custom_fields = {}
+        custom_field_files = {}
+
+        # Extraer custom_fields JSON si está presente
+        if 'custom_fields' in request.form:
+            try:
+                import json
+                custom_fields = json.loads(request.form['custom_fields'])
+            except:
+                pass
+
+        # Extraer valores individuales de custom fields desde form
+        for key in request.form:
+            if key.startswith('custom_field_') and not key.startswith('custom_field_file_'):
+                field_key = key.replace('custom_field_', '')
+                custom_fields[field_key] = request.form[key]
+
+        # Extraer archivos de custom fields
+        for key in request.files:
+            if key.startswith('custom_field_'):
+                field_key = key.replace('custom_field_', '')
+                custom_field_files[field_key] = request.files[key]
     else:
         # JSON normal
         data = request.get_json()
         photo_file = None
+        custom_fields = data.get('custom_fields', {})
+        custom_field_files = {}
     
     # Validar campos requeridos
     required_fields = ['area', 'category_id', 'title', 'description']
@@ -173,6 +199,8 @@ def create_ticket():
             office_folio=data.get('office_folio'),
             inventory_item_ids=inventory_item_ids,
             photo_file=photo_file,
+            custom_fields=custom_fields,
+            custom_field_files=custom_field_files,
             created_by_id=user_id
         )
 
