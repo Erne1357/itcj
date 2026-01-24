@@ -1,21 +1,19 @@
 """
-API REST + SSE para notificaciones del sistema ITCJ.
+API REST para notificaciones del sistema ITCJ.
 
 Endpoints:
 - GET /notifications - Listar notificaciones con filtros
-- GET /notifications/stream - SSE endpoint para notificaciones en tiempo real
 - GET /notifications/unread-counts - Conteos de no leídas por app
 - PATCH /notifications/:id/read - Marcar individual como leída
 - PATCH /notifications/mark-all-read - Marcar todas como leídas
 - DELETE /notifications/:id - Eliminar notificación
+
+Nota: Las notificaciones en tiempo real se envían via WebSocket (Socket.IO /notify namespace)
 """
-import json
-from datetime import datetime
-from flask import Blueprint, jsonify, request, g, Response, current_app
+from flask import Blueprint, jsonify, request, g, current_app
 from itcj.core.utils.decorators import api_auth_required
 from itcj.core.services.notification_service import NotificationService
 from itcj.core.extensions import db
-from itcj.core.utils.redis_conn import get_redis
 
 
 api_notifications_bp = Blueprint("api_notifications", __name__)
@@ -83,128 +81,6 @@ def list_notifications():
     except Exception as e:
         current_app.logger.error(f"Error listing notifications: {e}", exc_info=True)
         return jsonify({"error": "internal_error"}), 500
-
-
-@api_notifications_bp.get("/stream")
-@api_auth_required
-def notification_stream():
-    """
-    SSE endpoint para recibir notificaciones en tiempo real.
-
-    Headers:
-        Authorization: Bearer <jwt_token> (o cookie itcj_token)
-
-    SSE Events:
-        - connected: {"type": "connected", "user_id": int, "counts": {...}}
-        - notification: {...notification_data...}
-        - heartbeat: {"type": "heartbeat", "timestamp": iso_string}
-
-    Returns:
-        200: text/event-stream
-    """
-    user_id = _get_current_user_id()
-    if not user_id:
-        return jsonify({"error": "unauthorized"}), 401
-
-    # Capturar referencia al app ANTES de crear el generador
-    app = current_app._get_current_object()
-
-    def event_stream():
-        """Generador compatible con Eventlet para streaming SSE"""
-        redis_client = None
-        pubsub = None
-
-        try:
-            with app.app_context():
-                redis_client = get_redis()
-                channel = f"notify:user:{user_id}"
-                pubsub = redis_client.pubsub()
-                pubsub.subscribe(channel)
-
-                # Enviar evento de conexión con conteos iniciales
-                counts = NotificationService.get_unread_counts_by_app(user_id)
-                total_unread = sum(counts.values())
-
-                connection_data = {
-                    'type': 'connected',
-                    'user_id': user_id,
-                    'counts': counts,
-                    'total_unread': total_unread,
-                    'timestamp': datetime.now().isoformat()
-                }
-                yield f"data: {json.dumps(connection_data)}\n\n"
-
-            # Heartbeat counter
-            message_count = 0
-
-            # Escuchar mensajes desde Redis (ya no necesita DB, solo Redis)
-            for message in pubsub.listen():
-                if message['type'] == 'message':
-                    try:
-                        # Nueva notificación - verificar que sea JSON válido
-                        data = message['data']
-                        if isinstance(data, bytes):
-                            data = data.decode('utf-8')
-                        
-                        # Validar que sea JSON válido antes de enviarlo
-                        json.loads(data)  # Solo para validar
-                        yield f"data: {data}\n\n"
-                        message_count += 1
-                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                        with app.app_context():
-                            app.logger.error(f"Invalid message data in SSE for user {user_id}: {e}")
-                        # Enviar un mensaje de error genérico al cliente
-                        error_notification = {
-                            'type': 'error',
-                            'title': 'Error de notificación',
-                            'body': 'Se recibió una notificación inválida',
-                            'timestamp': datetime.now().isoformat()
-                        }
-                        yield f"data: {json.dumps(error_notification)}\n\n"
-
-                # Heartbeat cada 30 mensajes o si es subscribe/psubscribe
-                if message_count % 30 == 0 or message['type'] in ['subscribe', 'psubscribe']:
-                    heartbeat = {
-                        'type': 'heartbeat',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    yield f"data: {json.dumps(heartbeat)}\n\n"
-
-        except GeneratorExit:
-            # Cliente desconectó
-            with app.app_context():
-                app.logger.info(f"SSE client disconnected: user {user_id}")
-
-        except Exception as e:
-            # Usar el logger capturado con contexto
-            with app.app_context():
-                app.logger.error(f"Error in SSE stream for user {user_id}: {e}", exc_info=True)
-            
-            error_data = {
-                'type': 'error',
-                'message': 'Stream error occurred',
-                'timestamp': datetime.now().isoformat()
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-
-        finally:
-            # Cleanup
-            if pubsub:
-                try:
-                    pubsub.unsubscribe()
-                    pubsub.close()
-                except Exception:
-                    pass
-
-    return Response(
-        event_stream(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',  # Nginx support
-            'Connection': 'keep-alive'
-        }
-    )
 
 
 @api_notifications_bp.get("/unread-counts")

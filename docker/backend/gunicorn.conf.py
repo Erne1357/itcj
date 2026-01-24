@@ -4,20 +4,25 @@ import os
 # Bind
 bind = "0.0.0.0:8000"
 
-# Worker class compatible con SSE (Server-Sent Events)
+# Worker class para WebSocket (Socket.IO)
+# IMPORTANTE: Eventlet con Socket.IO solo soporta 1 worker por proceso.
+# Para escalar, usar múltiples contenedores Docker con un load balancer
+# y sticky sessions (ip_hash o cookie-based).
 worker_class = "eventlet"
-workers = 1  # Eventlet es single-threaded pero maneja múltiples conexiones
+workers = 1
 
-# Conexiones simultáneas por worker
-worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "5000"))
+# Conexiones simultáneas por worker (eventlet puede manejar miles)
+# Para 500-2000 usuarios concurrentes, 10000 es suficiente
+worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "10000"))
 
-# Timeouts - AUMENTADOS para SSE (conexiones de larga duración)
-timeout = 7200  # 2 horas - necesario para SSE
+# Timeouts para WebSocket (conexiones de larga duración)
+timeout = 300  # 5 minutos para requests normales
 graceful_timeout = 30
 keepalive = 75
 
-# Worker lifecycle - NO reiniciar workers con SSE activo
-max_requests = 0  # Deshabilitado para mantener conexiones SSE
+# Worker lifecycle
+# max_requests=0 evita reinicios que desconectarían WebSockets
+max_requests = 0
 max_requests_jitter = 0
 
 # Logging

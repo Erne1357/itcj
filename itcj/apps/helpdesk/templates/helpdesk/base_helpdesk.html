@@ -136,8 +136,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ static_version }}"></script>
 
-    <!-- Notification System Scripts -->
-    <script src="{{ url_for('static', filename='core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
+    <!-- Notification System (WebSocket-based) -->
     <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ static_version }}"></script>
 
     <!-- iframe bridge for logout detection -->

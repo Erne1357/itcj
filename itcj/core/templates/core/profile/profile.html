@@ -432,62 +432,67 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
-    <!-- ⭐ NUEVO: SSE Client for Real-time Notifications -->
-    <script src="{{ url_for('static', filename='core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
-
     <script src="{{ url_for('static', filename='core/js/profile/profile.js') }}?v={{ static_version }}"></script>
 
-    <!-- ⭐ NUEVO: Initialize SSE for Profile Page -->
+    <!-- WebSocket for Real-time Notifications -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize SSE client for real-time notification updates
-            if (window.NotificationSSEClient && window.ProfileManager) {
-                const sseClient = new NotificationSSEClient('/api/core/v1');
+            // Load Socket.IO and connect to /notify namespace
+            const ensureIO = () => {
+                return new Promise((resolve, reject) => {
+                    if (window.io) return resolve();
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+                    script.crossOrigin = 'anonymous';
+                    script.onload = () => resolve();
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+            };
+
+            ensureIO().then(() => {
+                const socket = window.__notifySocket || io('/notify', {
+                    withCredentials: true,
+                    reconnection: true,
+                    transports: ['websocket', 'polling']
+                });
+                window.__notifySocket = socket;
 
                 // Listen for new notifications
-                sseClient.on('notification', (notification) => {
+                socket.on('notify', (notification) => {
                     console.log('[Profile] New notification received:', notification);
 
                     // Reload notifications if in notifications tab
                     const notificationsTab = document.getElementById('notifications-tab');
                     if (notificationsTab && notificationsTab.classList.contains('active')) {
-                        // Reload notifications after a short delay to allow DB commit
                         setTimeout(() => {
                             if (window.profileManager) {
                                 window.profileManager.loadNotifications();
                             }
                         }, 500);
                     }
-                });
 
-                // Listen for connection status
-                sseClient.on('connected', (data) => {
-                    console.log('[Profile] SSE connected, unread counts:', data.counts);
-
-                    // Update notification badge
-                    if (data.counts) {
-                        const totalUnread = Object.values(data.counts).reduce((sum, count) => sum + count, 0);
-                        const badge = document.getElementById('notificationBadge');
-                        if (badge) {
-                            if (totalUnread > 0) {
-                                badge.textContent = totalUnread > 99 ? '99+' : totalUnread;
-                                badge.style.display = 'inline';
-                            } else {
-                                badge.style.display = 'none';
+                    // Update badge count
+                    fetch('/api/core/v1/notifications/unread-counts', { credentials: 'include' })
+                        .then(res => res.json())
+                        .then(result => {
+                            if (result.data && result.data.total) {
+                                const badge = document.getElementById('notificationBadge');
+                                if (badge) {
+                                    badge.textContent = result.data.total > 99 ? '99+' : result.data.total;
+                                    badge.style.display = result.data.total > 0 ? 'inline' : 'none';
+                                }
                             }
-                        }
-                    }
+                        })
+                        .catch(err => console.error('[Profile] Error updating badge:', err));
                 });
 
-                sseClient.on('error', (error) => {
-                    console.error('[Profile] SSE error:', error);
+                socket.on('connect_error', (error) => {
+                    console.error('[Profile] WebSocket error:', error);
                 });
 
-                // Connect
-                sseClient.connect();
-                console.log('[Profile] SSE client initialized');
-            }
+                console.log('[Profile] WebSocket initialized');
+            }).catch(err => console.error('[Profile] Failed to load Socket.IO:', err));
         });
     </script>
 </body>

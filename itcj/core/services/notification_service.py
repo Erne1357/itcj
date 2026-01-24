@@ -2,7 +2,7 @@
 Servicio centralizado de notificaciones para todas las aplicaciones del sistema ITCJ.
 
 Este servicio maneja la creación, almacenamiento y difusión de notificaciones
-a través de SSE (Server-Sent Events) y WebSockets.
+a través de WebSockets (Socket.IO).
 """
 import json
 from datetime import datetime
@@ -11,7 +11,6 @@ from flask import current_app
 from sqlalchemy import func, and_
 from itcj.core.extensions import db
 from itcj.core.models.notification import Notification
-from itcj.core.utils.redis_conn import get_redis
 
 
 class NotificationService:
@@ -71,10 +70,7 @@ class NotificationService:
             db.session.add(notification)
             db.session.flush()  # Obtener el ID sin hacer commit
 
-            # Difundir a través de SSE (Redis pub/sub)
-            NotificationService.broadcast_sse(user_id, notification)
-
-            # Difundir a través de WebSocket (backwards compatibility)
+            # Difundir a través de WebSocket (Socket.IO)
             NotificationService.broadcast_websocket(user_id, notification)
 
             return notification
@@ -87,46 +83,9 @@ class NotificationService:
             raise
 
     @staticmethod
-    def broadcast_sse(user_id: int, notification: Notification):
-        """
-        Publica la notificación al canal Redis para SSE.
-
-        Args:
-            user_id: ID del usuario
-            notification: Instancia de Notification
-        """
-        try:
-            redis_client = get_redis()
-            channel = f"notify:user:{user_id}"
-
-            payload = notification.to_dict()
-            
-            try:
-                message = json.dumps(payload)
-            except TypeError as json_err:
-                current_app.logger.error(
-                    f"JSON serialization error for notification {notification.id}: {json_err}. "
-                    f"Data type: {type(notification.data)}, Data: {notification.data}",
-                    exc_info=True
-                )
-                # Intentar con un payload simplificado sin el campo data problemático
-                payload_safe = {k: v for k, v in payload.items() if k != 'data'}
-                payload_safe['data'] = {}
-                message = json.dumps(payload_safe)
-
-            redis_client.publish(channel, message)
-
-        except Exception as e:
-            current_app.logger.error(
-                f"Error broadcasting SSE to user {user_id}: {e}",
-                exc_info=True
-            )
-            # No re-lanzar: la notificación ya está en DB
-
-    @staticmethod
     def broadcast_websocket(user_id: int, notification: Notification):
         """
-        Difunde la notificación vía WebSocket (backwards compatibility).
+        Difunde la notificación vía WebSocket (Socket.IO /notify namespace).
 
         Args:
             user_id: ID del usuario

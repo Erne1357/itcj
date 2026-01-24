@@ -2,17 +2,17 @@
  * Widget de Notificaciones para el Dashboard
  *
  * Muestra un icono de campana en la taskbar con badge de notificaciones no leídas,
- * panel desplegable con notificaciones recientes, y actualización en tiempo real vía SSE.
+ * panel desplegable con notificaciones recientes, y actualización en tiempo real vía WebSocket.
  *
  * Uso:
  *   // El widget se inicializa automáticamente al cargar
- *   // Requiere: NotificationSSEClient.js cargado previamente
+ *   // Requiere: Socket.IO (cargado dinámicamente si no está disponible)
  */
 
 class DashboardNotificationWidget {
     constructor() {
         this.apiBase = '/api/core/v1';
-        this.sseClient = null;
+        this.socket = null;
         this.notifications = [];
         this.counts = {};
         this.totalUnread = 0;
@@ -25,7 +25,7 @@ class DashboardNotificationWidget {
         this.injectHTML();
         this.attachEventListeners();
         this.loadInitialCounts();
-        this.connectSSE();
+        this.connectWebSocket();
     }
 
     /**
@@ -133,42 +133,53 @@ class DashboardNotificationWidget {
     }
 
     /**
-     * Conecta al stream SSE
+     * Conecta al WebSocket /notify namespace
      */
-    connectSSE() {
-        if (!window.NotificationSSEClient) {
-            console.error('[NotificationWidget] NotificationSSEClient not loaded');
-            return;
-        }
+    connectWebSocket() {
+        // Cargar Socket.IO si no está disponible
+        const ensureIO = () => {
+            return new Promise((resolve, reject) => {
+                if (window.io) return resolve();
+                const script = document.createElement('script');
+                script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+                script.crossOrigin = 'anonymous';
+                script.onload = () => resolve();
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        };
 
-        this.sseClient = new NotificationSSEClient(this.apiBase);
-
-        // Evento: conectado
-        this.sseClient.on('connected', (data) => {
-            console.log('[NotificationWidget] SSE connected', data);
-            if (data.counts) {
-                this.updateCounts(data.counts, data.total_unread);
+        ensureIO().then(() => {
+            // Reusar socket existente si ya hay uno conectado
+            if (window.__notifySocket) {
+                this.socket = window.__notifySocket;
+            } else {
+                this.socket = io('/notify', {
+                    withCredentials: true,
+                    reconnection: true,
+                    timeout: 20000,
+                    transports: ['websocket', 'polling']
+                });
+                window.__notifySocket = this.socket;
             }
-        });
 
-        // Evento: nueva notificación
-        this.sseClient.on('notification', (notification) => {
-            this.handleNewNotification(notification);
-        });
+            // Evento: conectado
+            this.socket.on('hello', (data) => {
+                console.log('[NotificationWidget] WebSocket connected', data);
+            });
 
-        // Evento: conteos actualizados
-        this.sseClient.on('counts', (counts) => {
-            const total = Object.values(counts).reduce((a, b) => a + b, 0);
-            this.updateCounts(counts, total);
-        });
+            // Evento: nueva notificación
+            this.socket.on('notify', (notification) => {
+                this.handleNewNotification(notification);
+            });
 
-        // Evento: error
-        this.sseClient.on('error', (error) => {
-            console.error('[NotificationWidget] SSE error:', error);
+            // Evento: error
+            this.socket.on('connect_error', (error) => {
+                console.error('[NotificationWidget] WebSocket error:', error);
+            });
+        }).catch(err => {
+            console.error('[NotificationWidget] Failed to load Socket.IO:', err);
         });
-
-        // Conectar
-        this.sseClient.connect();
     }
 
     /**

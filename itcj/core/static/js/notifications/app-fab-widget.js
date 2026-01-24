@@ -8,7 +8,7 @@
  *   const helpdeskNotifications = new AppNotificationFAB('helpdesk');
  *
  * Requiere:
- *   - NotificationSSEClient.js cargado previamente
+ *   - socket-base.js cargado previamente (o Socket.IO CDN)
  *   - notifications.css cargado previamente
  */
 
@@ -16,7 +16,7 @@ class AppNotificationFAB {
     constructor(appName, apiBase = '/api/core/v1') {
         this.appName = appName;
         this.apiBase = apiBase;
-        this.sseClient = null;
+        this.socket = null;
         this.notifications = [];
         this.unreadCount = 0;
         this.panelOpen = false;
@@ -31,7 +31,7 @@ class AppNotificationFAB {
         this.injectHTML();
         this.attachEventListeners();
         this.loadUnreadCount();
-        this.connectSSE();
+        this.connectWebSocket();
     }
 
     /**
@@ -141,34 +141,55 @@ class AppNotificationFAB {
     }
 
     /**
-     * Conecta al stream SSE
+     * Conecta al WebSocket /notify namespace
      */
-    connectSSE() {
-        if (!window.NotificationSSEClient) {
-            console.error(`[FAB-${this.appName}] NotificationSSEClient not loaded`);
-            return;
-        }
+    connectWebSocket() {
+        // Cargar Socket.IO si no está disponible
+        const ensureIO = () => {
+            return new Promise((resolve, reject) => {
+                if (window.io) return resolve();
+                const script = document.createElement('script');
+                script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+                script.crossOrigin = 'anonymous';
+                script.onload = () => resolve();
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        };
 
-        this.sseClient = new NotificationSSEClient(this.apiBase);
-
-        // Evento: conectado
-        this.sseClient.on('connected', (data) => {
-            if (data.counts) {
-                const count = data.counts[this.appName] || 0;
-                this.updateBadge(count);
+        ensureIO().then(() => {
+            // Reusar socket existente si ya hay uno conectado
+            if (window.__notifySocket) {
+                this.socket = window.__notifySocket;
+            } else {
+                this.socket = io('/notify', {
+                    withCredentials: true,
+                    reconnection: true,
+                    timeout: 20000,
+                    transports: ['websocket', 'polling']
+                });
+                window.__notifySocket = this.socket;
             }
-        });
 
-        // Evento: nueva notificación
-        this.sseClient.on('notification', (notification) => {
-            // Solo procesar si es de esta app
-            if (notification.app_name === this.appName) {
-                this.handleNewNotification(notification);
-            }
-        });
+            // Evento: conectado
+            this.socket.on('hello', (data) => {
+                console.log(`[FAB-${this.appName}] WebSocket connected`, data);
+            });
 
-        // Conectar
-        this.sseClient.connect();
+            // Evento: nueva notificación
+            this.socket.on('notify', (notification) => {
+                // Solo procesar si es de esta app
+                if (notification.app_name === this.appName) {
+                    this.handleNewNotification(notification);
+                }
+            });
+
+            this.socket.on('connect_error', (error) => {
+                console.error(`[FAB-${this.appName}] WebSocket error:`, error);
+            });
+        }).catch(err => {
+            console.error(`[FAB-${this.appName}] Failed to load Socket.IO:`, err);
+        });
     }
 
     /**

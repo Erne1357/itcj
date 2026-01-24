@@ -146,8 +146,7 @@
     <!-- Shepherd.js JS -->
     <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
 
-    <!-- ⭐ NUEVO: Notification System Scripts -->
-    <script src="{{url_for('static',filename = 'core/js/notifications/sse-client.js') }}?v={{ static_version }}"></script>
+    <!-- Notification System (WebSocket-based) -->
     <script src="{{url_for('static',filename = 'core/js/dashboard/notification-widget.js') }}?v={{ static_version }}"></script>
 
     <script src="{{url_for('static',filename = 'core/js/dashboard/profile-menu.js') }}?v={{ static_version }}"></script>
@@ -160,35 +159,43 @@
     <!-- 🎄 NAVIDAD: Efecto de Nieve Navideña -->
     <script src="{{url_for('static',filename = 'core/js/dashboard/christmas-snow.js') }}?v={{ static_version }}"></script>
 
-    <!-- ⭐ NUEVO: Initialize Notification Widget -->
+    <!-- Initialize Notification Widget -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             if (window.DashboardNotificationWidget) {
                 const notificationWidget = new DashboardNotificationWidget();
                 console.log('[Dashboard] Notification widget initialized');
 
-                // Listen for badge updates and update desktop icons
-                if (notificationWidget.sseClient) {
-                    notificationWidget.sseClient.on('connected', (data) => {
-                        if (data.counts) {
-                            updateDesktopBadges(data.counts);
-                        }
-                    });
+                // Wait for socket to be ready, then listen for notifications
+                const checkSocket = setInterval(() => {
+                    if (notificationWidget.socket) {
+                        clearInterval(checkSocket);
 
-                    notificationWidget.sseClient.on('notification', () => {
-                        // Reload counts after new notification
-                        fetch('/api/core/v1/notifications/unread-counts', {
-                            credentials: 'include'
-                        })
-                        .then(res => res.json())
-                        .then(result => {
-                            if (result.data && result.data.counts) {
-                                updateDesktopBadges(result.data.counts);
-                            }
-                        })
-                        .catch(err => console.error('Error updating badges:', err));
-                    });
-                }
+                        notificationWidget.socket.on('notify', () => {
+                            // Reload counts after new notification
+                            fetch('/api/core/v1/notifications/unread-counts', {
+                                credentials: 'include'
+                            })
+                            .then(res => res.json())
+                            .then(result => {
+                                if (result.data && result.data.counts) {
+                                    updateDesktopBadges(result.data.counts);
+                                }
+                            })
+                            .catch(err => console.error('Error updating badges:', err));
+                        });
+                    }
+                }, 100);
+
+                // Initial load of badges
+                fetch('/api/core/v1/notifications/unread-counts', { credentials: 'include' })
+                    .then(res => res.json())
+                    .then(result => {
+                        if (result.data && result.data.counts) {
+                            updateDesktopBadges(result.data.counts);
+                        }
+                    })
+                    .catch(err => console.error('Error loading initial badges:', err));
             }
         });
 
