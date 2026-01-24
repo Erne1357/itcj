@@ -159,63 +159,7 @@
     <!-- 🎄 NAVIDAD: Efecto de Nieve Navideña -->
     <script src="{{url_for('static',filename = 'core/js/dashboard/christmas-snow.js') }}?v={{ static_version }}"></script>
 
-    <!-- Initialize Notification Widget -->
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.DashboardNotificationWidget) {
-                const notificationWidget = new DashboardNotificationWidget();
-                console.log('[Dashboard] Notification widget initialized');
-
-                // Wait for socket to be ready, then listen for notifications
-                const checkSocket = setInterval(() => {
-                    if (notificationWidget.socket) {
-                        clearInterval(checkSocket);
-
-                        notificationWidget.socket.on('notify', () => {
-                            // Reload counts after new notification
-                            fetch('/api/core/v1/notifications/unread-counts', {
-                                credentials: 'include'
-                            })
-                            .then(res => res.json())
-                            .then(result => {
-                                if (result.data && result.data.counts) {
-                                    updateDesktopBadges(result.data.counts);
-                                }
-                            })
-                            .catch(err => console.error('Error updating badges:', err));
-                        });
-                    }
-                }, 100);
-
-                // Initial load of badges
-                fetch('/api/core/v1/notifications/unread-counts', { credentials: 'include' })
-                    .then(res => res.json())
-                    .then(result => {
-                        if (result.data && result.data.counts) {
-                            updateDesktopBadges(result.data.counts);
-                        }
-                    })
-                    .catch(err => console.error('Error loading initial badges:', err));
-            }
-        });
-
-        // Function to update desktop icon badges
-        function updateDesktopBadges(counts) {
-            const apps = ['agendatec', 'helpdesk'];
-            apps.forEach(app => {
-                const badge = document.getElementById(`badge-${app}`);
-                const count = counts[app] || 0;
-                if (badge) {
-                    if (count > 0) {
-                        badge.textContent = count > 99 ? '99+' : count;
-                        badge.style.display = 'inline';
-                    } else {
-                        badge.style.display = 'none';
-                    }
-                }
-            });
-        }
-    </script>
+    <!-- Notification Widget se auto-inicializa en notification-widget.js -->
 </body>
 
 </html>

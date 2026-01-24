@@ -205,29 +205,24 @@ class DashboardNotificationWidget {
     }
 
     /**
-     * Actualiza badges en iconos de aplicaciones
+     * Actualiza badges en iconos de aplicaciones del escritorio
      */
     updateAppBadges() {
-        // Iterar sobre cada app con notificaciones
-        for (const [appName, count] of Object.entries(this.counts)) {
-            const appIcon = document.querySelector(`.desktop-icon[data-app="${appName}"]`);
-            if (!appIcon) continue;
+        const apps = ['agendatec', 'helpdesk'];
 
-            // Buscar o crear badge
-            let badge = appIcon.querySelector('.app-notification-badge');
+        apps.forEach(appName => {
+            const badge = document.getElementById(`badge-${appName}`);
+            const count = this.counts[appName] || 0;
 
-            if (count > 0) {
-                if (!badge) {
-                    badge = document.createElement('span');
-                    badge.className = 'app-notification-badge';
-                    appIcon.appendChild(badge);
+            if (badge) {
+                if (count > 0) {
+                    badge.textContent = count > 99 ? '99+' : count;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
                 }
-                badge.textContent = count > 99 ? '99+' : count;
-                badge.hidden = false;
-            } else if (badge) {
-                badge.hidden = true;
             }
-        }
+        });
     }
 
     /**

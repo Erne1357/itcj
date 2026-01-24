@@ -29,9 +29,10 @@ CORS_ORIGINS = get_cors_origins()
 
 def init_socketio(app):
     """Inicializa SocketIO con Redis message_queue."""
-    
+    from itcj.core import extensions
+
     redis_url = os.getenv("REDIS_URL") or REDIS_URL or f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
-    
+
     # Verificar Redis
     try:
         r = redis.from_url(redis_url)
@@ -40,16 +41,19 @@ def init_socketio(app):
     except Exception as e:
         app.logger.error(f"✗ Redis ERROR: {e}")
         raise
-    
+
     # ⭐ Configuración simple y funcional
     socketio = SocketIO(
-        app, 
+        app,
         async_mode="eventlet",
         message_queue=redis_url,
         cors_allowed_origins=CORS_ORIGINS,
         logger=False,
         engineio_logger=False
     )
+
+    # Guardar referencia global para uso en NotificationService
+    extensions.socketio = socketio
 
     app.logger.info("✓ SocketIO inicializado")
 
