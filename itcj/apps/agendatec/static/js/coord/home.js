@@ -49,7 +49,7 @@
       <div class="d-flex align-items-center justify-content-between p-2 border rounded-3">
         <div><i class="bi bi-exclamation-triangle text-warning me-2"></i>
              <span>Falta configurar horario para <strong>${d}</strong></span></div>
-        <a class="btn btn-sm btn-outline-primary" href="/coord/slots#${d}">Configurar</a>
+        <a class="btn btn-sm btn-outline-primary" href="/agendatec/coord/slots#${d}">Configurar</a>
       </div>
     `).join("");
         remindersEl.innerHTML = items;
