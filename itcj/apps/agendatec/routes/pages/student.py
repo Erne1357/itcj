@@ -10,6 +10,7 @@ from itcj.apps.agendatec.services.student.home import has_request
 from itcj.apps.agendatec.utils.period_utils import (
     fmt_spanish,
     get_student_window,
+    get_window_status,
     is_student_window_open,
 )
 from itcj.core.utils.decorators import app_required, login_required
@@ -55,8 +56,10 @@ def student_new_request():
 @app_required("agendatec", roles=["student"])
 def student_close():
     start, end = get_student_window()
+    status = get_window_status()
     return render_template(
         "agendatec/student/close.html",
         win_from=fmt_spanish(start),
         win_to=fmt_spanish(end),
+        window_status=status,
     )

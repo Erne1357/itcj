@@ -22,6 +22,7 @@ from .responses import (
 from .period_utils import (
     is_student_window_open,
     get_student_window,
+    get_window_status,
     get_enabled_days_for_active_period,
     fmt_spanish,
 )
@@ -55,6 +56,7 @@ __all__ = [
     # Period utils
     "is_student_window_open",
     "get_student_window",
+    "get_window_status",
     "get_enabled_days_for_active_period",
     "fmt_spanish",
     # Logging

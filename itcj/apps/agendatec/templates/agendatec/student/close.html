@@ -1,5 +1,5 @@
 {% extends "agendatec/base.html" %} 
-{% block title %}Altas/Bajas finalizado{% endblock %}
+{% block title %}Altas/Bajas - Cerrado{% endblock %}
 
 {% block content %}
 <div class="container py-4">
@@ -9,6 +9,39 @@
       <div class="card shadow-sm border-0">
         <div class="card-body p-4">
 
+          {% if window_status and window_status.reason == 'window_not_started' %}
+          {# El periodo aún no empieza #}
+          <div class="d-flex align-items-center mb-3">
+            <div class="rounded-circle bg-light me-3 d-flex align-items-center justify-content-center" style="width:56px;height:56px;">
+              <i class="bi bi-calendar-event fs-3 text-warning"></i>
+            </div>
+            <div>
+              <h1 class="h4 mb-1">El período de altas/bajas aún no ha iniciado</h1>
+              {% if win_from %}
+              <p class="mb-0 text-muted small">
+                Podrás entrar a hacer tu solicitud a partir del <strong>{{ win_from }} hrs</strong>
+              </p>
+              {% endif %}
+            </div>
+          </div>
+
+          <p class="mb-3">
+            Bienvenido a <strong>AgendaTec</strong>. El período de altas y bajas aún no está disponible. Por favor regresa cuando el proceso haya iniciado.
+          </p>
+
+          <ul class="list-unstyled mb-4">
+            <li class="d-flex mb-2">
+              <i class="bi bi-clock-history me-2 text-warning"></i>
+              <span>El período de solicitudes estará disponible a partir del <strong>{{ win_from }} hrs</strong>{% if win_to %} hasta el <strong>{{ win_to }} hrs</strong>{% endif %}.</span>
+            </li>
+            <li class="d-flex mb-2">
+              <i class="bi bi-info-circle me-2 text-primary"></i>
+              <span>Si necesitas apoyo, comunícate con tu coordinador académico.</span>
+            </li>
+          </ul>
+
+          {% else %}
+          {# El periodo ya terminó o no hay periodo activo #}
           <div class="d-flex align-items-center mb-3">
             <div class="rounded-circle bg-light me-3 d-flex align-items-center justify-content-center" style="width:56px;height:56px;">
               <i class="bi bi-calendar-x fs-3 text-danger"></i>
@@ -39,6 +72,7 @@
               <span>Si necesitas apoyo, comunícate con tu coordinador académico.</span>
             </li>
           </ul>
+          {% endif %}
 
           <div class="d-grid gap-2">
             <a class="btn btn-primary btn-lg" href="{{ url_for('agendatec_pages.student_pages.student_requests') }}">
