@@ -111,7 +111,7 @@
 {% block extra_js %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <!-- Cargar días habilitados del período activo -->
-<script src="{{ url_for('static', filename='agendatec/js/coord/appointments_init.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/coord/appointments.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/appointments_init.js') }}?v={{ sv('agendatec', 'js/coord/appointments_init.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_client.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/appointments.js') }}?v={{ sv('agendatec', 'js/coord/appointments.js') }}"></script>
 {% endblock %}

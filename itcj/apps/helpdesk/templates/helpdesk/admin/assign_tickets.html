@@ -450,9 +450,9 @@
 {% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/admin/assign_tickets.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/admin/assign_tickets.css') }}?v={{ sv('helpdesk', 'css/admin/assign_tickets.css') }}">
 {% endblock %}
 
 {% block extra_js %}
-    <script src="{{ url_for('static', filename='helpdesk/js/admin/assign_tickets.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='helpdesk/js/admin/assign_tickets.js') }}?v={{ sv('helpdesk', 'js/admin/assign_tickets.js') }}"></script>
 {% endblock %}

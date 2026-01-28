@@ -1,7 +1,7 @@
 {% extends "agendatec/base.html" %}
 {% block title %}Coordinador - Horario{% endblock %}
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/coord/slots.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/coord/slots.css') }}?v={{ sv('agendatec', 'css/coord/slots.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -165,9 +165,9 @@
 {% block extra_js %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <!-- IMPORTANTE: slots_init.js debe cargarse PRIMERO para llenar los selects de días -->
-<script src="{{ url_for('static', filename='agendatec/js/coord/slots_init.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/coord/slots_view.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/coord/slots.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/coord/slots_delete.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_init.js') }}?v={{ sv('agendatec', 'js/coord/slots_init.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ sv('agendatec', 'js/sockets/slots_client.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_view.js') }}?v={{ sv('agendatec', 'js/coord/slots_view.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots.js') }}?v={{ sv('agendatec', 'js/coord/slots.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_delete.js') }}?v={{ sv('agendatec', 'js/coord/slots_delete.js') }}"></script>
 {% endblock %}

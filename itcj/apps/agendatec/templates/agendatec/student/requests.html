@@ -36,5 +36,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='agendatec/js/student/requests.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/student/requests.js') }}?v={{ sv('agendatec', 'js/student/requests.js') }}"></script>
 {% endblock %}

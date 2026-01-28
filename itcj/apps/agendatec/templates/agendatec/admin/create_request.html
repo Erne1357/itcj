@@ -192,5 +192,5 @@
     createUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_create_request') }}"
   };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/create_request.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/create_request.js') }}?v={{ sv('agendatec', 'js/admin/create_request.js') }}"></script>
 {% endblock %}

@@ -194,5 +194,5 @@
     const departmentId = {% if department_id %}{{ department_id }}{% else %}null{% endif %};
     const canViewAll = {{ 'true' if can_view_all else 'false' }};
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups_list.js') }}?v={{static_version}}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups_list.js') }}?v={{ sv('helpdesk', 'js/inventory/groups_list.js') }}"></script>
 {% endblock %}

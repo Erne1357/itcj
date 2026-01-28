@@ -383,7 +383,7 @@
 {% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/department_head/dashboard.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/department_head/dashboard.css') }}?v={{ sv('helpdesk', 'css/department_head/dashboard.css') }}">
 {% endblock %}
 
 {% block extra_js %}
@@ -392,5 +392,5 @@
 const DEPARTMENT_ID = {{ department.id }};
 const DEPARTMENT_NAME = "{{ department.name }}";
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/department_head/dashboard.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/department_head/dashboard.js') }}?v={{ sv('helpdesk', 'js/department_head/dashboard.js') }}"></script>
 {% endblock %}

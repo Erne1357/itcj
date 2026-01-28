@@ -139,5 +139,5 @@
     searchUsersUrl: "{{ url_for('agendatec_api.api_admin.admin_users.search_users_for_coordinator') }}"
   };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/users.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/users.js') }}?v={{ sv('agendatec', 'js/admin/users.js') }}"></script>
 {% endblock %}

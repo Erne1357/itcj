@@ -298,5 +298,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/pending_items.js') }}?v={{static_version}}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/pending_items.js') }}?v={{ sv('helpdesk', 'js/inventory/pending_items.js') }}"></script>
 {% endblock %}
