@@ -147,6 +147,9 @@
     <!-- iframe bridge for logout detection -->
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ static_version }}"></script>
 
+    <!-- Update checker for zero-downtime deployment notifications -->
+    <script src="{{ url_for('static', filename='core/js/update-checker.js') }}?v={{ static_version }}"></script>
+
     <script>
         // Logout handler
         document.getElementById('btnLogout')?.addEventListener('click', async () => {

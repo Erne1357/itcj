@@ -30,6 +30,13 @@ fi
 
 echo ">>> Color activo: $ACTIVE -> Desplegando: $NEW"
 
+# -- 1.1 Guardar manifiesto de estaticos ANTES del pull (Pilar 3) --
+OLD_MANIFEST=""
+if [ -f "static-manifest.json" ]; then
+    OLD_MANIFEST=$(cat static-manifest.json)
+    echo ">>> Manifiesto anterior guardado para comparacion."
+fi
+
 # -- 2. Actualizar codigo --
 echo ">>> Actualizando codigo desde GitHub..."
 git fetch origin
@@ -159,6 +166,18 @@ fi
 # -- 11. Guardar estado y limpiar --
 echo "$NEW" > "$STATE_FILE"
 docker image prune -f
+
+# -- 12. Notificar cambios de estaticos via WebSocket (Pilar 3) --
+if [ -n "$OLD_MANIFEST" ]; then
+    echo ">>> Comparando manifiestos de estaticos..."
+    python3 docker/scripts/diff-static-manifest.py \
+        --old-manifest <(echo "$OLD_MANIFEST") \
+        --new-manifest static-manifest.json \
+        --notify-url "http://localhost:8080/api/core/v1/deploy/static-update" \
+        || echo "WARN: No se pudo notificar cambios de estaticos (el deploy continua)."
+else
+    echo ">>> Primer deploy, no hay manifiesto anterior para comparar."
+fi
 
 echo ""
 echo ">>> Estado final de contenedores:"
