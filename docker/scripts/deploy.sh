@@ -35,6 +35,10 @@ echo ">>> Actualizando codigo desde GitHub..."
 git fetch origin
 git reset --hard origin/main
 
+# -- 2.1 Generar manifiesto de estaticos (Pilar 2) --
+echo ">>> Generando manifiesto de archivos estaticos..."
+bash docker/scripts/generate-static-manifest.sh
+
 # -- 3. Asegurar que infraestructura esta corriendo --
 echo ">>> Verificando infraestructura (Redis + PostgreSQL)..."
 docker compose -f "$COMPOSE_FILE" up -d redis postgres
