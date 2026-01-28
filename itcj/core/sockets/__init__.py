@@ -96,9 +96,11 @@ def init_socketio(app):
     from .slots import register_slot_events
     from .requests import register_request_events
     from .notifications import register_notification_events
-    
+    from .helpdesk import register_helpdesk_events
+
     register_slot_events(socketio)
     register_request_events(socketio)
     register_notification_events(socketio)
+    register_helpdesk_events(socketio)
 
     return socketio

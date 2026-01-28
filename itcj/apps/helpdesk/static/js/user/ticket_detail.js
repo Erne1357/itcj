@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTicketDetail();
     setupRatingModal();
     setupCancelModal();
+    setupWebSocketListeners();
 });
 
 // ==================== LOAD TICKET DETAIL ====================
@@ -1001,6 +1002,92 @@ async function downloadCustomFieldFile(downloadUrl, filename) {
         );
     }
 }
+
+// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+let ticketSocketBound = false;
+
+/**
+ * Configura los listeners de WebSocket para actualizaciones en tiempo real del ticket
+ */
+function setupWebSocketListeners() {
+    const checkSocket = setInterval(() => {
+        if (window.__helpdeskSocket) {
+            clearInterval(checkSocket);
+            bindTicketSocketEvents();
+        }
+    }, 100);
+
+    setTimeout(() => clearInterval(checkSocket), 5000);
+}
+
+function bindTicketSocketEvents() {
+    if (ticketSocketBound) return;
+
+    const socket = window.__helpdeskSocket;
+    if (!socket || !ticketId) return;
+
+    // Unirse al room del ticket
+    window.__hdJoinTicket?.(ticketId);
+
+    // Remover listeners previos
+    socket.off('ticket_status_changed');
+    socket.off('ticket_comment_added');
+    socket.off('ticket_assigned');
+    socket.off('ticket_reassigned');
+
+    // Cambio de estado - recargar toda la página del ticket
+    socket.on('ticket_status_changed', (data) => {
+        if (data.ticket_id == ticketId) {
+            console.log('[Ticket Detail] ticket_status_changed:', data);
+            HelpdeskUtils.showToast('El estado del ticket ha cambiado', 'info');
+            loadTicketDetail();
+        }
+    });
+
+    // Nuevo comentario - recargar comentarios
+    socket.on('ticket_comment_added', async (data) => {
+        if (data.ticket_id == ticketId) {
+            console.log('[Ticket Detail] ticket_comment_added:', data);
+            HelpdeskUtils.showToast(`Nuevo comentario de ${data.author_name}`, 'info');
+            // Recargar solo los comentarios
+            try {
+                const commentsResponse = await HelpdeskUtils.api.getComments(ticketId);
+                renderComments(commentsResponse.comments || []);
+            } catch (e) {
+                console.error('Error recargando comentarios:', e);
+            }
+        }
+    });
+
+    // Ticket asignado - actualizar info de asignación
+    socket.on('ticket_assigned', (data) => {
+        if (data.ticket_id == ticketId) {
+            console.log('[Ticket Detail] ticket_assigned:', data);
+            HelpdeskUtils.showToast(`Ticket asignado a ${data.assigned_to_name}`, 'info');
+            loadTicketDetail();
+        }
+    });
+
+    // Ticket reasignado
+    socket.on('ticket_reassigned', (data) => {
+        if (data.ticket_id == ticketId) {
+            console.log('[Ticket Detail] ticket_reassigned:', data);
+            HelpdeskUtils.showToast(`Ticket reasignado a ${data.new_assigned_name}`, 'info');
+            loadTicketDetail();
+        }
+    });
+
+    ticketSocketBound = true;
+    console.log('[Ticket Detail] WebSocket listeners configurados para ticket:', ticketId);
+}
+
+// Cleanup al salir de la página
+window.addEventListener('beforeunload', () => {
+    if (window.__hdLeaveTicket && ticketId) {
+        window.__hdLeaveTicket(ticketId);
+    }
+});
 
 // ==================== EXPORT GLOBAL FUNCTIONS ====================
 // Exportar funciones para que el tutorial pueda acceder a ellas

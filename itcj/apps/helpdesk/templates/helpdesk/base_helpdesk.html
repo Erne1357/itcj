@@ -136,6 +136,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ static_version }}"></script>
 
+    <!-- WebSocket - Socket.IO + Helpdesk Client -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='helpdesk/js/sockets/helpdesk_client.js') }}?v={{ static_version }}"></script>
+
     <!-- Notification System (WebSocket-based) -->
     <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ static_version }}"></script>
 

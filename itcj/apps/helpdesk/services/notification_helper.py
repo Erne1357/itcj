@@ -3,6 +3,8 @@ Helper de Notificaciones para Helpdesk
 
 Proporciona métodos para crear notificaciones en los diferentes eventos del ciclo de vida de tickets.
 Cada método encapsula la lógica de quién debe ser notificado y con qué mensaje.
+
+Incluye broadcasts WebSocket para actualizaciones en tiempo real.
 """
 from typing import Optional
 from flask import current_app
@@ -10,6 +12,14 @@ from itcj.core.services.notification_service import NotificationService
 from itcj.core.extensions import db
 from itcj.core.models.user import User
 from itcj.core.services.authz_service import _get_users_with_roles_in_app, user_roles_in_app, _get_users_with_position
+from itcj.core.sockets.helpdesk import (
+    broadcast_ticket_created,
+    broadcast_ticket_assigned,
+    broadcast_ticket_reassigned,
+    broadcast_ticket_status_changed,
+    broadcast_ticket_comment_added,
+    broadcast_ticket_self_assigned
+)
 
 
 class HelpdeskNotificationHelper:
@@ -67,6 +77,23 @@ class HelpdeskNotificationHelper:
                 f"Notificación TICKET_CREATED enviada a {len(recipients)} usuarios para ticket #{ticket.ticket_number}"
             )
 
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    broadcast_ticket_created(socketio, {
+                        'id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'title': ticket.title,
+                        'area': ticket.area,
+                        'priority': ticket.priority,
+                        'status': ticket.status,
+                        'requester': ticket.requester.full_name if ticket.requester else 'Desconocido',
+                        'department_id': ticket.department_id
+                    })
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_CREATED: {ws_err}")
+
         except Exception as e:
             current_app.logger.error(
                 f"Error enviando notificación TICKET_CREATED para ticket #{ticket.ticket_number}: {e}",
@@ -101,6 +128,22 @@ class HelpdeskNotificationHelper:
             current_app.logger.info(
                 f"Notificación TICKET_ASSIGNED enviada a {assigned_user.full_name} para ticket #{ticket.ticket_number}"
             )
+
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    broadcast_ticket_assigned(socketio, ticket.id, assigned_user.id, ticket.area, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'title': ticket.title,
+                        'assigned_to_id': assigned_user.id,
+                        'assigned_to_name': assigned_user.full_name,
+                        'area': ticket.area,
+                        'priority': ticket.priority
+                    }, department_id=ticket.department_id)
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_ASSIGNED: {ws_err}")
 
         except Exception as e:
             current_app.logger.error(
@@ -149,6 +192,23 @@ class HelpdeskNotificationHelper:
                     ticket_id=ticket.id
                 )
 
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    prev_id = previous_assigned_user.id if previous_assigned_user else None
+                    broadcast_ticket_reassigned(socketio, ticket.id, new_assigned_user.id, prev_id, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'title': ticket.title,
+                        'new_assigned_id': new_assigned_user.id,
+                        'new_assigned_name': new_assigned_user.full_name,
+                        'prev_assigned_id': prev_id,
+                        'prev_assigned_name': previous_assigned_user.full_name if previous_assigned_user else None
+                    })
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_REASSIGNED: {ws_err}")
+
         except Exception as e:
             current_app.logger.error(
                 f"Error enviando notificación TICKET_REASSIGNED: {e}",
@@ -179,6 +239,21 @@ class HelpdeskNotificationHelper:
                 ticket_id=ticket.id
             )
 
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    broadcast_ticket_self_assigned(socketio, ticket.id, ticket.area, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'title': ticket.title,
+                        'technician_id': technician.id,
+                        'technician_name': technician.full_name,
+                        'area': ticket.area
+                    })
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_SELF_ASSIGNED: {ws_err}")
+
         except Exception as e:
             current_app.logger.error(
                 f"Error enviando notificación TICKET_SELF_ASSIGNED: {e}",
@@ -208,6 +283,21 @@ class HelpdeskNotificationHelper:
                 },
                 ticket_id=ticket.id
             )
+
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    assignee_id = ticket.assigned_to_user_id if hasattr(ticket, 'assigned_to_user_id') else None
+                    broadcast_ticket_status_changed(socketio, ticket.id, assignee_id, ticket.area, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'old_status': 'ASSIGNED',
+                        'new_status': 'IN_PROGRESS',
+                        'area': ticket.area
+                    }, department_id=ticket.department_id)
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_IN_PROGRESS: {ws_err}")
 
         except Exception as e:
             current_app.logger.error(
@@ -242,6 +332,21 @@ class HelpdeskNotificationHelper:
                 },
                 ticket_id=ticket.id
             )
+
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    assignee_id = ticket.assigned_to_user_id if hasattr(ticket, 'assigned_to_user_id') else None
+                    broadcast_ticket_status_changed(socketio, ticket.id, assignee_id, ticket.area, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'old_status': 'IN_PROGRESS',
+                        'new_status': ticket.status,
+                        'area': ticket.area
+                    }, department_id=ticket.department_id)
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_RESOLVED: {ws_err}")
 
         except Exception as e:
             current_app.logger.error(
@@ -313,6 +418,21 @@ class HelpdeskNotificationHelper:
                     ticket_id=ticket.id
                 )
 
+            # Broadcast WebSocket para actualizar dashboards en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    assignee_id = ticket.assigned_to_user_id if hasattr(ticket, 'assigned_to_user_id') else None
+                    broadcast_ticket_status_changed(socketio, ticket.id, assignee_id, ticket.area, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'old_status': ticket.status,
+                        'new_status': 'CANCELED',
+                        'area': ticket.area
+                    }, department_id=ticket.department_id)
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_CANCELED: {ws_err}")
+
         except Exception as e:
             current_app.logger.error(
                 f"Error enviando notificación TICKET_CANCELED: {e}",
@@ -328,6 +448,7 @@ class HelpdeskNotificationHelper:
         - Solicitante (si el comentario no es de él)
         - Técnico asignado (si el comentario no es de él)
         - Colaboradores (si los hay y el comentario no es privado)
+        - Usuarios que han comentado previamente en el ticket (para seguir la conversación)
 
         Args:
             ticket: Instancia de Ticket
@@ -351,6 +472,30 @@ class HelpdeskNotificationHelper:
                     if collab.user_id != author.id:
                         recipients.add(collab.user_id)
 
+            # Agregar usuarios que han comentado previamente en el ticket
+            # (para que sigan la conversación como en un hilo)
+            try:
+                if hasattr(ticket, 'comments'):
+                    # Obtener autores únicos de comentarios previos
+                    previous_commenters = set()
+                    for prev_comment in ticket.comments:
+                        # Excluir el comentario actual y comentarios internos si este no es interno
+                        if prev_comment.id != comment.id:
+                            # Si el nuevo comentario es público, notificar a todos los que comentaron públicamente
+                            # Si el nuevo comentario es interno, notificar a todos (staff puede ver internos)
+                            if comment.is_internal or not prev_comment.is_internal:
+                                if prev_comment.author_id and prev_comment.author_id != author.id:
+                                    previous_commenters.add(prev_comment.author_id)
+
+                    recipients.update(previous_commenters)
+
+                    if previous_commenters:
+                        current_app.logger.debug(
+                            f"Agregados {len(previous_commenters)} comentadores previos a notificación de ticket #{ticket.ticket_number}"
+                        )
+            except Exception as e:
+                current_app.logger.warning(f"Error obteniendo comentadores previos: {e}")
+
             # Enviar notificaciones
             for user_id in recipients:
                 NotificationService.create(
@@ -358,7 +503,7 @@ class HelpdeskNotificationHelper:
                     app_name='helpdesk',
                     type='TICKET_COMMENT',
                     title=f'Nuevo comentario en ticket #{ticket.ticket_number}',
-                    body=f'{author.full_name}: {comment.text[:100]}...' if len(comment.text) > 100 else f'{author.full_name}: {comment.text}',
+                    body=f'{author.full_name}: {comment.content[:100]}...' if len(comment.content) > 100 else f'{author.full_name}: {comment.content}',
                     data={
                         'ticket_id': ticket.id,
                         'url': f'/help-desk/user/tickets/{ticket.id}#comment-{comment.id}',
@@ -371,6 +516,23 @@ class HelpdeskNotificationHelper:
             current_app.logger.info(
                 f"Notificación TICKET_COMMENT enviada a {len(recipients)} usuarios para ticket #{ticket.ticket_number}"
             )
+
+            # Broadcast WebSocket para actualizar la página del ticket en tiempo real
+            try:
+                socketio = current_app.extensions.get('socketio')
+                if socketio:
+                    preview = comment.content[:100] + '...' if len(comment.content) > 100 else comment.content
+                    broadcast_ticket_comment_added(socketio, ticket.id, {
+                        'ticket_id': ticket.id,
+                        'ticket_number': ticket.ticket_number,
+                        'comment_id': comment.id,
+                        'author_id': author.id,
+                        'author_name': author.full_name,
+                        'is_internal': comment.is_internal,
+                        'preview': preview
+                    })
+            except Exception as ws_err:
+                current_app.logger.warning(f"Error en broadcast WS TICKET_COMMENT: {ws_err}")
 
         except Exception as e:
             current_app.logger.error(

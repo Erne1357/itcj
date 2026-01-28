@@ -13,6 +13,7 @@ let allInventoryItems = [];
 document.addEventListener('DOMContentLoaded', () => {
     initializeDashboard();
     setupFilters();
+    setupWebSocketListeners();
 });
 
 async function initializeDashboard() {
@@ -407,6 +408,75 @@ async function loadSummaryStats() {
     } catch (error) {
         console.error('Error loading summary stats:', error);
     }
+}
+
+// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+/**
+ * Debounce helper
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+/**
+ * Configura los listeners de WebSocket para actualizaciones en tiempo real
+ */
+function setupWebSocketListeners() {
+    const checkSocket = setInterval(() => {
+        if (window.__helpdeskSocket) {
+            clearInterval(checkSocket);
+            bindSecretarySocketEvents();
+        }
+    }, 100);
+
+    setTimeout(() => clearInterval(checkSocket), 5000);
+}
+
+function bindSecretarySocketEvents() {
+    const socket = window.__helpdeskSocket;
+    if (!socket) return;
+
+    // Unirse al room del departamento específico (no admin:all)
+    // DEPARTMENT_ID es una variable global definida en el template
+    if (typeof DEPARTMENT_ID !== 'undefined' && DEPARTMENT_ID) {
+        window.__hdJoinDept?.(DEPARTMENT_ID);
+    }
+
+    const debouncedRefresh = debounce(() => {
+        loadDepartmentTickets();
+        loadDashboardStats();
+        HelpdeskUtils.showToast('Datos actualizados', 'info');
+    }, 500);
+
+    // Remover listeners previos
+    socket.off('ticket_created');
+    socket.off('ticket_assigned');
+    socket.off('ticket_status_changed');
+
+    // Nuevo ticket creado en mi departamento
+    socket.on('ticket_created', (data) => {
+        console.log('[Secretary] ticket_created:', data);
+        debouncedRefresh();
+    });
+
+    // Ticket asignado en mi departamento
+    socket.on('ticket_assigned', (data) => {
+        console.log('[Secretary] ticket_assigned:', data);
+        debouncedRefresh();
+    });
+
+    // Cambio de estado en mi departamento
+    socket.on('ticket_status_changed', (data) => {
+        console.log('[Secretary] ticket_status_changed:', data);
+        debouncedRefresh();
+    });
+
+    console.log('[Secretary] WebSocket listeners configurados para dept:', DEPARTMENT_ID);
 }
 
 // ==================== ACTIONS ====================
