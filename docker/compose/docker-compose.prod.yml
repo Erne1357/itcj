@@ -135,8 +135,8 @@ services:
       TZ: America/Chihuahua
     volumes:
       - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      # upstream.conf SIN :ro para que deploy.sh pueda actualizarlo
-      - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf
+      # upstream.conf con :ro - deploy.sh escribe en el HOST y el bind mount sincroniza
+      - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro

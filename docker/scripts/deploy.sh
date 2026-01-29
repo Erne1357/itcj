@@ -129,14 +129,38 @@ fi
 
 echo ">>> backend-$NEW esta healthy."
 
-# -- 7. Asegurar que Nginx esta corriendo --
+# -- 7. Asegurar que upstream.conf existe ANTES de levantar Nginx --
+# CRÍTICO: Si el archivo no existe, Docker crea un directorio vacío y el bind mount se rompe
+if [ ! -f "$UPSTREAM_FILE" ]; then
+    echo ">>> Creando upstream.conf inicial (archivo no existía)..."
+    # Si hay un backend activo corriendo, apuntar a él; si no, apuntar al nuevo
+    if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
+        INITIAL_BACKEND="$ACTIVE"
+    else
+        INITIAL_BACKEND="$NEW"
+    fi
+    cat > "$UPSTREAM_FILE" <<NGINX_EOF
+# Archivo generado automaticamente por deploy.sh
+# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
+# Backend activo: $INITIAL_BACKEND
+
+upstream backend {
+    ip_hash;
+    server backend-${INITIAL_BACKEND}:8000 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+NGINX_EOF
+    echo "    upstream.conf creado apuntando a backend-$INITIAL_BACKEND"
+fi
+
+# -- 7.1. Asegurar que Nginx esta corriendo --
 echo ">>> Verificando Nginx..."
 docker compose -f "$COMPOSE_FILE" up -d nginx
 
 # Esperar un momento para que Nginx inicie
 sleep 3
 
-# -- 7.1. Verificar que el nuevo backend es alcanzable desde nginx --
+# -- 7.2. Verificar que el nuevo backend es alcanzable desde nginx --
 echo ">>> Verificando que backend-$NEW es alcanzable desde Nginx..."
 DNS_RETRIES=10
 DNS_OK=false
@@ -198,6 +222,25 @@ fi
 # Reload graceful - NO causa downtime, las conexiones existentes continuan
 echo ">>> Recargando Nginx (graceful reload, zero-downtime)..."
 docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
+
+# -- 8.1. Verificar que nginx realmente está sirviendo desde el nuevo backend --
+echo ">>> Verificando que nginx cambió al nuevo backend..."
+sleep 1  # Dar tiempo al reload
+
+# Verificar que el archivo dentro del contenedor apunta al backend correcto
+CONTAINER_UPSTREAM=$(docker compose -f "$COMPOSE_FILE" exec -T nginx cat /etc/nginx/conf.d/upstream.conf 2>/dev/null || echo "")
+if echo "$CONTAINER_UPSTREAM" | grep -q "backend-${NEW}"; then
+    echo "    ✓ upstream.conf dentro del contenedor apunta a backend-$NEW"
+else
+    echo "ERROR: upstream.conf dentro del contenedor NO apunta a backend-$NEW"
+    echo "    Contenido actual:"
+    echo "$CONTAINER_UPSTREAM"
+    echo ""
+    echo ">>> ACCIÓN REQUERIDA: Recrear el contenedor de nginx manualmente:"
+    echo "    docker compose -f $COMPOSE_FILE up -d --force-recreate nginx"
+    exit 1
+fi
+
 echo ">>> Nginx recargado. Trafico apuntando a backend-$NEW."
 
 # -- 9. Drenar conexiones del backend viejo --
