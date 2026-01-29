@@ -246,5 +246,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/tickets_list.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/admin/tickets_list.js') }}?v={{ sv('helpdesk', 'js/admin/tickets_list.js') }}"></script>
 {% endblock %}

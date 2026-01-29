@@ -72,6 +72,6 @@
     periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
   };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/reports.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/reports.js') }}?v={{ sv('agendatec', 'js/admin/reports.js') }}"></script>
 
 {% endblock %}

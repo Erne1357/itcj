@@ -345,7 +345,7 @@
         // Pasar el department_id desde la URL
         const DEPARTMENT_ID = {{ department_id }};
     </script>
-    <script src="{{ url_for('static', filename='core/js/config/department_detail.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='core/js/config/department_detail.js') }}?v={{ sv('core', 'js/config/department_detail.js') }}"></script>
 </body>
 
 </html>

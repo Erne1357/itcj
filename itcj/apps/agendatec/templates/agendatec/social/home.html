@@ -33,7 +33,7 @@
 {% block extra_js %}
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <!-- Cargar días habilitados del período activo -->
-<script src="{{ url_for('static', filename='agendatec/js/social/home_init.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_social_client.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/social/home.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/social/home_init.js') }}?v={{ sv('agendatec', 'js/social/home_init.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_social_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_social_client.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/social/home.js') }}?v={{ sv('agendatec', 'js/social/home.js') }}"></script>
 {% endblock %}

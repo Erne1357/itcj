@@ -109,7 +109,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_client.js') }}"></script>
 <script>
   window.__adminRequestsCfg = {
     listUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_list_requests') }}",
@@ -119,5 +119,5 @@
     periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
   };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/requests.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/requests.js') }}?v={{ sv('agendatec', 'js/admin/requests.js') }}"></script>
 {% endblock %}

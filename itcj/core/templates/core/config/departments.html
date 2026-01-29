@@ -7,7 +7,7 @@
     <title>Departamentos - ITCJ</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/departments.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/departments.css') }}?v={{ sv('core', 'css/config/departments.css') }}">
 </head>
 <body class="bg-light">
     <div class="container-fluid py-4">
@@ -119,6 +119,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='core/js/config/departments.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='core/js/config/departments.js') }}?v={{ sv('core', 'js/config/departments.js') }}"></script>
 </body>
 </html>

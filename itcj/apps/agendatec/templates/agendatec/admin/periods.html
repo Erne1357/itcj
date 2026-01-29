@@ -175,5 +175,5 @@
     daysPage: "{{ url_for('agendatec_pages.admin_pages.admin_period_days', period_id=999999) }}".replace('999999', '{id}')
   };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/periods.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/periods.js') }}?v={{ sv('agendatec', 'js/admin/periods.js') }}"></script>
 {% endblock %}

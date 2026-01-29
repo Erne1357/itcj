@@ -3,7 +3,7 @@
 {% block title %}Registrar Equipo - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/item_create.css') }}?v={{static_version}}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/item_create.css') }}?v={{ sv('helpdesk', 'css/inventory/item_create.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -686,5 +686,5 @@
 <script>
     const BULK_MODE = {{ 'true' if bulk_mode else 'false' }};
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_create.js') }}?v={{static_version}}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_create.js') }}?v={{ sv('helpdesk', 'js/inventory/item_create.js') }}"></script>
 {% endblock %}

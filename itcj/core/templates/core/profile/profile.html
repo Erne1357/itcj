@@ -8,7 +8,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link rel="stylesheet"
-        href="{{ url_for('static', filename='core/css/profile/profile.css') }}?v={{ static_version }}">
+        href="{{ url_for('static', filename='core/css/profile/profile.css') }}?v={{ sv('core', 'css/profile/profile.css') }}">
 </head>
 
 <body class="bg-light">
@@ -432,7 +432,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='core/js/profile/profile.js') }}?v={{ static_version }}"></script>
+    <script src="{{ url_for('static', filename='core/js/profile/profile.js') }}?v={{ sv('core', 'js/profile/profile.js') }}"></script>
 
     <!-- WebSocket for Real-time Notifications -->
     <script>

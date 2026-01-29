@@ -324,5 +324,5 @@
 <script>
     const GROUP_ID = {{ group_id }};
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/group_detail.js') }}?v={{static_version}}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/group_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/group_detail.js') }}"></script>
 {% endblock %}

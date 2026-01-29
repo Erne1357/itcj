@@ -379,9 +379,9 @@
 
 {% block extra_css %}
 <link rel="stylesheet"
-    href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ static_version }}">
+    href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ sv('helpdesk', 'css/technician/dashboard.css') }}">
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ sv('helpdesk', 'js/technician/dashboard.js') }}"></script>
 {% endblock %}

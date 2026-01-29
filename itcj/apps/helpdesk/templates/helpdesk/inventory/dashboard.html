@@ -195,5 +195,5 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/dashboard.js') }}?v={{static_version}}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/dashboard.js') }}?v={{ sv('helpdesk', 'js/inventory/dashboard.js') }}"></script>
 {% endblock %}

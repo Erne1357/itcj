@@ -1,6 +1,9 @@
 name: itcj
 
 services:
+  # ============================================
+  # INFRAESTRUCTURA - Nunca se reinician en deploy
+  # ============================================
   redis:
     restart: always
     image: redis:7
@@ -8,6 +11,16 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   postgres:
     restart: always
@@ -17,56 +30,124 @@ services:
     env_file: ../../.env.prod
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
     logging:
       driver: json-file
-      options: 
+      options:
         max-size: "10m"
         max-file: "3"
 
-  backend:
+  # ============================================
+  # BACKEND BLUE - Profile "blue"
+  # ============================================
+  backend-blue:
     restart: always
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile
     env_file: ../../.env.prod
+    environment:
+      - INSTANCE_COLOR=blue
     volumes:
-      # Solo montamos el código necesario
       - ../../itcj:/app/itcj:ro
       - ../../wsgi.py:/app/wsgi.py:ro
       - ../../requirements.txt:/app/requirements.txt:ro
-      - ../../migrations:/app/migrations:ro 
+      - ../../migrations:/app/migrations:ro
       - ../../instance:/app/instance:ro
       - ../../database:/app/database:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     logging:
       driver: json-file
-      options: 
+      options:
         max-size: "10m"
         max-file: "3"
+    profiles:
+      - blue
 
+  # ============================================
+  # BACKEND GREEN - Profile "green"
+  # ============================================
+  backend-green:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile
+    env_file: ../../.env.prod
+    environment:
+      - INSTANCE_COLOR=green
+    volumes:
+      - ../../itcj:/app/itcj:ro
+      - ../../wsgi.py:/app/wsgi.py:ro
+      - ../../requirements.txt:/app/requirements.txt:ro
+      - ../../migrations:/app/migrations:ro
+      - ../../instance:/app/instance:ro
+      - ../../database:/app/database:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - green
+
+  # ============================================
+  # NGINX - Solo reload, nunca restart
+  # ============================================
   nginx:
     restart: always
     image: nginx:alpine
     environment:
       TZ: America/Chihuahua
     volumes:
-      - ../nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      # upstream.conf con :ro - deploy.sh escribe en el HOST y el bind mount sincroniza
+      - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
     depends_on:
-      - backend
+      - redis
+      - postgres
     ports:
       - "127.0.0.1:8080:80"
     logging:
       driver: json-file
-      options: 
+      options:
         max-size: "10m"
         max-file: "3"
 
