@@ -173,17 +173,14 @@ upstream backend {
 }
 NGINX_EOF
 
-# Reiniciar Nginx para que re-lea el bind mount actualizado
-# Nota: restart es necesario porque reload no re-lee archivos bind-mounted
-echo ">>> Reiniciando Nginx para aplicar nuevo upstream..."
-docker compose -f "$COMPOSE_FILE" restart nginx
+# Copiar el archivo DENTRO del contenedor nginx (el bind mount :ro no se actualiza en caliente)
+# Esto permite hacer reload en lugar de restart, evitando cualquier downtime
+NGINX_CONTAINER=$(docker compose -f "$COMPOSE_FILE" ps -q nginx)
+docker cp "$UPSTREAM_FILE" "${NGINX_CONTAINER}:/etc/nginx/conf.d/upstream.conf"
 
-# Esperar a que Nginx esté listo
-sleep 3
-
-# Verificar que Nginx arrancó correctamente
+# Verificar que la configuracion es valida antes de reload
 if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -t > /dev/null 2>&1; then
-    echo "ERROR: Nginx no arrancó correctamente. Restaurando upstream anterior..."
+    echo "ERROR: Configuracion de Nginx invalida. Restaurando upstream anterior..."
     cat > "$UPSTREAM_FILE" <<NGINX_EOF
 # Archivo generado automaticamente por deploy.sh
 # NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
@@ -195,11 +192,16 @@ upstream backend {
     keepalive 32;
 }
 NGINX_EOF
+    docker cp "$UPSTREAM_FILE" "${NGINX_CONTAINER}:/etc/nginx/conf.d/upstream.conf"
     echo ">>> Upstream restaurado a backend-$ACTIVE. Limpiando backend-$NEW..."
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" stop "backend-$NEW"
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" rm -f "backend-$NEW"
     exit 1
 fi
+
+# Reload graceful - NO causa downtime, las conexiones existentes continuan
+echo ">>> Recargando Nginx (graceful reload, zero-downtime)..."
+docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
 echo ">>> Nginx recargado. Trafico apuntando a backend-$NEW."
 
 # -- 9. Drenar conexiones del backend viejo --
