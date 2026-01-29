@@ -132,6 +132,29 @@ docker compose -f "$COMPOSE_FILE" up -d nginx
 # Esperar un momento para que Nginx inicie
 sleep 3
 
+# -- 7.1. Verificar que el nuevo backend es alcanzable desde nginx --
+echo ">>> Verificando que backend-$NEW es alcanzable desde Nginx..."
+DNS_RETRIES=10
+DNS_OK=false
+for i in $(seq 1 $DNS_RETRIES); do
+    if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q --spider --timeout=3 "http://backend-${NEW}:8000/health" 2>/dev/null; then
+        DNS_OK=true
+        echo "    backend-$NEW es alcanzable."
+        break
+    fi
+    echo "    Intento $i/$DNS_RETRIES - Esperando resolución DNS de backend-$NEW..."
+    sleep 2
+done
+
+if [ "$DNS_OK" != "true" ]; then
+    echo "ERROR: Nginx no puede alcanzar backend-$NEW. Abortando cambio de upstream."
+    echo ">>> El backend viejo ($ACTIVE) sigue sirviendo trafico."
+    # Limpiamos el nuevo backend fallido
+    docker compose -f "$COMPOSE_FILE" --profile "$NEW" stop "backend-$NEW"
+    docker compose -f "$COMPOSE_FILE" --profile "$NEW" rm -f "backend-$NEW"
+    exit 1
+fi
+
 # -- 8. Cambiar Nginx al nuevo backend --
 echo ">>> Actualizando upstream de Nginx a backend-$NEW..."
 cat > "$UPSTREAM_FILE" <<NGINX_EOF
@@ -147,7 +170,24 @@ upstream backend {
 NGINX_EOF
 
 # Reload Nginx (zero downtime - no restart)
-docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
+if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload; then
+    echo "ERROR: Nginx reload falló. Restaurando upstream anterior..."
+    cat > "$UPSTREAM_FILE" <<NGINX_EOF
+# Archivo generado automaticamente por deploy.sh
+# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
+# Backend activo: $ACTIVE
+
+upstream backend {
+    ip_hash;
+    server backend-${ACTIVE}:8000 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+NGINX_EOF
+    echo ">>> Upstream restaurado a backend-$ACTIVE. Limpiando backend-$NEW..."
+    docker compose -f "$COMPOSE_FILE" --profile "$NEW" stop "backend-$NEW"
+    docker compose -f "$COMPOSE_FILE" --profile "$NEW" rm -f "backend-$NEW"
+    exit 1
+fi
 echo ">>> Nginx recargado. Trafico apuntando a backend-$NEW."
 
 # -- 9. Drenar conexiones del backend viejo --
