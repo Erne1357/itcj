@@ -70,5 +70,7 @@ addStudents.py
 # --- Zero-Downtime Deploy ---
 # Archivo de estado del deploy blue-green (generado en servidor)
 docker/.active-color
+# Upstream de nginx (generado dinamicamente por deploy.sh)
+docker/nginx/upstream.conf
 # Manifiesto de estaticos (Pilar 2 - se genera en deploy)
 static-manifest.json
