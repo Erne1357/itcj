@@ -169,9 +169,17 @@ upstream backend {
 }
 NGINX_EOF
 
-# Reload Nginx (zero downtime - no restart)
-if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload; then
-    echo "ERROR: Nginx reload falló. Restaurando upstream anterior..."
+# Reiniciar Nginx para que re-lea el bind mount actualizado
+# Nota: restart es necesario porque reload no re-lee archivos bind-mounted
+echo ">>> Reiniciando Nginx para aplicar nuevo upstream..."
+docker compose -f "$COMPOSE_FILE" restart nginx
+
+# Esperar a que Nginx esté listo
+sleep 3
+
+# Verificar que Nginx arrancó correctamente
+if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -t > /dev/null 2>&1; then
+    echo "ERROR: Nginx no arrancó correctamente. Restaurando upstream anterior..."
     cat > "$UPSTREAM_FILE" <<NGINX_EOF
 # Archivo generado automaticamente por deploy.sh
 # NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
