@@ -136,23 +136,6 @@ docker compose -f "$COMPOSE_FILE" up -d nginx
 # Esperar un momento para que Nginx inicie
 sleep 3
 
-# -- 7.0.1. Asegurar que upstream.conf existe (primer deploy o volumen vacío) --
-# El volumen nginx_upstream puede estar vacío, necesitamos crear el archivo
-if ! docker compose -f "$COMPOSE_FILE" exec -T nginx test -f /etc/nginx/conf.d/upstream.conf 2>/dev/null; then
-    echo ">>> Creando upstream.conf inicial apuntando a backend-$NEW..."
-    INITIAL_UPSTREAM="# Archivo generado automaticamente por deploy.sh
-# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
-# Backend activo: $NEW
-
-upstream backend {
-    ip_hash;
-    server backend-${NEW}:8000 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}"
-    docker compose -f "$COMPOSE_FILE" exec -T nginx sh -c "echo '$INITIAL_UPSTREAM' > /etc/nginx/conf.d/upstream.conf"
-    docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
-fi
-
 # -- 7.1. Verificar que el nuevo backend es alcanzable desde nginx --
 echo ">>> Verificando que backend-$NEW es alcanzable desde Nginx..."
 DNS_RETRIES=10
@@ -179,7 +162,7 @@ fi
 # -- 8. Cambiar Nginx al nuevo backend --
 echo ">>> Actualizando upstream de Nginx a backend-$NEW..."
 
-# Guardar en archivo local para referencia/backup
+# Actualizar archivo en el host (bind mount sin :ro lo sincroniza automaticamente)
 cat > "$UPSTREAM_FILE" <<NGINX_EOF
 # Archivo generado automaticamente por deploy.sh
 # NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
@@ -192,34 +175,9 @@ upstream backend {
 }
 NGINX_EOF
 
-# Escribir directamente DENTRO del contenedor nginx (evita problemas de bind mount)
-UPSTREAM_CONTENT="# Archivo generado automaticamente por deploy.sh
-# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
-# Backend activo: $NEW
-
-upstream backend {
-    ip_hash;
-    server backend-${NEW}:8000 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}"
-
-docker compose -f "$COMPOSE_FILE" exec -T nginx sh -c "echo '$UPSTREAM_CONTENT' > /etc/nginx/conf.d/upstream.conf"
-
 # Verificar que la configuracion es valida antes de reload
 if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -t > /dev/null 2>&1; then
     echo "ERROR: Configuracion de Nginx invalida. Restaurando upstream anterior..."
-    
-    UPSTREAM_RESTORE="# Archivo generado automaticamente por deploy.sh
-# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
-# Backend activo: $ACTIVE
-
-upstream backend {
-    ip_hash;
-    server backend-${ACTIVE}:8000 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}"
-    docker compose -f "$COMPOSE_FILE" exec -T nginx sh -c "echo '$UPSTREAM_RESTORE' > /etc/nginx/conf.d/upstream.conf"
-    
     cat > "$UPSTREAM_FILE" <<NGINX_EOF
 # Archivo generado automaticamente por deploy.sh
 # NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
