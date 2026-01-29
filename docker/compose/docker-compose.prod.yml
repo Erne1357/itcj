@@ -135,7 +135,8 @@ services:
       TZ: America/Chihuahua
     volumes:
       - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
+      # upstream.conf en volumen persistente (se escribe dinamicamente por deploy.sh)
+      - nginx_upstream:/etc/nginx/conf.d
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
@@ -152,3 +153,4 @@ services:
 
 volumes:
   pgdata:
+  nginx_upstream:
