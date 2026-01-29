@@ -12,12 +12,19 @@ let allTechnicians = [];
 let ticketToAssign = null;
 let ticketToReassign = null;
 
+// Edit modal state
+let ticketToEdit = null;
+let categoriesCache = { DESARROLLO: [], SOPORTE: [] };
+let originalTicketData = null;
+
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
     initializeDashboard();
     setupFilters();
     setupAssignmentModal();
     setupReassignmentModal();
+    setupEditTicketModal();
+    setupUrgentAlertToggle();
     setupWebSocketListeners();
 });
 
@@ -73,15 +80,19 @@ async function loadDashboardStats() {
         document.getElementById('inProgressCount').textContent = inProgress;
         document.getElementById('todayCount').textContent = todayTickets;
         
-        // Check urgent tickets
-        const urgentTickets = allTickets.filter(t => 
-            t.priority === 'URGENTE' && ['PENDING', 'ASSIGNED'].includes(t.status)
+        // Check urgent tickets (only PENDING, assigned tickets should not appear here)
+        const urgentTickets = allTickets.filter(t =>
+            t.priority === 'URGENTE' && t.status === 'PENDING'
         );
-        
+
         if (urgentTickets.length > 0) {
             document.getElementById('urgentBadge').style.display = 'inline-block';
             document.getElementById('urgentCount').textContent = urgentTickets.length;
             showUrgentAlert(urgentTickets);
+        } else {
+            // Hide alert and badge if no urgent pending tickets
+            document.getElementById('urgentBadge').style.display = 'none';
+            document.getElementById('urgentAlert').classList.add('d-none');
         }
         
     } catch (error) {
@@ -92,7 +103,9 @@ async function loadDashboardStats() {
 function showUrgentAlert(urgentTickets) {
     const alert = document.getElementById('urgentAlert');
     const list = document.getElementById('urgentTicketsList');
-    
+    const content = document.getElementById('urgentAlertContent');
+    const icon = document.getElementById('toggleUrgentIcon');
+
     list.innerHTML = urgentTickets.map(ticket => `
         <div class="card mb-2 border-danger">
             <div class="card-body py-2">
@@ -112,8 +125,45 @@ function showUrgentAlert(urgentTickets) {
             </div>
         </div>
     `).join('');
-    
+
     alert.classList.remove('d-none');
+
+    // Restore collapsed state from localStorage
+    const isCollapsed = localStorage.getItem('urgentAlertCollapsed') === 'true';
+    if (isCollapsed) {
+        content.classList.add('d-none');
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    } else {
+        content.classList.remove('d-none');
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    }
+}
+
+function setupUrgentAlertToggle() {
+    const toggleBtn = document.getElementById('toggleUrgentAlert');
+    if (!toggleBtn) return;
+
+    toggleBtn.addEventListener('click', () => {
+        const content = document.getElementById('urgentAlertContent');
+        const icon = document.getElementById('toggleUrgentIcon');
+        const isCurrentlyVisible = !content.classList.contains('d-none');
+
+        if (isCurrentlyVisible) {
+            // Collapse
+            content.classList.add('d-none');
+            icon.classList.remove('fa-chevron-up');
+            icon.classList.add('fa-chevron-down');
+            localStorage.setItem('urgentAlertCollapsed', 'true');
+        } else {
+            // Expand
+            content.classList.remove('d-none');
+            icon.classList.remove('fa-chevron-down');
+            icon.classList.add('fa-chevron-up');
+            localStorage.setItem('urgentAlertCollapsed', 'false');
+        }
+    });
 }
 
 // ==================== PENDING TICKETS (QUEUE) ====================
@@ -122,9 +172,10 @@ async function loadPendingTickets() {
     HelpdeskUtils.showLoading('queueList');
     
     try {
-        const response = await HelpdeskUtils.api.getTickets({ 
+        // per_page: 0 significa sin limite (obtener todos los pendientes)
+        const response = await HelpdeskUtils.api.getTickets({
             status: 'PENDING',
-            per_page: 50 
+            per_page: 0
         });
         
         allPendingTickets = response.tickets || [];
@@ -168,8 +219,7 @@ function renderPendingTickets(tickets) {
 
 function createPendingTicketCard(ticket) {
     return `
-        <div class="ticket-queue-card border-bottom p-3 priority-${ticket.priority}" 
-             onclick="showTicketQuickView(${ticket.id})">
+        <div class="ticket-queue-card border-bottom p-3 priority-${ticket.priority}">
             <div class="row align-items-center">
                 <div class="col-md-8">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -178,13 +228,16 @@ function createPendingTicketCard(ticket) {
                         ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
                         ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
                     </div>
-                    
-                    <h5 class="mb-2">${ticket.title}</h5>
-                    
+
+                    <h5 class="mb-2 ticket-title-link" onclick="showTicketQuickView(${ticket.id})"
+                        style="cursor: pointer;" title="Click para ver detalle">
+                        ${ticket.title}
+                    </h5>
+
                     <p class="text-muted mb-2 small" style="max-width: 600px;">
                         ${truncateText(ticket.description, 120)}
                     </p>
-                    
+
                     <div class="text-muted small">
                         <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
                         ${ticket.department ? `
@@ -202,12 +255,19 @@ function createPendingTicketCard(ticket) {
                         </span>
                     </div>
                 </div>
-                
+
                 <div class="col-md-4 text-end">
-                    <button class="btn btn-primary btn-sm" 
-                            onclick="event.stopPropagation(); openAssignmentModal(${ticket.id})">
-                        <i class="fas fa-user-plus me-1"></i>Asignar
-                    </button>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-outline-info btn-sm"
+                                onclick="event.stopPropagation(); openEditTicketModal(${ticket.id})"
+                                title="Vista previa / Editar">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-primary btn-sm"
+                                onclick="event.stopPropagation(); openAssignmentModal(${ticket.id})">
+                            <i class="fas fa-user-plus me-1"></i>Asignar
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -851,6 +911,326 @@ function bindAssignSocketEvents() {
     });
 
     console.log('[Assign] WebSocket listeners configurados');
+}
+
+// ==================== EDIT TICKET MODAL ====================
+function setupEditTicketModal() {
+    // Cargar categorias al inicio
+    loadCategoriesForEdit();
+
+    // Listener para cambio de area
+    document.getElementById('editArea').addEventListener('change', (e) => {
+        const area = e.target.value;
+        updateCategorySelect(area);
+
+        // Mostrar advertencia si hay custom_fields
+        if (ticketToEdit && ticketToEdit.custom_fields && Object.keys(ticketToEdit.custom_fields).length > 0) {
+            if (area !== originalTicketData.area) {
+                HelpdeskUtils.showToast('Al cambiar de area, los campos personalizados se borraran', 'warning');
+            }
+        }
+    });
+
+    // Listener para cambio de categoria
+    document.getElementById('editCategory').addEventListener('change', (e) => {
+        if (ticketToEdit && ticketToEdit.custom_fields && Object.keys(ticketToEdit.custom_fields).length > 0) {
+            if (e.target.value != originalTicketData.category?.id) {
+                HelpdeskUtils.showToast('Al cambiar de categoria, los campos personalizados se borraran', 'warning');
+            }
+        }
+    });
+
+    // Contador de caracteres para titulo
+    document.getElementById('editTitle').addEventListener('input', (e) => {
+        document.getElementById('editTitleCount').textContent = e.target.value.length;
+    });
+
+    // Contador de caracteres para descripcion
+    document.getElementById('editDescription').addEventListener('input', (e) => {
+        document.getElementById('editDescriptionCount').textContent = e.target.value.length;
+    });
+
+    // Boton de guardar
+    document.getElementById('btnSaveTicketEdit').addEventListener('click', saveTicketEdit);
+}
+
+async function loadCategoriesForEdit() {
+    try {
+        const [desarrollo, soporte] = await Promise.all([
+            HelpdeskUtils.api.request('/categories?area=DESARROLLO&active=true'),
+            HelpdeskUtils.api.request('/categories?area=SOPORTE&active=true')
+        ]);
+
+        categoriesCache.DESARROLLO = desarrollo.categories || [];
+        categoriesCache.SOPORTE = soporte.categories || [];
+
+    } catch (error) {
+        console.error('Error cargando categorias:', error);
+    }
+}
+
+function updateCategorySelect(area) {
+    const select = document.getElementById('editCategory');
+    const categories = categoriesCache[area] || [];
+
+    if (categories.length === 0) {
+        select.innerHTML = '<option value="">No hay categorias disponibles</option>';
+        return;
+    }
+
+    select.innerHTML = categories.map(cat =>
+        `<option value="${cat.id}">${cat.name}</option>`
+    ).join('');
+
+    // Si estamos editando y el area no cambio, mantener la categoria original
+    if (ticketToEdit && area === originalTicketData.area && originalTicketData.category) {
+        select.value = originalTicketData.category.id;
+    }
+}
+
+async function openEditTicketModal(ticketId) {
+    ticketToEdit = allPendingTickets.find(t => t.id === ticketId);
+    if (!ticketToEdit) {
+        HelpdeskUtils.showToast('Ticket no encontrado', 'error');
+        return;
+    }
+
+    // Guardar datos originales para comparacion
+    originalTicketData = JSON.parse(JSON.stringify(ticketToEdit));
+
+    // Llenar vista previa (columna izquierda)
+    fillTicketPreview(ticketToEdit);
+
+    // Llenar campos editables (columna derecha)
+    fillEditableFields(ticketToEdit);
+
+    // Cargar adjuntos
+    loadTicketAttachments(ticketId);
+
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('editTicketModal'));
+    modal.show();
+}
+window.openEditTicketModal = openEditTicketModal;
+
+function fillTicketPreview(ticket) {
+    // Header con numero y badges
+    document.getElementById('editTicketHeader').innerHTML = `
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <h5 class="mb-0 fw-bold">${ticket.ticket_number}</h5>
+            ${HelpdeskUtils.getStatusBadge(ticket.status)}
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            ${HelpdeskUtils.getAreaBadge(ticket.area)}
+            ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
+            ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
+        </div>
+    `;
+
+    // Informacion del solicitante
+    document.getElementById('editTicketRequester').innerHTML = `
+        <div class="mb-2">
+            <strong>${ticket.requester?.name || 'N/A'}</strong>
+            <small class="text-muted d-block">${ticket.requester?.username || ''}</small>
+        </div>
+        ${ticket.department ? `
+            <div class="mb-2">
+                <i class="fas fa-building me-2 text-muted"></i>
+                <span>${ticket.department.name}</span>
+            </div>
+        ` : ''}
+        ${ticket.location ? `
+            <div>
+                <i class="fas fa-map-marker-alt me-2 text-muted"></i>
+                <span>${ticket.location}</span>
+            </div>
+        ` : ''}
+    `;
+
+    // Fechas
+    document.getElementById('editTicketDates').innerHTML = `
+        <div class="mb-2">
+            <small class="text-muted">Creado:</small>
+            <span class="ms-2">${HelpdeskUtils.formatDate ? HelpdeskUtils.formatDate(ticket.created_at) : new Date(ticket.created_at).toLocaleString()}</span>
+        </div>
+        <div>
+            <small class="text-muted">Tiempo transcurrido:</small>
+            <span class="ms-2">${HelpdeskUtils.formatTimeAgo(ticket.created_at)}</span>
+        </div>
+    `;
+
+    // Custom Fields
+    const customFieldsContainer = document.getElementById('editTicketCustomFieldsContainer');
+    const customFieldsDiv = document.getElementById('editTicketCustomFields');
+
+    if (ticket.custom_fields && Object.keys(ticket.custom_fields).length > 0) {
+        customFieldsContainer.style.display = 'block';
+        customFieldsDiv.innerHTML = Object.entries(ticket.custom_fields).map(([key, value]) => `
+            <div class="mb-2">
+                <small class="text-muted text-capitalize">${key.replace(/_/g, ' ')}:</small>
+                <span class="ms-2">${value}</span>
+            </div>
+        `).join('');
+    } else {
+        customFieldsContainer.style.display = 'none';
+    }
+}
+
+function fillEditableFields(ticket) {
+    // Area
+    document.getElementById('editArea').value = ticket.area;
+    updateCategorySelect(ticket.area);
+
+    // Categoria (despues de actualizar el select)
+    setTimeout(() => {
+        if (ticket.category) {
+            document.getElementById('editCategory').value = ticket.category.id;
+        }
+    }, 100);
+
+    // Prioridad
+    document.getElementById('editPriority').value = ticket.priority;
+
+    // Titulo
+    const titleInput = document.getElementById('editTitle');
+    titleInput.value = ticket.title;
+    document.getElementById('editTitleCount').textContent = ticket.title.length;
+
+    // Descripcion
+    const descInput = document.getElementById('editDescription');
+    descInput.value = ticket.description;
+    document.getElementById('editDescriptionCount').textContent = ticket.description.length;
+
+    // Ubicacion
+    document.getElementById('editLocation').value = ticket.location || '';
+}
+
+async function loadTicketAttachments(ticketId) {
+    const container = document.getElementById('editTicketAttachments');
+
+    try {
+        const response = await HelpdeskUtils.api.request(`/attachments/ticket/${ticketId}`);
+        const attachments = response.attachments || [];
+
+        if (attachments.length === 0) {
+            container.innerHTML = '<small class="text-muted">Sin archivos adjuntos</small>';
+            return;
+        }
+
+        container.innerHTML = attachments.map(att => `
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <i class="fas fa-${att.mime_type?.startsWith('image/') ? 'image' : 'file'} text-primary"></i>
+                <a href="/api/help-desk/v1/attachments/${att.id}/download"
+                   target="_blank" class="text-truncate" style="max-width: 200px;">
+                    ${att.original_filename}
+                </a>
+                <small class="text-muted">(${formatFileSize(att.file_size)})</small>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Error cargando adjuntos:', error);
+        container.innerHTML = '<small class="text-muted">Sin archivos adjuntos</small>';
+    }
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function saveTicketEdit() {
+    // Recopilar datos del formulario
+    const newArea = document.getElementById('editArea').value;
+    const newCategoryId = parseInt(document.getElementById('editCategory').value);
+    const newPriority = document.getElementById('editPriority').value;
+    const newTitle = document.getElementById('editTitle').value.trim();
+    const newDescription = document.getElementById('editDescription').value.trim();
+    const newLocation = document.getElementById('editLocation').value.trim();
+
+    // Validaciones basicas
+    if (newTitle.length < 5) {
+        HelpdeskUtils.showToast('El titulo debe tener al menos 5 caracteres', 'warning');
+        return;
+    }
+
+    if (newDescription.length < 20) {
+        HelpdeskUtils.showToast('La descripcion debe tener al menos 20 caracteres', 'warning');
+        return;
+    }
+
+    if (!newCategoryId) {
+        HelpdeskUtils.showToast('Debe seleccionar una categoria', 'warning');
+        return;
+    }
+
+    // Construir objeto con solo los campos que cambiaron
+    const updateData = {};
+
+    if (newArea !== originalTicketData.area) {
+        updateData.area = newArea;
+        updateData.category_id = newCategoryId; // Obligatorio si cambia area
+    } else if (newCategoryId !== originalTicketData.category?.id) {
+        updateData.category_id = newCategoryId;
+    }
+
+    if (newPriority !== originalTicketData.priority) {
+        updateData.priority = newPriority;
+    }
+
+    if (newTitle !== originalTicketData.title) {
+        updateData.title = newTitle;
+    }
+
+    if (newDescription !== originalTicketData.description) {
+        updateData.description = newDescription;
+    }
+
+    if (newLocation !== (originalTicketData.location || '')) {
+        updateData.location = newLocation;
+    }
+
+    // Si no hay cambios, cerrar modal
+    if (Object.keys(updateData).length === 0) {
+        HelpdeskUtils.showToast('No hay cambios que guardar', 'info');
+        const modal = bootstrap.Modal.getInstance(document.getElementById('editTicketModal'));
+        modal.hide();
+        return;
+    }
+
+    const btn = document.getElementById('btnSaveTicketEdit');
+    const originalText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Guardando...';
+
+    try {
+        const response = await HelpdeskUtils.api.request(`/tickets/${ticketToEdit.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(updateData)
+        });
+
+        HelpdeskUtils.showToast('Ticket actualizado exitosamente', 'success');
+
+        // Cerrar modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('editTicketModal'));
+        modal.hide();
+
+        // Refrescar lista de tickets
+        await loadPendingTickets();
+        await loadDashboardStats();
+
+    } catch (error) {
+        console.error('Error al guardar cambios:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al guardar: ${errorMessage}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
 
 // ==================== HELPERS ====================

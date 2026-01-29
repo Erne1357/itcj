@@ -88,15 +88,22 @@
 </div>
 
 <!-- Urgent Tickets Alert -->
-<div class="alert alert-danger border-0 shadow-sm d-none" id="urgentAlert">
+<div class="alert alert-danger border-0 shadow-sm d-none mb-4" id="urgentAlert">
     <div class="d-flex align-items-start">
         <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
         <div class="flex-grow-1">
-            <h5 class="alert-heading mb-2">
-                <i class="fas fa-fire me-2"></i>Tickets Urgentes - Atención Inmediata
-            </h5>
-            <p class="mb-3">Los siguientes tickets requieren asignación inmediata</p>
-            <div id="urgentTicketsList"></div>
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <h5 class="alert-heading mb-0">
+                    <i class="fas fa-fire me-2"></i>Tickets Urgentes - Atención Inmediata
+                </h5>
+                <button class="btn btn-sm btn-outline-danger" id="toggleUrgentAlert" title="Ocultar alerta">
+                    <i class="fas fa-chevron-up" id="toggleUrgentIcon"></i>
+                </button>
+            </div>
+            <div id="urgentAlertContent">
+                <p class="mb-3">Los siguientes tickets requieren asignación inmediata</p>
+                <div id="urgentTicketsList"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -412,12 +419,12 @@
             </div>
             <div class="modal-body">
                 <div id="reassignTicketInfo" class="p-3 bg-light rounded mb-3"></div>
-                
+
                 <div class="alert alert-warning">
                     <i class="fas fa-info-circle me-2"></i>
                     Este ticket ya está asignado. Al reasignarlo se notificará al técnico actual.
                 </div>
-                
+
                 <div class="mb-3">
                     <label for="newTechnicianSelect" class="form-label fw-bold">
                         Nuevo Técnico/Equipo
@@ -426,12 +433,12 @@
                         <option value="">Selecciona...</option>
                     </select>
                 </div>
-                
+
                 <div class="mb-3">
                     <label for="reassignReason" class="form-label fw-bold">
                         Razón de Reasignación
                     </label>
-                    <textarea class="form-control" id="reassignReason" rows="3" 
+                    <textarea class="form-control" id="reassignReason" rows="3"
                               placeholder="¿Por qué se reasigna este ticket?" required></textarea>
                 </div>
             </div>
@@ -441,6 +448,154 @@
                 </button>
                 <button type="button" class="btn btn-warning" id="btnConfirmReassign">
                     <i class="fas fa-exchange-alt me-2"></i>Reasignar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit/Preview Ticket Modal -->
+<div class="modal fade" id="editTicketModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit me-2"></i>Vista Previa / Editar Ticket
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="row">
+                    <!-- Columna Izquierda: Vista Previa (Solo Lectura) -->
+                    <div class="col-md-5 border-end">
+                        <h6 class="text-muted mb-3">
+                            <i class="fas fa-eye me-2"></i>Informacion del Ticket
+                        </h6>
+
+                        <!-- Numero de Ticket y Estado -->
+                        <div class="mb-3" id="editTicketHeader">
+                            <!-- Se llena dinamicamente -->
+                        </div>
+
+                        <!-- Info del Solicitante -->
+                        <div class="card mb-3">
+                            <div class="card-header py-2 bg-light">
+                                <small class="fw-bold"><i class="fas fa-user me-2"></i>Solicitante</small>
+                            </div>
+                            <div class="card-body py-2" id="editTicketRequester">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+                        </div>
+
+                        <!-- Fechas -->
+                        <div class="card mb-3">
+                            <div class="card-header py-2 bg-light">
+                                <small class="fw-bold"><i class="fas fa-calendar me-2"></i>Fechas</small>
+                            </div>
+                            <div class="card-body py-2" id="editTicketDates">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+                        </div>
+
+                        <!-- Archivos Adjuntos -->
+                        <div class="card mb-3">
+                            <div class="card-header py-2 bg-light">
+                                <small class="fw-bold"><i class="fas fa-paperclip me-2"></i>Archivos Adjuntos</small>
+                            </div>
+                            <div class="card-body py-2" id="editTicketAttachments">
+                                <div class="text-center py-2">
+                                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Campos Personalizados (Solo Lectura) -->
+                        <div class="card mb-3" id="editTicketCustomFieldsContainer" style="display: none;">
+                            <div class="card-header py-2 bg-light">
+                                <small class="fw-bold"><i class="fas fa-list-alt me-2"></i>Campos Adicionales</small>
+                            </div>
+                            <div class="card-body py-2" id="editTicketCustomFields">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Columna Derecha: Campos Editables -->
+                    <div class="col-md-7">
+                        <h6 class="text-muted mb-3">
+                            <i class="fas fa-pencil-alt me-2"></i>Editar Campos
+                        </h6>
+
+                        <div class="alert alert-info py-2 mb-3">
+                            <small><i class="fas fa-info-circle me-2"></i>
+                            Solo los tickets en estado <strong>PENDING</strong> pueden editarse.
+                            Al cambiar la categoria, los campos personalizados se borraran.
+                            </small>
+                        </div>
+
+                        <!-- Area y Categoria -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="editArea" class="form-label fw-bold">Area</label>
+                                <select class="form-select" id="editArea">
+                                    <option value="DESARROLLO">Desarrollo</option>
+                                    <option value="SOPORTE">Soporte</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="editCategory" class="form-label fw-bold">Categoria</label>
+                                <select class="form-select" id="editCategory">
+                                    <option value="">Cargando...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Prioridad -->
+                        <div class="mb-3">
+                            <label for="editPriority" class="form-label fw-bold">Prioridad</label>
+                            <select class="form-select" id="editPriority">
+                                <option value="URGENTE">Urgente</option>
+                                <option value="ALTA">Alta</option>
+                                <option value="MEDIA">Media</option>
+                                <option value="BAJA">Baja</option>
+                            </select>
+                        </div>
+
+                        <!-- Titulo -->
+                        <div class="mb-3">
+                            <label for="editTitle" class="form-label fw-bold">Titulo</label>
+                            <input type="text" class="form-control" id="editTitle"
+                                   placeholder="Minimo 5 caracteres" minlength="5" maxlength="200">
+                            <small class="form-text text-muted">
+                                <span id="editTitleCount">0</span>/200 caracteres
+                            </small>
+                        </div>
+
+                        <!-- Descripcion -->
+                        <div class="mb-3">
+                            <label for="editDescription" class="form-label fw-bold">Descripcion</label>
+                            <textarea class="form-control" id="editDescription" rows="4"
+                                      placeholder="Minimo 20 caracteres" minlength="20"></textarea>
+                            <small class="form-text text-muted">
+                                <span id="editDescriptionCount">0</span> caracteres (minimo 20)
+                            </small>
+                        </div>
+
+                        <!-- Ubicacion -->
+                        <div class="mb-3">
+                            <label for="editLocation" class="form-label fw-bold">Ubicacion</label>
+                            <input type="text" class="form-control" id="editLocation"
+                                   placeholder="Ej: Edificio A, Oficina 101">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Cerrar
+                </button>
+                <button type="button" class="btn btn-info" id="btnSaveTicketEdit">
+                    <i class="fas fa-save me-2"></i>Guardar Cambios
                 </button>
             </div>
         </div>

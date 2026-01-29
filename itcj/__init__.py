@@ -93,7 +93,15 @@ def create_app():
     @app.get("/")
     def home():
         if g.current_user:
-            return redirect(role_home(user_roles_in_app(int(g.current_user["sub"]), 'itcj')))
+            user_id = int(g.current_user["sub"])
+            # Obtener roles en todas las apps
+            roles_itcj = set(user_roles_in_app(user_id, 'itcj'))
+            roles_agendatec = set(user_roles_in_app(user_id, 'agendatec'))
+            # Si solo tiene rol student en agendatec, redirigir directo
+            if (not roles_itcj or roles_itcj == {"student"}) and "student" in roles_agendatec:
+                return redirect("/agendatec/student/home")
+            # Si tiene roles en itcj, usar la lógica normal
+            return redirect(role_home(roles_itcj or roles_agendatec))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor
