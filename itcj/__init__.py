@@ -43,7 +43,6 @@ def create_app():
     register_agendatec_commands(app)
     register_commands(app)
 
-    #Esta es la prueba final para ya dormiiiiiiiiir
 
     @app.before_request
     def load_current_user():
