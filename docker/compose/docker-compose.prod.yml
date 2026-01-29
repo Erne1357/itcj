@@ -132,8 +132,8 @@ services:
     environment:
       TZ: America/Chihuahua
     volumes:
-      - ../nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ../nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
+      - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
