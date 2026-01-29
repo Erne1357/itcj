@@ -99,7 +99,7 @@ def create_app():
     def inject_globals():
         manifest = current_app.config.get("_STATIC_MANIFEST", {})
         fallback = current_app.config.get("STATIC_VERSION", "1.0.0")
-        #La tercera es la vencida o no? 
+        #La tercera es la vencida o no? Será este el fin del hombre araña? 
         def sv(app_name: str, filename: str) -> str:
             """Retorna el hash de un archivo estatico especifico.
 
