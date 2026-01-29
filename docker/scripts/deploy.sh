@@ -44,6 +44,10 @@ git reset --hard origin/main
 
 # -- 2.1 Generar manifiesto de estaticos (Pilar 2) --
 echo ">>> Generando manifiesto de archivos estaticos..."
+# Asegurar que el archivo existe (Docker falla si intenta montar un archivo inexistente)
+if [ ! -f "static-manifest.json" ]; then
+    echo "{}" > static-manifest.json
+fi
 bash docker/scripts/generate-static-manifest.sh
 
 # -- 3. Asegurar que infraestructura esta corriendo --

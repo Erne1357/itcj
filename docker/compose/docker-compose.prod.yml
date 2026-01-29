@@ -59,6 +59,7 @@ services:
       - ../../migrations:/app/migrations:ro
       - ../../instance:/app/instance:ro
       - ../../database:/app/database:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +101,7 @@ services:
       - ../../migrations:/app/migrations:ro
       - ../../instance:/app/instance:ro
       - ../../database:/app/database:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
       postgres:
         condition: service_healthy
