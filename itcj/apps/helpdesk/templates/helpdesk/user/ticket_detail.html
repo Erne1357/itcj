@@ -41,7 +41,7 @@
                     backText = "Departamento";
                     break;
                 case 'admin':
-                    backUrl = "/help-desk/admin/tickets";
+                    backUrl = "/help-desk/admin/tickets-list";
                     backText = "Administración";
                     break;
                 case 'admin_tickets_list':
@@ -583,12 +583,12 @@
 
 {% block extra_css %}
 <link rel="stylesheet"
-    href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ static_version }}">
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_detail.css') }}?v={{ sv('helpdesk', 'css/user/ticket_detail.css') }}">
 <!-- Shepherd.js CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
 <!-- Tutorial Custom CSS -->
 <link rel="stylesheet"
-    href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ static_version }}">
+    href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
 {% block extra_js %}
@@ -599,7 +599,7 @@
 <!-- Shepherd.js Library (cargar primero) -->
 <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
 <!-- Tutorial Script (cargar segundo, antes de ticket_detail.js) -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ sv('helpdesk', 'js/user/ticket_tutorial.js') }}"></script>
 <!-- Ticket Detail Script (cargar último, después del tutorial) -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_detail.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_detail.js') }}?v={{ sv('helpdesk', 'js/user/ticket_detail.js') }}"></script>
 {% endblock %}

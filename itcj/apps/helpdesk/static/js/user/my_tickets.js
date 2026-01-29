@@ -557,6 +557,90 @@ function goToTicketDetail(ticketId) {
     HelpdeskUtils.goToTicketDetail(ticketId, 'my_tickets');
 }
 
+// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+let userSocketBound = false;
+
+/**
+ * Configura los listeners de WebSocket para actualizaciones en tiempo real
+ */
+function setupWebSocketListeners() {
+    const checkSocket = setInterval(() => {
+        if (window.__helpdeskSocket) {
+            clearInterval(checkSocket);
+            bindUserSocketEvents();
+        }
+    }, 100);
+
+    setTimeout(() => clearInterval(checkSocket), 5000);
+}
+
+/**
+ * Debounce helper
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+function bindUserSocketEvents() {
+    if (userSocketBound) return;
+
+    const socket = window.__helpdeskSocket;
+    if (!socket) return;
+
+    const debouncedRefresh = debounce(() => {
+        loadMyTickets();
+    }, 500);
+
+    // Remover listeners previos
+    socket.off('ticket_status_changed');
+    socket.off('ticket_assigned');
+    socket.off('ticket_comment_added');
+
+    // Cambio de estado de mis tickets
+    socket.on('ticket_status_changed', (data) => {
+        // Verificar si es uno de mis tickets
+        const myTicket = allTickets.find(t => t.id == data.ticket_id);
+        if (myTicket) {
+            console.log('[My Tickets] ticket_status_changed:', data);
+            HelpdeskUtils.showToast(`Ticket ${data.ticket_number}: estado actualizado`, 'info');
+            debouncedRefresh();
+        }
+    });
+
+    // Ticket asignado
+    socket.on('ticket_assigned', (data) => {
+        const myTicket = allTickets.find(t => t.id == data.ticket_id);
+        if (myTicket) {
+            console.log('[My Tickets] ticket_assigned:', data);
+            HelpdeskUtils.showToast(`Tu ticket fue asignado a ${data.assigned_to_name}`, 'info');
+            debouncedRefresh();
+        }
+    });
+
+    // Nuevo comentario en mis tickets
+    socket.on('ticket_comment_added', (data) => {
+        const myTicket = allTickets.find(t => t.id == data.ticket_id);
+        if (myTicket) {
+            console.log('[My Tickets] ticket_comment_added:', data);
+            HelpdeskUtils.showToast(`Nuevo comentario en ${myTicket.ticket_number}`, 'info');
+        }
+    });
+
+    userSocketBound = true;
+    console.log('[My Tickets] WebSocket listeners configurados');
+}
+
+// Inicializar WebSocket al cargar
+document.addEventListener('DOMContentLoaded', () => {
+    // Dar tiempo para que se cargue el socket
+    setTimeout(setupWebSocketListeners, 500);
+});
+
 // Global functions
 window.openRatingModal = openRatingModal;
 window.openCancelModal = openCancelModal;

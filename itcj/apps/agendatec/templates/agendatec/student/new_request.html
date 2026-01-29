@@ -2,7 +2,7 @@
 {% block title %}Alumno - Nueva solicitud{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/student/new_request.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/student/new_request.css') }}?v={{ sv('agendatec', 'css/student/new_request.css') }}">
 {% endblock %}
 {% block content %}
 <div class="row g-3">
@@ -182,7 +182,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='agendatec/js/student/request.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/student/request.js') }}?v={{ sv('agendatec', 'js/student/request.js') }}"></script>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-<script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ sv('agendatec', 'js/sockets/slots_client.js') }}"></script>
 {% endblock %}

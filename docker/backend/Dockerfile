@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 # Sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential ca-certificates tzdata \
+    build-essential ca-certificates tzdata curl \
  && rm -rf /var/lib/apt/lists/*
 
 # Zona horaria (Cd. Juárez)

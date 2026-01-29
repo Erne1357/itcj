@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFilters();
     setupAssignmentModal();
     setupReassignmentModal();
+    setupWebSocketListeners();
 });
 
 async function initializeDashboard() {
@@ -758,6 +759,99 @@ function showTicketQuickView(ticketId) {
     window.location.href = `/help-desk/user/tickets/${ticketId}`;
 }
 window.showTicketQuickView = showTicketQuickView;
+
+// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+/**
+ * Debounce helper
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+/**
+ * Configura los listeners de WebSocket para actualizaciones en tiempo real
+ */
+function setupWebSocketListeners() {
+    const checkSocket = setInterval(() => {
+        if (window.__helpdeskSocket) {
+            clearInterval(checkSocket);
+            bindAssignSocketEvents();
+        }
+    }, 100);
+
+    setTimeout(() => clearInterval(checkSocket), 5000);
+}
+
+function bindAssignSocketEvents() {
+    const socket = window.__helpdeskSocket;
+    if (!socket) return;
+
+    // Unirse al room de admin
+    window.__hdJoinAdmin?.();
+
+    const debouncedRefreshPending = debounce(() => {
+        loadPendingTickets();
+        loadDashboardStats();
+        HelpdeskUtils.showToast('Nuevo ticket pendiente', 'info');
+    }, 300);
+
+    const debouncedRefreshActive = debounce(() => {
+        loadActiveTickets();
+        loadTechnicians();
+        loadDashboardStats();
+    }, 300);
+
+    const debouncedRefreshAll = debounce(() => {
+        loadPendingTickets();
+        loadActiveTickets();
+        loadTechnicians();
+        loadDashboardStats();
+    }, 300);
+
+    // Remover listeners previos
+    socket.off('ticket_created');
+    socket.off('ticket_assigned');
+    socket.off('ticket_reassigned');
+    socket.off('ticket_status_changed');
+    socket.off('ticket_self_assigned');
+
+    // Nuevo ticket creado - actualiza cola de pendientes
+    socket.on('ticket_created', (data) => {
+        console.log('[Assign] ticket_created:', data);
+        debouncedRefreshPending();
+    });
+
+    // Ticket asignado - sale de pendientes, entra a activos
+    socket.on('ticket_assigned', (data) => {
+        console.log('[Assign] ticket_assigned:', data);
+        debouncedRefreshAll();
+    });
+
+    // Ticket reasignado
+    socket.on('ticket_reassigned', (data) => {
+        console.log('[Assign] ticket_reassigned:', data);
+        debouncedRefreshActive();
+    });
+
+    // Cambio de estado
+    socket.on('ticket_status_changed', (data) => {
+        console.log('[Assign] ticket_status_changed:', data);
+        debouncedRefreshActive();
+    });
+
+    // Técnico tomó un ticket del pool
+    socket.on('ticket_self_assigned', (data) => {
+        console.log('[Assign] ticket_self_assigned:', data);
+        debouncedRefreshAll();
+    });
+
+    console.log('[Assign] WebSocket listeners configurados');
+}
 
 // ==================== HELPERS ====================
 function truncateText(text, maxLength) {

@@ -4,7 +4,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet"
-    href="{{ url_for('static', filename='helpdesk/css/inventory/assign_equipment.css') }}?v={{ static_version }}">
+    href="{{ url_for('static', filename='helpdesk/css/inventory/assign_equipment.css') }}?v={{ sv('helpdesk', 'css/inventory/assign_equipment.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -337,5 +337,5 @@
     {% endblock %}
 
     {% block extra_js %}
-    <script src="{{ url_for('static', filename='helpdesk/js/inventory/assign_equipment.js') }}?v={{static_version}}"></script>
+    <script src="{{ url_for('static', filename='helpdesk/js/inventory/assign_equipment.js') }}?v={{ sv('helpdesk', 'js/inventory/assign_equipment.js') }}"></script>
     {% endblock %}

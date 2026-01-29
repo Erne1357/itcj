@@ -2,7 +2,7 @@
 {% block title %}Admin · Dashboard{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/home.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/home.css') }}?v={{ sv('agendatec', 'css/admin/home.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -281,7 +281,7 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_client.js') }}"></script>
 <script>
     window.__adminDashboard = {
         fetchUrl: "{{ url_for('agendatec_api.api_admin.admin_stats.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
@@ -289,9 +289,9 @@
         periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
     };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/home.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/home_pies.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/mail_survey.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/home_bars.js') }}?v={{ static_version }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/home_activity.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home.js') }}?v={{ sv('agendatec', 'js/admin/home.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home_pies.js') }}?v={{ sv('agendatec', 'js/admin/home_pies.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/mail_survey.js') }}?v={{ sv('agendatec', 'js/admin/mail_survey.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home_bars.js') }}?v={{ sv('agendatec', 'js/admin/home_bars.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/home_activity.js') }}?v={{ sv('agendatec', 'js/admin/home_activity.js') }}"></script>
 {% endblock %}

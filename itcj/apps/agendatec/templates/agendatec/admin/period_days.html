@@ -5,7 +5,7 @@
 <!-- Flatpickr CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <!-- Period Days Custom CSS -->
-<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/period_days.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/period_days.css') }}?v={{ sv('agendatec', 'css/admin/period_days.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -119,5 +119,5 @@
     statsUrl: "{{ url_for('agendatec_api.api_periods.get_period_stats', period_id=period_id) }}"
   };
 </script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/period_days.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/period_days.js') }}?v={{ sv('agendatec', 'js/admin/period_days.js') }}"></script>
 {% endblock %}

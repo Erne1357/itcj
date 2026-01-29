@@ -8,52 +8,28 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Server
+    name: Deploy to Server (Zero-Downtime)
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: 🚀 Deploy via SSH
+      - name: Deploy via SSH (Blue-Green)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT }}
+          command_timeout: 10m
           script: |
             set -e
-            
-            echo "📂 Navegando al directorio ITCJ..."
-            cd /home/cuaderno/ITCJ
-            
-            echo "🔄 Actualizando código desde GitHub..."
-            git fetch origin
-            git reset --hard origin/main
-            
-            echo "🛑 Deteniendo contenedores actuales..."
-            docker compose -f docker/compose/docker-compose.prod.yml down
-            
-            echo "🏗️ Construyendo nuevas imágenes..."
-            docker compose -f docker/compose/docker-compose.prod.yml build --no-cache
-            
-            echo "▶️ Iniciando contenedores..."
-            docker compose -f docker/compose/docker-compose.prod.yml up -d
-            
-            echo "⏳ Esperando que la aplicación inicie..."
-            sleep 15
-            
-            echo "🧹 Limpiando imágenes antiguas..."
-            docker image prune -f
-            
-            echo "📊 Estado de los contenedores:"
-            docker compose -f docker/compose/docker-compose.prod.yml ps
-            
-            echo "✅ ¡Deployment completado exitosamente!"
+            echo ">>> Iniciando deploy blue-green..."
+            bash /home/cuaderno/ITCJ/docker/scripts/deploy.sh 2>&1
 
-      - name: 📢 Notify deployment status
+      - name: Notify deployment status
         if: always()
         run: |
           if [ "${{ job.status }}" == "success" ]; then
-            echo "✅ Deployment successful"
+            echo "Deployment successful - Zero downtime achieved"
           else
-            echo "❌ Deployment failed"
+            echo "Deployment failed - Check logs for details"
           fi

@@ -19,6 +19,10 @@ def create_app():
     app.config.from_pyfile('config.py', silent=True)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
+    # Cargar manifiesto de estaticos para versionado por archivo
+    from .config import Config
+    app.config['_STATIC_MANIFEST'] = Config.load_static_manifest()
+
     # Inicializa las extensiones
     db.init_app(app)
     migrate.init_app(app, db)
@@ -93,6 +97,24 @@ def create_app():
     
     @app.context_processor
     def inject_globals():
+        manifest = current_app.config.get("_STATIC_MANIFEST", {})
+        fallback = current_app.config.get("STATIC_VERSION", "1.0.0")
+
+        def sv(app_name: str, filename: str) -> str:
+            """Retorna el hash de un archivo estatico especifico.
+
+            Uso en template:
+                {{ url_for('static', ...) }}?v={{ sv('agendatec', 'js/toast.js') }}
+
+            Args:
+                app_name: Nombre de la app (core, agendatec, helpdesk)
+                filename: Ruta del archivo relativa al directorio static de la app
+
+            Returns:
+                Hash del archivo o fallback global si no existe en el manifiesto
+            """
+            return manifest.get(app_name, {}).get(filename, fallback)
+
         def _icon_for(label: str) -> str:
             """Iconos para navegación global (no específicos de apps)"""
             lbl = (label or "").lower()
@@ -110,20 +132,20 @@ def create_app():
             """Navegación GLOBAL del sistema (no específica de apps)"""
             if not role:
                 return []
-            
+
             global_nav = []
-            
+
             # Navegación para admins (configuración del sistema)
             if role == "admin":
                 global_nav.extend([
                     {"label": "Configuración", "endpoint": "pages_core.pages_config.settings", "roles": ["admin"]},
                 ])
-            
+
             # Agregar navegación de apps específicas aquí si es necesario
             # Por ahora, cada app maneja su propia navegación
-            
+
             filtered = [item for item in global_nav if role in item["roles"]]
-            
+
             return [{
                 "label": item["label"],
                 "endpoint": item["endpoint"],
@@ -133,7 +155,8 @@ def create_app():
 
         return {
             "current_user": g.current_user,
-            "static_version": current_app.config.get("STATIC_VERSION", "1.0.0"),
+            "static_version": fallback,  # Compatibilidad (se puede eliminar despues)
+            "sv": sv,                    # Nueva funcion: sv('app', 'ruta/archivo.js')
             "nav_for": nav_for,
             "is_active": is_active,
         }

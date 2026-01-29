@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Error {{ error_code }} - ITCJ</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/error.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/error.css') }}?v={{ sv('core', 'css/error.css') }}">
 </head>
 <body>
     <div class="error-container">

@@ -250,7 +250,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/my_equipment.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/my_equipment.js') }}?v={{ sv('helpdesk', 'js/inventory/my_equipment.js') }}"></script>
 <script>
     // Script adicional para manejar cierre de modal en iframe
     (function() {

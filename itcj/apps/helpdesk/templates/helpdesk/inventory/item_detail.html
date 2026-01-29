@@ -3,7 +3,7 @@
 {% block title %}Detalle de Equipo - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/item_detail.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/item_detail.css') }}?v={{ sv('helpdesk', 'css/inventory/item_detail.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -377,5 +377,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_detail.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/item_detail.js') }}"></script>
 {% endblock %}

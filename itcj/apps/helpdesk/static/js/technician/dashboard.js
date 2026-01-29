@@ -17,11 +17,16 @@ let ticketToStart = null;
 let ticketToResolve = null;
 let ticketToSelfAssign = null;
 
+// WebSocket state
+let techArea = null;
+let socketRoomsBound = false;
+
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
     initializeDashboard();
     setupModals();
     setupFilters();
+    setupWebSocketListeners();
 });
 
 async function initializeDashboard() {
@@ -564,6 +569,11 @@ function openSelfAssignModal(ticketId) {
         </div>
     `;
     
+    // Reiniciar estado del botón
+    const btn = document.getElementById('btnConfirmSelfAssign');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-hand-paper me-2"></i>Sí, Tomar Ticket';
+    
     const modal = new bootstrap.Modal(document.getElementById('selfAssignModal'));
     modal.show();
 }
@@ -582,6 +592,10 @@ async function confirmSelfAssign() {
         await HelpdeskUtils.api.selfAssignTicket(ticketToSelfAssign.id);
         
         HelpdeskUtils.showToast('¡Ticket asignado a ti!', 'success');
+        
+        // Reiniciar botón ANTES de cerrar el modal
+        btn.disabled = false;
+        btn.innerHTML = originalText;
         
         const modal = bootstrap.Modal.getInstance(document.getElementById('selfAssignModal'));
         modal.hide();
@@ -647,6 +661,156 @@ function applyHistoryFilters() {
     }
     
     renderTicketList(filtered, document.getElementById('historyList'), 'resolved');
+}
+
+// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+/**
+ * Debounce helper para evitar múltiples recargas rápidas
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+/**
+ * Configura los listeners de WebSocket para actualizaciones en tiempo real
+ */
+function setupWebSocketListeners() {
+    // Esperar a que el socket esté disponible
+    const checkSocket = setInterval(() => {
+        if (window.__helpdeskSocket) {
+            clearInterval(checkSocket);
+            bindSocketEvents();
+        }
+    }, 100);
+
+    // Timeout después de 5 segundos
+    setTimeout(() => clearInterval(checkSocket), 5000);
+}
+
+/**
+ * Une a los rooms y configura los event listeners
+ */
+async function bindSocketEvents() {
+    if (socketRoomsBound) return;
+
+    const socket = window.__helpdeskSocket;
+    if (!socket) {
+        console.warn('[Dashboard] Socket no disponible');
+        return;
+    }
+
+    // Obtener el área del técnico
+    try {
+        const userResponse = await fetch('/api/core/v1/user/me');
+        const user = await userResponse.json();
+        const userRoles = user.data.roles.helpdesk || [];
+
+        if (userRoles.includes('tech_desarrollo')) {
+            techArea = 'desarrollo';
+        } else if (userRoles.includes('tech_soporte')) {
+            techArea = 'soporte';
+        }
+    } catch (e) {
+        console.warn('[Dashboard] No se pudo obtener área del técnico:', e);
+    }
+
+    // Unirse a los rooms correspondientes
+    window.__hdJoinTech?.();
+    if (techArea) {
+        window.__hdJoinTeam?.(techArea);
+    }
+
+    // Configurar listeners con debounce (250ms)
+    const debouncedRefreshAssigned = debounce(() => {
+        loadAssignedTickets();
+        updateDashboardStats();
+        showRealtimeToast('Nueva asignación recibida');
+    }, 250);
+
+    const debouncedRefreshTeam = debounce(() => {
+        loadTeamTickets();
+        updateDashboardStats();
+    }, 250);
+
+    const debouncedRefreshAll = debounce(() => {
+        loadAssignedTickets();
+        loadInProgressTickets();
+        loadTeamTickets();
+        updateDashboardStats();
+    }, 250);
+
+    // Remover listeners previos (si los hay) para evitar duplicados
+    socket.off('ticket_assigned');
+    socket.off('ticket_reassigned');
+    socket.off('ticket_status_changed');
+    socket.off('ticket_created');
+    socket.off('ticket_self_assigned');
+
+    // Nuevo ticket asignado a mí
+    socket.on('ticket_assigned', (data) => {
+        console.log('[Dashboard] ticket_assigned:', data);
+        debouncedRefreshAssigned();
+    });
+
+    // Ticket reasignado (puede ser a mí o desde mí)
+    socket.on('ticket_reassigned', (data) => {
+        console.log('[Dashboard] ticket_reassigned:', data);
+        debouncedRefreshAll();
+        showRealtimeToast('Ticket reasignado');
+    });
+
+    // Cambio de estado de ticket
+    socket.on('ticket_status_changed', (data) => {
+        console.log('[Dashboard] ticket_status_changed:', data);
+        // Refrescar según el tab activo
+        const activeTab = document.querySelector('.nav-link.active[data-bs-toggle="tab"]');
+        const tabId = activeTab?.getAttribute('href') || '';
+
+        if (tabId.includes('queue')) {
+            loadAssignedTickets();
+        } else if (tabId.includes('working')) {
+            loadInProgressTickets();
+        } else if (tabId.includes('team')) {
+            loadTeamTickets();
+        } else if (tabId.includes('history')) {
+            loadResolvedTickets();
+        }
+        updateDashboardStats();
+    });
+
+    // Nuevo ticket creado (para el pool del equipo)
+    socket.on('ticket_created', (data) => {
+        console.log('[Dashboard] ticket_created:', data);
+        // Solo refrescar si el ticket es de mi área
+        if (techArea && data.area?.toLowerCase() === techArea) {
+            debouncedRefreshTeam();
+            showRealtimeToast(`Nuevo ticket: ${data.ticket_number}`);
+        }
+    });
+
+    // Ticket auto-asignado por otro técnico (sale del pool)
+    socket.on('ticket_self_assigned', (data) => {
+        console.log('[Dashboard] ticket_self_assigned:', data);
+        debouncedRefreshTeam();
+    });
+
+    socketRoomsBound = true;
+    console.log('[Dashboard] WebSocket listeners configurados');
+}
+
+/**
+ * Muestra un toast sutil para actualizaciones en tiempo real
+ */
+function showRealtimeToast(message) {
+    // Usar HelpdeskUtils si está disponible, sino crear toast simple
+    if (window.HelpdeskUtils?.showToast) {
+        HelpdeskUtils.showToast(message, 'info');
+    }
 }
 
 // ==================== HELPERS ====================

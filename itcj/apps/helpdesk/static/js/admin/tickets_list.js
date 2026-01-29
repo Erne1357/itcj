@@ -9,6 +9,7 @@ const itemsPerPage = 15;
 document.addEventListener('DOMContentLoaded', () => {
     loadAllTickets();
     setupFilters();
+    setupWebSocketListeners();
 });
 
 // ==================== LOAD TICKETS ====================
@@ -323,6 +324,71 @@ function changePage(page) {
 function goToTicketDetail(ticketId) {
     // Redirigir a la página de detalle del ticket con el parámetro from
     window.location.href = `/help-desk/user/tickets/${ticketId}?from=admin_tickets_list`;
+}
+
+// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+/**
+ * Debounce helper
+ */
+function debounce(fn, delay) {
+    let timeoutId;
+    return function(...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+/**
+ * Configura los listeners de WebSocket para actualizaciones en tiempo real
+ */
+function setupWebSocketListeners() {
+    const checkSocket = setInterval(() => {
+        if (window.__helpdeskSocket) {
+            clearInterval(checkSocket);
+            bindAdminSocketEvents();
+        }
+    }, 100);
+
+    setTimeout(() => clearInterval(checkSocket), 5000);
+}
+
+function bindAdminSocketEvents() {
+    const socket = window.__helpdeskSocket;
+    if (!socket) return;
+
+    // Unirse al room de admin
+    window.__hdJoinAdmin?.();
+
+    const debouncedRefresh = debounce(() => {
+        loadAllTickets();
+        HelpdeskUtils.showToast('Lista actualizada', 'info');
+    }, 500);
+
+    // Remover listeners previos
+    socket.off('ticket_created');
+    socket.off('ticket_assigned');
+    socket.off('ticket_status_changed');
+
+    // Nuevo ticket creado
+    socket.on('ticket_created', (data) => {
+        console.log('[Admin List] ticket_created:', data);
+        debouncedRefresh();
+    });
+
+    // Ticket asignado
+    socket.on('ticket_assigned', (data) => {
+        console.log('[Admin List] ticket_assigned:', data);
+        debouncedRefresh();
+    });
+
+    // Cambio de estado
+    socket.on('ticket_status_changed', (data) => {
+        console.log('[Admin List] ticket_status_changed:', data);
+        debouncedRefresh();
+    });
+
+    console.log('[Admin List] WebSocket listeners configurados');
 }
 
 // ==================== UTILITY FUNCTIONS ====================
