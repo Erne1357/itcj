@@ -43,6 +43,8 @@ def create_app():
     register_agendatec_commands(app)
     register_commands(app)
 
+    #Ahora si creo que la regue, a ver ahora 
+
     @app.before_request
     def load_current_user():
         g.current_user = None
