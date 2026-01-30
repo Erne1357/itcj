@@ -60,23 +60,36 @@
     const q = new URLSearchParams();
     const from = $("#repFrom")?.value;
     const to = $("#repTo")?.value;
+    const type = $("#repType")?.value;
     const status = $("#repStatus")?.value;
+    const appStatus = $("#repAppStatus")?.value;
     const prog = $("#repProgram")?.value;
     const coord = $("#repCoord")?.value;
     const period = $("#repPeriod")?.value;
     const text = $("#repQ")?.value?.trim();
+    const orderBy = $("#repOrderBy")?.value;
+    const orderDir = $("#repOrderDir")?.value;
 
     if (from) q.set("from", from);
     if (to) q.set("to", to);
+    if (type) q.set("type", type);
     if (status) q.set("status", status);
+    if (appStatus) q.set("appointment_status", appStatus);
     if (prog) q.set("program_id", prog);
     if (coord) q.set("coordinator_id", coord);
     if (period) q.set("period_id", period);
     if (text) q.set("q", text);
+    if (orderBy) q.set("order_by", orderBy);
+    if (orderDir) q.set("order_dir", orderDir);
     return q.toString();
   }
 
   async function exportXlsx() {
+    const btn = $("#btnXlsx");
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Generando...';
+
     try {
       const r = await fetch(`${xlsxUrl}?${buildQs()}`, {
         method: "POST",
@@ -87,14 +100,17 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `solicitudes_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.xlsx`;
+      a.download = `reporte_agendatec_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      showToast?.("Reporte generado", "success");
+      showToast?.("Reporte generado correctamente", "success");
     } catch {
       showToast?.("No se pudo generar el reporte", "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
     }
   }
 
