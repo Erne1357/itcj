@@ -331,6 +331,84 @@
   </div>
 </div>
 
+<!-- Card de configuración de resúmenes -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-light d-flex justify-content-between align-items-center"
+       style="cursor: pointer;"
+       data-bs-toggle="collapse"
+       data-bs-target="#summaryConfig">
+    <strong><i class="bi bi-bar-chart-line"></i> Configurar Resúmenes</strong>
+    <i class="bi bi-chevron-down" id="summaryChevron"></i>
+  </div>
+  <div id="summaryConfig" class="collapse">
+    <div class="card-body">
+      <div class="row">
+        <!-- Resumen de Citas -->
+        <div class="col-md-6">
+          <h6 class="mb-2"><i class="bi bi-calendar-check"></i> Resumen de Citas</h6>
+          <p class="text-muted small mb-2">Selecciona las agrupaciones a incluir en el resumen</p>
+          <div class="list-group" id="citasSummaryOptions">
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 citas-summary-check" value="total" checked>
+              <span class="flex-grow-1">Total General</span>
+              <span class="badge bg-secondary">Por día</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 citas-summary-check" value="coordinator" checked>
+              <span class="flex-grow-1">Por Coordinador</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 citas-summary-check" value="program">
+              <span class="flex-grow-1">Por Carrera</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+          </div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllCitasSummary">
+              <i class="bi bi-check-all"></i> Todas
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneCitasSummary">
+              <i class="bi bi-x-lg"></i> Ninguna
+            </button>
+          </div>
+        </div>
+
+        <!-- Resumen de Bajas -->
+        <div class="col-md-6">
+          <h6 class="mb-2"><i class="bi bi-file-earmark-minus"></i> Resumen de Bajas</h6>
+          <p class="text-muted small mb-2">Selecciona las agrupaciones a incluir en el resumen</p>
+          <div class="list-group" id="bajasSummaryOptions">
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 bajas-summary-check" value="total" checked>
+              <span class="flex-grow-1">Total General</span>
+              <span class="badge bg-secondary">Conteo por estado</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 bajas-summary-check" value="program">
+              <span class="flex-grow-1">Por Carrera</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 bajas-summary-check" value="coordinator">
+              <span class="flex-grow-1">Por Coordinador</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+          </div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllBajasSummary">
+              <i class="bi bi-check-all"></i> Todas
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneBajasSummary">
+              <i class="bi bi-x-lg"></i> Ninguna
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="card shadow-sm">
   <div class="card-body">
     <h6><i class="bi bi-info-circle"></i> Información del reporte</h6>
@@ -422,6 +500,22 @@
   .card-header[data-bs-toggle="collapse"].collapsed .bi-chevron-down,
   .card-header[data-bs-toggle="collapse"][aria-expanded="false"] .bi-chevron-down {
     transform: rotate(-90deg);
+  }
+  /* Summary options styling */
+  #citasSummaryOptions .list-group-item,
+  #bajasSummaryOptions .list-group-item {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+  #citasSummaryOptions .list-group-item:hover,
+  #bajasSummaryOptions .list-group-item:hover {
+    background-color: #f8f9fa;
+  }
+  #citasSummaryOptions .list-group-item input[type="checkbox"]:not(:checked) + span,
+  #bajasSummaryOptions .list-group-item input[type="checkbox"]:not(:checked) + span {
+    text-decoration: line-through;
+    color: #6c757d;
   }
 </style>
 {% endblock %}

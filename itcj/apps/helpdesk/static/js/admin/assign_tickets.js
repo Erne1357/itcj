@@ -219,7 +219,8 @@ function renderPendingTickets(tickets) {
 
 function createPendingTicketCard(ticket) {
     return `
-        <div class="ticket-queue-card border-bottom p-3 priority-${ticket.priority}">
+        <div class="ticket-queue-card border-bottom p-3 priority-${ticket.priority}"
+            style="cursor: pointer;" onclick="showTicketQuickView(${ticket.id})" title="Click para ver detalle">
             <div class="row align-items-center">
                 <div class="col-md-8">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -229,8 +230,7 @@ function createPendingTicketCard(ticket) {
                         ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
                     </div>
 
-                    <h5 class="mb-2 ticket-title-link" onclick="showTicketQuickView(${ticket.id})"
-                        style="cursor: pointer;" title="Click para ver detalle">
+                    <h5 class="mb-2 ticket-title-link">
                         ${ticket.title}
                     </h5>
 
@@ -324,7 +324,7 @@ function renderActiveTickets(tickets, containerId = 'activeList') {
     }
     
     container.innerHTML = tickets.map(ticket => `
-        <div class="border-bottom p-3">
+        <div class="border-bottom p-3" style="cursor: pointer;" onclick="showTicketQuickView(${ticket.id})" title="Click para ver detalle">
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -333,7 +333,9 @@ function renderActiveTickets(tickets, containerId = 'activeList') {
                         ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
                     </div>
                     
-                    <h5 class="mb-2">${ticket.title}</h5>
+                    <h5 class="mb-2 ticket-title-link">
+                        ${ticket.title}
+                    </h5>
                     
                     <div class="text-muted small">
                         <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
@@ -354,11 +356,11 @@ function renderActiveTickets(tickets, containerId = 'activeList') {
                 
                 <div class="d-flex gap-2">
                     <button class="btn btn-sm btn-outline-warning" 
-                            onclick="openReassignmentModal(${ticket.id})">
+                            onclick="event.stopPropagation(); openReassignmentModal(${ticket.id})">
                         <i class="fas fa-exchange-alt"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-primary" 
-                            onclick="showTicketDetail(${ticket.id})">
+                            onclick="event.stopPropagation(); showTicketDetail(${ticket.id})">
                         <i class="fas fa-eye"></i>
                     </button>
                 </div>

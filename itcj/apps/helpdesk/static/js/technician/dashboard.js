@@ -266,7 +266,7 @@ function getActionButtons(ticket, type) {
     
     buttons += `
         <button class="btn btn-outline-secondary btn-sm d-block w-100" 
-                onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'admin')">
+                onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'technician')">
             <i class="fas fa-eye me-1"></i>Ver Detalle
         </button>
     `;

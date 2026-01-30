@@ -15,6 +15,7 @@
   initDropdownAutoPosition();
   loadProgramsAndCoords();
   initColumnConfig();
+  initSummaryConfig();
 
   $("#btnXlsx")?.addEventListener("click", exportXlsx);
 
@@ -221,6 +222,40 @@
     return columns;
   }
 
+  // ==================== SUMMARY CONFIG ====================
+
+  function initSummaryConfig() {
+    // Botones de seleccionar todas/ninguna para resumen de citas
+    $("#selectAllCitasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".citas-summary-check", true));
+    $("#selectNoneCitasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".citas-summary-check", false));
+    $("#selectAllBajasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".bajas-summary-check", true));
+    $("#selectNoneBajasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".bajas-summary-check", false));
+
+    // Toggle del chevron al abrir/cerrar
+    const collapseEl = $("#summaryConfig");
+    if (collapseEl) {
+      collapseEl.addEventListener("show.bs.collapse", () => {
+        $("#summaryChevron")?.classList.remove("bi-chevron-down");
+        $("#summaryChevron")?.classList.add("bi-chevron-up");
+      });
+      collapseEl.addEventListener("hide.bs.collapse", () => {
+        $("#summaryChevron")?.classList.remove("bi-chevron-up");
+        $("#summaryChevron")?.classList.add("bi-chevron-down");
+      });
+    }
+  }
+
+  function toggleAllSummaryChecks(selector, checked) {
+    $$(selector).forEach((cb) => {
+      cb.checked = checked;
+    });
+  }
+
+  function getSummaryConfig(selector) {
+    const checkboxes = $$(selector);
+    return [...checkboxes].filter((cb) => cb.checked).map((cb) => cb.value);
+  }
+
   // ==================== DATA LOADING ====================
 
   async function loadProgramsAndCoords() {
@@ -302,6 +337,13 @@
     // Agregar columnas seleccionadas y su orden
     if (citasCols.length > 0) q.set("citas_cols", citasCols.join(","));
     if (bajasCols.length > 0) q.set("bajas_cols", bajasCols.join(","));
+
+    // Agregar configuración de resúmenes
+    const citasSummary = getSummaryConfig(".citas-summary-check");
+    const bajasSummary = getSummaryConfig(".bajas-summary-check");
+
+    if (citasSummary.length > 0) q.set("citas_summary", citasSummary.join(","));
+    if (bajasSummary.length > 0) q.set("bajas_summary", bajasSummary.join(","));
 
     return q.toString();
   }
