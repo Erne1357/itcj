@@ -5,18 +5,32 @@
 <h1 class="h4 mb-3">Reportes</h1>
 
 <div class="card shadow-sm mb-3">
+  <div class="card-header bg-light">
+    <strong><i class="bi bi-funnel"></i> Filtros</strong>
+  </div>
   <div class="card-body">
-    <div class="row g-2 align-items-end">
-      <div class="col-auto">
-        <label class="form-label">Desde</label>
+    <div class="row g-2 align-items-end mb-2">
+      <!-- Rango de fechas -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Desde</label>
         <input id="repFrom" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-auto">
-        <label class="form-label">Hasta</label>
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Hasta</label>
         <input id="repTo" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-auto">
-        <label class="form-label">Estado</label>
+      <!-- Tipo de solicitud -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Tipo</label>
+        <select id="repType" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          <option value="APPOINTMENT">Citas</option>
+          <option value="DROP">Bajas</option>
+        </select>
+      </div>
+      <!-- Estado de solicitud -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Estado Solicitud</label>
         <select id="repStatus" class="form-select form-select-sm">
           <option value="">Todos</option>
           <option value="PENDING">Pendiente</option>
@@ -27,39 +41,83 @@
           <option value="CANCELED">Cancelada</option>
         </select>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Programa</label>
+      <!-- Estado de cita -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Estado Cita</label>
+        <select id="repAppStatus" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          <option value="SCHEDULED">Programada</option>
+          <option value="DONE">Completada</option>
+          <option value="NO_SHOW">No asistió</option>
+          <option value="CANCELED">Cancelada</option>
+        </select>
+      </div>
+      <!-- Programa -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Programa</label>
         <select id="repProgram" class="form-select form-select-sm">
           <option value="">Todos</option>
         </select>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Coordinador</label>
+    </div>
+    <div class="row g-2 align-items-end">
+      <!-- Coordinador -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Coordinador</label>
         <select id="repCoord" class="form-select form-select-sm">
           <option value="">Todos</option>
         </select>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Período</label>
+      <!-- Período -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Período</label>
         <select id="repPeriod" class="form-select form-select-sm">
           <option value="">Cargando períodos...</option>
         </select>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Buscar</label>
-        <input id="repQ" class="form-control form-control-sm" placeholder="No. control / Alumno">
+      <!-- Búsqueda -->
+      <div class="col-md-3 col-sm-6">
+        <label class="form-label small fw-semibold">Buscar alumno</label>
+        <input id="repQ" class="form-control form-control-sm" placeholder="No. control o nombre">
       </div>
-      <div class="col-auto">
-        <button id="btnXlsx" class="btn btn-success btn-sm">
-          <i class="bi bi-file-earmark-excel"></i> Exportar XLSX
+      <!-- Ordenamiento -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Ordenar por</label>
+        <select id="repOrderBy" class="form-select form-select-sm">
+          <option value="created_at">Fecha creación</option>
+          <option value="slot_day">Día de cita</option>
+          <option value="student_name">Nombre alumno</option>
+          <option value="program">Programa</option>
+        </select>
+      </div>
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Dirección</label>
+        <select id="repOrderDir" class="form-select form-select-sm">
+          <option value="asc">Ascendente</option>
+          <option value="desc">Descendente</option>
+        </select>
+      </div>
+      <!-- Botón exportar -->
+      <div class="col-md-1 col-sm-12">
+        <button id="btnXlsx" class="btn btn-success btn-sm w-100">
+          <i class="bi bi-file-earmark-excel"></i> Exportar
         </button>
       </div>
     </div>
   </div>
 </div>
 
-<div class="alert alert-info">
-  El archivo se genera desde <code>/api/agendatec/v1/admin/reports/requests.xlsx</code> con los filtros aplicados.
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h6><i class="bi bi-info-circle"></i> Información del reporte</h6>
+    <p class="text-muted small mb-2">
+      El archivo Excel generado contiene <strong>2 pestañas</strong>:
+    </p>
+    <ul class="small text-muted mb-0">
+      <li><strong>Citas:</strong> Listado de citas agendadas, ordenadas por día y horario (de menor a mayor). Solo incluye slots ocupados.</li>
+      <li><strong>Solicitudes de Baja:</strong> Listado de solicitudes de baja de materias.</li>
+    </ul>
+  </div>
 </div>
 {% endblock %}
 
