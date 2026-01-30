@@ -8,6 +8,7 @@ from itcj.apps.helpdesk.models.comment import Comment
 from itcj.apps.helpdesk.models.attachment import Attachment
 from itcj.apps.helpdesk.models.status_log import StatusLog
 from itcj.apps.helpdesk.models.collaborator import TicketCollaborator
+from itcj.apps.helpdesk.models.ticket_edit_log import TicketEditLog
 
 # NUEVOS MODELOS DE INVENTARIO
 from itcj.apps.helpdesk.models.inventory_category import InventoryCategory
@@ -23,6 +24,7 @@ __all__ = [
     'Comment',
     'Attachment',
     'StatusLog',
+    'TicketEditLog',
     'InventoryCategory',
     'InventoryItem',
     'InventoryHistory',
