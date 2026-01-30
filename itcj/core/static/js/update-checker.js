@@ -6,9 +6,13 @@
  *
  * Este script es parte del Pilar 3 del plan de zero-downtime deployment.
  * Solo notifica a usuarios cuya pagina usa archivos que cambiaron.
+ *
+ * Soporta tanto paginas normales como paginas dentro de iframes (dashboard).
  */
 (() => {
   'use strict';
+
+  const isInIframe = window.self !== window.top;
 
   // 1. Recopilar los archivos estaticos que esta pagina cargo
   const loadedFiles = new Set();
@@ -34,58 +38,105 @@
   // Si no hay archivos estaticos, no hacemos nada
   if (loadedFiles.size === 0) return;
 
-  // 2. Esperar a que el socket de notificaciones se conecte
-  const waitForSocket = () => {
-    return new Promise((resolve) => {
-      // Si ya existe el socket de notify, usarlo
-      if (window.__notifySocket) {
-        return resolve(window.__notifySocket);
-      }
+  /**
+   * Maneja el evento de actualización de archivos estáticos
+   */
+  function handleStaticUpdate(changed) {
+    if (!changed || changed.length === 0) return;
 
-      // Esperar hasta 15s a que el socket de notificaciones se conecte
-      let attempts = 0;
-      const maxAttempts = 30;
-      const interval = setInterval(() => {
-        if (window.__notifySocket) {
-          clearInterval(interval);
-          resolve(window.__notifySocket);
-        }
-        if (++attempts > maxAttempts) {
-          clearInterval(interval);
-          resolve(null);
-        }
-      }, 500);
-    });
-  };
+    // Verificar si alguno de los archivos de ESTA pagina cambio
+    const affected = changed.filter(f => loadedFiles.has(f));
 
-  waitForSocket().then(socket => {
-    if (!socket) {
-      console.debug('[UpdateChecker] Socket de notificaciones no disponible');
+    if (affected.length === 0) {
+      console.debug('[UpdateChecker] Deploy detectado pero esta pagina no esta afectada');
       return;
     }
 
-    // 3. Escuchar el evento de actualizacion
-    socket.on('static_update', (data) => {
-      const changed = data.changed || [];
+    console.info('[UpdateChecker] Archivos actualizados:', affected);
+    showUpdateBanner(affected);
+  }
 
-      if (changed.length === 0) return;
+  // 2. Configurar escucha según el contexto (iframe o no)
+  if (isInIframe) {
+    // Estamos en un iframe - escuchar mensajes del parent
+    window.addEventListener('message', (event) => {
+      // Verificar que el mensaje viene de nuestro origen
+      if (event.origin !== window.location.origin) return;
 
-      // 4. Verificar si alguno de los archivos de ESTA pagina cambio
-      const affected = changed.filter(f => loadedFiles.has(f));
+      // Verificar que es un mensaje de actualización de estáticos
+      if (event.data && event.data.type === 'STATIC_UPDATE') {
+        console.debug('[UpdateChecker/iframe] Recibido evento de actualización del parent');
+        handleStaticUpdate(event.data.changed);
+      }
+    });
 
-      if (affected.length === 0) {
-        console.debug('[UpdateChecker] Deploy detectado pero esta pagina no esta afectada');
+    console.debug('[UpdateChecker/iframe] Escuchando actualizaciones via postMessage para', loadedFiles.size, 'archivos');
+  } else {
+    // No estamos en iframe - usar el socket directamente
+    const waitForSocket = () => {
+      return new Promise((resolve) => {
+        // Si ya existe el socket de notify, usarlo
+        if (window.__notifySocket) {
+          return resolve(window.__notifySocket);
+        }
+
+        // Esperar hasta 15s a que el socket de notificaciones se conecte
+        let attempts = 0;
+        const maxAttempts = 30;
+        const interval = setInterval(() => {
+          if (window.__notifySocket) {
+            clearInterval(interval);
+            resolve(window.__notifySocket);
+          }
+          if (++attempts > maxAttempts) {
+            clearInterval(interval);
+            resolve(null);
+          }
+        }, 500);
+      });
+    };
+
+    waitForSocket().then(socket => {
+      if (!socket) {
+        console.debug('[UpdateChecker] Socket de notificaciones no disponible');
         return;
       }
 
-      console.info('[UpdateChecker] Archivos actualizados:', affected);
+      // Escuchar el evento de actualizacion
+      socket.on('static_update', (data) => {
+        const changed = data.changed || [];
+        handleStaticUpdate(changed);
 
-      // 5. Mostrar banner de actualizacion
-      showUpdateBanner(affected);
+        // Propagar a todos los iframes del dashboard
+        propagateToIframes(changed);
+      });
+
+      console.debug('[UpdateChecker] Escuchando actualizaciones para', loadedFiles.size, 'archivos');
+    });
+  }
+
+  /**
+   * Propaga el evento de actualización a todos los iframes del dashboard
+   */
+  function propagateToIframes(changed) {
+    const iframes = document.querySelectorAll('iframe.window-iframe');
+    iframes.forEach(iframe => {
+      try {
+        iframe.contentWindow.postMessage({
+          type: 'STATIC_UPDATE',
+          source: 'update-checker',
+          changed: changed,
+          timestamp: Date.now()
+        }, window.location.origin);
+      } catch (e) {
+        console.debug('[UpdateChecker] No se pudo enviar mensaje a iframe:', e);
+      }
     });
 
-    console.debug('[UpdateChecker] Escuchando actualizaciones para', loadedFiles.size, 'archivos');
-  });
+    if (iframes.length > 0) {
+      console.debug('[UpdateChecker] Propagado evento a', iframes.length, 'iframes');
+    }
+  }
 
   /**
    * Muestra un banner discreto indicando que hay una nueva version disponible

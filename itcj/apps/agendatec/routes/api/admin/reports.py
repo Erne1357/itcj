@@ -7,6 +7,7 @@ Incluye:
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from io import BytesIO
 from typing import Optional
@@ -43,28 +44,67 @@ def export_requests_xlsx():
     Query params:
         from, to: Rango de fechas
         type: Filtro por tipo (APPOINTMENT, DROP)
-        status: Filtro por estado de solicitud
-        appointment_status: Filtro por estado de cita
-        program_id: Filtro por programa
-        coordinator_id: Filtro por coordinador
+        status: Filtro por estado de solicitud (múltiples separados por coma)
+        appointment_status: Filtro por estado de cita (múltiples separados por coma)
+        program_id: Filtro por programa (múltiples separados por coma)
+        coordinator_id: Filtro por coordinador (múltiples separados por coma)
         period_id: Filtro por período
         q: Búsqueda por nombre/control del alumno
         order_by: Campo de ordenamiento (created_at, slot_day, student_name, program)
         order_dir: Dirección del ordenamiento (asc, desc)
+        citas_cols: Columnas a incluir en hoja de Citas (separadas por coma, en orden)
+        bajas_cols: Columnas a incluir en hoja de Bajas (separadas por coma, en orden)
+        filename: Nombre personalizado del archivo (sin extensión)
 
     Returns:
         Archivo Excel para descarga
     """
     start, end = range_from_query()
     req_type = request.args.get("type")
-    status = request.args.get("status")
-    appointment_status = request.args.get("appointment_status")
-    program_id = request.args.get("program_id", type=int)
-    coordinator_id = request.args.get("coordinator_id", type=int)
-    period_id = request.args.get("period_id", type=int)
     q = request.args.get("q", "").strip()
     order_by = request.args.get("order_by", "created_at")
     order_dir = request.args.get("order_dir", "asc")
+    custom_filename = request.args.get("filename", "").strip()
+    period_id = request.args.get("period_id", type=int)
+
+    # Parámetros que soportan múltiples valores (separados por coma)
+    status_param = request.args.get("status", "")
+    appointment_status_param = request.args.get("appointment_status", "")
+    program_id_param = request.args.get("program_id", "")
+    coordinator_id_param = request.args.get("coordinator_id", "")
+
+    # Parsear múltiples valores
+    statuses = [s.strip() for s in status_param.split(",") if s.strip()] if status_param else []
+    appointment_statuses = [s.strip() for s in appointment_status_param.split(",") if s.strip()] if appointment_status_param else []
+    program_ids = [int(p.strip()) for p in program_id_param.split(",") if p.strip().isdigit()] if program_id_param else []
+    coordinator_ids = [int(c.strip()) for c in coordinator_id_param.split(",") if c.strip().isdigit()] if coordinator_id_param else []
+
+    # Columnas personalizadas (si no se especifican, usar todas)
+    citas_cols_param = request.args.get("citas_cols", "")
+    bajas_cols_param = request.args.get("bajas_cols", "")
+
+    # Columnas por defecto para citas
+    default_citas_cols = ["ID", "Día", "Horario", "Programa", "Alumno", "NoControl",
+                          "Coordinador", "EstadoSolicitud", "EstadoCita", "Período",
+                          "Descripción", "ComentarioCoord", "Creado", "Actualizado"]
+    # Columnas por defecto para bajas
+    default_bajas_cols = ["ID", "Programa", "Alumno", "NoControl", "Coordinador",
+                          "Estado", "Período", "Descripción", "ComentarioCoord",
+                          "Creado", "Actualizado"]
+
+    # Parsear columnas seleccionadas
+    citas_cols = [c.strip() for c in citas_cols_param.split(",") if c.strip()] if citas_cols_param else default_citas_cols
+    bajas_cols = [c.strip() for c in bajas_cols_param.split(",") if c.strip()] if bajas_cols_param else default_bajas_cols
+
+    # Validar que las columnas existan
+    citas_cols = [c for c in citas_cols if c in default_citas_cols]
+    bajas_cols = [c for c in bajas_cols if c in default_bajas_cols]
+
+    # Si después de validar no hay columnas, usar las por defecto
+    if not citas_cols:
+        citas_cols = default_citas_cols
+    if not bajas_cols:
+        bajas_cols = default_bajas_cols
 
     # Base query con eager loading
     base_qry = (
@@ -80,24 +120,45 @@ def export_requests_xlsx():
     )
 
     # Aplicar filtros comunes
-    if status:
-        base_qry = base_qry.filter(Req.status == status)
-    if program_id:
-        base_qry = base_qry.filter(Req.program_id == program_id)
-    if coordinator_id:
-        base_qry = base_qry.join(Appointment, Appointment.request_id == Req.id, isouter=True).filter(
-            Appointment.coordinator_id == coordinator_id
-        )
+    # Filtro por múltiples estados de solicitud
+    if statuses:
+        if len(statuses) == 1:
+            base_qry = base_qry.filter(Req.status == statuses[0])
+        else:
+            base_qry = base_qry.filter(Req.status.in_(statuses))
+
+    # Filtro por múltiples programas
+    if program_ids:
+        if len(program_ids) == 1:
+            base_qry = base_qry.filter(Req.program_id == program_ids[0])
+        else:
+            base_qry = base_qry.filter(Req.program_id.in_(program_ids))
+
+    # Filtro por múltiples coordinadores
+    if coordinator_ids:
+        base_qry = base_qry.join(Appointment, Appointment.request_id == Req.id, isouter=True)
+        if len(coordinator_ids) == 1:
+            base_qry = base_qry.filter(Appointment.coordinator_id == coordinator_ids[0])
+        else:
+            base_qry = base_qry.filter(Appointment.coordinator_id.in_(coordinator_ids))
+
     if period_id:
         base_qry = base_qry.filter(Req.period_id == period_id)
+
     if q:
         base_qry = base_qry.join(User, User.id == Req.student_id).filter(
             or_(User.control_number.ilike(f"%{q}%"), User.full_name.ilike(f"%{q}%"))
         )
-    if appointment_status:
-        base_qry = base_qry.join(Appointment, Appointment.request_id == Req.id, isouter=True).filter(
-            Appointment.status == appointment_status
-        )
+
+    # Filtro por múltiples estados de cita
+    if appointment_statuses:
+        # Solo hacer join si no se hizo antes (por coordinator_ids)
+        if not coordinator_ids:
+            base_qry = base_qry.join(Appointment, Appointment.request_id == Req.id, isouter=True)
+        if len(appointment_statuses) == 1:
+            base_qry = base_qry.filter(Appointment.status == appointment_statuses[0])
+        else:
+            base_qry = base_qry.filter(Appointment.status.in_(appointment_statuses))
 
     # Si se especifica un tipo, filtrar solo por ese tipo
     if req_type:
@@ -176,100 +237,441 @@ def export_requests_xlsx():
     else:
         drops_data.sort(key=lambda x: x["Creado"] or "", reverse=(order_dir == "desc"))
 
-    # Crear DataFrames
+    # Crear DataFrames con columnas seleccionadas y en orden
     df_appointments = pd.DataFrame(appointments_data)
     df_drops = pd.DataFrame(drops_data)
+
+    # Filtrar y reordenar columnas según configuración
+    if not df_appointments.empty:
+        # Filtrar solo columnas que existen en el DataFrame
+        valid_citas_cols = [c for c in citas_cols if c in df_appointments.columns]
+        if valid_citas_cols:
+            df_appointments = df_appointments[valid_citas_cols]
+
+    if not df_drops.empty:
+        valid_bajas_cols = [c for c in bajas_cols if c in df_drops.columns]
+        if valid_bajas_cols:
+            df_drops = df_drops[valid_bajas_cols]
+
+    # Mapeo de anchos de columna por nombre
+    col_widths = {
+        "ID": 8, "Día": 12, "Horario": 14, "Programa": 22, "Alumno": 32,
+        "NoControl": 13, "Coordinador": 26, "EstadoSolicitud": 20, "EstadoCita": 16,
+        "Período": 16, "Descripción": 45, "ComentarioCoord": 45, "Creado": 17,
+        "Actualizado": 17, "Estado": 20
+    }
 
     # Generar Excel con 2 hojas
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
         workbook = writer.book
 
+        # ==================== FORMATOS ====================
+
         # Formato de encabezados
         header_format = workbook.add_format({
             'bold': True,
-            'bg_color': '#4472C4',
+            'bg_color': '#2F5496',
             'font_color': 'white',
             'border': 1,
             'align': 'center',
-            'valign': 'vcenter'
-        })
-
-        # Formato de celdas
-        cell_format = workbook.add_format({
-            'border': 1,
-            'align': 'left',
             'valign': 'vcenter',
+            'font_size': 11,
             'text_wrap': True
         })
 
-        # Hoja 1: Citas
-        if not df_appointments.empty:
-            df_appointments.to_excel(writer, index=False, sheet_name="Citas", startrow=1, header=False)
-            ws_citas = writer.sheets["Citas"]
+        # Formato base para celdas (fila par - blanca)
+        cell_format_even = workbook.add_format({
+            'border': 1,
+            'align': 'left',
+            'valign': 'vcenter',
+            'text_wrap': True,
+            'font_size': 10,
+            'bg_color': '#FFFFFF'
+        })
 
-            # Escribir encabezados con formato
-            for col_num, value in enumerate(df_appointments.columns.values):
-                ws_citas.write(0, col_num, value, header_format)
+        # Formato para filas impares (gris claro - zebra)
+        cell_format_odd = workbook.add_format({
+            'border': 1,
+            'align': 'left',
+            'valign': 'vcenter',
+            'text_wrap': True,
+            'font_size': 10,
+            'bg_color': '#F2F2F2'
+        })
 
-            # Ajustar anchos de columna
-            ws_citas.set_column('A:A', 8)   # ID
-            ws_citas.set_column('B:B', 12)  # Día
-            ws_citas.set_column('C:C', 14)  # Horario
-            ws_citas.set_column('D:D', 20)  # Programa
-            ws_citas.set_column('E:E', 30)  # Alumno
-            ws_citas.set_column('F:F', 12)  # NoControl
-            ws_citas.set_column('G:G', 25)  # Coordinador
-            ws_citas.set_column('H:H', 18)  # EstadoSolicitud
-            ws_citas.set_column('I:I', 15)  # EstadoCita
-            ws_citas.set_column('J:J', 15)  # Período
-            ws_citas.set_column('K:K', 40)  # Descripción
-            ws_citas.set_column('L:L', 40)  # ComentarioCoord
-            ws_citas.set_column('M:M', 16)  # Creado
-            ws_citas.set_column('N:N', 16)  # Actualizado
+        # Formato para ID (centrado)
+        id_format_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter',
+            'font_size': 10, 'bg_color': '#FFFFFF', 'bold': True
+        })
+        id_format_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter',
+            'font_size': 10, 'bg_color': '#F2F2F2', 'bold': True
+        })
+
+        # Formato para fechas (centrado)
+        date_format_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter',
+            'font_size': 10, 'bg_color': '#FFFFFF'
+        })
+        date_format_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter',
+            'font_size': 10, 'bg_color': '#F2F2F2'
+        })
+
+        # ==================== COLORES PARA ESTADOS DE SOLICITUD ====================
+        # Resuelta: Verde
+        status_resuelta_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#C6EFCE', 'font_color': '#006100', 'bold': True
+        })
+        status_resuelta_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#A9D8B8', 'font_color': '#006100', 'bold': True
+        })
+
+        # Atendida sin resolver: Verde clarito
+        status_atendida_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#E2EFDA', 'font_color': '#375623', 'bold': True
+        })
+        status_atendida_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#D4E7C5', 'font_color': '#375623', 'bold': True
+        })
+
+        # No asistió: Rojo
+        status_noshow_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'bold': True
+        })
+        status_noshow_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#FFAAB5', 'font_color': '#9C0006', 'bold': True
+        })
+
+        # Otro horario: Azul cielo
+        status_otro_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#BDD7EE', 'font_color': '#1F4E79', 'bold': True
+        })
+        status_otro_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#9BC2E6', 'font_color': '#1F4E79', 'bold': True
+        })
+
+        # Pendiente: Gris
+        status_pendiente_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#D9D9D9', 'font_color': '#404040', 'bold': True
+        })
+        status_pendiente_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#BFBFBF', 'font_color': '#404040', 'bold': True
+        })
+
+        # Cancelada: Negro con letras blancas
+        status_cancelada_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#404040', 'font_color': '#FFFFFF', 'bold': True
+        })
+        status_cancelada_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#2D2D2D', 'font_color': '#FFFFFF', 'bold': True
+        })
+
+        # ==================== COLORES PARA ESTADOS DE CITA ====================
+        # Programada: Azul
+        cita_programada_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#DDEBF7', 'font_color': '#1F4E79', 'bold': True
+        })
+        cita_programada_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#BDD7EE', 'font_color': '#1F4E79', 'bold': True
+        })
+
+        # Completada: Verde
+        cita_completada_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#C6EFCE', 'font_color': '#006100', 'bold': True
+        })
+        cita_completada_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#A9D8B8', 'font_color': '#006100', 'bold': True
+        })
+
+        # No asistió (cita): Naranja
+        cita_noshow_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#FCE4D6', 'font_color': '#974706', 'bold': True
+        })
+        cita_noshow_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#F8CBAD', 'font_color': '#974706', 'bold': True
+        })
+
+        # Cancelada (cita): Rojo oscuro
+        cita_cancelada_even = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'bold': True
+        })
+        cita_cancelada_odd = workbook.add_format({
+            'border': 1, 'align': 'center', 'valign': 'vcenter', 'font_size': 10,
+            'bg_color': '#FFAAB5', 'font_color': '#9C0006', 'bold': True
+        })
+
+        # Mapeo de estados de solicitud a formatos
+        status_formats = {
+            'Resuelta': (status_resuelta_even, status_resuelta_odd),
+            'Atendida sin resolver': (status_atendida_even, status_atendida_odd),
+            'No asistió': (status_noshow_even, status_noshow_odd),
+            'Asistió otro horario': (status_otro_even, status_otro_odd),
+            'Pendiente': (status_pendiente_even, status_pendiente_odd),
+            'Cancelada': (status_cancelada_even, status_cancelada_odd),
+        }
+
+        # Mapeo de estados de cita a formatos
+        cita_formats = {
+            'Programada': (cita_programada_even, cita_programada_odd),
+            'Completada': (cita_completada_even, cita_completada_odd),
+            'No asistió': (cita_noshow_even, cita_noshow_odd),
+            'Cancelada': (cita_cancelada_even, cita_cancelada_odd),
+        }
+
+        def get_cell_format(col_name, value, row_idx):
+            """Retorna el formato apropiado según columna, valor y fila (zebra)"""
+            is_odd = row_idx % 2 == 1
+
+            if col_name == 'EstadoSolicitud' or col_name == 'Estado':
+                formats = status_formats.get(value)
+                if formats:
+                    return formats[1] if is_odd else formats[0]
+            elif col_name == 'EstadoCita':
+                formats = cita_formats.get(value)
+                if formats:
+                    return formats[1] if is_odd else formats[0]
+            elif col_name == 'ID':
+                return id_format_odd if is_odd else id_format_even
+            elif col_name in ['Día', 'Horario', 'Creado', 'Actualizado']:
+                return date_format_odd if is_odd else date_format_even
+
+            return cell_format_odd if is_odd else cell_format_even
+
+        def write_styled_sheet(worksheet, df, columns):
+            """Escribe una hoja con estilos aplicados"""
+            # Escribir encabezados
+            for col_num, col_name in enumerate(columns):
+                worksheet.write(0, col_num, col_name, header_format)
+                width = col_widths.get(col_name, 15)
+                worksheet.set_column(col_num, col_num, width)
+
+            # Escribir datos con formato
+            for row_idx, row in df.iterrows():
+                for col_num, col_name in enumerate(columns):
+                    value = row.get(col_name, '')
+                    cell_fmt = get_cell_format(col_name, value, row_idx)
+                    worksheet.write(row_idx + 1, col_num, value, cell_fmt)
 
             # Congelar primera fila
-            ws_citas.freeze_panes(1, 0)
+            worksheet.freeze_panes(1, 0)
+
+            # Establecer altura de fila para encabezados
+            worksheet.set_row(0, 22)
+
+            # Filtros automáticos
+            if len(df) > 0:
+                worksheet.autofilter(0, 0, len(df), len(columns) - 1)
+
+        # ==================== FORMATOS PARA RESUMEN ====================
+        summary_header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#1F4E79',
+            'font_color': 'white',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 10
+        })
+
+        summary_subheader_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#2F5496',
+            'font_color': 'white',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 9
+        })
+
+        summary_day_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#D6DCE4',
+            'font_color': '#1F4E79',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 10
+        })
+
+        summary_cell_format = workbook.add_format({
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 10,
+            'bg_color': '#FFFFFF'
+        })
+
+        summary_total_format = workbook.add_format({
+            'bold': True,
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 10,
+            'bg_color': '#E2EFDA',
+            'font_color': '#375623'
+        })
+
+        summary_grand_total_format = workbook.add_format({
+            'bold': True,
+            'border': 2,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 11,
+            'bg_color': '#2F5496',
+            'font_color': 'white'
+        })
+
+        # Lista de estados para el resumen
+        estados_solicitud = ['Resuelta', 'Atendida sin resolver', 'No asistió', 'Asistió otro horario', 'Pendiente', 'Cancelada']
+
+        def write_citas_summary(worksheet, df, start_col):
+            """Escribe el resumen por día para citas"""
+            if df.empty or 'Día' not in df.columns or 'EstadoSolicitud' not in df.columns:
+                return
+
+            # Título del resumen
+            worksheet.merge_range(0, start_col, 0, start_col + len(estados_solicitud) + 1,
+                                  'RESUMEN POR DÍA', summary_header_format)
+
+            # Encabezados del resumen
+            worksheet.write(1, start_col, 'Día', summary_subheader_format)
+            worksheet.set_column(start_col, start_col, 12)
+
+            for idx, estado in enumerate(estados_solicitud):
+                col = start_col + 1 + idx
+                # Abreviar nombres largos
+                nombre_corto = estado[:12] + '...' if len(estado) > 15 else estado
+                worksheet.write(1, col, nombre_corto, summary_subheader_format)
+                worksheet.set_column(col, col, 10)
+
+            worksheet.write(1, start_col + len(estados_solicitud) + 1, 'Total', summary_subheader_format)
+            worksheet.set_column(start_col + len(estados_solicitud) + 1, start_col + len(estados_solicitud) + 1, 8)
+
+            # Agrupar por día
+            dias = df['Día'].unique()
+            dias_ordenados = sorted([d for d in dias if d], key=lambda x: x if x else '')
+
+            row = 2
+            totales_por_estado = {estado: 0 for estado in estados_solicitud}
+            gran_total = 0
+
+            for dia in dias_ordenados:
+                df_dia = df[df['Día'] == dia]
+                worksheet.write(row, start_col, dia, summary_day_format)
+
+                total_dia = 0
+                for idx, estado in enumerate(estados_solicitud):
+                    count = len(df_dia[df_dia['EstadoSolicitud'] == estado])
+                    col = start_col + 1 + idx
+                    if count > 0:
+                        # Usar el formato de color del estado
+                        fmt = status_formats.get(estado, (summary_cell_format, summary_cell_format))[0]
+                        worksheet.write(row, col, count, fmt)
+                    else:
+                        worksheet.write(row, col, '', summary_cell_format)
+                    totales_por_estado[estado] += count
+                    total_dia += count
+
+                worksheet.write(row, start_col + len(estados_solicitud) + 1, total_dia, summary_total_format)
+                gran_total += total_dia
+                row += 1
+
+            # Fila de totales
+            worksheet.write(row, start_col, 'TOTAL', summary_grand_total_format)
+            for idx, estado in enumerate(estados_solicitud):
+                col = start_col + 1 + idx
+                worksheet.write(row, col, totales_por_estado[estado], summary_grand_total_format)
+            worksheet.write(row, start_col + len(estados_solicitud) + 1, gran_total, summary_grand_total_format)
+
+        def write_bajas_summary(worksheet, df, start_col):
+            """Escribe el resumen general para bajas"""
+            if df.empty or 'Estado' not in df.columns:
+                return
+
+            # Título del resumen
+            worksheet.merge_range(0, start_col, 0, start_col + 1, 'RESUMEN GENERAL', summary_header_format)
+
+            # Encabezados
+            worksheet.write(1, start_col, 'Estado', summary_subheader_format)
+            worksheet.write(1, start_col + 1, 'Cantidad', summary_subheader_format)
+            worksheet.set_column(start_col, start_col, 22)
+            worksheet.set_column(start_col + 1, start_col + 1, 10)
+
+            row = 2
+            total = 0
+
+            for estado in estados_solicitud:
+                count = len(df[df['Estado'] == estado])
+                if count > 0:
+                    # Usar el formato de color del estado
+                    fmt = status_formats.get(estado, (summary_cell_format, summary_cell_format))[0]
+                    worksheet.write(row, start_col, estado, fmt)
+                    worksheet.write(row, start_col + 1, count, fmt)
+                    total += count
+                    row += 1
+
+            # Total general
+            worksheet.write(row, start_col, 'TOTAL', summary_grand_total_format)
+            worksheet.write(row, start_col + 1, total, summary_grand_total_format)
+
+        # ==================== HOJA 1: CITAS ====================
+        if not df_appointments.empty:
+            worksheet_citas = workbook.add_worksheet("Citas")
+            writer.sheets["Citas"] = worksheet_citas
+            columns_citas = [c for c in citas_cols if c in df_appointments.columns]
+            write_styled_sheet(worksheet_citas, df_appointments[columns_citas], columns_citas)
+
+            # Agregar resumen a la derecha (2 columnas de espacio)
+            summary_start_col = len(columns_citas) + 2
+            write_citas_summary(worksheet_citas, df_appointments, summary_start_col)
         else:
-            # Crear hoja vacía con encabezados
-            empty_df = pd.DataFrame(columns=["ID", "Día", "Horario", "Programa", "Alumno", "NoControl",
-                                             "Coordinador", "EstadoSolicitud", "EstadoCita", "Período",
-                                             "Descripción", "ComentarioCoord", "Creado", "Actualizado"])
+            empty_df = pd.DataFrame(columns=citas_cols)
             empty_df.to_excel(writer, index=False, sheet_name="Citas")
 
-        # Hoja 2: Solicitudes de Baja
+        # ==================== HOJA 2: SOLICITUDES DE BAJA ====================
         if not df_drops.empty:
-            df_drops.to_excel(writer, index=False, sheet_name="Solicitudes de Baja", startrow=1, header=False)
-            ws_bajas = writer.sheets["Solicitudes de Baja"]
+            worksheet_bajas = workbook.add_worksheet("Solicitudes de Baja")
+            writer.sheets["Solicitudes de Baja"] = worksheet_bajas
+            columns_bajas = [c for c in bajas_cols if c in df_drops.columns]
+            write_styled_sheet(worksheet_bajas, df_drops[columns_bajas], columns_bajas)
 
-            # Escribir encabezados con formato
-            for col_num, value in enumerate(df_drops.columns.values):
-                ws_bajas.write(0, col_num, value, header_format)
-
-            # Ajustar anchos de columna
-            ws_bajas.set_column('A:A', 8)   # ID
-            ws_bajas.set_column('B:B', 20)  # Programa
-            ws_bajas.set_column('C:C', 30)  # Alumno
-            ws_bajas.set_column('D:D', 12)  # NoControl
-            ws_bajas.set_column('E:E', 25)  # Coordinador
-            ws_bajas.set_column('F:F', 18)  # Estado
-            ws_bajas.set_column('G:G', 15)  # Período
-            ws_bajas.set_column('H:H', 40)  # Descripción
-            ws_bajas.set_column('I:I', 40)  # ComentarioCoord
-            ws_bajas.set_column('J:J', 16)  # Creado
-            ws_bajas.set_column('K:K', 16)  # Actualizado
-
-            # Congelar primera fila
-            ws_bajas.freeze_panes(1, 0)
+            # Agregar resumen a la derecha (2 columnas de espacio)
+            summary_start_col = len(columns_bajas) + 2
+            write_bajas_summary(worksheet_bajas, df_drops, summary_start_col)
         else:
-            # Crear hoja vacía con encabezados
-            empty_df = pd.DataFrame(columns=["ID", "Programa", "Alumno", "NoControl", "Coordinador",
-                                             "Estado", "Período", "Descripción", "ComentarioCoord",
-                                             "Creado", "Actualizado"])
+            empty_df = pd.DataFrame(columns=bajas_cols)
             empty_df.to_excel(writer, index=False, sheet_name="Solicitudes de Baja")
 
     buf.seek(0)
-    filename = f"reporte_agendatec_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    # Usar nombre personalizado si se proporciona, sino generar uno automático
+    if custom_filename:
+        # Sanitizar el nombre de archivo (remover caracteres no válidos)
+        safe_filename = re.sub(r'[<>:"/\\|?*]', '_', custom_filename)
+        filename = f"{safe_filename}.xlsx"
+    else:
+        filename = f"reporte_agendatec_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return send_file(
         buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
