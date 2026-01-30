@@ -83,6 +83,20 @@ def export_requests_xlsx():
     citas_cols_param = request.args.get("citas_cols", "")
     bajas_cols_param = request.args.get("bajas_cols", "")
 
+    # Configuración de resúmenes
+    citas_summary_param = request.args.get("citas_summary", "total,coordinator")  # default
+    bajas_summary_param = request.args.get("bajas_summary", "total")  # default
+
+    # Parsear opciones de resumen
+    citas_summary_options = [s.strip() for s in citas_summary_param.split(",") if s.strip()] if citas_summary_param else []
+    bajas_summary_options = [s.strip() for s in bajas_summary_param.split(",") if s.strip()] if bajas_summary_param else []
+
+    # Validar opciones de resumen
+    valid_citas_summary = ['total', 'coordinator', 'program']
+    valid_bajas_summary = ['total', 'program', 'coordinator']
+    citas_summary_options = [o for o in citas_summary_options if o in valid_citas_summary]
+    bajas_summary_options = [o for o in bajas_summary_options if o in valid_bajas_summary]
+
     # Columnas por defecto para citas
     default_citas_cols = ["ID", "Día", "Horario", "Programa", "Alumno", "NoControl",
                           "Coordinador", "EstadoSolicitud", "EstadoCita", "Período",
@@ -546,95 +560,235 @@ def export_requests_xlsx():
         # Lista de estados para el resumen
         estados_solicitud = ['Resuelta', 'Atendida sin resolver', 'No asistió', 'Asistió otro horario', 'Pendiente', 'Cancelada']
 
-        def write_citas_summary(worksheet, df, start_col):
-            """Escribe el resumen por día para citas"""
+        # Formato para nombre de coordinador (celda grande a la izquierda)
+        coord_name_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#1F4E79',
+            'font_color': 'white',
+            'border': 2,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 11,
+            'text_wrap': True,
+            'rotation': 90
+        })
+
+        coord_section_header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#4472C4',
+            'font_color': 'white',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 10
+        })
+
+        def write_citas_summary(worksheet, df, start_col, summary_options):
+            """Escribe el resumen por día para citas según las opciones seleccionadas"""
             if df.empty or 'Día' not in df.columns or 'EstadoSolicitud' not in df.columns:
                 return
 
+            if not summary_options:
+                return  # No escribir resumen si no hay opciones seleccionadas
+
+            has_coordinator = 'Coordinador' in df.columns
+            has_program = 'Programa' in df.columns
+            num_status_cols = len(estados_solicitud)
+            total_width = num_status_cols + 2  # Día + estados + Total
+
             # Título del resumen
-            worksheet.merge_range(0, start_col, 0, start_col + len(estados_solicitud) + 1,
+            worksheet.merge_range(0, start_col, 0, start_col + total_width - 1,
                                   'RESUMEN POR DÍA', summary_header_format)
 
-            # Encabezados del resumen
-            worksheet.write(1, start_col, 'Día', summary_subheader_format)
-            worksheet.set_column(start_col, start_col, 12)
-
-            for idx, estado in enumerate(estados_solicitud):
-                col = start_col + 1 + idx
-                # Abreviar nombres largos
-                nombre_corto = estado[:12] + '...' if len(estado) > 15 else estado
-                worksheet.write(1, col, nombre_corto, summary_subheader_format)
-                worksheet.set_column(col, col, 10)
-
-            worksheet.write(1, start_col + len(estados_solicitud) + 1, 'Total', summary_subheader_format)
-            worksheet.set_column(start_col + len(estados_solicitud) + 1, start_col + len(estados_solicitud) + 1, 8)
-
-            # Agrupar por día
-            dias = df['Día'].unique()
-            dias_ordenados = sorted([d for d in dias if d], key=lambda x: x if x else '')
-
-            row = 2
-            totales_por_estado = {estado: 0 for estado in estados_solicitud}
-            gran_total = 0
-
-            for dia in dias_ordenados:
-                df_dia = df[df['Día'] == dia]
-                worksheet.write(row, start_col, dia, summary_day_format)
-
-                total_dia = 0
+            # Función auxiliar para escribir encabezados de sección
+            def write_section_headers(row, col_start):
+                worksheet.write(row, col_start, 'Día', summary_subheader_format)
+                worksheet.set_column(col_start, col_start, 12)
                 for idx, estado in enumerate(estados_solicitud):
-                    count = len(df_dia[df_dia['EstadoSolicitud'] == estado])
-                    col = start_col + 1 + idx
-                    if count > 0:
-                        # Usar el formato de color del estado
-                        fmt = status_formats.get(estado, (summary_cell_format, summary_cell_format))[0]
-                        worksheet.write(row, col, count, fmt)
-                    else:
-                        worksheet.write(row, col, '', summary_cell_format)
-                    totales_por_estado[estado] += count
-                    total_dia += count
+                    col = col_start + 1 + idx
+                    nombre_corto = estado[:12] + '...' if len(estado) > 15 else estado
+                    worksheet.write(row, col, nombre_corto, summary_subheader_format)
+                    worksheet.set_column(col, col, 10)
+                worksheet.write(row, col_start + num_status_cols + 1, 'Total', summary_subheader_format)
+                worksheet.set_column(col_start + num_status_cols + 1, col_start + num_status_cols + 1, 8)
 
-                worksheet.write(row, start_col + len(estados_solicitud) + 1, total_dia, summary_total_format)
-                gran_total += total_dia
-                row += 1
+            # Función auxiliar para escribir datos de una sección (Total, coordinador o programa)
+            def write_section_data(df_section, start_row, col_start):
+                dias = df_section['Día'].unique()
+                dias_ordenados = sorted([d for d in dias if d], key=lambda x: x if x else '')
 
-            # Fila de totales
-            worksheet.write(row, start_col, 'TOTAL', summary_grand_total_format)
-            for idx, estado in enumerate(estados_solicitud):
-                col = start_col + 1 + idx
-                worksheet.write(row, col, totales_por_estado[estado], summary_grand_total_format)
-            worksheet.write(row, start_col + len(estados_solicitud) + 1, gran_total, summary_grand_total_format)
+                row = start_row
+                totales_por_estado = {estado: 0 for estado in estados_solicitud}
+                gran_total = 0
 
-        def write_bajas_summary(worksheet, df, start_col):
-            """Escribe el resumen general para bajas"""
+                for dia in dias_ordenados:
+                    df_dia = df_section[df_section['Día'] == dia]
+                    worksheet.write(row, col_start, dia, summary_day_format)
+
+                    total_dia = 0
+                    for idx, estado in enumerate(estados_solicitud):
+                        count = len(df_dia[df_dia['EstadoSolicitud'] == estado])
+                        col = col_start + 1 + idx
+                        if count > 0:
+                            fmt = status_formats.get(estado, (summary_cell_format, summary_cell_format))[0]
+                            worksheet.write(row, col, count, fmt)
+                        else:
+                            worksheet.write(row, col, '', summary_cell_format)
+                        totales_por_estado[estado] += count
+                        total_dia += count
+
+                    worksheet.write(row, col_start + num_status_cols + 1, total_dia, summary_total_format)
+                    gran_total += total_dia
+                    row += 1
+
+                # Fila de totales de sección
+                worksheet.write(row, col_start, 'TOTAL', summary_grand_total_format)
+                for idx, estado in enumerate(estados_solicitud):
+                    col = col_start + 1 + idx
+                    worksheet.write(row, col, totales_por_estado[estado], summary_grand_total_format)
+                worksheet.write(row, col_start + num_status_cols + 1, gran_total, summary_grand_total_format)
+
+                return row + 1  # Retorna la siguiente fila disponible
+
+            current_row = 1
+
+            # ==================== SECCIÓN TOTAL GENERAL ====================
+            if 'total' in summary_options:
+                worksheet.merge_range(current_row, start_col, current_row, start_col + total_width - 1,
+                                      'TOTAL GENERAL', coord_section_header_format)
+                current_row += 1
+
+                write_section_headers(current_row, start_col)
+                current_row += 1
+
+                current_row = write_section_data(df, current_row, start_col)
+                current_row += 1  # Espacio entre secciones
+
+            # ==================== SECCIONES POR COORDINADOR ====================
+            if 'coordinator' in summary_options and has_coordinator:
+                coordinadores = df['Coordinador'].unique()
+                coordinadores_ordenados = sorted([c for c in coordinadores if c], key=lambda x: x if x else '')
+
+                for coord in coordinadores_ordenados:
+                    df_coord = df[df['Coordinador'] == coord]
+                    if df_coord.empty:
+                        continue
+
+                    dias_coord = df_coord['Día'].unique()
+                    num_dias = len([d for d in dias_coord if d])
+                    if num_dias == 0:
+                        continue
+
+                    # Nombre del coordinador como título de sección
+                    worksheet.merge_range(current_row, start_col, current_row, start_col + total_width - 1,
+                                          f"Coordinador: {coord}", coord_section_header_format)
+                    current_row += 1
+
+                    write_section_headers(current_row, start_col)
+                    current_row += 1
+
+                    current_row = write_section_data(df_coord, current_row, start_col)
+                    current_row += 1  # Espacio entre coordinadores
+
+            # ==================== SECCIONES POR PROGRAMA/CARRERA ====================
+            if 'program' in summary_options and has_program:
+                programas = df['Programa'].unique()
+                programas_ordenados = sorted([p for p in programas if p], key=lambda x: x if x else '')
+
+                for programa in programas_ordenados:
+                    df_programa = df[df['Programa'] == programa]
+                    if df_programa.empty:
+                        continue
+
+                    dias_prog = df_programa['Día'].unique()
+                    num_dias = len([d for d in dias_prog if d])
+                    if num_dias == 0:
+                        continue
+
+                    # Nombre del programa como título de sección
+                    worksheet.merge_range(current_row, start_col, current_row, start_col + total_width - 1,
+                                          f"Carrera: {programa}", coord_section_header_format)
+                    current_row += 1
+
+                    write_section_headers(current_row, start_col)
+                    current_row += 1
+
+                    current_row = write_section_data(df_programa, current_row, start_col)
+                    current_row += 1  # Espacio entre programas
+
+        def write_bajas_summary(worksheet, df, start_col, summary_options):
+            """Escribe el resumen general para bajas según las opciones seleccionadas"""
             if df.empty or 'Estado' not in df.columns:
                 return
 
-            # Título del resumen
-            worksheet.merge_range(0, start_col, 0, start_col + 1, 'RESUMEN GENERAL', summary_header_format)
+            if not summary_options:
+                return  # No escribir resumen si no hay opciones seleccionadas
 
-            # Encabezados
-            worksheet.write(1, start_col, 'Estado', summary_subheader_format)
-            worksheet.write(1, start_col + 1, 'Cantidad', summary_subheader_format)
-            worksheet.set_column(start_col, start_col, 22)
-            worksheet.set_column(start_col + 1, start_col + 1, 10)
+            has_program = 'Programa' in df.columns
+            has_coordinator = 'Coordinador' in df.columns
 
-            row = 2
-            total = 0
+            # Función auxiliar para escribir un bloque de resumen por estado
+            def write_status_summary(start_row, col_start, df_section, section_title=None):
+                row = start_row
 
-            for estado in estados_solicitud:
-                count = len(df[df['Estado'] == estado])
-                if count > 0:
-                    # Usar el formato de color del estado
-                    fmt = status_formats.get(estado, (summary_cell_format, summary_cell_format))[0]
-                    worksheet.write(row, start_col, estado, fmt)
-                    worksheet.write(row, start_col + 1, count, fmt)
-                    total += count
+                # Título de sección si se proporciona
+                if section_title:
+                    worksheet.merge_range(row, col_start, row, col_start + 1, section_title, coord_section_header_format)
                     row += 1
 
-            # Total general
-            worksheet.write(row, start_col, 'TOTAL', summary_grand_total_format)
-            worksheet.write(row, start_col + 1, total, summary_grand_total_format)
+                # Encabezados
+                worksheet.write(row, col_start, 'Estado', summary_subheader_format)
+                worksheet.write(row, col_start + 1, 'Cantidad', summary_subheader_format)
+                worksheet.set_column(col_start, col_start, 22)
+                worksheet.set_column(col_start + 1, col_start + 1, 10)
+                row += 1
+
+                total = 0
+                for estado in estados_solicitud:
+                    count = len(df_section[df_section['Estado'] == estado])
+                    if count > 0:
+                        fmt = status_formats.get(estado, (summary_cell_format, summary_cell_format))[0]
+                        worksheet.write(row, col_start, estado, fmt)
+                        worksheet.write(row, col_start + 1, count, fmt)
+                        total += count
+                        row += 1
+
+                # Total
+                worksheet.write(row, col_start, 'TOTAL', summary_grand_total_format)
+                worksheet.write(row, col_start + 1, total, summary_grand_total_format)
+
+                return row + 2  # Retorna siguiente fila disponible con espacio
+
+            # Título del resumen
+            worksheet.merge_range(0, start_col, 0, start_col + 1, 'RESUMEN DE BAJAS', summary_header_format)
+
+            current_row = 1
+
+            # ==================== TOTAL GENERAL ====================
+            if 'total' in summary_options:
+                current_row = write_status_summary(current_row, start_col, df, 'TOTAL GENERAL')
+
+            # ==================== POR PROGRAMA/CARRERA ====================
+            if 'program' in summary_options and has_program:
+                programas = df['Programa'].unique()
+                programas_ordenados = sorted([p for p in programas if p], key=lambda x: x if x else '')
+
+                for programa in programas_ordenados:
+                    df_programa = df[df['Programa'] == programa]
+                    if df_programa.empty:
+                        continue
+                    current_row = write_status_summary(current_row, start_col, df_programa, f"Carrera: {programa}")
+
+            # ==================== POR COORDINADOR ====================
+            if 'coordinator' in summary_options and has_coordinator:
+                coordinadores = df['Coordinador'].unique()
+                coordinadores_ordenados = sorted([c for c in coordinadores if c], key=lambda x: x if x else '')
+
+                for coord in coordinadores_ordenados:
+                    df_coord = df[df['Coordinador'] == coord]
+                    if df_coord.empty:
+                        continue
+                    current_row = write_status_summary(current_row, start_col, df_coord, f"Coordinador: {coord}")
 
         # ==================== HOJA 1: CITAS ====================
         if not df_appointments.empty:
@@ -645,7 +799,7 @@ def export_requests_xlsx():
 
             # Agregar resumen a la derecha (2 columnas de espacio)
             summary_start_col = len(columns_citas) + 2
-            write_citas_summary(worksheet_citas, df_appointments, summary_start_col)
+            write_citas_summary(worksheet_citas, df_appointments, summary_start_col, citas_summary_options)
         else:
             empty_df = pd.DataFrame(columns=citas_cols)
             empty_df.to_excel(writer, index=False, sheet_name="Citas")
@@ -659,7 +813,7 @@ def export_requests_xlsx():
 
             # Agregar resumen a la derecha (2 columnas de espacio)
             summary_start_col = len(columns_bajas) + 2
-            write_bajas_summary(worksheet_bajas, df_drops, summary_start_col)
+            write_bajas_summary(worksheet_bajas, df_drops, summary_start_col, bajas_summary_options)
         else:
             empty_df = pd.DataFrame(columns=bajas_cols)
             empty_df.to_excel(writer, index=False, sheet_name="Solicitudes de Baja")

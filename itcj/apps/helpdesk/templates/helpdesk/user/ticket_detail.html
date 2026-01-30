@@ -44,6 +44,10 @@
                     backUrl = "/help-desk/admin/tickets-list";
                     backText = "Administración";
                     break;
+                case 'technician':
+                    backUrl = "{{ url_for('helpdesk_pages.technician_pages.dashboard') }}";
+                    backText = "Panel de Técnicos";
+                    break;
                 case 'admin_tickets_list':
                     backUrl = "{{ url_for('helpdesk_pages.admin_pages.tickets_list') }}";
                     backText = "Lista de Tickets";
