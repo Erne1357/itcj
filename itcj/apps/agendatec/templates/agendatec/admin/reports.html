@@ -117,13 +117,49 @@
           <option value="">Cargando períodos...</option>
         </select>
       </div>
-      <!-- Búsqueda -->
-      <div class="col-md-3 col-sm-6">
-        <label class="form-label small fw-semibold">Buscar alumno</label>
-        <input id="repQ" class="form-control form-control-sm" placeholder="No. control o nombre">
+      <!-- Búsqueda múltiple -->
+      <div class="col-md-4 col-sm-12">
+        <label class="form-label small fw-semibold d-flex justify-content-between align-items-center">
+          <span>Buscar alumnos</span>
+          <small class="text-muted fw-normal" id="searchCountHint" style="display: none;">
+            <span class="badge bg-secondary" id="searchCount">0</span> elementos
+          </small>
+        </label>
+        <div class="input-group input-group-sm">
+          <textarea id="repQ" class="form-control form-control-sm" rows="1" 
+                    placeholder="No. control o nombre (uno o varios)"
+                    style="resize: vertical; min-height: 31px; max-height: 150px;"></textarea>
+          <button class="btn btn-outline-secondary dropdown-toggle" type="button" 
+                  data-bs-toggle="dropdown" aria-expanded="false" id="separatorBtn"
+                  title="Separador">
+            <i class="bi bi-list-ul"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><h6 class="dropdown-header">Separador de valores</h6></li>
+            <li><a class="dropdown-item separator-option active" href="#" data-separator="newline">
+              <i class="bi bi-text-wrap"></i> Nueva línea <small class="text-muted">(Enter)</small>
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="comma">
+              <i class="bi bi-comma"></i> Coma <small class="text-muted">(,)</small>
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="space">
+              <i class="bi bi-space-between"></i> Espacio
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="semicolon">
+              <i class="bi bi-record-circle"></i> Punto y coma <small class="text-muted">(;)</small>
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="tab">
+              <i class="bi bi-indent"></i> Tabulador
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="#" id="clearSearchList">
+              <i class="bi bi-x-lg text-danger"></i> Limpiar lista
+            </a></li>
+          </ul>
+        </div>
       </div>
       <!-- Ordenamiento -->
-      <div class="col-md-2 col-sm-6">
+      <div class="col-md-2 col-sm-4">
         <label class="form-label small fw-semibold">Ordenar por</label>
         <select id="repOrderBy" class="form-select form-select-sm">
           <option value="created_at">Fecha creación</option>
@@ -132,7 +168,7 @@
           <option value="program">Programa</option>
         </select>
       </div>
-      <div class="col-md-2 col-sm-6">
+      <div class="col-md-2 col-sm-4">
         <label class="form-label small fw-semibold">Dirección</label>
         <select id="repOrderDir" class="form-select form-select-sm">
           <option value="asc">Ascendente</option>

@@ -16,6 +16,7 @@
   loadProgramsAndCoords();
   initColumnConfig();
   initSummaryConfig();
+  initSearchList();
 
   $("#btnXlsx")?.addEventListener("click", exportXlsx);
 
@@ -24,6 +25,101 @@
     const from = new Date(Date.now() - 30 * 86400000);
     $("#repTo").value = to.toISOString().slice(0, 10);
     $("#repFrom").value = from.toISOString().slice(0, 10);
+  }
+
+  // ==================== SEARCH LIST ====================
+
+  function initSearchList() {
+    const textarea = $("#repQ");
+    const hint = $("#searchCountHint");
+    const countSpan = $("#searchCount");
+    const clearBtn = $("#clearSearchList");
+    const separatorOptions = $$(".separator-option");
+
+    if (!textarea) return;
+
+    // Update hint on textarea change
+    textarea.addEventListener("input", () => updateSearchHint());
+
+    // Separator selection
+    separatorOptions.forEach((opt) => {
+      opt.addEventListener("click", (e) => {
+        e.preventDefault();
+        // Remove active from all
+        separatorOptions.forEach((o) => o.classList.remove("active"));
+        // Add active to clicked
+        opt.classList.add("active");
+        updateSearchHint();
+      });
+    });
+
+    // Clear button
+    clearBtn?.addEventListener("click", (e) => {
+      e.preventDefault();
+      textarea.value = "";
+      updateSearchHint();
+      textarea.focus();
+    });
+
+    function updateSearchHint() {
+      const items = getSearchItems();
+      if (hint && countSpan) {
+        if (items.length === 0) {
+          hint.style.display = "none";
+        } else {
+          hint.style.display = "block";
+          countSpan.textContent = items.length;
+        }
+      }
+    }
+  }
+
+  /**
+   * Get selected separator value from active option
+   * @returns {string} separator key
+   */
+  function getSelectedSeparator() {
+    const active = $(".separator-option.active");
+    return active?.dataset.separator || "newline";
+  }
+
+  /**
+   * Parse search textarea content based on selected separator
+   * @returns {string[]} Array of search terms
+   */
+  function getSearchItems() {
+    const textarea = $("#repQ");
+    if (!textarea) return [];
+
+    const text = textarea.value?.trim();
+    if (!text) return [];
+
+    const sep = getSelectedSeparator();
+    let separator;
+
+    switch (sep) {
+      case "comma":
+        separator = /[,]/;
+        break;
+      case "space":
+        separator = /\s+/;
+        break;
+      case "semicolon":
+        separator = /[;]/;
+        break;
+      case "tab":
+        separator = /\t/;
+        break;
+      case "newline":
+      default:
+        separator = /[\r\n]+/;
+        break;
+    }
+
+    return text
+      .split(separator)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
   }
 
   // ==================== MULTI-SELECT ====================
@@ -304,7 +400,7 @@
     const to = $("#repTo")?.value;
     const type = $("#repType")?.value;
     const period = $("#repPeriod")?.value;
-    const text = $("#repQ")?.value?.trim();
+    const searchItems = getSearchItems();
     const orderBy = $("#repOrderBy")?.value;
     const orderDir = $("#repOrderDir")?.value;
     const fileName = $("#repFileName")?.value?.trim();
@@ -323,7 +419,7 @@
     if (to) q.set("to", to);
     if (type) q.set("type", type);
     if (period) q.set("period_id", period);
-    if (text) q.set("q", text);
+    if (searchItems.length > 0) q.set("q", searchItems.join(","));
     if (orderBy) q.set("order_by", orderBy);
     if (orderDir) q.set("order_dir", orderDir);
     if (fileName) q.set("filename", fileName);

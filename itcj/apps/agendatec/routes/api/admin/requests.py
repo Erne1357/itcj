@@ -150,6 +150,79 @@ def admin_change_request_status(req_id: int):
     return jsonify(resp), code
 
 
+@admin_requests_bp.get("/requests/<int:req_id>")
+@api_auth_required
+@api_app_required(app_key="agendatec", perms=["agendatec.requests.api.read.all"])
+def admin_get_request_detail(req_id: int):
+    """
+    Obtiene los detalles completos de una solicitud.
+
+    Returns:
+        JSON con todos los detalles de la solicitud
+    """
+    r = (
+        db.session.query(Req)
+        .options(
+            joinedload(Req.appointment).joinedload(Appointment.coordinator).joinedload(Coordinator.user),
+            joinedload(Req.appointment).joinedload(Appointment.slot),
+            joinedload(Req.program),
+            joinedload(Req.student),
+            joinedload(Req.period),
+        )
+        .filter(Req.id == req_id)
+        .first()
+    )
+
+    if not r:
+        return jsonify({"error": "Solicitud no encontrada"}), 404
+
+    a: Optional[Appointment] = r.appointment
+    coord_name = None
+    coord_email = None
+    slot_info = None
+
+    if a:
+        if a.coordinator and a.coordinator.user:
+            coord_name = a.coordinator.user.full_name
+            coord_email = a.coordinator.user.email
+        if a.slot:
+            slot_info = {
+                "day": a.slot.day.isoformat() if a.slot.day else None,
+                "start_time": a.slot.start_time.strftime("%H:%M") if a.slot.start_time else None,
+                "end_time": a.slot.end_time.strftime("%H:%M") if a.slot.end_time else None,
+            }
+
+    return jsonify({
+        "id": r.id,
+        "type": r.type,
+        "status": r.status,
+        "description": r.description,
+        "coordinator_comment": r.coordinator_comment,
+        "program": r.program.name if r.program else None,
+        "program_id": r.program_id,
+        "period": r.period.name if r.period else None,
+        "period_id": r.period_id,
+        "student": {
+            "id": r.student.id if r.student else None,
+            "name": r.student.full_name if r.student else None,
+            "control_number": r.student.control_number if r.student and r.student.control_number else (r.student.username if r.student else None),
+            "email": r.student.email if r.student else None,
+        },
+        "coordinator": {
+            "name": coord_name,
+            "email": coord_email,
+        } if coord_name else None,
+        "appointment": {
+            "id": a.id,
+            "status": a.status,
+            "booked_at": a.booked_at.isoformat() if a.booked_at else None,
+            "slot": slot_info,
+        } if a else None,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    })
+
+
 @admin_requests_bp.post("/requests/create")
 @api_auth_required
 @api_app_required(app_key="agendatec", perms=["agendatec.requests.api.create.all"])

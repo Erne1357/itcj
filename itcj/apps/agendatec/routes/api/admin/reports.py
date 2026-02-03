@@ -160,9 +160,23 @@ def export_requests_xlsx():
         base_qry = base_qry.filter(Req.period_id == period_id)
 
     if q:
-        base_qry = base_qry.join(User, User.id == Req.student_id).filter(
-            or_(User.control_number.ilike(f"%{q}%"), User.full_name.ilike(f"%{q}%"))
-        )
+        # Soportar búsqueda de múltiples valores separados por coma
+        search_terms = [term.strip() for term in q.split(",") if term.strip()]
+        if search_terms:
+            base_qry = base_qry.join(User, User.id == Req.student_id)
+            if len(search_terms) == 1:
+                # Búsqueda simple (una sola palabra)
+                term = search_terms[0]
+                base_qry = base_qry.filter(
+                    or_(User.control_number.ilike(f"%{term}%"), User.full_name.ilike(f"%{term}%"))
+                )
+            else:
+                # Búsqueda múltiple (varios términos, cualquiera coincide)
+                conditions = []
+                for term in search_terms:
+                    conditions.append(User.control_number.ilike(f"%{term}%"))
+                    conditions.append(User.full_name.ilike(f"%{term}%"))
+                base_qry = base_qry.filter(or_(*conditions))
 
     # Filtro por múltiples estados de cita
     if appointment_statuses:
