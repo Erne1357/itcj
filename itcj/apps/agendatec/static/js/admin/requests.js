@@ -3,6 +3,7 @@
   const $ = (s) => document.querySelector(s);
   const cfg = window.__adminRequestsCfg || {};
   const listUrl = cfg.listUrl || "/api/agendatec/v1/admin/requests";
+  const detailBase = cfg.detailBase || "/api/agendatec/v1/admin/requests/"; // + id
   const statusBase = cfg.statusBase || "/api/agendatec/v1/admin/requests/"; // + id + /status
   const programsUrl = cfg.programsUrl || "/api/agendatec/v1/programs";
   const coordsUrl = cfg.coordsUrl || "/api/agendatec/v1/admin/users/coordinators";
@@ -126,7 +127,7 @@
     tb.innerHTML = items
       .map((r) => {
         const badge = `<span class="badge text-bg-${statusTone(r.status)}">${statusES(r.status)}</span>`;
-        return `<tr>
+        return `<tr data-req-id="${r.id}" style="cursor: pointer;">
           <td>#${r.id}</td>
           <td>${escapeHtml(r.type == "DROP" ? "Baja" : "Cita")}</td>
           <td>${badge}</td>
@@ -135,10 +136,13 @@
           <td>${escapeHtml(r.coordinator_name || "—")}</td>
           <td>${fmtDate(r.created_at)}</td>
           <td class="text-end">
+            <button class="btn btn-sm btn-outline-info me-1" data-view="${r.id}" title="Ver detalles">
+              <i class="bi bi-eye"></i>
+            </button>
             ${
               r.status === "PENDING"
                 ? `<button class="btn btn-sm btn-outline-primary" data-change="${r.id}" data-type="${r.type}">
-                     Cambiar estado
+                     Cambiar
                    </button>`
                 : `<button class="btn btn-sm btn-outline-secondary" data-change="${r.id}" data-type="${r.type}">
                      Re-etiquetar
@@ -209,15 +213,130 @@
 
   // Cambio de estado (modal)
   let currentReqId = null;
-  document.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-change]");
-    if (!btn) return;
-    currentReqId = btn.getAttribute("data-change");
-    const row = btn.closest("tr");
-    $("#curReqInfo").innerHTML = row ? row.cells[0].innerText + " · " + row.cells[2].innerText : `#${currentReqId}`;
+
+  // Ver detalles (modal)
+  document.addEventListener("click", async (e) => {
+    const viewBtn = e.target.closest("button[data-view]");
+    const row = e.target.closest("tr[data-req-id]");
+    
+    // Si hace clic en el botón "Ver detalles" o en la fila (pero no en botones de acción)
+    if (viewBtn || (row && !e.target.closest("button[data-change]"))) {
+      const reqId = viewBtn ? viewBtn.getAttribute("data-view") : row.getAttribute("data-req-id");
+      if (reqId) {
+        await showRequestDetails(reqId);
+        return;
+      }
+    }
+
+    // Cambio de estado
+    const changeBtn = e.target.closest("button[data-change]");
+    if (!changeBtn) return;
+    currentReqId = changeBtn.getAttribute("data-change");
+    const rowForStatus = changeBtn.closest("tr");
+    $("#curReqInfo").innerHTML = rowForStatus ? rowForStatus.cells[0].innerText + " · " + rowForStatus.cells[2].innerText : `#${currentReqId}`;
     $("#fNewStatus").value = "RESOLVED_SUCCESS";
     $("#fReason").value = "";
     new bootstrap.Modal($("#mdlStatus")).show();
+  });
+
+  async function showRequestDetails(reqId) {
+    currentReqId = reqId;
+    const modal = new bootstrap.Modal($("#mdlDetails"));
+    modal.show();
+
+    // Mostrar loading
+    $("#detLoading").style.display = "block";
+    $("#detContent").style.display = "none";
+    $("#detReqId").textContent = `#${reqId}`;
+
+    try {
+      const r = await fetch(`${detailBase}${reqId}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Error al cargar detalles");
+      const data = await r.json();
+
+      // Alumno
+      $("#detStudentName").textContent = data.student?.name || "—";
+      $("#detStudentControl").textContent = data.student?.control_number || "—";
+      $("#detStudentEmail").textContent = data.student?.email || "—";
+
+      // Info general
+      const typeBadge = data.type === "DROP" 
+        ? '<span id="detType" class="badge text-bg-warning">Baja</span>' 
+        : '<span id="detType" class="badge text-bg-info">Cita</span>';
+      $("#detTypeContainer").innerHTML = typeBadge;
+      
+      const statusBadge = `<span id="detStatus" class="badge text-bg-${statusTone(data.status)}">${statusES(data.status)}</span>`;
+      $("#detStatusContainer").innerHTML = statusBadge;
+      
+      $("#detProgram").textContent = data.program || "—";
+      $("#detPeriod").textContent = data.period || "—";
+
+      // Cita (si aplica)
+      if (data.appointment) {
+        $("#detAppointmentSection").style.display = "block";
+        $("#detSlotDay").textContent = data.appointment.slot?.day 
+          ? new Date(data.appointment.slot.day + "T00:00:00").toLocaleDateString("es-MX", { 
+              weekday: "long", year: "numeric", month: "long", day: "numeric" 
+            })
+          : "—";
+        $("#detSlotTime").textContent = data.appointment.slot 
+          ? `${data.appointment.slot.start_time} - ${data.appointment.slot.end_time}`
+          : "—";
+        $("#detCoordName").textContent = data.coordinator?.name || "—";
+        
+        const appStatusMap = {
+          "SCHEDULED": { text: "Programada", tone: "primary" },
+          "DONE": { text: "Completada", tone: "success" },
+          "NO_SHOW": { text: "No asistió", tone: "danger" },
+          "CANCELED": { text: "Cancelada", tone: "secondary" },
+        };
+        const appSt = appStatusMap[data.appointment.status] || { text: data.appointment.status, tone: "secondary" };
+        $("#detAppStatusContainer").innerHTML = `<span id="detAppStatus" class="badge text-bg-${appSt.tone}">${appSt.text}</span>`;
+      } else {
+        $("#detAppointmentSection").style.display = "none";
+      }
+
+      // Descripción
+      if (data.description && data.description.trim()) {
+        $("#detDescription").textContent = data.description;
+        $("#detDescription").classList.remove("text-muted", "fst-italic");
+      } else {
+        $("#detDescription").textContent = "Sin descripción proporcionada.";
+        $("#detDescription").classList.add("text-muted", "fst-italic");
+      }
+
+      // Comentario del coordinador
+      if (data.coordinator_comment && data.coordinator_comment.trim()) {
+        $("#detCoordComment").textContent = data.coordinator_comment;
+        $("#detCoordComment").classList.remove("text-muted", "fst-italic");
+      } else {
+        $("#detCoordComment").textContent = "Sin comentario del coordinador.";
+        $("#detCoordComment").classList.add("text-muted", "fst-italic");
+      }
+
+      // Fechas
+      $("#detCreatedAt").textContent = fmtDate(data.created_at);
+      $("#detUpdatedAt").textContent = fmtDate(data.updated_at);
+
+      // Mostrar contenido
+      $("#detLoading").style.display = "none";
+      $("#detContent").style.display = "block";
+
+    } catch (err) {
+      console.error(err);
+      $("#detLoading").innerHTML = `<div class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Error al cargar detalles</div>`;
+    }
+  }
+
+  // Botón "Cambiar Estado" desde modal de detalles
+  $("#btnChangeStatusFromDetails")?.addEventListener("click", () => {
+    bootstrap.Modal.getInstance($("#mdlDetails"))?.hide();
+    if (currentReqId) {
+      $("#curReqInfo").innerHTML = `#${currentReqId}`;
+      $("#fNewStatus").value = "RESOLVED_SUCCESS";
+      $("#fReason").value = "";
+      setTimeout(() => new bootstrap.Modal($("#mdlStatus")).show(), 200);
+    }
   });
 
   $("#btnApplyStatus")?.addEventListener("click", async () => {

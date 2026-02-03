@@ -75,6 +75,115 @@
 {% endblock %}
 
 {% block modals %}
+<!-- Modal de detalles de solicitud -->
+<div class="modal fade" id="mdlDetails" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-file-text me-2"></i>
+          Detalles de Solicitud <span id="detReqId" class="text-muted">#</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="detLoading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Cargando...</span>
+          </div>
+        </div>
+        <div id="detContent" style="display: none;">
+          <!-- Info general -->
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                  <strong><i class="bi bi-person me-1"></i> Alumno</strong>
+                </div>
+                <div class="card-body py-2">
+                  <p class="mb-1"><strong>Nombre:</strong> <span id="detStudentName">—</span></p>
+                  <p class="mb-1"><strong>No. Control:</strong> <span id="detStudentControl">—</span></p>
+                  <p class="mb-0"><strong>Email:</strong> <span id="detStudentEmail">—</span></p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card h-100">
+                <div class="card-header bg-light py-2">
+                  <strong><i class="bi bi-info-circle me-1"></i> Información</strong>
+                </div>
+                <div class="card-body py-2">
+                  <p class="mb-1"><strong>Tipo:</strong> <span id="detTypeContainer"><span id="detType" class="badge">—</span></span></p>
+                  <p class="mb-1"><strong>Estado:</strong> <span id="detStatusContainer"><span id="detStatus" class="badge">—</span></span></p>
+                  <p class="mb-1"><strong>Programa:</strong> <span id="detProgram">—</span></p>
+                  <p class="mb-0"><strong>Período:</strong> <span id="detPeriod">—</span></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cita (si aplica) -->
+          <div id="detAppointmentSection" class="mb-3" style="display: none;">
+            <div class="card">
+              <div class="card-header bg-primary text-white py-2">
+                <strong><i class="bi bi-calendar-check me-1"></i> Cita Agendada</strong>
+              </div>
+              <div class="card-body py-2">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p class="mb-1"><strong>Fecha:</strong> <span id="detSlotDay">—</span></p>
+                    <p class="mb-0"><strong>Horario:</strong> <span id="detSlotTime">—</span></p>
+                  </div>
+                  <div class="col-md-6">
+                    <p class="mb-1"><strong>Coordinador:</strong> <span id="detCoordName">—</span></p>
+                    <p class="mb-0"><strong>Estado cita:</strong> <span id="detAppStatusContainer"><span id="detAppStatus" class="badge">—</span></span></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Descripción del alumno -->
+          <div class="card mb-3">
+            <div class="card-header bg-light py-2">
+              <strong><i class="bi bi-chat-left-text me-1"></i> Descripción del Alumno</strong>
+            </div>
+            <div class="card-body">
+              <p id="detDescription" class="mb-0 text-muted fst-italic">Sin descripción proporcionada.</p>
+            </div>
+          </div>
+
+          <!-- Comentario del coordinador -->
+          <div class="card mb-3">
+            <div class="card-header bg-light py-2">
+              <strong><i class="bi bi-chat-right-text me-1"></i> Respuesta del Coordinador</strong>
+            </div>
+            <div class="card-body">
+              <p id="detCoordComment" class="mb-0 text-muted fst-italic">Sin comentario del coordinador.</p>
+            </div>
+          </div>
+
+          <!-- Fechas -->
+          <div class="row text-muted small">
+            <div class="col-md-6">
+              <i class="bi bi-clock me-1"></i> Creado: <span id="detCreatedAt">—</span>
+            </div>
+            <div class="col-md-6 text-md-end">
+              <i class="bi bi-arrow-repeat me-1"></i> Actualizado: <span id="detUpdatedAt">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="btnChangeStatusFromDetails">
+          <i class="bi bi-pencil me-1"></i> Cambiar Estado
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal cambio de estado -->
 <div class="modal fade" id="mdlStatus" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
@@ -113,6 +222,7 @@
 <script>
   window.__adminRequestsCfg = {
     listUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_list_requests') }}",
+    detailBase: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_get_request_detail', req_id=0) }}".replace(/0$/, ''),
     statusBase: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_change_request_status', req_id=0) }}".replace(/0$/, ''),
     programsUrl: "{{ url_for('agendatec_api.api_programs.list_programs') }}",
     coordsUrl: "{{ url_for('agendatec_api.api_admin.admin_users.list_coordinators') }}",
