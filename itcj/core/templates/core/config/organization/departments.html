@@ -1,0 +1,93 @@
+{% extends "core/config/config_base.html" %}
+
+{% set sidebar_active = 'departments' %}
+
+{% block title %}Estructura Organizacional{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active" id="currentBreadcrumb">Estructura Organizacional</li>
+{% endblock %}
+
+{% block page_icon %}<i class="bi bi-building"></i>{% endblock %}
+{% block page_title %}<span id="pageTitle">Estructura Organizacional</span>{% endblock %}
+{% block page_subtitle %}<span id="pageSubtitle">Direccion y Delegacion Sindical del instituto</span>{% endblock %}
+
+{% block page_actions %}
+<div class="d-flex gap-2">
+    <!-- Boton para regresar (oculto inicialmente) -->
+    <button class="btn btn-outline-secondary back-btn" id="backBtn" style="display: none;">
+        <i class="bi bi-arrow-left me-2"></i>Volver
+    </button>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
+        <i class="bi bi-plus-lg me-1"></i>Nuevo Departamento
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/organization/departments.css') }}?v={{ sv('core', 'css/config/organization/departments.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Contenedor Principal -->
+<div id="mainContainer"></div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Crear Departamento -->
+<div class="modal fade" id="createDepartmentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Nuevo Departamento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="createDepartmentForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="deptCode" class="form-label">Codigo *</label>
+                        <input type="text" class="form-control" id="deptCode" name="code"
+                               placeholder="ej: sistemas_computacion" pattern="[a-z0-9_]+" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="deptName" class="form-label">Nombre *</label>
+                        <input type="text" class="form-control" id="deptName" name="name"
+                               placeholder="ej: Sistemas y Computacion" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="deptDescription" class="form-label">Descripcion</label>
+                        <textarea class="form-control" id="deptDescription" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="deptParent" class="form-label">Departamento Padre</label>
+                        <select class="form-select" id="deptParent" name="parent_id">
+                            <option value="">-- Nivel Superior (Direccion/Subdireccion) --</option>
+                        </select>
+                        <small class="form-text text-muted">
+                            Selecciona la direccion para crear una subdireccion, o una subdireccion para crear un departamento.
+                        </small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="deptIcon" class="form-label">Icono (Bootstrap Icons)</label>
+                        <input type="text" class="form-control" id="deptIcon" name="icon_class"
+                               placeholder="ej: bi-code-slash">
+                        <small class="form-text text-muted">
+                            Ver iconos en: <a href="https://icons.getbootstrap.com" target="_blank">icons.getbootstrap.com</a>
+                        </small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg me-1"></i>Crear
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/config/organization/departments.js') }}?v={{ sv('core', 'js/config/organization/departments.js') }}"></script>
+{% endblock %}

@@ -14,8 +14,15 @@
     <link rel="stylesheet" href="{{url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}">
     <!-- ⭐ NUEVO: Dashboard Tutorial CSS -->
     <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/dashboard_tutorial.css') }}?v={{ sv('core', 'css/dashboard/dashboard_tutorial.css') }}">
-    <!-- 🎄 NAVIDAD: Decoraciones Navideñas CSS -->
-    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/christmas-decorations.css') }}?v={{ sv('core', 'css/dashboard/christmas-decorations.css') }}">
+    <!-- Sistema de Tematicas Dinamicas -->
+    {% if active_theme %}
+        {% if active_theme.css_file %}
+    <link rel="stylesheet" href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file) }}">
+        {% endif %}
+        {% if active_theme.custom_css %}
+    <style id="theme-custom-css">{{ active_theme.custom_css | safe }}</style>
+        {% endif %}
+    {% endif %}
     <!-- Shepherd.js CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
 
@@ -156,8 +163,16 @@
     <!-- ⭐ NUEVO: Dashboard Tutorial Script -->
     <script src="{{url_for('static', filename='core/js/dashboard/dashboard_tutorial.js') }}?v={{ sv('core', 'js/dashboard/dashboard_tutorial.js') }}"></script>
 
-    <!-- 🎄 NAVIDAD: Efecto de Nieve Navideña -->
-    <script src="{{url_for('static', filename='core/js/dashboard/christmas-snow.js') }}?v={{ sv('core', 'js/dashboard/christmas-snow.js') }}"></script>
+    <!-- Sistema de Tematicas Dinamicas - JavaScript -->
+    {% if active_theme %}
+    <script>
+        // Configuracion de tematica activa disponible globalmente
+        window.activeTheme = {{ active_theme | tojson | safe }};
+    </script>
+        {% if active_theme.js_file %}
+    <script src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file) }}"></script>
+        {% endif %}
+    {% endif %}
 
     <!-- Notification Widget se auto-inicializa en notification-widget.js -->
 </body>

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Configuracion{% endblock %} - ITCJ</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+
+    <!-- CSS Base de Configuracion -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/config-base.css') }}?v={{ sv('core', 'css/config/config-base.css') }}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="config-wrapper">
+        <!-- Boton toggle movil -->
+        <button class="config-mobile-toggle" onclick="toggleSidebar()">
+            <i class="bi bi-list"></i>
+        </button>
+
+        <!-- Overlay para movil -->
+        <div class="config-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+        <!-- Sidebar -->
+        <aside class="config-sidebar" id="configSidebar">
+            <div class="config-sidebar-header">
+                <a href="{{ url_for('pages_core.pages_config.settings') }}" class="config-sidebar-brand">
+                    <i class="bi bi-gear-fill"></i>
+                    <h5>Configuracion</h5>
+                </a>
+            </div>
+
+            <nav class="config-sidebar-nav">
+                <!-- Seccion Principal -->
+                <div class="config-nav-section">
+                    <div class="config-nav-section-title">General</div>
+                    <a href="{{ url_for('pages_core.pages_config.settings') }}"
+                       class="config-nav-link {% if sidebar_active == 'dashboard' %}active{% endif %}">
+                        <i class="bi bi-speedometer2"></i>
+                        <span>Panel Principal</span>
+                    </a>
+                </div>
+
+                <!-- Seccion Sistema -->
+                <div class="config-nav-section">
+                    <div class="config-nav-section-title">Sistema</div>
+                    <a href="{{ url_for('pages_core.pages_config.apps_management') }}"
+                       class="config-nav-link {% if sidebar_active == 'apps' %}active{% endif %}">
+                        <i class="bi bi-app-indicator"></i>
+                        <span>Aplicaciones</span>
+                    </a>
+                    <a href="{{ url_for('pages_core.pages_config.roles_management') }}"
+                       class="config-nav-link {% if sidebar_active == 'roles' %}active{% endif %}">
+                        <i class="bi bi-people-fill"></i>
+                        <span>Roles Globales</span>
+                    </a>
+                    <a href="{{ url_for('pages_core.pages_config.themes_management') }}"
+                       class="config-nav-link {% if sidebar_active == 'themes' %}active{% endif %}">
+                        <i class="bi bi-palette-fill"></i>
+                        <span>Tematicas</span>
+                    </a>
+                </div>
+
+                <!-- Seccion Usuarios -->
+                <div class="config-nav-section">
+                    <div class="config-nav-section-title">Usuarios</div>
+                    <a href="{{ url_for('pages_core.pages_config.users_management') }}"
+                       class="config-nav-link {% if sidebar_active == 'users' %}active{% endif %}">
+                        <i class="bi bi-person-lines-fill"></i>
+                        <span>Usuarios</span>
+                    </a>
+                </div>
+
+                <!-- Seccion Organizacion -->
+                <div class="config-nav-section">
+                    <div class="config-nav-section-title">Organizacion</div>
+                    <a href="{{ url_for('pages_core.pages_config.positions_management') }}"
+                       class="config-nav-link {% if sidebar_active == 'departments' %}active{% endif %}">
+                        <i class="bi bi-diagram-3"></i>
+                        <span>Departamentos</span>
+                    </a>
+                </div>
+            </nav>
+
+            <div class="config-sidebar-footer">
+                <div class="config-sidebar-user">
+                    <div class="user-avatar">{{ (g.user.full_name[0] if g.user and g.user.full_name else 'A')|upper }}</div>
+                    <div class="config-sidebar-user-info">
+                        <div class="config-sidebar-user-name">{{ g.user.full_name if g.user else 'Admin' }}</div>
+                        <div class="config-sidebar-user-role">Administrador</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Contenido Principal -->
+        <main class="config-main">
+            <div class="config-content">
+                <!-- Header de Pagina -->
+                <div class="config-page-header">
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb config-breadcrumb">
+                            <li class="breadcrumb-item">
+                                <a href="{{ url_for('pages_core.pages_config.settings') }}">
+                                    <i class="bi bi-gear me-1"></i>Configuracion
+                                </a>
+                            </li>
+                            {% block breadcrumb %}{% endblock %}
+                        </ol>
+                    </nav>
+
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <h2 class="config-page-title">
+                                {% block page_icon %}<i class="bi bi-gear"></i>{% endblock %}
+                                {% block page_title %}Configuracion{% endblock %}
+                            </h2>
+                            <p class="config-page-subtitle">{% block page_subtitle %}{% endblock %}</p>
+                        </div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% block page_actions %}{% endblock %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contenido de la Pagina -->
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="successToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">Exito</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successMessage">Operacion completada</div>
+        </div>
+
+        <div id="errorToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-circle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorMessage">Ha ocurrido un error</div>
+        </div>
+    </div>
+
+    {% block modals %}{% endblock %}
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Toggle sidebar en movil
+        function toggleSidebar() {
+            document.getElementById('configSidebar').classList.toggle('open');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+
+        function closeSidebar() {
+            document.getElementById('configSidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
+
+        // Utilidades de toast
+        function showSuccess(message) {
+            document.getElementById('successMessage').textContent = message;
+            new bootstrap.Toast(document.getElementById('successToast')).show();
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            new bootstrap.Toast(document.getElementById('errorToast')).show();
+        }
+
+        // API Base URL
+        const API_BASE = '/api/core/v1';
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

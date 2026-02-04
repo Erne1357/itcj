@@ -28,6 +28,33 @@ class UserDetailManager {
             confirmResetBtn.addEventListener('click', () => this.resetPassword());
         }
 
+        // Edit user button
+        const editUserBtn = document.getElementById('btnEditUser');
+        if (editUserBtn) {
+            editUserBtn.addEventListener('click', () => this.showEditUserModal());
+        }
+
+        // Edit user form submit
+        const editUserForm = document.getElementById('editUserForm');
+        if (editUserForm) {
+            editUserForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.saveUserInfo();
+            });
+        }
+
+        // Toggle status button
+        const toggleStatusBtn = document.getElementById('btnToggleStatus');
+        if (toggleStatusBtn) {
+            toggleStatusBtn.addEventListener('click', () => this.showToggleStatusModal());
+        }
+
+        // Confirm toggle status
+        const confirmToggleBtn = document.getElementById('confirmToggleStatusBtn');
+        if (confirmToggleBtn) {
+            confirmToggleBtn.addEventListener('click', () => this.toggleStatus());
+        }
+
         // Manage app buttons
         document.addEventListener('click', (e) => {
             if (e.target.closest('.manage-app-btn')) {
@@ -82,6 +109,14 @@ class UserDetailManager {
     initModals() {
         this.manageModal = new bootstrap.Modal(document.getElementById('manageAssignmentsModal'));
         this.resetPasswordModal = new bootstrap.Modal(document.getElementById('confirmResetPasswordModal'));
+        const toggleModal = document.getElementById('confirmToggleStatusModal');
+        if (toggleModal) {
+            this.toggleStatusModal = new bootstrap.Modal(toggleModal);
+        }
+        const editModal = document.getElementById('editUserModal');
+        if (editModal) {
+            this.editUserModal = new bootstrap.Modal(editModal);
+        }
     }
 
     async loadUserPositions() {
@@ -622,6 +657,121 @@ class UserDetailManager {
         } finally {
             confirmBtn.disabled = false;
             confirmBtn.innerHTML = originalText;
+        }
+    }
+
+    showToggleStatusModal() {
+        if (this.toggleStatusModal) {
+            this.toggleStatusModal.show();
+        }
+    }
+
+    async toggleStatus() {
+        const confirmBtn = document.getElementById('confirmToggleStatusBtn');
+        const originalText = confirmBtn.innerHTML;
+
+        try {
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Procesando...';
+
+            const response = await fetch(`${this.apiBase}/users/${this.userId}/toggle-status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include'
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                this.toggleStatusModal.hide();
+                const action = result.data.is_active ? 'activada' : 'desactivada';
+                this.showSuccess(`Cuenta ${action} exitosamente`);
+                // Recargar la pagina para reflejar el nuevo estado
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                if (result.error === 'cannot_toggle_own_account') {
+                    this.showError('No puedes desactivar tu propia cuenta');
+                } else {
+                    this.showError(result.error || 'Error al cambiar el estado de la cuenta');
+                }
+            }
+        } catch (error) {
+            this.showError('Error de conexion');
+            console.error('Error toggling user status:', error);
+        } finally {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = originalText;
+        }
+    }
+
+    showEditUserModal() {
+        if (this.editUserModal) {
+            this.editUserModal.show();
+        }
+    }
+
+    async saveUserInfo() {
+        const saveBtn = document.getElementById('saveEditUserBtn');
+        const originalText = saveBtn.innerHTML;
+
+        // Recopilar datos del formulario
+        const data = {};
+
+        const firstName = document.getElementById('editFirstName');
+        if (firstName) data.first_name = firstName.value.trim();
+
+        const lastName = document.getElementById('editLastName');
+        if (lastName) data.last_name = lastName.value.trim();
+
+        const middleName = document.getElementById('editMiddleName');
+        if (middleName) data.middle_name = middleName.value.trim();
+
+        const email = document.getElementById('editEmail');
+        if (email) data.email = email.value.trim();
+
+        const username = document.getElementById('editUsername');
+        if (username) data.username = username.value.trim();
+
+        const controlNumber = document.getElementById('editControlNumber');
+        if (controlNumber) data.control_number = controlNumber.value.trim();
+
+        try {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando...';
+
+            const response = await fetch(`${this.apiBase}/users/${this.userId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                this.editUserModal.hide();
+                this.showSuccess('Informacion actualizada exitosamente');
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                const errorMessages = {
+                    'first_name_required': 'El nombre es obligatorio',
+                    'last_name_required': 'El apellido paterno es obligatorio',
+                    'username_required': 'El nombre de usuario es obligatorio',
+                    'username_already_exists': 'Ese nombre de usuario ya esta en uso',
+                    'invalid_control_number': 'El numero de control debe ser de 8 digitos',
+                    'control_number_already_exists': 'Ese numero de control ya esta registrado',
+                    'duplicate_value': 'Ya existe un registro con ese valor'
+                };
+                this.showError(errorMessages[result.error] || result.error || 'Error al guardar los cambios');
+            }
+        } catch (error) {
+            this.showError('Error de conexion');
+            console.error('Error saving user info:', error);
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
         }
     }
 

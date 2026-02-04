@@ -9,7 +9,7 @@ CLIENT_ID     = os.getenv("MS_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "")
 AUTHORITY     = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES        = (os.getenv("MS_SCOPES") or "offline_access openid profile Mail.Send").split()
-REDIRECT_URI  = os.getenv("MS_REDIRECT_URI", "http://localhost:8080/auth/ms/callback")
+REDIRECT_URI  = os.getenv("MS_REDIRECT_URI", "http://localhost:8080/agendatec/surveys/auth/callback")
 
 _SCOPES_RAW = (os.getenv("MS_SCOPES") or "Mail.send").split()
 _RESERVED = {"openid","profile","offline_access"}

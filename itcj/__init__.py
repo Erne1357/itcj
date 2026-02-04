@@ -108,6 +108,16 @@ def create_app():
     def inject_globals():
         manifest = current_app.config.get("_STATIC_MANIFEST", {})
         fallback = current_app.config.get("STATIC_VERSION", "1.0.0")
+
+        # Inyectar tematica activa
+        active_theme = None
+        try:
+            from itcj.core.services import themes_service
+            theme = themes_service.get_active_theme()
+            if theme:
+                active_theme = theme.to_dict(include_full=True)
+        except Exception:
+            pass  # Si falla, simplemente no hay tema activo
         def sv(app_name: str, filename: str) -> str:
             """Retorna el hash de un archivo estatico especifico.
 
@@ -167,6 +177,7 @@ def create_app():
             "sv": sv,                    # Nueva funcion: sv('app', 'ruta/archivo.js')
             "nav_for": nav_for,
             "is_active": is_active,
+            "active_theme": active_theme,  # Tematica activa global
         }
 
     return app, socketio
