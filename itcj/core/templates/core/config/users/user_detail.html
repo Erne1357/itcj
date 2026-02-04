@@ -1,0 +1,432 @@
+{% extends "core/config/config_base.html" %}
+
+{% set sidebar_active = 'users' %}
+
+{% block title %}{{ user.full_name }} - Detalle de Usuario{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('pages_core.pages_config.users_management') }}" class="text-decoration-none">
+        Usuarios
+    </a>
+</li>
+<li class="breadcrumb-item active">{{ user.full_name }}</li>
+{% endblock %}
+
+{% block page_icon %}<i class="bi bi-person-circle"></i>{% endblock %}
+{% block page_title %}{{ user.full_name }}{% endblock %}
+{% block page_subtitle %}
+{% if user.username %}@{{ user.username }}{% endif %}
+{% if user.control_number %}#{{ user.control_number }}{% endif %}
+{% if user.email %} - {{ user.email }}{% endif %}
+{% endblock %}
+
+{% block page_actions %}
+<div class="d-flex gap-2">
+    <button class="btn btn-outline-primary" id="btnEditUser" title="Editar informacion del usuario">
+        <i class="bi bi-pencil me-1"></i>Editar
+    </button>
+    {% if user.is_active %}
+    <button class="btn btn-outline-danger" id="btnToggleStatus" title="Desactivar cuenta">
+        <i class="bi bi-person-slash me-1"></i>Desactivar
+    </button>
+    {% else %}
+    <button class="btn btn-success" id="btnToggleStatus" title="Activar cuenta">
+        <i class="bi bi-person-check me-1"></i>Activar
+    </button>
+    {% endif %}
+    {% if not user.control_number %}
+    <button class="btn btn-warning" id="btnResetPassword" title="Resetear contrasena a la por defecto">
+        <i class="bi bi-key me-1"></i>Resetear Contrasena
+    </button>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/users/user_detail.css') }}?v={{ sv('core', 'css/config/users/user_detail.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- User Info Card -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-auto">
+                <div class="user-avatar rounded-circle d-flex align-items-center justify-content-center text-white" style="width: 64px; height: 64px; font-size: 24px; background: linear-gradient(135deg, var(--config-primary), var(--config-secondary));">
+                    {{ user.full_name[0].upper() }}
+                </div>
+            </div>
+            <div class="col">
+                <h4 class="mb-1">{{ user.full_name }}</h4>
+                <div class="d-flex align-items-center gap-3 text-muted">
+                    {% if user.username %}
+                    <span><i class="bi bi-person me-1"></i>@{{ user.username }}</span>
+                    {% endif %}
+                    {% if user.control_number %}
+                    <span><i class="bi bi-hash me-1"></i>{{ user.control_number }}</span>
+                    {% endif %}
+                    {% if user.email %}
+                    <span><i class="bi bi-envelope me-1"></i>{{ user.email }}</span>
+                    {% endif %}
+                </div>
+                <div class="mt-2">
+                    {% for role in user.roles %}
+                    <span class="badge bg-primary me-1">{{ role.name }}</span>
+                    {% endfor %}
+                    {% if user.is_active %}
+                    <span class="badge bg-success">Activo</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Inactivo</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-auto text-muted small">
+                <div>Creado: {{ user.created_at.strftime('%d/%m/%Y') }}</div>
+                <div>ID: {{ user.id }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabs Navigation -->
+<ul class="nav nav-tabs mb-4" id="userDetailTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="positions-tab" data-bs-toggle="tab"
+                data-bs-target="#positions-pane" type="button" role="tab">
+            <i class="bi bi-briefcase me-1"></i>Puestos Organizacionales
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="apps-tab" data-bs-toggle="tab"
+                data-bs-target="#apps-pane" type="button" role="tab">
+            <i class="bi bi-apps me-1"></i>Asignaciones por App
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="activity-tab" data-bs-toggle="tab"
+                data-bs-target="#activity-pane" type="button" role="tab">
+            <i class="bi bi-clock-history me-1"></i>Actividad Reciente
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="userDetailTabContent">
+    <!-- Puestos Tab -->
+    <div class="tab-pane fade show active" id="positions-pane" role="tabpanel">
+        <h5 class="mb-3"><i class="bi bi-briefcase me-2"></i>Puestos Organizacionales</h5>
+        <p class="text-muted mb-4">Puestos que ocupa actualmente este usuario en la organizacion</p>
+
+        <div class="row g-4" id="userPositionsContainer">
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando puestos...</span>
+                    </div>
+                    <p class="text-muted mt-2">Cargando puestos organizacionales...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Apps Tab -->
+    <div class="tab-pane fade" id="apps-pane" role="tabpanel">
+        <h5 class="mb-3"><i class="bi bi-apps me-2"></i>Asignaciones por Aplicacion</h5>
+        <p class="text-muted mb-4">Roles y permisos especificos que tiene este usuario en cada aplicacion</p>
+
+        <div class="row g-4" id="userAppsContainer">
+            {% for app in apps %}
+            <div class="col-12 col-lg-6">
+                <div class="card app-card h-100 shadow-sm" data-app-key="{{ app.key }}">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-app me-2 text-primary"></i>
+                            <div>
+                                <h6 class="mb-0">{{ app.name }}</h6>
+                                <small class="text-muted">{{ app.key }}</small>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary manage-app-btn"
+                                data-app-key="{{ app.key }}" data-app-name="{{ app.name }}">
+                            <i class="bi bi-gear me-1"></i>Gestionar
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <!-- Roles en esta app -->
+                        <div class="mb-3">
+                            <h6 class="text-primary mb-2">
+                                <i class="bi bi-people me-1"></i>Roles Asignados
+                            </h6>
+                            <div id="roles_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                <span class="badge bg-light text-muted">Cargando...</span>
+                            </div>
+                        </div>
+
+                        <!-- Permisos directos -->
+                        <div class="mb-3">
+                            <h6 class="text-success mb-2">
+                                <i class="bi bi-key me-1"></i>Permisos Directos
+                            </h6>
+                            <div id="perms_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                <span class="badge bg-light text-muted">Cargando...</span>
+                            </div>
+                        </div>
+
+                        <!-- Permisos efectivos -->
+                        <div>
+                            <h6 class="text-info mb-2">
+                                <i class="bi bi-shield-check me-1"></i>Permisos Efectivos
+                            </h6>
+                            <div id="effective_{{ app.key }}" class="d-flex flex-wrap gap-1">
+                                <span class="badge bg-light text-muted">Cargando...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+
+            {% if apps|length == 0 %}
+            <div class="col-12">
+                <div class="empty-state">
+                    <i class="bi bi-apps"></i>
+                    <h5>No hay aplicaciones disponibles</h5>
+                    <p>Crea aplicaciones desde la configuracion del sistema</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Actividad Reciente Tab -->
+    <div class="tab-pane fade" id="activity-pane" role="tabpanel">
+        <h5 class="mb-3"><i class="bi bi-clock-history me-2"></i>Actividad Reciente</h5>
+        <p class="text-muted mb-4">Historial de acciones y cambios realizados por este usuario</p>
+
+        <div class="empty-state">
+            <i class="bi bi-clock-history"></i>
+            <h5>Funcionalidad en desarrollo</h5>
+            <p>La actividad reciente se implementara proximamente</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Confirmar Reset de Contrasena -->
+<div class="modal fade" id="confirmResetPasswordModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Reset de Contrasena
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    <strong>Esta seguro de resetear la contrasena de este usuario?</strong>
+                </p>
+                <div class="alert alert-warning mb-3">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <small>
+                        La contrasena se cambiara a <strong>"tecno#2K"</strong> y el usuario
+                        sera obligado a cambiarla en su proximo inicio de sesion.
+                    </small>
+                </div>
+                <p class="mb-0 text-muted">
+                    <strong>Usuario:</strong> {{ user.full_name }}
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" id="confirmResetPasswordBtn">
+                    <i class="bi bi-key me-1"></i>Si, Resetear
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Confirmar Activar/Desactivar Cuenta -->
+<div class="modal fade" id="confirmToggleStatusModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header {{ 'bg-danger' if user.is_active else 'bg-success' }} text-white">
+                <h5 class="modal-title">
+                    {% if user.is_active %}
+                    <i class="bi bi-person-slash me-2"></i>Confirmar Desactivacion
+                    {% else %}
+                    <i class="bi bi-person-check me-2"></i>Confirmar Activacion
+                    {% endif %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                {% if user.is_active %}
+                <p class="mb-3">
+                    <strong>Esta seguro de desactivar la cuenta de este usuario?</strong>
+                </p>
+                <div class="alert alert-danger mb-3">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <small>
+                        El usuario <strong>no podra iniciar sesion</strong> mientras su cuenta
+                        este desactivada. Esta accion se puede revertir en cualquier momento.
+                    </small>
+                </div>
+                {% else %}
+                <p class="mb-3">
+                    <strong>Esta seguro de activar la cuenta de este usuario?</strong>
+                </p>
+                <div class="alert alert-success mb-3">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <small>
+                        El usuario podra <strong>iniciar sesion nuevamente</strong> con sus
+                        credenciales existentes.
+                    </small>
+                </div>
+                {% endif %}
+                <p class="mb-0 text-muted">
+                    <strong>Usuario:</strong> {{ user.full_name }}
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                {% if user.is_active %}
+                <button type="button" class="btn btn-danger" id="confirmToggleStatusBtn">
+                    <i class="bi bi-person-slash me-1"></i>Si, Desactivar
+                </button>
+                {% else %}
+                <button type="button" class="btn btn-success" id="confirmToggleStatusBtn">
+                    <i class="bi bi-person-check me-1"></i>Si, Activar
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar Usuario -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-pencil me-2"></i>Editar Usuario
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editUserForm">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label for="editFirstName" class="form-label">Nombre(s) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="editFirstName" required
+                                   value="{{ user.first_name }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="editLastName" class="form-label">Apellido Paterno <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="editLastName" required
+                                   value="{{ user.last_name }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="editMiddleName" class="form-label">Apellido Materno</label>
+                            <input type="text" class="form-control" id="editMiddleName"
+                                   value="{{ user.middle_name or '' }}">
+                        </div>
+                        <div class="col-12">
+                            <label for="editEmail" class="form-label">Correo Electronico</label>
+                            <input type="email" class="form-control" id="editEmail"
+                                   value="{{ user.email or '' }}" placeholder="correo@ejemplo.com">
+                        </div>
+                        {% if user.control_number %}
+                        <div class="col-12">
+                            <label for="editControlNumber" class="form-label">Numero de Control</label>
+                            <input type="text" class="form-control" id="editControlNumber"
+                                   value="{{ user.control_number }}" maxlength="8" pattern="\d{8}">
+                            <div class="form-text">8 digitos numericos</div>
+                        </div>
+                        {% else %}
+                        <div class="col-12">
+                            <label for="editUsername" class="form-label">Nombre de Usuario <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text">@</span>
+                                <input type="text" class="form-control" id="editUsername" required
+                                       value="{{ user.username or '' }}">
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="saveEditUserBtn">
+                        <i class="bi bi-check-lg me-1"></i>Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Gestionar Asignaciones -->
+<div class="modal fade" id="manageAssignmentsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-gear me-2"></i>Gestionar: <span id="modalAppName"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-4">
+                    <h6 class="text-primary">Roles Asignados</h6>
+                    <div id="modalUserRoles" class="d-flex flex-wrap gap-2 mb-2"></div>
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" id="modalRoleToAssign">
+                            <option value="">Seleccionar rol...</option>
+                            {% for role in roles %}
+                            <option value="{{ role.name }}">{{ role.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-primary" id="modalAssignRole">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <h6 class="text-success">Permisos Directos</h6>
+                    <div id="modalUserPerms" class="d-flex flex-wrap gap-2 mb-2"></div>
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" id="modalPermToAssign">
+                            <option value="">Seleccionar permiso...</option>
+                        </select>
+                        <button class="btn btn-success" id="modalAssignPerm">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="border-top pt-3">
+                    <h6 class="text-info">Permisos Efectivos</h6>
+                    <div id="modalEffectivePerms" class="d-flex flex-wrap gap-1"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.userId = {{ user.id }};
+    window.userIsActive = {{ 'true' if user.is_active else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='core/js/config/users/user_detail.js') }}?v={{ sv('core', 'js/config/users/user_detail.js') }}"></script>
+{% endblock %}

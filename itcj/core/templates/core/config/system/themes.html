@@ -1,0 +1,247 @@
+{% extends "core/config/config_base.html" %}
+
+{% set sidebar_active = 'themes' %}
+
+{% block title %}Tematicas{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Tematicas</li>
+{% endblock %}
+
+{% block page_icon %}<i class="bi bi-palette-fill"></i>{% endblock %}
+{% block page_title %}Gestion de Tematicas{% endblock %}
+{% block page_subtitle %}Configura colores, decoraciones y estilos visuales del sistema{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#themeModal" onclick="themesManager.openCreateModal()">
+    <i class="bi bi-plus-lg me-1"></i>Nueva Tematica
+</button>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/system/themes.css') }}?v={{ sv('core', 'css/config/system/themes.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Tematica Activa -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm active-theme-card" id="activeThemeCard">
+            <div class="card-header bg-gradient-primary text-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-star-fill me-2"></i>Tematica Activa Actualmente</span>
+                <span class="badge bg-light text-primary" id="activeThemeStatus">Cargando...</span>
+            </div>
+            <div class="card-body" id="activeThemeContent">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Lista de Tematicas -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="section-header">
+            <h4>Todas las Tematicas</h4>
+            <p class="text-muted mb-0">Gestiona y configura las tematicas disponibles en el sistema</p>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4" id="themesContainer">
+    <!-- Se carga dinamicamente -->
+    <div class="col-12 text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Cargando...</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Crear/Editar Tematica -->
+<div class="modal fade" id="themeModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="themeModalTitle">
+                    <i class="bi bi-plus-lg me-2"></i>Nueva Tematica
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="themeForm">
+                <div class="modal-body">
+                    <div class="row">
+                        <!-- Columna Izquierda: Configuracion Basica -->
+                        <div class="col-lg-6">
+                            <h6 class="mb-3 text-primary"><i class="bi bi-info-circle me-2"></i>Informacion Basica</h6>
+
+                            <div class="mb-3">
+                                <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="themeName" name="name" required placeholder="Ej: Navidad, Halloween, Dia de Muertos">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Descripcion</label>
+                                <textarea class="form-control" id="themeDescription" name="description" rows="2" placeholder="Descripcion breve de la tematica"></textarea>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Prioridad</label>
+                                <input type="number" class="form-control" id="themePriority" name="priority" value="100" min="1" max="999">
+                                <small class="text-muted">Menor numero = mayor prioridad (se muestra primero si hay conflicto)</small>
+                            </div>
+
+                            <h6 class="mb-3 mt-4 text-primary"><i class="bi bi-calendar-event me-2"></i>Activacion Automatica</h6>
+                            <p class="text-muted small">Configura fechas para activacion automatica anual. Deja vacio para activacion solo manual.</p>
+
+                            <div class="row">
+                                <div class="col-6">
+                                    <label class="form-label">Fecha Inicio</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control" id="startDay" placeholder="Dia" min="1" max="31">
+                                        <select class="form-select" id="startMonth">
+                                            <option value="">Mes</option>
+                                            <option value="1">Enero</option>
+                                            <option value="2">Febrero</option>
+                                            <option value="3">Marzo</option>
+                                            <option value="4">Abril</option>
+                                            <option value="5">Mayo</option>
+                                            <option value="6">Junio</option>
+                                            <option value="7">Julio</option>
+                                            <option value="8">Agosto</option>
+                                            <option value="9">Septiembre</option>
+                                            <option value="10">Octubre</option>
+                                            <option value="11">Noviembre</option>
+                                            <option value="12">Diciembre</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">Fecha Fin</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="number" class="form-control" id="endDay" placeholder="Dia" min="1" max="31">
+                                        <select class="form-select" id="endMonth">
+                                            <option value="">Mes</option>
+                                            <option value="1">Enero</option>
+                                            <option value="2">Febrero</option>
+                                            <option value="3">Marzo</option>
+                                            <option value="4">Abril</option>
+                                            <option value="5">Mayo</option>
+                                            <option value="6">Junio</option>
+                                            <option value="7">Julio</option>
+                                            <option value="8">Agosto</option>
+                                            <option value="9">Septiembre</option>
+                                            <option value="10">Octubre</option>
+                                            <option value="11">Noviembre</option>
+                                            <option value="12">Diciembre</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Columna Derecha: Colores y Decoraciones -->
+                        <div class="col-lg-6">
+                            <h6 class="mb-3 text-primary"><i class="bi bi-palette me-2"></i>Colores</h6>
+
+                            <div class="row g-2 mb-3">
+                                <div class="col-4">
+                                    <label class="form-label small">Principal</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" class="form-control form-control-color" id="colorPrimary" value="#0d6efd">
+                                        <input type="text" class="form-control form-control-sm color-hex-input" id="colorPrimaryHex" value="#0d6efd" maxlength="7">
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label small">Secundario</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" class="form-control form-control-color" id="colorSecondary" value="#6c757d">
+                                        <input type="text" class="form-control form-control-sm color-hex-input" id="colorSecondaryHex" value="#6c757d" maxlength="7">
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label small">Acento</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" class="form-control form-control-color" id="colorAccent" value="#ffc107">
+                                        <input type="text" class="form-control form-control-sm color-hex-input" id="colorAccentHex" value="#ffc107" maxlength="7">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h6 class="mb-3 mt-4 text-primary">
+                                <i class="bi bi-stars me-2"></i>Decoraciones
+                                <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="themesManager.addDecoration()">
+                                    <i class="bi bi-plus-lg me-1"></i>Agregar
+                                </button>
+                            </h6>
+                            <p class="text-muted small mb-2">Define las decoraciones disponibles para esta tematica. Cada una puede activarse/desactivarse y tener opciones adicionales.</p>
+
+                            <div class="decorations-dynamic-list" id="decorationsList">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+
+                            <h6 class="mb-3 mt-4 text-primary"><i class="bi bi-file-earmark-code me-2"></i>Archivos Estaticos</h6>
+
+                            <div class="row g-2 mb-3">
+                                <div class="col-6">
+                                    <label class="form-label small">Archivo CSS</label>
+                                    <input type="text" class="form-control form-control-sm" id="cssFile" placeholder="core/css/theme.css">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small">Archivo JS</label>
+                                    <input type="text" class="form-control form-control-sm" id="jsFile" placeholder="core/js/theme.js">
+                                </div>
+                            </div>
+
+                            <h6 class="mb-3 mt-4 text-primary"><i class="bi bi-code-slash me-2"></i>CSS Personalizado</h6>
+                            <textarea class="form-control font-monospace css-editor" id="customCss" rows="5" placeholder="/* CSS personalizado aqui */&#10;:root {&#10;  --theme-color: #ff0000;&#10;}"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="saveThemeBtn">
+                        <i class="bi bi-check-lg me-1"></i>Guardar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Confirmar Eliminacion -->
+<div class="modal fade" id="deleteThemeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Eliminacion
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Esta seguro de eliminar la tematica <strong id="deleteThemeName"></strong>?</p>
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Esta accion no se puede deshacer.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteTheme">
+                    <i class="bi bi-trash me-1"></i>Eliminar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/config/system/themes.js') }}?v={{ sv('core', 'js/config/system/themes.js') }}"></script>
+{% endblock %}

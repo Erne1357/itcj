@@ -18,7 +18,7 @@ from itcj.apps.agendatec.utils.msgraph_mail import (
 admin_surveys_pages_bp = Blueprint("admin_surveys_pages", __name__, template_folder="../../templates")
 
 
-@admin_surveys_pages_bp.get("/admin/surveys")
+@admin_surveys_pages_bp.get("/")
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.surveys.page.list"])
 def admin_surveys():
@@ -26,7 +26,7 @@ def admin_surveys():
     return render_template("agendatec/admin/surveys.html", ms_account=acct)
 
 
-@admin_surveys_pages_bp.get("/auth/ms/login")
+@admin_surveys_pages_bp.get("/auth/login")
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def ms_login():
@@ -34,7 +34,7 @@ def ms_login():
     return redirect(build_auth_url(state))
 
 
-@admin_surveys_pages_bp.get("/auth/ms/callback")
+@admin_surveys_pages_bp.get("/auth/callback")
 def ms_callback():
     code = request.args.get("code")
     if not code:
@@ -45,7 +45,7 @@ def ms_callback():
     return redirect(url_for("agendatec_pages.admin_surveys_pages.admin_surveys"))
 
 
-@admin_surveys_pages_bp.post("/auth/ms/logout")
+@admin_surveys_pages_bp.post("/auth/logout")
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def ms_logout():
@@ -53,7 +53,7 @@ def ms_logout():
     return jsonify({"ok": True})
 
 
-@admin_surveys_pages_bp.get("/auth/ms/status")
+@admin_surveys_pages_bp.get("/auth/status")
 @login_required
 @app_required(app_key="agendatec", perms=["agendatec.surveys.api.send"])
 def ms_status():

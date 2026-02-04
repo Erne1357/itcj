@@ -1,0 +1,673 @@
+/* config-base.css - Estilos base consolidados para modulo de configuracion */
+
+/* ==================== VARIABLES CSS ==================== */
+:root {
+    --config-sidebar-width: 280px;
+    --config-sidebar-collapsed-width: 60px;
+    --config-primary: #0d6efd;
+    --config-primary-hover: #0b5ed7;
+    --config-secondary: #6c757d;
+    --config-success: #198754;
+    --config-danger: #dc3545;
+    --config-warning: #ffc107;
+    --config-info: #0dcaf0;
+    --config-purple: #6f42c1;
+    --config-light: #f8f9fa;
+    --config-dark: #212529;
+    --config-border: #dee2e6;
+    --config-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    --config-shadow-hover: 0 4px 16px rgba(0,0,0,0.15);
+    --config-radius: 0.5rem;
+    --config-transition: all 0.2s ease;
+}
+
+/* ==================== LAYOUT PRINCIPAL ==================== */
+.config-wrapper {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* ==================== SIDEBAR ==================== */
+.config-sidebar {
+    width: var(--config-sidebar-width);
+    background: linear-gradient(180deg, #1a1f2c 0%, #2d3748 100%);
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    transition: var(--config-transition);
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+}
+
+.config-sidebar-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.config-sidebar-brand {
+    display: flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+}
+
+.config-sidebar-brand:hover {
+    color: white;
+    text-decoration: none;
+}
+
+.config-sidebar-brand i {
+    font-size: 1.5rem;
+    margin-right: 0.75rem;
+    color: var(--config-primary);
+}
+
+.config-sidebar-brand h5 {
+    margin: 0;
+    font-weight: 600;
+}
+
+.config-sidebar-nav {
+    flex: 1;
+    padding: 1rem 0;
+    overflow-y: auto;
+}
+
+.config-nav-section {
+    padding: 0.5rem 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.config-nav-section-title {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+    padding-left: 0.5rem;
+}
+
+.config-nav-link {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    color: rgba(255,255,255,0.8);
+    text-decoration: none;
+    border-radius: var(--config-radius);
+    margin: 0.125rem 0;
+    transition: var(--config-transition);
+}
+
+.config-nav-link:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+    text-decoration: none;
+}
+
+.config-nav-link.active {
+    background: var(--config-primary);
+    color: white;
+}
+
+.config-nav-link i {
+    margin-right: 0.75rem;
+    font-size: 1.1rem;
+    width: 1.5rem;
+    text-align: center;
+}
+
+.config-nav-link .badge {
+    margin-left: auto;
+    font-size: 0.7rem;
+}
+
+.config-sidebar-footer {
+    padding: 1rem;
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+.config-sidebar-user {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    color: rgba(255,255,255,0.8);
+}
+
+.config-sidebar-user .user-avatar {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    margin-right: 0.75rem;
+    color: white;
+    font-size: 0.875rem;
+}
+
+.config-sidebar-user-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.config-sidebar-user-name {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.config-sidebar-user-role {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.5);
+}
+
+/* ==================== CONTENIDO PRINCIPAL ==================== */
+.config-main {
+    flex: 1;
+    margin-left: var(--config-sidebar-width);
+    background: var(--config-light);
+    min-height: 100vh;
+}
+
+.config-content {
+    padding: 2rem;
+}
+
+/* ==================== HEADER DE PAGINA ==================== */
+.config-page-header {
+    margin-bottom: 2rem;
+}
+
+.config-breadcrumb {
+    background: transparent;
+    padding: 0;
+    margin-bottom: 0.5rem;
+}
+
+.config-breadcrumb .breadcrumb-item a {
+    color: var(--config-primary);
+    text-decoration: none;
+}
+
+.config-breadcrumb .breadcrumb-item a:hover {
+    text-decoration: underline;
+}
+
+.config-breadcrumb .breadcrumb-item.active {
+    color: var(--config-secondary);
+}
+
+.config-page-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.config-page-title i {
+    color: var(--config-primary);
+}
+
+.config-page-subtitle {
+    color: var(--config-secondary);
+    margin: 0;
+}
+
+/* ==================== SECTION HEADER ==================== */
+.section-header {
+    border-left: 4px solid var(--config-primary);
+    padding-left: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.section-header h2,
+.section-header h4,
+.section-header h5 {
+    margin-bottom: 0.25rem;
+    color: var(--config-dark);
+}
+
+.section-header p {
+    margin-bottom: 0;
+}
+
+/* ==================== TARJETAS ==================== */
+.config-card {
+    border: none;
+    border-radius: var(--config-radius);
+    box-shadow: var(--config-shadow);
+    transition: var(--config-transition);
+    background: white;
+}
+
+.config-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--config-shadow-hover);
+}
+
+.config-card .card-body {
+    padding: 1.5rem;
+}
+
+/* Stats badges en tarjetas */
+.stats-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 0.75em;
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    padding: 0 0.5rem;
+}
+
+/* ==================== TABLAS ==================== */
+.config-table {
+    margin-bottom: 0;
+}
+
+.config-table thead {
+    background: var(--config-light);
+}
+
+.config-table thead th {
+    border-bottom: 2px solid var(--config-border);
+    font-weight: 600;
+    color: var(--config-secondary);
+    padding: 1rem;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.config-table tbody tr {
+    transition: var(--config-transition);
+}
+
+.config-table tbody tr:hover {
+    background-color: rgba(13, 110, 253, 0.05);
+}
+
+.config-table td {
+    padding: 1rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--config-border);
+}
+
+/* ==================== AVATARES ==================== */
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.user-avatar-sm {
+    width: 32px;
+    height: 32px;
+    font-size: 0.75rem;
+}
+
+.user-avatar-lg {
+    width: 64px;
+    height: 64px;
+    font-size: 1.5rem;
+}
+
+.user-avatar-xl {
+    width: 80px;
+    height: 80px;
+    font-size: 2rem;
+}
+
+/* ==================== BADGES ==================== */
+.badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+.badge-role {
+    font-size: 0.7em;
+    font-weight: 600;
+}
+
+/* App colors */
+.bg-agendatec { background-color: #0d6efd !important; }
+.bg-helpdesk { background-color: #198754 !important; }
+.bg-itcj { background-color: #e61d1d !important; }
+
+/* ==================== FORMULARIOS ==================== */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--config-primary);
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+}
+
+.form-label {
+    font-weight: 500;
+    color: var(--config-dark);
+    margin-bottom: 0.375rem;
+}
+
+/* ==================== BOTONES ==================== */
+.btn-group-sm .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.775rem;
+}
+
+.btn-action {
+    padding: 0.25rem 0.5rem;
+    line-height: 1;
+}
+
+/* ==================== MODALES ==================== */
+.modal-lg .modal-body,
+.modal-xl .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--config-border);
+}
+
+.modal-footer {
+    border-top: 1px solid var(--config-border);
+}
+
+/* ==================== TOASTS ==================== */
+.toast {
+    border: none;
+    box-shadow: var(--config-shadow);
+}
+
+.toast-container {
+    z-index: 1100;
+}
+
+/* ==================== ESTADOS VACIOS ==================== */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+}
+
+.empty-state i {
+    font-size: 4rem;
+    color: var(--config-secondary);
+    margin-bottom: 1rem;
+}
+
+.empty-state h5 {
+    color: var(--config-secondary);
+}
+
+.empty-state p {
+    color: #adb5bd;
+}
+
+/* ==================== ESTADOS DE CARGA ==================== */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+    position: relative;
+}
+
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    border: 3px solid var(--config-light);
+    border-top-color: var(--config-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* ==================== ANIMACIONES ==================== */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease;
+}
+
+.fade-in-scale {
+    animation: fadeInScale 0.2s ease;
+}
+
+/* ==================== PAGINACION ==================== */
+.pagination {
+    margin-bottom: 0;
+}
+
+.page-link {
+    color: var(--config-primary);
+    border-color: var(--config-border);
+}
+
+.page-link:hover {
+    color: var(--config-primary-hover);
+    background-color: var(--config-light);
+}
+
+.page-item.active .page-link {
+    background-color: var(--config-primary);
+    border-color: var(--config-primary);
+}
+
+/* ==================== FILTROS Y BUSQUEDA ==================== */
+.search-box {
+    position: relative;
+}
+
+.search-box .form-control {
+    padding-left: 2.5rem;
+}
+
+.search-box .search-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--config-secondary);
+}
+
+.filter-group {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* ==================== TABS ==================== */
+.nav-tabs .nav-link {
+    color: var(--config-secondary);
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.75rem 1rem;
+}
+
+.nav-tabs .nav-link:hover {
+    color: var(--config-primary);
+    border-color: transparent;
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--config-primary);
+    background: transparent;
+    border-color: transparent;
+    border-bottom-color: var(--config-primary);
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 992px) {
+    .config-sidebar {
+        width: var(--config-sidebar-collapsed-width);
+    }
+
+    .config-sidebar:hover {
+        width: var(--config-sidebar-width);
+    }
+
+    .config-sidebar-brand h5,
+    .config-nav-link span,
+    .config-nav-section-title,
+    .config-sidebar-user-info {
+        display: none;
+    }
+
+    .config-sidebar:hover .config-sidebar-brand h5,
+    .config-sidebar:hover .config-nav-link span,
+    .config-sidebar:hover .config-nav-section-title,
+    .config-sidebar:hover .config-sidebar-user-info {
+        display: block;
+    }
+
+    .config-main {
+        margin-left: var(--config-sidebar-collapsed-width);
+    }
+}
+
+@media (max-width: 768px) {
+    .config-sidebar {
+        transform: translateX(-100%);
+        width: var(--config-sidebar-width);
+    }
+
+    .config-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .config-main {
+        margin-left: 0;
+    }
+
+    .config-content {
+        padding: 1rem;
+    }
+
+    .config-page-header {
+        margin-bottom: 1rem;
+    }
+
+    /* Mostrar boton de menu */
+    .config-mobile-toggle {
+        display: block !important;
+    }
+}
+
+/* Boton de toggle para movil */
+.config-mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1001;
+    background: var(--config-primary);
+    color: white;
+    border: none;
+    border-radius: var(--config-radius);
+    padding: 0.5rem 0.75rem;
+    box-shadow: var(--config-shadow);
+}
+
+/* Overlay para movil */
+.config-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 999;
+}
+
+.config-overlay.show {
+    display: block;
+}
+
+/* ==================== SCROLLBAR PERSONALIZADO ==================== */
+.config-sidebar-nav::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.config-sidebar-nav::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.config-sidebar-nav::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.2);
+    border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+/* ==================== UTILIDADES ==================== */
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.text-truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.border-left-primary {
+    border-left: 4px solid var(--config-primary) !important;
+}
+
+.border-left-success {
+    border-left: 4px solid var(--config-success) !important;
+}
+
+.border-left-warning {
+    border-left: 4px solid var(--config-warning) !important;
+}
+
+.border-left-danger {
+    border-left: 4px solid var(--config-danger) !important;
+}
+
+.border-left-purple {
+    border-left: 4px solid var(--config-purple) !important;
+}

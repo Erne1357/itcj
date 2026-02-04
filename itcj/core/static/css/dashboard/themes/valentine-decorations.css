@@ -1,0 +1,550 @@
+/* ============================================
+   DECORACIONES DE SAN VALENTIN - DASHBOARD
+   Corazones, cupido y efectos romanticos
+   ============================================ */
+
+/* ==================== GUIRNALDA DE CORAZONES ==================== */
+.valentine-garland {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 45px;
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-start;
+    pointer-events: none;
+    z-index: 9999;
+    padding: 0 10px;
+}
+
+.valentine-heart-light {
+    position: relative;
+    font-size: 16px;
+    margin-top: 14px;
+    flex-shrink: 0;
+    animation: heartPulse 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 6px currentColor);
+    user-select: none;
+}
+
+/* Hilo colgante */
+.valentine-heart-light::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1px;
+    height: 12px;
+    background: linear-gradient(to bottom, #f8bbd0 0%, #f48fb1 100%);
+}
+
+.valentine-heart-light:nth-child(4n+1) {
+    color: #e91e63;
+    animation-delay: 0s;
+}
+
+.valentine-heart-light:nth-child(4n+2) {
+    color: #f44336;
+    animation-delay: 0.5s;
+    font-size: 14px;
+}
+
+.valentine-heart-light:nth-child(4n+3) {
+    color: #ff80ab;
+    animation-delay: 1s;
+}
+
+.valentine-heart-light:nth-child(4n+4) {
+    color: #ff5252;
+    animation-delay: 1.5s;
+    font-size: 13px;
+}
+
+@keyframes heartPulse {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 0.9;
+    }
+    50% {
+        transform: scale(1.25);
+        opacity: 1;
+    }
+}
+
+/* ==================== CORAZONES FLOTANTES ==================== */
+.floating-heart {
+    position: fixed;
+    top: -30px;
+    pointer-events: none;
+    z-index: 10000;
+    user-select: none;
+    animation: floatUp linear infinite;
+    opacity: 0;
+}
+
+@keyframes floatUp {
+    0% {
+        opacity: 0;
+        transform: translateY(0) rotate(0deg) scale(0.5);
+    }
+    10% {
+        opacity: 0.8;
+        transform: translateY(-10vh) rotate(15deg) scale(1);
+    }
+    90% {
+        opacity: 0.6;
+        transform: translateY(-90vh) rotate(-15deg) scale(0.9);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-105vh) rotate(25deg) scale(0.7);
+    }
+}
+
+/* Variaciones de tamano y velocidad */
+.floating-heart:nth-child(3n) {
+    font-size: 14px;
+    animation-duration: 12s;
+}
+
+.floating-heart:nth-child(3n+1) {
+    font-size: 18px;
+    animation-duration: 16s;
+}
+
+.floating-heart:nth-child(3n+2) {
+    font-size: 11px;
+    animation-duration: 14s;
+}
+
+/* ==================== BORDE ROMANTICO SUPERIOR ==================== */
+.taskbar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(
+        90deg,
+        #e91e63 0%,
+        #ff80ab 25%,
+        #f44336 50%,
+        #ff80ab 75%,
+        #e91e63 100%
+    );
+    opacity: 0.5;
+    animation: loveGlow 3s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 10;
+}
+
+@keyframes loveGlow {
+    0%, 100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* ==================== ESQUINAS CON RESPLANDOR ROSA ==================== */
+.desktop::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 250px;
+    height: 250px;
+    background: radial-gradient(circle at top left,
+        rgba(233, 30, 99, 0.08) 0%,
+        rgba(255, 128, 171, 0.04) 40%,
+        transparent 70%
+    );
+    pointer-events: none;
+    z-index: 1;
+}
+
+.desktop::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 250px;
+    height: 250px;
+    background: radial-gradient(circle at top right,
+        rgba(244, 67, 54, 0.08) 0%,
+        rgba(255, 128, 171, 0.04) 40%,
+        transparent 70%
+    );
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* ==================== CUPIDO ANIMADO ==================== */
+.cupid-container {
+    position: fixed;
+    bottom: 60px;
+    pointer-events: none;
+    z-index: 10001;
+    transform-origin: center center;
+    opacity: 0;
+}
+
+/* Cuerpo del cupido */
+.cupid-body {
+    position: relative;
+    width: 50px;
+    height: 50px;
+}
+
+/* Cabeza */
+.cupid-head {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 22px;
+    height: 22px;
+    background: radial-gradient(circle at 40% 35%, #ffe0b2, #ffcc80 70%, #ffb74d);
+    border-radius: 50%;
+    box-shadow: inset -2px -2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Ojos del cupido */
+.cupid-eye {
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    background: #3e2723;
+    border-radius: 50%;
+    top: 9px;
+}
+
+.cupid-eye.left { left: 6px; }
+.cupid-eye.right { right: 6px; }
+
+/* Mejillas sonrojadas */
+.cupid-cheek {
+    position: absolute;
+    width: 5px;
+    height: 3px;
+    background: rgba(233, 30, 99, 0.3);
+    border-radius: 50%;
+    top: 12px;
+}
+
+.cupid-cheek.left { left: 3px; }
+.cupid-cheek.right { right: 3px; }
+
+/* Sonrisa */
+.cupid-smile {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 4px;
+    border: 1.5px solid #5d4037;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+}
+
+/* Cuerpo */
+.cupid-torso {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 18px;
+    height: 16px;
+    background: radial-gradient(circle at 40% 30%, #ffe0b2, #ffcc80);
+    border-radius: 6px 6px 4px 4px;
+}
+
+/* Pañal */
+.cupid-diaper {
+    position: absolute;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 10px;
+    background: #ffffff;
+    border-radius: 0 0 10px 10px;
+    box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Alas */
+.cupid-wing {
+    position: absolute;
+    top: 14px;
+    width: 22px;
+    height: 28px;
+    border-radius: 50% 50% 30% 30%;
+    animation: flapWings 0.6s ease-in-out infinite;
+}
+
+.cupid-wing.left {
+    left: -12px;
+    background: linear-gradient(135deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(248, 187, 208, 0.7) 50%,
+        rgba(244, 143, 177, 0.4) 100%
+    );
+    transform-origin: right center;
+    transform: rotate(-10deg);
+    box-shadow: -2px 2px 6px rgba(233, 30, 99, 0.15);
+}
+
+.cupid-wing.right {
+    right: -12px;
+    background: linear-gradient(-135deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(248, 187, 208, 0.7) 50%,
+        rgba(244, 143, 177, 0.4) 100%
+    );
+    transform-origin: left center;
+    transform: rotate(10deg);
+    box-shadow: 2px 2px 6px rgba(233, 30, 99, 0.15);
+    animation-delay: 0.15s;
+}
+
+@keyframes flapWings {
+    0%, 100% {
+        transform: rotate(-10deg) scaleX(1);
+    }
+    50% {
+        transform: rotate(-25deg) scaleX(0.85);
+    }
+}
+
+.cupid-wing.right {
+    animation-name: flapWingsRight;
+}
+
+@keyframes flapWingsRight {
+    0%, 100% {
+        transform: rotate(10deg) scaleX(1);
+    }
+    50% {
+        transform: rotate(25deg) scaleX(0.85);
+    }
+}
+
+/* Arco */
+.cupid-bow {
+    position: absolute;
+    top: 18px;
+    right: -20px;
+    width: 20px;
+    height: 30px;
+    border: 2px solid #8d6e63;
+    border-left: none;
+    border-radius: 0 50% 50% 0;
+}
+
+/* Cuerda del arco */
+.cupid-bow::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 100%;
+    background: #a1887f;
+}
+
+/* Flecha */
+.cupid-arrow {
+    position: absolute;
+    top: 30px;
+    right: -30px;
+    width: 35px;
+    height: 2px;
+    background: linear-gradient(90deg, #8d6e63 0%, #a1887f 80%, transparent 100%);
+    transform-origin: right center;
+}
+
+/* Punta de la flecha (corazon) */
+.cupid-arrow::before {
+    content: '♥';
+    position: absolute;
+    left: -8px;
+    top: -7px;
+    font-size: 12px;
+    color: #e91e63;
+    filter: drop-shadow(0 0 3px rgba(233, 30, 99, 0.5));
+}
+
+/* Plumas de la flecha */
+.cupid-arrow::after {
+    content: '';
+    position: absolute;
+    right: -2px;
+    top: -4px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid #f48fb1;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+}
+
+/* Halo */
+.cupid-halo {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 26px;
+    height: 8px;
+    border: 2px solid #ffd54f;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(255, 213, 79, 0.5);
+    animation: haloGlow 2s ease-in-out infinite;
+}
+
+@keyframes haloGlow {
+    0%, 100% {
+        box-shadow: 0 0 6px rgba(255, 213, 79, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 14px rgba(255, 213, 79, 0.8);
+    }
+}
+
+/* Animaciones del cupido */
+.cupid-container.entering {
+    animation: cupidFlyIn 3s ease-out forwards;
+}
+
+.cupid-container.floating {
+    animation: cupidFloat 4s ease-in-out infinite;
+}
+
+.cupid-container.leaving {
+    animation: cupidFlyOut 2.5s ease-in forwards;
+}
+
+@keyframes cupidFlyIn {
+    0% {
+        opacity: 0;
+        transform: translate(-150px, 100px) rotate(-15deg) scale(0.3);
+    }
+    40% {
+        opacity: 1;
+        transform: translate(20px, -30px) rotate(5deg) scale(1.1);
+    }
+    70% {
+        transform: translate(-10px, 10px) rotate(-3deg) scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0deg) scale(1);
+    }
+}
+
+@keyframes cupidFloat {
+    0%, 100% {
+        transform: translate(0, 0) rotate(0deg);
+    }
+    25% {
+        transform: translate(8px, -12px) rotate(3deg);
+    }
+    50% {
+        transform: translate(-5px, -20px) rotate(-2deg);
+    }
+    75% {
+        transform: translate(10px, -8px) rotate(4deg);
+    }
+}
+
+@keyframes cupidFlyOut {
+    0% {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0deg) scale(1);
+    }
+    30% {
+        transform: translate(-20px, -30px) rotate(-10deg) scale(1.1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(300px, -200px) rotate(25deg) scale(0.3);
+    }
+}
+
+/* Disparo de flecha */
+.cupid-container.shooting .cupid-arrow {
+    animation: shootArrow 1s ease-out forwards;
+}
+
+@keyframes shootArrow {
+    0% {
+        transform: translateX(0) rotate(0deg);
+        opacity: 1;
+    }
+    100% {
+        transform: translateX(-200px) rotate(-5deg);
+        opacity: 0;
+    }
+}
+
+/* Corazon que aparece al disparar */
+.shot-heart {
+    position: fixed;
+    font-size: 24px;
+    color: #e91e63;
+    pointer-events: none;
+    z-index: 10002;
+    animation: shotHeartPop 1.5s ease-out forwards;
+    filter: drop-shadow(0 0 8px rgba(233, 30, 99, 0.6));
+}
+
+@keyframes shotHeartPop {
+    0% {
+        opacity: 0;
+        transform: scale(0) rotate(0deg);
+    }
+    30% {
+        opacity: 1;
+        transform: scale(1.5) rotate(10deg);
+    }
+    60% {
+        transform: scale(1) rotate(-5deg);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(2) rotate(15deg) translateY(-60px);
+    }
+}
+
+/* ==================== HOVER EN ICONOS ==================== */
+.desktop-icon:hover {
+    animation: loveShake 0.5s ease-in-out;
+}
+
+@keyframes loveShake {
+    0%, 100% { transform: rotate(0deg); }
+    20% { transform: rotate(-5deg) scale(1.05); }
+    40% { transform: rotate(5deg) scale(1.1); }
+    60% { transform: rotate(-3deg) scale(1.05); }
+    80% { transform: rotate(3deg); }
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 768px) {
+    .valentine-garland {
+        height: 35px;
+    }
+
+    .valentine-heart-light {
+        font-size: 12px;
+    }
+
+    .cupid-container {
+        transform: scale(0.7);
+        bottom: 50px;
+    }
+}

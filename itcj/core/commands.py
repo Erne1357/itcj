@@ -18,7 +18,7 @@ def init_database_command():
     
     # Definir el orden de ejecución de los directorios
     sql_directories = [
-        ('app/database/DML/core', [
+        ('app/database/DML/core/init', [
             '00_insert_apps.sql',
             '01_insert_departments.sql',
             '02_insert_positions.sql',
@@ -231,9 +231,77 @@ def execute_single_sql_command(sql_file):
         raise
 
 
+@click.command('init-themes')
+@with_appcontext
+def init_themes_command():
+    """Inicializa los permisos y datos base para el sistema de tematicas."""
+    click.echo('🎨 Inicializando sistema de tematicas...')
+
+    # Obtener la ruta base del proyecto
+    base_path = current_app.root_path
+    project_root = os.path.dirname(os.path.dirname(base_path))
+
+    # Ruta del archivo SQL de tematicas
+    sql_file = os.path.join(project_root, 'database', 'DML', 'core', 'themes', 'theme.sql')
+
+    # Intentar rutas alternativas si no existe
+    if not os.path.exists(sql_file):
+        alternative_paths = [
+            os.path.join(project_root, 'app', 'database', 'DML', 'core', 'themes', 'theme.sql'),
+            os.path.join(project_root, 'database', 'DML', 'core', 'themes.sql'),
+        ]
+        for alt_path in alternative_paths:
+            if os.path.exists(alt_path):
+                sql_file = alt_path
+                break
+
+    try:
+        if not os.path.exists(sql_file):
+            click.echo(f'⚠️  Archivo no encontrado: {sql_file}')
+            click.echo('   Buscado en:')
+            click.echo(f'   - {sql_file}')
+            for alt in alternative_paths:
+                click.echo(f'   - {alt}')
+            return
+
+        click.echo(f'📄 Ejecutando: {sql_file}')
+        execute_sql_file(sql_file)
+
+        # Verificar resultado
+        with db.engine.connect() as connection:
+            # Contar permisos de tematicas
+            result = connection.execute(text(
+                "SELECT COUNT(*) as count FROM core_permissions WHERE code LIKE 'core.themes.%'"
+            )).fetchone()
+            click.echo(f'   ✅ Permisos de tematicas creados: {result.count}')
+
+            # Contar tematicas
+            result = connection.execute(text(
+                "SELECT COUNT(*) as count FROM core_themes"
+            )).fetchone()
+            click.echo(f'   ✅ Tematicas configuradas: {result.count}')
+
+            # Mostrar tematicas existentes
+            themes = connection.execute(text(
+                "SELECT name, is_enabled FROM core_themes ORDER BY priority"
+            )).fetchall()
+            if themes:
+                click.echo('\n   📋 Tematicas disponibles:')
+                for theme in themes:
+                    status = '✓' if theme.is_enabled else '✗'
+                    click.echo(f'      {status} {theme.name}')
+
+        click.echo('\n🎉 Sistema de tematicas inicializado correctamente!')
+
+    except Exception as e:
+        click.echo(f'❌ Error inicializando tematicas: {str(e)}')
+        raise
+
+
 def register_commands(app):
     """Registra todos los comandos en la aplicación Flask."""
     app.cli.add_command(init_database_command)
     app.cli.add_command(reset_database_command)
     app.cli.add_command(check_database_command)
     app.cli.add_command(execute_single_sql_command)
+    app.cli.add_command(init_themes_command)
