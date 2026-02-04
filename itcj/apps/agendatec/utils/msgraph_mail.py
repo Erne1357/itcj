@@ -14,8 +14,10 @@ REDIRECT_URI  = os.getenv("MS_REDIRECT_URI", "http://localhost:8080/agendatec/su
 _SCOPES_RAW = (os.getenv("MS_SCOPES") or "Mail.send").split()
 _RESERVED = {"openid","profile","offline_access"}
 
-CACHE_PATH    = os.getenv("MS_CACHE_PATH", "instance/apps/agendatec/email/msal_cache.json")
-ACCT_PATH     = os.getenv("MS_ACCOUNT_PATH", "instance/apps/agendatec/email/msal_account.json")  # quién inició sesión
+# Usar rutas absolutas para compatibilidad con Docker
+_DEFAULT_EMAIL_DIR = "/app/instance/apps/agendatec/email"
+CACHE_PATH    = Path(os.getenv("MS_CACHE_PATH", f"{_DEFAULT_EMAIL_DIR}/msal_cache.json"))
+ACCT_PATH     = Path(os.getenv("MS_ACCOUNT_PATH", f"{_DEFAULT_EMAIL_DIR}/msal_account.json"))
 LOCK = threading.Lock()
 
 def _scopes_for_auth():
@@ -23,13 +25,13 @@ def _scopes_for_auth():
     return [s for s in _SCOPES_RAW if s and s not in _RESERVED]
 
 def _ensure_dirs():
-    Path(CACHE_PATH).parent.mkdir(parents=True, exist_ok=True)
-    Path(ACCT_PATH).parent.mkdir(parents=True, exist_ok=True)
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ACCT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def load_cache() -> msal.SerializableTokenCache:
     _ensure_dirs()
     cache = msal.SerializableTokenCache()
-    if os.path.exists(CACHE_PATH):
+    if CACHE_PATH.exists():
         with LOCK, open(CACHE_PATH, "r", encoding="utf-8") as f:
             cache.deserialize(f.read())
     return cache
@@ -58,15 +60,15 @@ def save_account_info(account: dict):
         }, f)
 
 def read_account_info() -> dict | None:
-    if not os.path.exists(ACCT_PATH):
+    if not ACCT_PATH.exists():
         return None
     with LOCK, open(ACCT_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def clear_account_and_cache():
     with LOCK:
-        if os.path.exists(CACHE_PATH): os.remove(CACHE_PATH)
-        if os.path.exists(ACCT_PATH): os.remove(ACCT_PATH)
+        if CACHE_PATH.exists(): CACHE_PATH.unlink()
+        if ACCT_PATH.exists(): ACCT_PATH.unlink()
 
 def build_auth_url(state: str):
     app = get_msal_app()
