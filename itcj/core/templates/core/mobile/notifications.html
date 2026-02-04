@@ -1,0 +1,35 @@
+{% extends "core/mobile/base_mobile.html" %}
+
+{% block title %}ITCJ - Notificaciones{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='core/css/mobile/notifications.css') }}?v={{ sv('core', 'css/mobile/notifications.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="mobile-notifications-header">
+    <h2 class="mobile-notifications-title">Notificaciones</h2>
+    <button class="btn btn-sm btn-outline-success" id="markAllReadBtn">
+        <i class="bi bi-check2-all"></i> Marcar todas
+    </button>
+</div>
+
+<div id="notification-list" class="mobile-notification-list">
+    <div class="mobile-loading">
+        <div class="spinner-border spinner-border-sm text-success" role="status"></div>
+        <span class="ms-2 small">Cargando notificaciones...</span>
+    </div>
+</div>
+
+<div id="notification-empty" class="mobile-empty-state" style="display:none;">
+    <i class="bi bi-bell-slash"></i>
+    <p>No tienes notificaciones</p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script
+    src="{{ url_for('static', filename='core/js/mobile/mobile-notifications.js') }}?v={{ sv('core', 'js/mobile/mobile-notifications.js') }}">
+</script>
+{% endblock %}

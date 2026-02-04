@@ -1,0 +1,150 @@
+/* ==============================================
+   ITCJ Mobile - Notifications Page Styles
+   ============================================== */
+
+.mobile-notifications-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 16px 8px;
+}
+
+.mobile-notifications-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--mobile-text);
+    margin: 0;
+}
+
+@media (min-width: 768px) {
+    .mobile-notifications-header {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px 24px 12px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-notifications-header {
+        max-width: 960px;
+    }
+}
+
+/* ==============================================
+   NOTIFICATION LIST
+   ============================================== */
+
+.mobile-notification-list {
+    padding: 8px 16px;
+}
+
+@media (min-width: 768px) {
+    .mobile-notification-list {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 8px 24px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-notification-list {
+        max-width: 960px;
+    }
+}
+
+/* ==============================================
+   NOTIFICATION ITEM
+   ============================================== */
+
+.mobile-notification-item {
+    background: var(--mobile-card-bg);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    border: 1px solid var(--mobile-border);
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    transition: background 0.15s;
+}
+
+.mobile-notification-item.unread {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.mobile-notification-item:active {
+    background: #f3f4f6;
+}
+
+.mobile-notification-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    color: var(--mobile-text-muted);
+}
+
+.mobile-notification-item.unread .mobile-notification-icon {
+    background: var(--mobile-primary);
+    color: white;
+}
+
+.mobile-notification-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.mobile-notification-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--mobile-text);
+    margin-bottom: 2px;
+    line-height: 1.3;
+}
+
+.mobile-notification-body {
+    font-size: 13px;
+    color: var(--mobile-text-muted);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.mobile-notification-time {
+    font-size: 11px;
+    color: var(--mobile-text-muted);
+    margin-top: 4px;
+    opacity: 0.8;
+}
+
+/* ==============================================
+   LOAD MORE
+   ============================================== */
+
+.mobile-load-more {
+    text-align: center;
+    padding: 16px;
+}
+
+.mobile-load-more-btn {
+    border: 1px solid var(--mobile-border);
+    background: var(--mobile-card-bg);
+    border-radius: 20px;
+    padding: 8px 20px;
+    font-size: 13px;
+    color: var(--mobile-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.mobile-load-more-btn:hover {
+    background: #f0fdf4;
+}

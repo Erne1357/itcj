@@ -97,10 +97,18 @@ def create_app():
             # Obtener roles en todas las apps
             roles_itcj = set(user_roles_in_app(user_id, 'itcj'))
             roles_agendatec = set(user_roles_in_app(user_id, 'agendatec'))
-            # Si solo tiene rol student en agendatec, redirigir directo
-            if (not roles_itcj or roles_itcj == {"student"}) and "student" in roles_agendatec:
-                return redirect("/agendatec/student/home")
-            # Si tiene roles en itcj, usar la lógica normal
+
+            # Estudiantes SIEMPRE van al dashboard responsive
+            from itcj.core.services.mobile_service import is_student, is_mobile_user_agent
+            if is_student(user_id):
+                return redirect("/itcj/m/")
+
+            # Staff en movil: redirigir a mobile (salvo preferencia desktop)
+            prefer_desktop = request.cookies.get('prefer_desktop')
+            if not prefer_desktop and is_mobile_user_agent(request.headers.get('User-Agent', '')):
+                return redirect("/itcj/m/")
+
+            # Si tiene roles en itcj, usar la lógica normal (desktop)
             return redirect(role_home(roles_itcj or roles_agendatec))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     

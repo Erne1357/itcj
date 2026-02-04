@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>{% block title %}ITCJ{% endblock %}</title>
+
+    <link rel="shortcut icon"
+        href="{{ url_for('static', filename='core/icon/favicon.ico') }}?v={{ sv('core', 'icon/favicon.ico') }}"
+        type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+    <!-- Mobile base CSS -->
+    <link rel="stylesheet"
+        href="{{ url_for('static', filename='core/css/mobile/mobile-base.css') }}?v={{ sv('core', 'css/mobile/mobile-base.css') }}">
+
+    {% block extra_css %}{% endblock %}
+
+    <!-- Sistema de Tematicas Dinamicas -->
+    {% if active_theme %}
+        {% if active_theme.css_file %}
+    <link rel="stylesheet"
+        href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file) }}">
+        {% endif %}
+        {% if active_theme.custom_css %}
+    <style id="theme-custom-css">{{ active_theme.custom_css | safe }}</style>
+        {% endif %}
+    {% endif %}
+</head>
+
+<body class="mobile-body">
+    <!-- Top Header Bar -->
+    <header class="mobile-header">
+        <div class="mobile-header-left">
+            <img src="{{ url_for('static', filename='core/icon/favicon.ico') }}" alt="ITCJ"
+                class="mobile-header-logo">
+            <span class="mobile-header-title">ITCJ</span>
+        </div>
+        <div class="mobile-header-right">
+            <button class="mobile-header-btn" id="notificationBellMobile" title="Notificaciones">
+                <i class="bi bi-bell"></i>
+                <span id="globalNotificationBadgeMobile" class="mobile-badge" style="display:none;">0</span>
+            </button>
+            <a href="{{ url_for('pages_core.pages_profile.profile') }}" class="mobile-header-avatar"
+                title="Mi perfil">
+                {% if current_user %}
+                {{ current_user.name[:1]|upper if current_user.name else 'U' }}
+                {% endif %}
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="mobile-main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="mobile-bottom-nav">
+        <a href="{{ url_for('pages_core.pages_mobile.mobile_dashboard') }}"
+            class="mobile-nav-item {% if active_tab == 'home' %}active{% endif %}">
+            <i class="bi bi-house"></i>
+            <span>Inicio</span>
+        </a>
+        <a href="{{ url_for('pages_core.pages_mobile.mobile_notifications') }}"
+            class="mobile-nav-item {% if active_tab == 'notifications' %}active{% endif %}">
+            <i class="bi bi-bell"></i>
+            <span>Avisos</span>
+            <span id="navBadgeNotifications" class="mobile-nav-badge" style="display:none;">0</span>
+        </a>
+        <a href="{{ url_for('pages_core.pages_profile.profile') }}"
+            class="mobile-nav-item {% if active_tab == 'profile' %}active{% endif %}">
+            <i class="bi bi-person"></i>
+            <span>Perfil</span>
+        </a>
+        {% if user_type != 'student' %}
+        <a href="{{ url_for('pages_core.pages_mobile.mobile_switch_desktop') }}"
+            class="mobile-nav-item">
+            <i class="bi bi-display"></i>
+            <span>Desktop</span>
+        </a>
+        {% endif %}
+    </nav>
+
+    <!-- Toast container -->
+    <div class="toast-container position-fixed bottom-0 start-50 translate-middle-x p-3 mb-5"
+        style="z-index: 1100;">
+        <div id="mobileToast" class="toast align-items-center text-bg-success border-0" role="alert"
+            aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body" id="mobileToastMessage"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"
+                    aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
+
+    {% if active_theme %}
+    <script>
+        window.activeTheme = {{ active_theme | tojson | safe }};
+    </script>
+        {% if active_theme.js_file %}
+    <script
+        src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file) }}">
+    </script>
+        {% endif %}
+    {% endif %}
+
+    <script
+        src="{{ url_for('static', filename='core/js/mobile/mobile-app.js') }}?v={{ sv('core', 'js/mobile/mobile-app.js') }}">
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+
+</html>

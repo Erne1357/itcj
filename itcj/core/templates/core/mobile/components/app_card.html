@@ -1,0 +1,21 @@
+{# Macro para renderizar una tarjeta de aplicacion mobile #}
+{% macro render_app_card(app) %}
+<a href="{{ app.mobile_url or '#' }}"
+    class="mobile-app-card"
+    data-app-key="{{ app.key }}">
+    <div class="mobile-app-card-icon"
+        style="background: {% if app.key == 'agendatec' %}#f0fdf4{% elif app.key == 'helpdesk' %}#eff6ff{% else %}#f3f4f6{% endif %};">
+        {% if app.mobile_icon %}
+        <img src="{{ url_for('static', filename=app.mobile_icon) }}" alt="{{ app.name }}">
+        {% elif app.key == 'agendatec' %}
+        <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec">
+        {% elif app.key == 'helpdesk' %}
+        <img src="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}" alt="Help Desk">
+        {% else %}
+        <i class="bi bi-app" style="color: var(--mobile-primary);"></i>
+        {% endif %}
+    </div>
+    <span class="mobile-app-card-name">{{ app.name }}</span>
+    <span class="mobile-app-card-badge" id="mobile-badge-{{ app.key }}" style="display:none;">0</span>
+</a>
+{% endmacro %}

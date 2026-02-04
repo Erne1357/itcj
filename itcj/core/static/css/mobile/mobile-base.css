@@ -1,0 +1,399 @@
+/* ==============================================
+   ITCJ Mobile Dashboard - Base Styles
+   Mobile-first responsive design
+   ============================================== */
+
+:root {
+    --mobile-primary: #059669;
+    --mobile-primary-dark: #047857;
+    --mobile-primary-light: #10b981;
+    --mobile-bg: #f3f4f6;
+    --mobile-card-bg: #ffffff;
+    --mobile-text: #1f2937;
+    --mobile-text-muted: #6b7280;
+    --mobile-border: #e5e7eb;
+    --mobile-header-height: 56px;
+    --mobile-bottom-nav-height: 60px;
+    --mobile-safe-top: env(safe-area-inset-top, 0px);
+    --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+.mobile-body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--mobile-bg);
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    color: var(--mobile-text);
+}
+
+/* ==============================================
+   HEADER
+   ============================================== */
+
+.mobile-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+    background: var(--mobile-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    padding-top: var(--mobile-safe-top);
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.mobile-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.mobile-header-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+}
+
+.mobile-header-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.mobile-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mobile-header-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+    font-size: 18px;
+}
+
+.mobile-header-btn:active {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.mobile-header-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    text-decoration: none;
+    transition: background 0.2s;
+}
+
+.mobile-header-avatar:hover,
+.mobile-header-avatar:active {
+    background: rgba(255, 255, 255, 0.3);
+    color: white;
+}
+
+.mobile-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #ef4444;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+/* ==============================================
+   MAIN CONTENT
+   ============================================== */
+
+.mobile-main {
+    padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+    padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 16px);
+    min-height: 100vh;
+}
+
+/* ==============================================
+   BOTTOM NAVIGATION
+   ============================================== */
+
+.mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom));
+    background: var(--mobile-card-bg);
+    border-top: 1px solid var(--mobile-border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-around;
+    padding-top: 6px;
+    padding-bottom: var(--mobile-safe-bottom);
+    z-index: 1000;
+}
+
+.mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+    color: var(--mobile-text-muted);
+    font-size: 10px;
+    font-weight: 500;
+    min-width: 64px;
+    min-height: 44px;
+    padding: 4px 0;
+    transition: color 0.2s;
+    position: relative;
+}
+
+.mobile-nav-item.active {
+    color: var(--mobile-primary);
+}
+
+.mobile-nav-item:hover {
+    color: var(--mobile-primary);
+}
+
+.mobile-nav-item i {
+    font-size: 22px;
+    margin-bottom: 2px;
+}
+
+.mobile-nav-badge {
+    position: absolute;
+    top: 0;
+    right: 12px;
+    background: #ef4444;
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+    line-height: 1;
+}
+
+/* ==============================================
+   APP GRID
+   ============================================== */
+
+.mobile-app-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    padding: 0 16px 16px;
+}
+
+@media (min-width: 768px) {
+    .mobile-app-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 24px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-app-grid {
+        grid-template-columns: repeat(4, 1fr);
+        max-width: 960px;
+    }
+}
+
+/* ==============================================
+   APP CARD
+   ============================================== */
+
+.mobile-app-card {
+    background: var(--mobile-card-bg);
+    border-radius: 16px;
+    padding: 20px 16px;
+    text-align: center;
+    text-decoration: none;
+    color: inherit;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 120px;
+    justify-content: center;
+    position: relative;
+    border: 1px solid var(--mobile-border);
+}
+
+.mobile-app-card:hover {
+    color: inherit;
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.mobile-app-card:active {
+    transform: scale(0.96);
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+
+.mobile-app-card-icon {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 10px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    overflow: hidden;
+}
+
+.mobile-app-card-icon img {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+}
+
+.mobile-app-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mobile-text);
+    line-height: 1.3;
+}
+
+.mobile-app-card-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #ef4444;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    line-height: 1;
+}
+
+/* ==============================================
+   SECTION TITLES
+   ============================================== */
+
+.mobile-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 16px 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--mobile-text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.mobile-section-title i {
+    font-size: 16px;
+    color: var(--mobile-primary);
+}
+
+@media (min-width: 768px) {
+    .mobile-section-title {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 20px 24px 12px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-section-title {
+        max-width: 960px;
+    }
+}
+
+/* ==============================================
+   EMPTY STATE
+   ============================================== */
+
+.mobile-empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--mobile-text-muted);
+}
+
+.mobile-empty-state i {
+    font-size: 48px;
+    opacity: 0.3;
+    display: block;
+    margin-bottom: 12px;
+}
+
+.mobile-empty-state p {
+    font-size: 14px;
+    margin: 0;
+}
+
+/* ==============================================
+   UTILITIES
+   ============================================== */
+
+.mobile-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--mobile-text-muted);
+}
+
+/* Pull to refresh indicator (futuro) */
+.mobile-ptr-indicator {
+    text-align: center;
+    padding: 12px;
+    color: var(--mobile-primary);
+    font-size: 13px;
+    display: none;
+}

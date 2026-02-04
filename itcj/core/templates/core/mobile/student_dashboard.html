@@ -1,0 +1,51 @@
+{% extends "core/mobile/base_mobile.html" %}
+{% from "core/mobile/components/app_card.html" import render_app_card %}
+
+{% block title %}ITCJ - Mi Dashboard{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='core/css/mobile/dashboard.css') }}?v={{ sv('core', 'css/mobile/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Saludo -->
+<div class="mobile-greeting">
+    <h2 class="mobile-greeting-text">Hola, {{ user.first_name }}!</h2>
+    <p class="mobile-greeting-sub">Bienvenido al portal ITCJ</p>
+</div>
+
+<!-- Tarjeta de info del estudiante -->
+<div class="mobile-user-card">
+    <div class="mobile-user-avatar">
+        {{ user.first_name[:1]|upper }}{{ user.last_name[:1]|upper }}
+    </div>
+    <div class="mobile-user-info">
+        <div class="mobile-user-name">{{ user.full_name }}</div>
+        <div class="mobile-user-detail">
+            <i class="bi bi-hash"></i> {{ user.control_number }}
+        </div>
+        {% if user.email %}
+        <div class="mobile-user-detail">
+            <i class="bi bi-envelope"></i> {{ user.email }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Grid de aplicaciones -->
+<div class="mobile-section-title">
+    <i class="bi bi-grid-3x3-gap"></i> Mis Aplicaciones
+</div>
+
+<div class="mobile-app-grid">
+    {% for app in apps %}
+    {{ render_app_card(app) }}
+    {% else %}
+    <div class="mobile-empty-state">
+        <i class="bi bi-inbox"></i>
+        <p>No tienes aplicaciones asignadas</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
