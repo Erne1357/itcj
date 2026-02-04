@@ -57,7 +57,7 @@ services:
       - ../../wsgi.py:/app/wsgi.py:ro
       - ../../requirements.txt:/app/requirements.txt:ro
       - ../../migrations:/app/migrations:ro
-      - ../../instance:/app/instance:ro
+      - ../../instance:/app/instance  # Sin :ro para permitir escritura de tokens MSAL
       - ../../database:/app/database:ro
       - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
@@ -99,7 +99,7 @@ services:
       - ../../wsgi.py:/app/wsgi.py:ro
       - ../../requirements.txt:/app/requirements.txt:ro
       - ../../migrations:/app/migrations:ro
-      - ../../instance:/app/instance:ro
+      - ../../instance:/app/instance  # Sin :ro para permitir escritura de tokens MSAL
       - ../../database:/app/database:ro
       - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
