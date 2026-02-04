@@ -1,0 +1,339 @@
+{% extends "core/config/config_base.html" %}
+
+{% set sidebar_active = 'users' %}
+
+{% block title %}Gestion de Usuarios{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Usuarios</li>
+{% endblock %}
+
+{% block page_icon %}<i class="bi bi-person-lines-fill"></i>{% endblock %}
+{% block page_title %}Gestion de Usuarios{% endblock %}
+{% block page_subtitle %}Administra usuarios y sus asignaciones por aplicacion{% endblock %}
+
+{% block page_actions %}
+<div class="d-flex gap-2">
+    <div class="input-group" style="width: 300px;">
+        <button class="input-group-text btn btn-outline-secondary" id="searchButton" type="button">
+            <i class="bi bi-search"></i>
+        </button>
+        <input type="text" class="form-control" id="searchUsers" name="q"
+            placeholder="Buscar usuarios..." value="{{ current_query or '' }}">
+    </div>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newUserModal">
+        <i class="bi bi-person-plus-fill me-1"></i>Nuevo Usuario
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/users/users.css') }}?v={{ sv('core', 'css/config/users/users.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body py-2">
+        <div class="row align-items-center">
+            <div class="col-auto">
+                <small class="text-muted fw-bold">Filtros:</small>
+            </div>
+            <div class="col-auto">
+                <select class="form-select form-select-sm" id="roleFilter" style="width: auto;">
+                    <option value="">Todos los roles</option>
+                    {% for role in roles %}
+                    <option value="{{ role.name }}">{{ role.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <select class="form-select form-select-sm" id="appFilter" style="width: auto;">
+                    <option value="">Todas las apps</option>
+                    {% for app in apps %}
+                    <option value="{{ app.key }}">{{ app.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <select class="form-select form-select-sm" id="statusFilter" style="width: auto;">
+                    <option value="">Todos los estados</option>
+                    <option value="active">Activos</option>
+                    <option value="inactive">Inactivos</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination top -->
+<div class="d-flex justify-content-end mb-3">
+    <nav aria-label="User pagination">
+        <ul class="pagination pagination-sm mb-0">
+            {% if pagination.has_prev %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('pages_core.pages_config.users_management', page=pagination.prev_num, q=current_query) }}">Anterior</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">Anterior</span></li>
+            {% endif %}
+
+            {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+            {% if page_num %}
+            {% if pagination.page == page_num %}
+            <li class="page-item active"><span class="page-link">{{ page_num }}</span></li>
+            {% else %}
+            <li class="page-item"><a class="page-link" href="{{ url_for('pages_core.pages_config.users_management', page=page_num, q=current_query) }}">{{ page_num }}</a></li>
+            {% endif %}
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+            {% endfor %}
+
+            {% if pagination.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('pages_core.pages_config.users_management', page=pagination.next_num, q=current_query) }}">Siguiente</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">Siguiente</span></li>
+            {% endif %}
+        </ul>
+    </nav>
+</div>
+
+<!-- Users Table -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover config-table mb-0" id="usersTable">
+                <thead>
+                    <tr>
+                        <th class="px-4">Usuario</th>
+                        <th>Rol</th>
+                        <th>Email</th>
+                        <th>Estado</th>
+                        <th>Apps Asignadas</th>
+                        <th class="text-end pe-4">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr class="user-row clickable-row" data-user-id="{{ user.id }}"
+                        data-href="{{ url_for('pages_core.pages_config.user_detail', user_id=user.id) }}">
+                        <td class="px-4">
+                            <div class="d-flex align-items-center">
+                                <div class="user-avatar rounded-circle d-flex align-items-center justify-content-center text-white me-3">
+                                    {{ user.full_name[0].upper() }}
+                                </div>
+                                <div>
+                                    <div class="fw-bold">{{ user.full_name }}</div>
+                                    {% if user.username %}
+                                    <small class="text-muted">@{{ user.username }}</small>
+                                    {% elif user.control_number %}
+                                    <small class="text-muted">{{ user.control_number }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if user.is_active %}
+                            {% if user.roles %}
+                            {% for role in user.roles %}
+                            <span class="badge bg-secondary badge-role">{{ role.name }}</span>
+                            {% endfor %}
+                            {% else %}
+                            <span class="text-muted">Sin rol</span>
+                            {% endif %}
+                            {% else %}
+                            <span class="text-muted">Usuario inactivo</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.email or 'N/A' }}</td>
+                        <td>
+                            {% if user.is_active %}
+                            <span class="badge bg-success">Activo</span>
+                            {% else %}
+                            <span class="badge bg-danger">Inactivo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1" id="userApps_{{ user.id }}">
+                                <span class="badge bg-light text-muted">Cargando...</span>
+                            </div>
+                        </td>
+                        <td class="text-end pe-4">
+                            <div class="btn-group btn-group-sm">
+                                <a href="{{ url_for('pages_core.pages_config.user_detail', user_id=user.id) }}"
+                                    class="btn btn-outline-primary" title="Ver Detalles">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <button class="btn btn-outline-secondary assign-user-btn"
+                                    data-user-id="{{ user.id }}" data-user-name="{{ user.full_name }}"
+                                    title="Asignar Apps/Roles">
+                                    <i class="bi bi-gear"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if users|length == 0 %}
+        <div class="empty-state">
+            <i class="bi bi-person-lines-fill"></i>
+            <h5>No hay usuarios registrados</h5>
+            <p>Los usuarios se crean automaticamente durante el login</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Nuevo Usuario -->
+<div class="modal fade" id="newUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-person-plus-fill me-2"></i>Crear Nuevo Usuario</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="newUserForm">
+                    <div class="mb-3">
+                        <label for="fullName" class="form-label">Nombre Completo <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="fullName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email (Opcional)</label>
+                        <input type="email" class="form-control" id="email">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tipo de Usuario <span class="text-danger">*</span></label>
+                        <div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="userType" id="typeStudent" value="student" checked>
+                                <label class="form-check-label" for="typeStudent">Estudiante</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="userType" id="typeStaff" value="staff">
+                                <label class="form-check-label" for="typeStaff">Personal</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="studentFields">
+                        <div class="mb-3">
+                            <label for="controlNumber" class="form-label">Numero de Control (8 digitos) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="controlNumber" maxlength="8" required>
+                        </div>
+                    </div>
+                    <div id="staffFields" style="display: none;">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Nombre de Usuario <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="username" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">NIP / Contrasena <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="password" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="saveNewUserBtn">Guardar Usuario</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Asignar Apps/Roles -->
+<div class="modal fade modal-lg" id="assignUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-gear me-2"></i>Asignaciones para:
+                    <span id="assignUserName"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-12 col-md-4">
+                        <h6>Aplicaciones</h6>
+                        <div class="list-group" id="appsList">
+                            {% for app in apps %}
+                            <button class="list-group-item list-group-item-action app-item"
+                                data-app-key="{{ app.key }}" data-app-name="{{ app.name }}">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-app me-2"></i>
+                                    <div>
+                                        <div class="fw-bold">{{ app.name }}</div>
+                                        <small class="text-muted">{{ app.key }}</small>
+                                    </div>
+                                </div>
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-8" id="appAssignmentPanel" style="display: none;">
+                        <h6>Asignaciones para: <span id="selectedAppName"></span></h6>
+
+                        <!-- Roles Tab -->
+                        <div class="mb-4">
+                            <h6 class="text-primary">Roles Asignados</h6>
+                            <div id="userRolesList" class="d-flex flex-wrap gap-2 mb-2">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+                            <div class="input-group input-group-sm">
+                                <select class="form-select" id="roleToAssign">
+                                    <option value="">Seleccionar rol...</option>
+                                    {% for role in roles %}
+                                    <option value="{{ role.name }}">{{ role.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-primary" id="assignRoleBtn">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Permisos Tab -->
+                        <div class="mb-4">
+                            <h6 class="text-success">Permisos Directos</h6>
+                            <div id="userPermsList" class="d-flex flex-wrap gap-2 mb-2">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+                            <div class="input-group input-group-sm">
+                                <select class="form-select" id="permToAssign">
+                                    <option value="">Seleccionar permiso...</option>
+                                </select>
+                                <button class="btn btn-success" id="assignPermBtn">
+                                    <i class="bi bi-plus-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Permisos Efectivos -->
+                        <div class="border-top pt-3">
+                            <h6 class="text-info">Permisos Efectivos</h6>
+                            <div id="effectivePermsList" class="d-flex flex-wrap gap-1">
+                                <!-- Se llena dinamicamente -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/config/users/users.js') }}?v={{ sv('core', 'js/config/users/users.js') }}"></script>
+{% endblock %}

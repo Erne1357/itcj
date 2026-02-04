@@ -8,6 +8,10 @@
     transition: background-color 0.2s;
 }
 
+.user-row.clickable-row {
+    cursor: pointer;
+}
+
 .user-row:hover {
     background-color: #f8f9fa;
 }

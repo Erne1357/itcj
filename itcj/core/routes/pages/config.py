@@ -25,34 +25,48 @@ def settings():
     permissions_count = Permission.query.count()
     departments_count = Department.query.filter_by(is_active=True).count()
 
+    # Obtener info de tematicas para el panel
+    themes_count = 0
+    active_theme_name = None
+    try:
+        from itcj.core.models.theme import Theme
+        themes_count = Theme.query.filter_by(is_enabled=True).count()
+        from itcj.core.services import themes_service
+        active = themes_service.get_active_theme()
+        if active:
+            active_theme_name = active.name
+    except Exception:
+        pass
+
     context = {
         "apps": apps,
         "roles": roles,
         "users_count": users_count,
         "permissions_count": permissions_count,
-        "departments_count": departments_count
+        "departments_count": departments_count,
+        "themes_count": themes_count,
+        "active_theme_name": active_theme_name,
     }
     return render_template("core/config/index.html", **context)
 
-# Gestión de Apps
+# === Sistema ===
+
 @pages_config_bp.route("/config/apps")
 @login_required
 @app_required('itcj', roles=['admin'])
 def apps_management():
     """Página de gestión de aplicaciones"""
     apps = App.query.order_by(App.key.asc()).all()
-    return render_template("core/config/apps.html", apps=apps)
+    return render_template("core/config/system/apps.html", apps=apps)
 
-# Gestión de Roles
 @pages_config_bp.route("/config/roles")
 @login_required
 @app_required('itcj', roles=['admin'])
 def roles_management():
     """Página de gestión de roles globales"""
     roles = Role.query.order_by(Role.name.asc()).all()
-    return render_template("core/config/roles.html", roles=roles)
+    return render_template("core/config/system/roles.html", roles=roles)
 
-# Gestión de Permisos por App
 @pages_config_bp.route("/config/apps/<string:app_key>/permissions")
 @login_required
 @app_required('itcj', roles=['admin'])
@@ -60,9 +74,17 @@ def app_permissions(app_key):
     """Página de gestión de permisos de una app específica"""
     app = App.query.filter_by(key=app_key).first_or_404()
     permissions = Permission.query.filter_by(app_id=app.id).order_by(Permission.code.asc()).all()
-    return render_template("core/config/permissions.html", app=app, permissions=permissions)
+    return render_template("core/config/system/permissions.html", app=app, permissions=permissions)
 
-# Gestión de Usuarios
+@pages_config_bp.route("/config/themes")
+@login_required
+@app_required('itcj', roles=['admin'])
+def themes_management():
+    """Pagina de gestion de tematicas del sistema"""
+    return render_template("core/config/system/themes.html")
+
+# === Usuarios ===
+
 @pages_config_bp.route("/config/users")
 @login_required
 @app_required('itcj', roles=['admin'])
@@ -92,17 +114,16 @@ def users_management():
 
     apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
     roles = Role.query.order_by(Role.name.asc()).all()
-    
+
     return render_template(
-        "core/config/users.html", 
-        users=users, 
-        apps=apps, 
-        roles=roles, 
+        "core/config/users/users.html",
+        users=users,
+        apps=apps,
+        roles=roles,
         pagination=pagination,
         current_query=query_string
     )
 
-# Detalle de usuario específico
 @pages_config_bp.route("/config/users/<int:user_id>")
 @login_required
 @app_required('itcj', roles=['admin'])
@@ -111,14 +132,16 @@ def user_detail(user_id):
     user = User.query.get_or_404(user_id)
     apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
     roles = Role.query.order_by(Role.name.asc()).all()
-    return render_template("core/config/user_detail.html", user=user, apps=apps, roles=roles)
+    return render_template("core/config/users/user_detail.html", user=user, apps=apps, roles=roles)
+
+# === Organizacion ===
 
 @pages_config_bp.get("/config/departments")
 @login_required
 @app_required('itcj', roles=['admin'])
 def positions_management():
     """Vista principal de departamentos"""
-    return render_template("core/config/departments.html")
+    return render_template("core/config/organization/departments.html")
 
 @pages_config_bp.get("/config/departments/<int:department_id>")
 @login_required
@@ -126,7 +149,7 @@ def positions_management():
 def department_detail(department_id):
     """Vista de detalle de un departamento con sus puestos"""
     dept = Department.query.get_or_404(department_id)
-    return render_template("core/config/department_detail.html", department_id=department_id, department=dept)
+    return render_template("core/config/organization/department_detail.html", department_id=department_id, department=dept)
 
 @pages_config_bp.get("/config/positions/<int:position_id>")
 @login_required
@@ -137,4 +160,4 @@ def position_detail(position_id):
     from itcj.core.models.role import Role
     position = Position.query.get_or_404(position_id)
     roles = Role.query.order_by(Role.name.asc()).all()
-    return render_template("core/config/position_detail.html", position_id=position_id, position=position, roles=roles)
+    return render_template("core/config/organization/position_detail.html", position_id=position_id, position=position, roles=roles)

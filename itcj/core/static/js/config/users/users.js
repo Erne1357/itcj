@@ -52,6 +52,14 @@ class UsersManager {
             }
         });
 
+        // Clickable rows - navigate to user detail
+        document.addEventListener('click', (e) => {
+            const row = e.target.closest('.clickable-row');
+            if (row && !e.target.closest('a, button, .btn-group')) {
+                window.location.href = row.dataset.href;
+            }
+        });
+
         // Assign user buttons
         document.addEventListener('click', (e) => {
             if (e.target.closest('.assign-user-btn')) {

@@ -5,62 +5,555 @@
 <h1 class="h4 mb-3">Reportes</h1>
 
 <div class="card shadow-sm mb-3">
+  <div class="card-header bg-light">
+    <strong><i class="bi bi-funnel"></i> Filtros</strong>
+  </div>
   <div class="card-body">
-    <div class="row g-2 align-items-end">
-      <div class="col-auto">
-        <label class="form-label">Desde</label>
+    <div class="row g-2 align-items-end mb-2">
+      <!-- Rango de fechas -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Desde</label>
         <input id="repFrom" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-auto">
-        <label class="form-label">Hasta</label>
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Hasta</label>
         <input id="repTo" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-auto">
-        <label class="form-label">Estado</label>
-        <select id="repStatus" class="form-select form-select-sm">
+      <!-- Tipo de solicitud -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Tipo</label>
+        <select id="repType" class="form-select form-select-sm">
           <option value="">Todos</option>
-          <option value="PENDING">Pendiente</option>
-          <option value="RESOLVED_SUCCESS">Resuelta</option>
-          <option value="RESOLVED_NOT_COMPLETED">Atendida sin resolver</option>
-          <option value="NO_SHOW">No asistió</option>
-          <option value="ATTENDED_OTHER_SLOT">Otro horario</option>
-          <option value="CANCELED">Cancelada</option>
+          <option value="APPOINTMENT">Citas</option>
+          <option value="DROP">Bajas</option>
         </select>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Programa</label>
-        <select id="repProgram" class="form-select form-select-sm">
-          <option value="">Todos</option>
-        </select>
+      <!-- Estado de solicitud (multi-select) -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Estado Solicitud</label>
+        <div class="dropdown multi-select-dropdown">
+          <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            <span class="multi-select-label" data-default="Todos">Todos</span>
+          </button>
+          <ul class="dropdown-menu p-2" id="repStatusMenu">
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="PENDING"> Pendiente
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="RESOLVED_SUCCESS"> Resuelta
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="RESOLVED_NOT_COMPLETED"> Atendida sin resolver
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="NO_SHOW"> No asistió
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="ATTENDED_OTHER_SLOT"> Otro horario
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="CANCELED"> Cancelada
+            </label></li>
+          </ul>
+        </div>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Coordinador</label>
-        <select id="repCoord" class="form-select form-select-sm">
-          <option value="">Todos</option>
-        </select>
+      <!-- Estado de cita (multi-select) -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Estado Cita</label>
+        <div class="dropdown multi-select-dropdown">
+          <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            <span class="multi-select-label" data-default="Todos">Todos</span>
+          </button>
+          <ul class="dropdown-menu p-2" id="repAppStatusMenu">
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="SCHEDULED"> Programada
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="DONE"> Completada
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="NO_SHOW"> No asistió
+            </label></li>
+            <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+              <input type="checkbox" class="form-check-input m-0" value="CANCELED"> Cancelada
+            </label></li>
+          </ul>
+        </div>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Período</label>
+      <!-- Programa (multi-select) -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Programa</label>
+        <div class="dropdown multi-select-dropdown">
+          <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            <span class="multi-select-label" data-default="Todos">Todos</span>
+          </button>
+          <ul class="dropdown-menu p-2" id="repProgramMenu" style="max-height: 250px; overflow-y: auto;">
+            <!-- Se llena dinámicamente -->
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="row g-2 align-items-end">
+      <!-- Coordinador (multi-select) -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Coordinador</label>
+        <div class="dropdown multi-select-dropdown">
+          <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            <span class="multi-select-label" data-default="Todos">Todos</span>
+          </button>
+          <ul class="dropdown-menu p-2" id="repCoordMenu" style="max-height: 250px; overflow-y: auto;">
+            <!-- Se llena dinámicamente -->
+          </ul>
+        </div>
+      </div>
+      <!-- Período -->
+      <div class="col-md-2 col-sm-6">
+        <label class="form-label small fw-semibold">Período</label>
         <select id="repPeriod" class="form-select form-select-sm">
           <option value="">Cargando períodos...</option>
         </select>
       </div>
-      <div class="col-auto">
-        <label class="form-label">Buscar</label>
-        <input id="repQ" class="form-control form-control-sm" placeholder="No. control / Alumno">
+      <!-- Búsqueda múltiple -->
+      <div class="col-md-4 col-sm-12">
+        <label class="form-label small fw-semibold d-flex justify-content-between align-items-center">
+          <span>Buscar alumnos</span>
+          <small class="text-muted fw-normal" id="searchCountHint" style="display: none;">
+            <span class="badge bg-secondary" id="searchCount">0</span> elementos
+          </small>
+        </label>
+        <div class="input-group input-group-sm">
+          <textarea id="repQ" class="form-control form-control-sm" rows="1" 
+                    placeholder="No. control o nombre (uno o varios)"
+                    style="resize: vertical; min-height: 31px; max-height: 150px;"></textarea>
+          <button class="btn btn-outline-secondary dropdown-toggle" type="button" 
+                  data-bs-toggle="dropdown" aria-expanded="false" id="separatorBtn"
+                  title="Separador">
+            <i class="bi bi-list-ul"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><h6 class="dropdown-header">Separador de valores</h6></li>
+            <li><a class="dropdown-item separator-option active" href="#" data-separator="newline">
+              <i class="bi bi-text-wrap"></i> Nueva línea <small class="text-muted">(Enter)</small>
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="comma">
+              <i class="bi bi-comma"></i> Coma <small class="text-muted">(,)</small>
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="space">
+              <i class="bi bi-space-between"></i> Espacio
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="semicolon">
+              <i class="bi bi-record-circle"></i> Punto y coma <small class="text-muted">(;)</small>
+            </a></li>
+            <li><a class="dropdown-item separator-option" href="#" data-separator="tab">
+              <i class="bi bi-indent"></i> Tabulador
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="#" id="clearSearchList">
+              <i class="bi bi-x-lg text-danger"></i> Limpiar lista
+            </a></li>
+          </ul>
+        </div>
       </div>
-      <div class="col-auto">
-        <button id="btnXlsx" class="btn btn-success btn-sm">
-          <i class="bi bi-file-earmark-excel"></i> Exportar XLSX
+      <!-- Ordenamiento -->
+      <div class="col-md-2 col-sm-4">
+        <label class="form-label small fw-semibold">Ordenar por</label>
+        <select id="repOrderBy" class="form-select form-select-sm">
+          <option value="created_at">Fecha creación</option>
+          <option value="slot_day">Día de cita</option>
+          <option value="student_name">Nombre alumno</option>
+          <option value="program">Programa</option>
+        </select>
+      </div>
+      <div class="col-md-2 col-sm-4">
+        <label class="form-label small fw-semibold">Dirección</label>
+        <select id="repOrderDir" class="form-select form-select-sm">
+          <option value="asc">Ascendente</option>
+          <option value="desc">Descendente</option>
+        </select>
+      </div>
+    </div>
+    <!-- Fila para nombre de archivo y exportar -->
+    <div class="row g-2 align-items-end mt-2">
+      <div class="col-md-4 col-sm-8">
+        <label class="form-label small fw-semibold">Nombre del archivo</label>
+        <div class="input-group input-group-sm">
+          <input id="repFileName" type="text" class="form-control" placeholder="reporte_agendatec">
+          <span class="input-group-text">.xlsx</span>
+        </div>
+      </div>
+      <div class="col-md-2 col-sm-4">
+        <button id="btnXlsx" class="btn btn-success btn-sm w-100">
+          <i class="bi bi-file-earmark-excel"></i> Exportar
         </button>
       </div>
     </div>
   </div>
 </div>
 
-<div class="alert alert-info">
-  El archivo se genera desde <code>/api/agendatec/v1/admin/reports/requests.xlsx</code> con los filtros aplicados.
+<!-- Card de configuración de columnas -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-light d-flex justify-content-between align-items-center"
+       style="cursor: pointer;"
+       data-bs-toggle="collapse"
+       data-bs-target="#columnsConfig">
+    <strong><i class="bi bi-layout-three-columns"></i> Configurar Columnas</strong>
+    <i class="bi bi-chevron-down" id="columnsChevron"></i>
+  </div>
+  <div id="columnsConfig" class="collapse">
+    <div class="card-body">
+      <div class="row">
+        <!-- Columnas de Citas -->
+        <div class="col-md-6">
+          <h6 class="mb-2"><i class="bi bi-calendar-check"></i> Columnas de Citas</h6>
+          <p class="text-muted small mb-2">Arrastra para reordenar, desmarca para ocultar</p>
+          <ul id="citasColumns" class="list-group column-list">
+            <li class="list-group-item d-flex align-items-center" data-col="ID">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ID">
+              <span>ID</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Día">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Día">
+              <span>Día</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Horario">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Horario">
+              <span>Horario</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Programa">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Programa">
+              <span>Programa</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Alumno">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Alumno">
+              <span>Alumno</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="NoControl">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="NoControl">
+              <span>No. Control</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Coordinador">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Coordinador">
+              <span>Coordinador</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="EstadoSolicitud">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="EstadoSolicitud">
+              <span>Estado Solicitud</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="EstadoCita">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="EstadoCita">
+              <span>Estado Cita</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Período">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Período">
+              <span>Período</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Descripción">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Descripción">
+              <span>Descripción</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="ComentarioCoord">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ComentarioCoord">
+              <span>Comentario Coord.</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Creado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Creado">
+              <span>Creado</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Actualizado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Actualizado">
+              <span>Actualizado</span>
+            </li>
+          </ul>
+          <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllCitas">
+              <i class="bi bi-check-all"></i> Todas
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneCitas">
+              <i class="bi bi-x-lg"></i> Ninguna
+            </button>
+          </div>
+        </div>
+
+        <!-- Columnas de Bajas -->
+        <div class="col-md-6">
+          <h6 class="mb-2"><i class="bi bi-file-earmark-minus"></i> Columnas de Bajas</h6>
+          <p class="text-muted small mb-2">Arrastra para reordenar, desmarca para ocultar</p>
+          <ul id="bajasColumns" class="list-group column-list">
+            <li class="list-group-item d-flex align-items-center" data-col="ID">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ID">
+              <span>ID</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Programa">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Programa">
+              <span>Programa</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Alumno">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Alumno">
+              <span>Alumno</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="NoControl">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="NoControl">
+              <span>No. Control</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Coordinador">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Coordinador">
+              <span>Coordinador</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Estado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Estado">
+              <span>Estado</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Período">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Período">
+              <span>Período</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Descripción">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Descripción">
+              <span>Descripción</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="ComentarioCoord">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ComentarioCoord">
+              <span>Comentario Coord.</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Creado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Creado">
+              <span>Creado</span>
+            </li>
+            <li class="list-group-item d-flex align-items-center" data-col="Actualizado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Actualizado">
+              <span>Actualizado</span>
+            </li>
+          </ul>
+          <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllBajas">
+              <i class="bi bi-check-all"></i> Todas
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneBajas">
+              <i class="bi bi-x-lg"></i> Ninguna
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
+
+<!-- Card de configuración de resúmenes -->
+<div class="card shadow-sm mb-3">
+  <div class="card-header bg-light d-flex justify-content-between align-items-center"
+       style="cursor: pointer;"
+       data-bs-toggle="collapse"
+       data-bs-target="#summaryConfig">
+    <strong><i class="bi bi-bar-chart-line"></i> Configurar Resúmenes</strong>
+    <i class="bi bi-chevron-down" id="summaryChevron"></i>
+  </div>
+  <div id="summaryConfig" class="collapse">
+    <div class="card-body">
+      <div class="row">
+        <!-- Resumen de Citas -->
+        <div class="col-md-6">
+          <h6 class="mb-2"><i class="bi bi-calendar-check"></i> Resumen de Citas</h6>
+          <p class="text-muted small mb-2">Selecciona las agrupaciones a incluir en el resumen</p>
+          <div class="list-group" id="citasSummaryOptions">
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 citas-summary-check" value="total" checked>
+              <span class="flex-grow-1">Total General</span>
+              <span class="badge bg-secondary">Por día</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 citas-summary-check" value="coordinator" checked>
+              <span class="flex-grow-1">Por Coordinador</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 citas-summary-check" value="program">
+              <span class="flex-grow-1">Por Carrera</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+          </div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllCitasSummary">
+              <i class="bi bi-check-all"></i> Todas
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneCitasSummary">
+              <i class="bi bi-x-lg"></i> Ninguna
+            </button>
+          </div>
+        </div>
+
+        <!-- Resumen de Bajas -->
+        <div class="col-md-6">
+          <h6 class="mb-2"><i class="bi bi-file-earmark-minus"></i> Resumen de Bajas</h6>
+          <p class="text-muted small mb-2">Selecciona las agrupaciones a incluir en el resumen</p>
+          <div class="list-group" id="bajasSummaryOptions">
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 bajas-summary-check" value="total" checked>
+              <span class="flex-grow-1">Total General</span>
+              <span class="badge bg-secondary">Conteo por estado</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 bajas-summary-check" value="program">
+              <span class="flex-grow-1">Por Carrera</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+            <label class="list-group-item d-flex align-items-center gap-2">
+              <input type="checkbox" class="form-check-input m-0 bajas-summary-check" value="coordinator">
+              <span class="flex-grow-1">Por Coordinador</span>
+              <span class="badge bg-info text-dark">Desglose individual</span>
+            </label>
+          </div>
+          <div class="mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllBajasSummary">
+              <i class="bi bi-check-all"></i> Todas
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneBajasSummary">
+              <i class="bi bi-x-lg"></i> Ninguna
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h6><i class="bi bi-info-circle"></i> Información del reporte</h6>
+    <p class="text-muted small mb-2">
+      El archivo Excel generado contiene <strong>2 pestañas</strong>:
+    </p>
+    <ul class="small text-muted mb-0">
+      <li><strong>Citas:</strong> Listado de citas agendadas, ordenadas por día y horario (de menor a mayor). Solo incluye slots ocupados.</li>
+      <li><strong>Solicitudes de Baja:</strong> Listado de solicitudes de baja de materias.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Multi-select dropdowns */
+  .multi-select-dropdown .dropdown-toggle {
+    background-color: #fff;
+    border-color: #dee2e6;
+  }
+  .multi-select-dropdown .dropdown-toggle:hover {
+    background-color: #f8f9fa;
+  }
+  .multi-select-dropdown .dropdown-toggle::after {
+    margin-left: auto;
+  }
+  .multi-select-dropdown .multi-select-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: calc(100% - 20px);
+  }
+  .multi-select-dropdown .dropdown-menu {
+    min-width: max-content;
+    width: auto !important;
+  }
+  .multi-select-dropdown .dropdown-item {
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .multi-select-dropdown .dropdown-item:hover {
+    background-color: #e9ecef;
+  }
+  .multi-select-dropdown .form-check-input {
+    cursor: pointer;
+  }
+  .multi-select-dropdown .badge {
+    font-size: 0.7rem;
+  }
+
+  .column-list {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .column-list .list-group-item {
+    padding: 0.5rem 0.75rem;
+    user-select: none;
+    transition: background-color 0.15s ease;
+  }
+  .column-list .list-group-item:hover {
+    background-color: #f8f9fa;
+  }
+  .column-list .list-group-item.dragging {
+    opacity: 0.5;
+    background-color: #e9ecef;
+  }
+  .column-list .list-group-item.drag-over {
+    border-top: 2px solid #0d6efd;
+  }
+  .drag-handle {
+    color: #6c757d;
+    transition: color 0.15s ease;
+  }
+  .drag-handle:hover {
+    color: #0d6efd;
+  }
+  .column-list .list-group-item input[type="checkbox"]:not(:checked) + span {
+    text-decoration: line-through;
+    color: #6c757d;
+  }
+  #columnsConfig .collapse {
+    transition: height 0.35s ease;
+  }
+  .card-header[data-bs-toggle="collapse"] .bi-chevron-down {
+    transition: transform 0.35s ease;
+  }
+  .card-header[data-bs-toggle="collapse"].collapsed .bi-chevron-down,
+  .card-header[data-bs-toggle="collapse"][aria-expanded="false"] .bi-chevron-down {
+    transform: rotate(-90deg);
+  }
+  /* Summary options styling */
+  #citasSummaryOptions .list-group-item,
+  #bajasSummaryOptions .list-group-item {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+  #citasSummaryOptions .list-group-item:hover,
+  #bajasSummaryOptions .list-group-item:hover {
+    background-color: #f8f9fa;
+  }
+  #citasSummaryOptions .list-group-item input[type="checkbox"]:not(:checked) + span,
+  #bajasSummaryOptions .list-group-item input[type="checkbox"]:not(:checked) + span {
+    text-decoration: line-through;
+    color: #6c757d;
+  }
+</style>
 {% endblock %}
 
 {% block extra_js %}

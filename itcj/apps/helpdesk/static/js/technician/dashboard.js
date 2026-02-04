@@ -144,18 +144,20 @@ async function loadTeamTickets() {
 async function loadResolvedTickets() {
     const container = document.getElementById('historyList');
     HelpdeskUtils.showLoading('historyList');
-    
+
     try {
+        // Usar assigned_to_me para obtener solo tickets que yo resolví
+        // (los tickets resueltos mantienen su assigned_to_user_id)
         const response = await HelpdeskUtils.api.getTickets({
-            resolved_by_me: true,
+            assigned_to_me: true,
             status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED',
-            per_page: 50
+            per_page: 100
         });
-        
+
         myTickets.resolved = response.tickets || [];
-        
+
         renderTicketList(myTickets.resolved, container, 'resolved');
-        
+
     } catch (error) {
         console.error('Error loading resolved tickets:', error);
         showErrorState(container);
@@ -264,7 +266,7 @@ function getActionButtons(ticket, type) {
     
     buttons += `
         <button class="btn btn-outline-secondary btn-sm d-block w-100" 
-                onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'admin')">
+                onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'technician')">
             <i class="fas fa-eye me-1"></i>Ver Detalle
         </button>
     `;
@@ -371,6 +373,7 @@ function openResolveModal(ticketId) {
     document.getElementById('resolutionSuccess').checked = true;
     document.getElementById('resolutionNotes').value = '';
     document.getElementById('timeInvested').value = '';
+    document.getElementById('timeUnit').value = 'minutes';
     
     // Reiniciar estado del botón
     const btn = document.getElementById('btnConfirmResolve');
@@ -453,11 +456,32 @@ async function loadAvailableTechnicians(ticket) {
 
 async function confirmResolve() {
     if (!ticketToResolve) return;
-    
+
     const resolutionType = document.querySelector('input[name="resolutionType"]:checked').value;
     const notes = document.getElementById('resolutionNotes').value.trim();
-    const timeInvested = parseInt(document.getElementById('timeInvested').value) || null;
-    
+
+    // Obtener tiempo y convertir a minutos segun la unidad seleccionada
+    const timeValue = parseFloat(document.getElementById('timeInvested').value) || null;
+    const timeUnit = document.getElementById('timeUnit').value;
+    let timeInvested = null;
+
+    if (timeValue && timeValue > 0) {
+        switch (timeUnit) {
+            case 'minutes':
+                timeInvested = Math.round(timeValue);
+                break;
+            case 'hours':
+                timeInvested = Math.round(timeValue * 60);
+                break;
+            case 'days':
+                // 1 dia = 8 horas laborales = 480 minutos
+                timeInvested = Math.round(timeValue * 8 * 60);
+                break;
+            default:
+                timeInvested = Math.round(timeValue);
+        }
+    }
+
     // Validar notas
     if (!notes || notes.length < 10) {
         HelpdeskUtils.showToast('Las notas deben tener al menos 10 caracteres', 'warning');

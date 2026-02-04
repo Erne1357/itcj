@@ -93,13 +93,31 @@ def create_app():
     @app.get("/")
     def home():
         if g.current_user:
-            return redirect(role_home(user_roles_in_app(int(g.current_user["sub"]), 'itcj')))
+            user_id = int(g.current_user["sub"])
+            # Obtener roles en todas las apps
+            roles_itcj = set(user_roles_in_app(user_id, 'itcj'))
+            roles_agendatec = set(user_roles_in_app(user_id, 'agendatec'))
+            # Si solo tiene rol student en agendatec, redirigir directo
+            if (not roles_itcj or roles_itcj == {"student"}) and "student" in roles_agendatec:
+                return redirect("/agendatec/student/home")
+            # Si tiene roles en itcj, usar la lógica normal
+            return redirect(role_home(roles_itcj or roles_agendatec))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     
     @app.context_processor
     def inject_globals():
         manifest = current_app.config.get("_STATIC_MANIFEST", {})
         fallback = current_app.config.get("STATIC_VERSION", "1.0.0")
+
+        # Inyectar tematica activa
+        active_theme = None
+        try:
+            from itcj.core.services import themes_service
+            theme = themes_service.get_active_theme()
+            if theme:
+                active_theme = theme.to_dict(include_full=True)
+        except Exception:
+            pass  # Si falla, simplemente no hay tema activo
         def sv(app_name: str, filename: str) -> str:
             """Retorna el hash de un archivo estatico especifico.
 
@@ -159,6 +177,7 @@ def create_app():
             "sv": sv,                    # Nueva funcion: sv('app', 'ruta/archivo.js')
             "nav_for": nav_for,
             "is_active": is_active,
+            "active_theme": active_theme,  # Tematica activa global
         }
 
     return app, socketio

@@ -1,0 +1,138 @@
+{% extends "core/config/config_base.html" %}
+
+{% set sidebar_active = 'roles' %}
+
+{% block title %}Gestion de Roles{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Roles</li>
+{% endblock %}
+
+{% block page_icon %}<i class="bi bi-people-fill"></i>{% endblock %}
+{% block page_title %}Gestion de Roles{% endblock %}
+{% block page_subtitle %}Administra los roles globales del sistema{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createRoleModal">
+    <i class="bi bi-plus-lg me-1"></i>Nuevo Rol
+</button>
+{% endblock %}
+
+{% block content %}
+<!-- Roles Cards -->
+<div class="row g-4" id="rolesContainer">
+    {% for role in roles %}
+    <div class="col-12 col-md-6 col-lg-4" data-role-name="{{ role.name }}">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-success bg-opacity-10 rounded p-2 me-3">
+                            <i class="bi bi-person-badge text-success"></i>
+                        </div>
+                        <div>
+                            <h5 class="card-title mb-1">{{ role.name }}</h5>
+                            <small class="text-muted">Rol global</small>
+                        </div>
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li>
+                                <button class="dropdown-item text-danger delete-role-btn"
+                                        data-role-name="{{ role.name }}">
+                                    <i class="bi bi-trash me-2"></i>Eliminar Rol
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        <i class="bi bi-people me-1"></i>
+                        {{ role.users|length }} usuarios asignados
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if roles|length == 0 %}
+<div class="empty-state" id="emptyState">
+    <i class="bi bi-people"></i>
+    <h5>No hay roles registrados</h5>
+    <p>Crea tu primer rol para comenzar</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Crear Rol -->
+<div class="modal fade" id="createRoleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-lg me-2"></i>Nuevo Rol</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="createRoleForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="roleName" class="form-label">Nombre del Rol *</label>
+                        <input type="text" class="form-control" id="roleName" name="name"
+                               placeholder="ej: coordinador_general" pattern="[a-z0-9_]+" required>
+                        <div class="form-text">Solo letras minusculas, numeros y guiones bajos</div>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        Los roles globales pueden ser asignados a usuarios y luego vinculados a permisos especificos por aplicacion.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check-lg me-1"></i>Crear Rol
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Confirmar Eliminacion -->
+<div class="modal fade" id="deleteRoleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Eliminacion
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Estas seguro de que deseas eliminar el rol <strong id="deleteRoleName"></strong>?</p>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Esta accion eliminara todas las asignaciones de este rol a usuarios y aplicaciones.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteRole">
+                    <i class="bi bi-trash me-1"></i>Eliminar Rol
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/config/system/roles.js') }}?v={{ sv('core', 'js/config/system/roles.js') }}"></script>
+{% endblock %}

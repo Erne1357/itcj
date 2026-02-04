@@ -17,8 +17,8 @@ async function loadAllTickets() {
     try {
         console.log('🎫 Cargando todos los tickets del sistema...');
 
-        // Cargar todos los tickets usando la API de admin
-        const response = await HelpdeskUtils.api.getTickets({ all: true });
+        // Cargar todos los tickets usando la API (per_page: 0 = sin limite)
+        const response = await HelpdeskUtils.api.getTickets({ per_page: 0 });
         allTickets = response.tickets || [];
 
         // Ordenar por fecha de creación descendente (más nuevos primero)

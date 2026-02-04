@@ -146,22 +146,26 @@ function showToast(message, type = 'success') {
         info: 'fa-info-circle'
     }[type] || 'fa-bell';
 
+    // Para warning usamos texto oscuro, para el resto texto blanco
+    const textClass = type === 'warning' ? 'text-dark' : 'text-white';
+    const btnCloseClass = type === 'warning' ? '' : 'btn-close-white';
+
     const toast = document.createElement('div');
     toast.id = toastId;
-    toast.className = 'toast align-items-center text-white border-0';
+    toast.className = `toast align-items-center ${textClass} ${bgClass} border-0`;
     toast.setAttribute('role', 'alert');
     toast.innerHTML = `
-        <div class="d-flex">
-            <div class="toast-body ${bgClass} rounded d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center">
+            <div class="toast-body flex-grow-1 d-flex align-items-center gap-2">
                 <i class="fas ${icon}"></i>
                 ${message}
             </div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            <button type="button" class="btn-close ${btnCloseClass} me-1" data-bs-dismiss="toast" aria-label="Cerrar"></button>
         </div>
     `;
 
     container.appendChild(toast);
-    
+
     const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
     bsToast.show();
 

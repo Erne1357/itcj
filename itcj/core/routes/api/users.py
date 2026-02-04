@@ -307,6 +307,112 @@ def reset_user_password(user_id):
         return _bad("internal_server_error", 500)
 
 
+@api_users_bp.post('/<int:user_id>/toggle-status')
+@api_auth_required
+@api_app_required("itcj", roles=["admin"])
+def toggle_user_status(user_id):
+    """Activa o desactiva la cuenta de un usuario."""
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return _bad("user_not_found", 404)
+
+        # No permitir desactivarse a uno mismo
+        current_user_id = g.current_user.get('sub')
+        if current_user_id and int(current_user_id) == user.id:
+            return _bad("cannot_toggle_own_account", 400)
+
+        user.is_active = not user.is_active
+        db.session.commit()
+
+        action = "activada" if user.is_active else "desactivada"
+        current_app.logger.info(
+            f"User {user.id} account {action} by admin {current_user_id}"
+        )
+
+        return _ok({
+            "user_id": user.id,
+            "is_active": user.is_active,
+            "message": f"Cuenta {action} exitosamente"
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error toggling status for user {user_id}: {e}")
+        return _bad("internal_server_error", 500)
+
+
+@api_users_bp.patch('/<int:user_id>')
+@api_auth_required
+@api_app_required("itcj", roles=["admin"])
+def update_user(user_id):
+    """Actualiza la informacion de un usuario."""
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return _bad("user_not_found", 404)
+
+        data = request.get_json(silent=True) or {}
+
+        # Campos editables
+        if 'first_name' in data:
+            val = (data['first_name'] or '').strip()
+            if not val:
+                return _bad("first_name_required", 400)
+            user.first_name = val
+
+        if 'last_name' in data:
+            val = (data['last_name'] or '').strip()
+            if not val:
+                return _bad("last_name_required", 400)
+            user.last_name = val
+
+        if 'middle_name' in data:
+            val = (data['middle_name'] or '').strip()
+            user.middle_name = val or None
+
+        if 'email' in data:
+            val = (data['email'] or '').strip()
+            user.email = val or None
+
+        # Username solo para personal (sin numero de control)
+        if 'username' in data and not user.control_number:
+            val = (data['username'] or '').strip()
+            if not val:
+                return _bad("username_required", 400)
+            # Verificar unicidad
+            existing = User.query.filter(User.username == val, User.id != user.id).first()
+            if existing:
+                return _bad("username_already_exists", 409)
+            user.username = val
+
+        # Numero de control solo para estudiantes
+        if 'control_number' in data and user.control_number is not None:
+            val = (data['control_number'] or '').strip()
+            if not val or len(val) != 8 or not val.isdigit():
+                return _bad("invalid_control_number", 400)
+            existing = User.query.filter(User.control_number == val, User.id != user.id).first()
+            if existing:
+                return _bad("control_number_already_exists", 409)
+            user.control_number = val
+
+        db.session.commit()
+
+        current_app.logger.info(
+            f"User {user.id} info updated by admin {g.current_user.get('sub')}"
+        )
+
+        return _ok(user.to_dict())
+
+    except IntegrityError:
+        db.session.rollback()
+        return _bad("duplicate_value", 409)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating user {user_id}: {e}")
+        return _bad("internal_server_error", 500)
+
+
 @api_users_bp.get('/by-app/<app_key>')
 @api_app_required('helpdesk')  # Solo requiere acceso a helpdesk
 def list_users_by_app(app_key):

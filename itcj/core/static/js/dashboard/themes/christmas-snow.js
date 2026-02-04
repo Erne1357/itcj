@@ -503,31 +503,47 @@ class ChristmasSnow {
 }
 
 // ============================================
-// INICIALIZACIÓN AUTOMÁTICA
+// INICIALIZACIÓN DINÁMICA POR TEMÁTICA
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    // Verificar si estamos en época navideña (Diciembre o primeros días de Enero)
-    const now = new Date();
-    const month = now.getMonth(); // 0-11
-    const day = now.getDate();
+    // Verificar si hay una temática activa con decoraciones configuradas
+    if (window.activeTheme && window.activeTheme.decorations) {
+        const deco = window.activeTheme.decorations;
 
-    // Activar en Diciembre (mes 11) o primeros 10 días de Enero (mes 0)
-    const isChristmasSeason = month === 11 || (month === 0 && day <= 10);
+        // Solo inicializar si las decoraciones están habilitadas
+        if (deco.snowflakes?.enabled || deco.lights?.enabled || deco.snowman?.enabled) {
+            window.christmasSnow = new ChristmasSnow({
+                snowflakeCount: deco.snowflakes?.count || 30,
+                minSize: 10,
+                maxSize: 20,
+                minSpeed: 1,
+                maxSpeed: 3,
+                enabled: deco.snowflakes?.enabled !== false
+            });
 
-    if (isChristmasSeason) {
-        // Crear efecto de nieve
-        window.christmasSnow = new ChristmasSnow({
-            snowflakeCount: 30, // Poquitos copos
-            minSize: 10,
-            maxSize: 20,
-            minSpeed: 1,
-            maxSpeed: 3,
-            enabled: true
-        });
-
-        console.log('🎄 ¡Feliz Navidad! Decoraciones activadas automáticamente');
+            console.log(`🎨 Temática activa: "${window.activeTheme.name}" - Decoraciones habilitadas`);
+        }
     } else {
-        console.log('🎄 Fuera de temporada navideña. Decoraciones desactivadas.');
+        // Fallback: comportamiento original basado en fechas (por compatibilidad)
+        const now = new Date();
+        const month = now.getMonth(); // 0-11
+        const day = now.getDate();
+
+        // Activar en Diciembre (mes 11) o primeros 10 días de Enero (mes 0)
+        const isChristmasSeason = month === 11 || (month === 0 && day <= 10);
+
+        if (isChristmasSeason) {
+            window.christmasSnow = new ChristmasSnow({
+                snowflakeCount: 30,
+                minSize: 10,
+                maxSize: 20,
+                minSpeed: 1,
+                maxSpeed: 3,
+                enabled: true
+            });
+
+            console.log('🎄 ¡Feliz Navidad! Decoraciones activadas automáticamente (fallback por fechas)');
+        }
     }
 });
 

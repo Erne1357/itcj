@@ -268,7 +268,17 @@ def list_tickets():
     created_by_me = request.args.get('created_by_me', 'false').lower() == 'true'
     department_id = request.args.get('department_id', type=int)
     page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 20, type=int), 100)
+    # Permitir per_page alto para admins/técnicos (0 o -1 = sin límite, max 1000)
+    requested_per_page = request.args.get('per_page', 20, type=int)
+    if requested_per_page <= 0:
+        # Sin límite (usar 1000 como máximo práctico)
+        per_page = 1000
+    else:
+        # Límite normal de 100 para usuarios regulares, 1000 para admins/técnicos
+        if 'admin' in user_roles or 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
+            per_page = min(requested_per_page, 1000)
+        else:
+            per_page = min(requested_per_page, 100)
     
     try:
         result = ticket_service.list_tickets(
@@ -571,4 +581,71 @@ def cancel_ticket(ticket_id):
         
     except Exception as e:
         logger.error(f"Error al cancelar ticket {ticket_id}: {e}")
+        raise
+
+
+# ==================== EDITAR TICKET PENDIENTE ====================
+@tickets_base_bp.patch('/<int:ticket_id>')
+@api_app_required('helpdesk', perms=['helpdesk.tickets.api.read.own'])
+def update_ticket(ticket_id):
+    """
+    Edita campos de un ticket en estado PENDING.
+    Solo administradores y secretaria de centro de computo pueden editar.
+
+    Body:
+        {
+            "area": "DESARROLLO" | "SOPORTE" (opcional),
+            "category_id": int (opcional),
+            "priority": "BAJA" | "MEDIA" | "ALTA" | "URGENTE" (opcional),
+            "title": str (opcional),
+            "description": str (opcional),
+            "location": str (opcional)
+        }
+
+    Reglas:
+        - Si cambia area, category_id es obligatorio (nueva categoria del area)
+        - Si cambia category_id, se borran custom_fields
+        - Se registran todos los cambios en TicketEditLog
+
+    Returns:
+        200: Ticket actualizado
+        400: Datos invalidos o transicion no permitida
+        403: Sin permiso
+        404: Ticket no encontrado
+    """
+    data = request.get_json()
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+
+    # Verificar permisos (admin o secretary_comp_center)
+    from itcj.core.services.authz_service import _get_users_with_position
+    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
+
+    if 'admin' not in user_roles and user_id not in secretary_comp_center:
+        return jsonify({
+            'error': 'forbidden',
+            'message': 'No tienes permiso para editar tickets'
+        }), 403
+
+    try:
+        ticket = ticket_service.update_pending_ticket(
+            ticket_id=ticket_id,
+            updated_by_id=user_id,
+            area=data.get('area'),
+            category_id=data.get('category_id'),
+            priority=data.get('priority'),
+            title=data.get('title'),
+            description=data.get('description'),
+            location=data.get('location')
+        )
+
+        logger.info(f"Ticket {ticket.ticket_number} editado por usuario {user_id}")
+
+        return jsonify({
+            'message': 'Ticket actualizado exitosamente',
+            'ticket': ticket.to_dict(include_relations=True)
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error al editar ticket {ticket_id}: {e}")
         raise

@@ -1,21 +1,162 @@
-.config-card {
-    transition: transform 0.2s, box-shadow 0.2s;
+/* ===== Estadisticas rapidas ===== */
+.stat-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem;
+    background: #fff;
+    border-radius: var(--config-radius);
+    box-shadow: var(--config-shadow);
+    transition: var(--config-transition);
 }
 
-.config-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.stat-card:hover {
+    box-shadow: var(--config-shadow-hover);
 }
 
-.stats-badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    font-size: 0.8em;
+.stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    flex-shrink: 0;
 }
 
-.section-header {
-    border-left: 4px solid #0d6efd;
-    padding-left: 15px;
-    margin-bottom: 20px;
+.stat-number {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--config-dark);
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--config-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ===== Titulo de seccion ===== */
+.section-title {
+    color: var(--config-dark);
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+/* ===== Tarjetas de navegacion ===== */
+.nav-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.nav-card-link:hover {
+    color: inherit;
+}
+
+.nav-card {
+    border: 1px solid var(--config-border);
+    transition: var(--config-transition);
+    cursor: pointer;
+}
+
+.nav-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--config-shadow-hover);
+    border-color: transparent;
+}
+
+.nav-card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.nav-card h6 {
+    font-weight: 600;
+    margin-bottom: 0;
+}
+
+/* ===== Icono de app pequeno ===== */
+.app-icon-sm {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(13, 110, 253, 0.1);
+    color: var(--config-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+/* ===== Indicador de tematica ===== */
+.theme-active-indicator {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e91e63, #c2185b);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    animation: themePulse 2s ease-in-out infinite;
+}
+
+.theme-inactive-indicator {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--config-light);
+    color: var(--config-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+}
+
+@keyframes themePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(233, 30, 99, 0.3); }
+    50% { box-shadow: 0 0 0 12px rgba(233, 30, 99, 0); }
+}
+
+/* ===== Card header ===== */
+.card-header {
+    border-bottom: 1px solid var(--config-border);
+    padding: 0.875rem 1.25rem;
+}
+
+/* ===== List group items hover ===== */
+.list-group-item {
+    transition: background-color 0.15s ease;
+}
+
+.list-group-item:hover {
+    background-color: var(--config-light);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 576px) {
+    .stat-card {
+        padding: 1rem;
+    }
+    .stat-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 1.1rem;
+    }
+    .stat-number {
+        font-size: 1.25rem;
+    }
 }

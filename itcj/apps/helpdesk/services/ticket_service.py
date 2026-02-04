@@ -824,11 +824,11 @@ def can_user_view_ticket(ticket: Ticket, user_id: int) -> bool:
 def _is_valid_status_transition(from_status: str, to_status: str) -> bool:
     """
     Valida si una transición de estado es válida.
-    
+
     Args:
         from_status: Estado actual
         to_status: Estado nuevo
-    
+
     Returns:
         True si es válida, False si no
     """
@@ -842,5 +842,172 @@ def _is_valid_status_transition(from_status: str, to_status: str) -> bool:
         'CLOSED': [],  # No se puede cambiar desde cerrado
         'CANCELED': []  # No se puede cambiar desde cancelado
     }
-    
+
     return to_status in valid_transitions.get(from_status, [])
+
+
+# ==================== EDITAR TICKET PENDIENTE ====================
+def update_pending_ticket(
+    ticket_id: int,
+    updated_by_id: int,
+    area: str = None,
+    category_id: int = None,
+    priority: str = None,
+    title: str = None,
+    description: str = None,
+    location: str = None
+) -> Ticket:
+    """
+    Edita campos de un ticket en estado PENDING.
+    Solo administradores y secretaria de centro de computo pueden editar.
+
+    Args:
+        ticket_id: ID del ticket
+        updated_by_id: ID del usuario que edita
+        area: Nueva area (opcional)
+        category_id: Nueva categoria (requerida si cambia area)
+        priority: Nueva prioridad (opcional)
+        title: Nuevo titulo (opcional)
+        description: Nueva descripcion (opcional)
+        location: Nueva ubicacion (opcional)
+
+    Returns:
+        Ticket actualizado
+
+    Raises:
+        404: Si el ticket no existe
+        400: Si el ticket no esta en PENDING o datos invalidos
+    """
+    from itcj.apps.helpdesk.models import TicketEditLog
+
+    ticket = Ticket.query.get(ticket_id)
+    if not ticket:
+        abort(404, description='Ticket no encontrado')
+
+    # Solo tickets PENDING pueden editarse
+    if ticket.status != 'PENDING':
+        abort(400, description='Solo se pueden editar tickets en estado PENDING')
+
+    changes = []  # Lista de cambios para el log
+
+    # Validar y aplicar cambio de area
+    if area and area != ticket.area:
+        if area not in ['DESARROLLO', 'SOPORTE']:
+            abort(400, description='Area debe ser DESARROLLO o SOPORTE')
+
+        # Si cambia area, es obligatorio proporcionar nueva categoria
+        if not category_id:
+            abort(400, description='Al cambiar de area debe seleccionar una nueva categoria')
+
+        changes.append({
+            'field': 'area',
+            'old': ticket.area,
+            'new': area
+        })
+        ticket.area = area
+
+    # Validar y aplicar cambio de categoria
+    if category_id and category_id != ticket.category_id:
+        category = Category.query.get(category_id)
+        if not category or not category.is_active:
+            abort(400, description='Categoria invalida o inactiva')
+
+        # Verificar que la categoria corresponda al area actual o nueva
+        target_area = area or ticket.area
+        if category.area != target_area:
+            abort(400, description=f'La categoria no corresponde al area {target_area}')
+
+        # Guardar nombre de categoria anterior para el log
+        old_category = Category.query.get(ticket.category_id)
+        old_category_name = old_category.name if old_category else str(ticket.category_id)
+
+        changes.append({
+            'field': 'category_id',
+            'old': old_category_name,
+            'new': category.name
+        })
+
+        # Limpiar custom_fields al cambiar categoria
+        if ticket.custom_fields and len(ticket.custom_fields) > 0:
+            changes.append({
+                'field': 'custom_fields',
+                'old': str(ticket.custom_fields),
+                'new': '{}'
+            })
+            ticket.custom_fields = {}
+            flag_modified(ticket, 'custom_fields')
+
+        ticket.category_id = category_id
+
+    # Validar y aplicar cambio de prioridad
+    if priority and priority != ticket.priority:
+        if priority not in ['BAJA', 'MEDIA', 'ALTA', 'URGENTE']:
+            abort(400, description='Prioridad invalida')
+
+        changes.append({
+            'field': 'priority',
+            'old': ticket.priority,
+            'new': priority
+        })
+        ticket.priority = priority
+
+    # Validar y aplicar cambio de titulo
+    if title is not None and title.strip() != ticket.title:
+        if len(title.strip()) < 5:
+            abort(400, description='El titulo debe tener al menos 5 caracteres')
+
+        changes.append({
+            'field': 'title',
+            'old': ticket.title,
+            'new': title.strip()
+        })
+        ticket.title = title.strip()
+
+    # Validar y aplicar cambio de descripcion
+    if description is not None and description.strip() != ticket.description:
+        if len(description.strip()) < 20:
+            abort(400, description='La descripcion debe tener al menos 20 caracteres')
+
+        changes.append({
+            'field': 'description',
+            'old': ticket.description,
+            'new': description.strip()
+        })
+        ticket.description = description.strip()
+
+    # Aplicar cambio de ubicacion
+    if location is not None and location != ticket.location:
+        changes.append({
+            'field': 'location',
+            'old': ticket.location or '',
+            'new': location or ''
+        })
+        ticket.location = location if location else None
+
+    # Si no hay cambios, retornar sin hacer nada
+    if not changes:
+        return ticket
+
+    # Actualizar metadata
+    ticket.updated_at = now_local()
+    ticket.updated_by_id = updated_by_id
+
+    # Registrar cambios en log de auditoria
+    for change in changes:
+        edit_log = TicketEditLog(
+            ticket_id=ticket_id,
+            field_name=change['field'],
+            old_value=change['old'],
+            new_value=change['new'],
+            changed_by_id=updated_by_id
+        )
+        db.session.add(edit_log)
+
+    try:
+        db.session.commit()
+        logger.info(f"Ticket {ticket.ticket_number} editado: {len(changes)} campo(s) modificado(s) por usuario {updated_by_id}")
+        return ticket
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error al editar ticket: {e}")
+        abort(500, description='Error al editar ticket')
