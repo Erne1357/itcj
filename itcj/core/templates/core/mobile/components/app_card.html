@@ -4,13 +4,17 @@
     class="mobile-app-card"
     data-app-key="{{ app.key }}">
     <div class="mobile-app-card-icon"
-        style="background: {% if app.key == 'agendatec' %}#f0fdf4{% elif app.key == 'helpdesk' %}#eff6ff{% else %}#f3f4f6{% endif %};">
-        {% if app.mobile_icon %}
-        <img src="{{ url_for('static', filename=app.mobile_icon) }}" alt="{{ app.name }}">
-        {% elif app.key == 'agendatec' %}
+        style="background: {% if app.key == 'agendatec' %}#f0fdf4{% elif app.key == 'helpdesk' %}#eff6ff{% elif app.key == 'vistetec' %}#fdf2f8{% else %}#f3f4f6{% endif %};">
+        {% if app.key == 'agendatec' %}
         <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec">
         {% elif app.key == 'helpdesk' %}
         <img src="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}" alt="Help Desk">
+        {% elif app.key == 'vistetec' %}
+        <i class="bi bi-bag-heart-fill" style="font-size: 2rem; color: #ec4899;"></i>
+        {% elif app.mobile_icon and app.mobile_icon.startswith('bi-') %}
+        <i class="bi {{ app.mobile_icon }}" style="font-size: 2rem; color: var(--mobile-primary);"></i>
+        {% elif app.mobile_icon %}
+        <img src="{{ url_for('static', filename=app.mobile_icon) }}" alt="{{ app.name }}">
         {% else %}
         <i class="bi bi-app" style="color: var(--mobile-primary);"></i>
         {% endif %}

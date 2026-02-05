@@ -15,7 +15,7 @@ class TimeSlot(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
 
     coordinator = db.relationship("Coordinator", back_populates="time_slots")
-    appointments = db.relationship("Appointment", back_populates="slot", cascade="all, delete", passive_deletes=True)
+    appointments = db.relationship("itcj.apps.agendatec.models.appointment.Appointment", back_populates="slot", cascade="all, delete", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<TimeSlot {self.id} coord={self.coordinator_id} {self.start_time}-{self.end_time} booked={self.is_booked}>"

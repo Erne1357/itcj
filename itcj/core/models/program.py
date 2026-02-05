@@ -22,7 +22,7 @@ class Program(db.Model):
 
     # one-to-many
     requests = db.relationship("Request", back_populates="program", cascade="all, delete", passive_deletes=True)
-    appointments = db.relationship("Appointment", back_populates="program", cascade="all, delete", passive_deletes=True)
+    appointments = db.relationship("itcj.apps.agendatec.models.appointment.Appointment", back_populates="program", cascade="all, delete", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Program {self.name}>"

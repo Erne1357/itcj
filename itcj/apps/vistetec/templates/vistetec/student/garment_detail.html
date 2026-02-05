@@ -1,0 +1,116 @@
+{% extends "vistetec/base.html" %}
+
+{% block title %}Detalle de Prenda{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/catalog.css') }}?v={{ sv('vistetec', 'css/catalog.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('vistetec_pages.student_pages.catalog') }}">Catálogo</a></li>
+            <li class="breadcrumb-item active" id="breadcrumbName">Cargando...</li>
+        </ol>
+    </nav>
+
+    <!-- Loading -->
+    <div id="loadingState" class="text-center py-5">
+        <div class="spinner-border text-success" role="status"></div>
+        <p class="text-muted mt-2">Cargando prenda...</p>
+    </div>
+
+    <!-- Detalle -->
+    <div id="garmentDetail" class="d-none">
+        <div class="row g-4">
+            <!-- Imagen -->
+            <div class="col-12 col-md-5">
+                <div class="card border-0 shadow-sm overflow-hidden">
+                    <div id="garmentImageContainer" class="bg-light d-flex align-items-center justify-content-center" style="min-height: 350px;">
+                        <i class="bi bi-image text-muted" style="font-size: 4rem;" id="noImageIcon"></i>
+                        <img id="garmentImage" class="img-fluid d-none" alt="Imagen de prenda" style="width: 100%; object-fit: cover;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info -->
+            <div class="col-12 col-md-7">
+                <div class="d-flex align-items-start justify-content-between mb-2">
+                    <div>
+                        <span class="badge bg-success-subtle text-success mb-2" id="garmentStatus">Disponible</span>
+                        <span class="badge bg-secondary-subtle text-secondary mb-2" id="garmentCode"></span>
+                    </div>
+                </div>
+
+                <h2 class="fw-bold mb-2" id="garmentName"></h2>
+                <p class="text-muted" id="garmentDescription"></p>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-6">
+                        <div class="border rounded p-3 text-center">
+                            <small class="text-muted d-block">Categoría</small>
+                            <strong id="garmentCategory"></strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-3 text-center">
+                            <small class="text-muted d-block">Talla</small>
+                            <strong id="garmentSize">-</strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-3 text-center">
+                            <small class="text-muted d-block">Color</small>
+                            <strong id="garmentColor">-</strong>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-3 text-center">
+                            <small class="text-muted d-block">Condición</small>
+                            <strong id="garmentCondition"></strong>
+                        </div>
+                    </div>
+                    <div class="col-6" id="garmentBrandContainer">
+                        <div class="border rounded p-3 text-center">
+                            <small class="text-muted d-block">Marca</small>
+                            <strong id="garmentBrand">-</strong>
+                        </div>
+                    </div>
+                    <div class="col-6" id="garmentGenderContainer">
+                        <div class="border rounded p-3 text-center">
+                            <small class="text-muted d-block">Género</small>
+                            <strong id="garmentGender">-</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botón agendar cita (se habilitará en Fase 3) -->
+                <button class="btn btn-success btn-lg w-100" id="btnSchedule" disabled>
+                    <i class="bi bi-calendar-plus me-2"></i>Agendar cita para probármela
+                </button>
+                <small class="text-muted d-block text-center mt-2">
+                    Sistema de citas próximamente disponible
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Not Found -->
+    <div id="notFoundState" class="text-center py-5 d-none">
+        <i class="bi bi-exclamation-triangle text-warning" style="font-size: 4rem;"></i>
+        <h4 class="text-muted mt-3">Prenda no encontrada</h4>
+        <a href="{{ url_for('vistetec_pages.student_pages.catalog') }}" class="btn btn-outline-success mt-2">
+            Volver al catálogo
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const GARMENT_ID = {{ garment_id }};
+</script>
+<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/garment_detail.js') }}?v={{ sv('vistetec', 'js/garment_detail.js') }}"></script>
+{% endblock %}

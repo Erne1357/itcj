@@ -28,8 +28,8 @@ class Coordinator(db.Model):
 
     # one-to-many
     availability_windows = db.relationship("AvailabilityWindow", back_populates="coordinator", cascade="all, delete", passive_deletes=True)
-    time_slots = db.relationship("TimeSlot", back_populates="coordinator", cascade="all, delete", passive_deletes=True)
-    appointments = db.relationship("Appointment", back_populates="coordinator", cascade="all, delete", passive_deletes=True)
+    time_slots = db.relationship("itcj.apps.agendatec.models.time_slot.TimeSlot", back_populates="coordinator", cascade="all, delete", passive_deletes=True)
+    appointments = db.relationship("itcj.apps.agendatec.models.appointment.Appointment", back_populates="coordinator", cascade="all, delete", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Coordinator {self.id} user={self.user_id}>"
