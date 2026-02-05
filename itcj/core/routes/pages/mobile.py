@@ -23,6 +23,7 @@ def mobile_dashboard():
     user_type = get_user_type(user_id)
     apps = get_mobile_apps_for_user(user_id)
 
+
     if user_type == "student":
         return render_template(
             "core/mobile/student_dashboard.html",
@@ -55,6 +56,31 @@ def mobile_notifications():
         "core/mobile/notifications.html",
         user_type=user_type,
         active_tab="notifications"
+    )
+
+
+@pages_mobile_bp.get("/m/profile")
+@login_required
+def mobile_profile():
+    """Perfil movil - estudiantes ven perfil simplificado, staff ve iframe del perfil completo."""
+    user_id = int(g.current_user["sub"])
+    user = get_user_for_mobile(user_id)
+    user_type = get_user_type(user_id)
+
+    if user_type == "student":
+        return render_template(
+            "core/mobile/student_profile.html",
+            user=user,
+            user_type=user_type,
+            active_tab="profile"
+        )
+
+    # Staff: mostrar perfil completo en iframe
+    return render_template(
+        "core/mobile/staff_profile.html",
+        user=user,
+        user_type=user_type,
+        active_tab="profile"
     )
 
 

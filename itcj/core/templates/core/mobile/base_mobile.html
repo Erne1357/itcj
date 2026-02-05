@@ -38,17 +38,18 @@
 <body class="mobile-body">
     <!-- Top Header Bar -->
     <header class="mobile-header">
-        <div class="mobile-header-left">
+        <a href="{{ url_for('pages_core.pages_mobile.mobile_dashboard') }}" class="mobile-header-left"
+            style="text-decoration:none;color:inherit;">
             <img src="{{ url_for('static', filename='core/icon/favicon.ico') }}" alt="ITCJ"
                 class="mobile-header-logo">
             <span class="mobile-header-title">ITCJ</span>
-        </div>
+        </a>
         <div class="mobile-header-right">
             <button class="mobile-header-btn" id="notificationBellMobile" title="Notificaciones">
                 <i class="bi bi-bell"></i>
                 <span id="globalNotificationBadgeMobile" class="mobile-badge" style="display:none;">0</span>
             </button>
-            <a href="{{ url_for('pages_core.pages_profile.profile') }}" class="mobile-header-avatar"
+            <a href="{{ url_for('pages_core.pages_mobile.mobile_profile') }}" class="mobile-header-avatar"
                 title="Mi perfil">
                 {% if current_user %}
                 {{ current_user.name[:1]|upper if current_user.name else 'U' }}
@@ -75,7 +76,7 @@
             <span>Avisos</span>
             <span id="navBadgeNotifications" class="mobile-nav-badge" style="display:none;">0</span>
         </a>
-        <a href="{{ url_for('pages_core.pages_profile.profile') }}"
+        <a href="{{ url_for('pages_core.pages_mobile.mobile_profile') }}"
             class="mobile-nav-item {% if active_tab == 'profile' %}active{% endif %}">
             <i class="bi bi-person"></i>
             <span>Perfil</span>

@@ -30,6 +30,13 @@
             style="filter: brightness(0) invert(1);" />
           <span class="fw-semibold">AgendaTec</span>
         </a>
+        {% if current_user %}
+        <a href="/itcj/m/"
+          class="btn btn-outline-light btn-sm rounded-pill align-items-center gap-1 {% if current_user.role == 'student' %}d-inline-flex{% else %}d-inline-flex d-lg-none{% endif %}"
+          title="Ir al Dashboard ITCJ">
+          <i class="bi bi-house-door-fill"></i>
+        </a>
+        {% endif %}
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
           <span class="navbar-toggler-icon"></span>
         </button>

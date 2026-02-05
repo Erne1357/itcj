@@ -41,7 +41,7 @@ def get_mobile_apps_for_user(user_id: int) -> list[dict]:
         query = query.filter_by(visible_to_students=True)
 
     apps = query.order_by(App.name.asc()).all()
-
+    apps = [app for app in apps if app.key != 'itcj']  # Excluir app core
     result = []
     for app in apps:
         # Verificar que el usuario tenga alguna asignacion en la app
