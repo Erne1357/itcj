@@ -645,8 +645,9 @@ class UsersManager {
         // Generar filas de usuarios
         users.forEach(user => {
             const row = document.createElement('tr');
-            row.className = 'user-row';
+            row.className = 'user-row clickable-row';
             row.setAttribute('data-user-id', user.id);
+            row.setAttribute('data-href', `/itcj/config/users/${user.id}`);
             
             row.innerHTML = `
                 <td class="px-4 py-3">
