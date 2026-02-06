@@ -28,6 +28,8 @@
                         <th class="px-4">Clave</th>
                         <th>Nombre</th>
                         <th>Estado</th>
+                        <th>Mobile</th>
+                        <th>Visible Estudiantes</th>
                         <th>Creada</th>
                         <th class="text-end pe-4">Acciones</th>
                     </tr>
@@ -49,6 +51,20 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% if app.mobile_enabled %}
+                                <span class="badge bg-info"><i class="bi bi-phone me-1"></i>Si</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if app.visible_to_students %}
+                                <span class="badge bg-primary"><i class="bi bi-mortarboard me-1"></i>Si</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No</span>
+                            {% endif %}
+                        </td>
+                        <td>
                             <small class="text-muted">{{ app.created_at.strftime('%d/%m/%Y') }}</small>
                         </td>
                         <td class="text-end pe-4">
@@ -61,6 +77,10 @@
                                         data-app-key="{{ app.key }}"
                                         data-app-name="{{ app.name }}"
                                         data-app-active="{{ app.is_active|tojson }}"
+                                        data-app-mobile-enabled="{{ app.mobile_enabled|tojson }}"
+                                        data-app-visible-students="{{ app.visible_to_students|tojson }}"
+                                        data-app-mobile-url="{{ app.mobile_url or '' }}"
+                                        data-app-mobile-icon="{{ app.mobile_icon or '' }}"
                                         title="Editar">
                                     <i class="bi bi-pencil"></i>
                                 </button>
@@ -110,6 +130,45 @@
                         <input type="text" class="form-control" id="appName" name="name"
                                placeholder="ej: Mi Aplicacion" required>
                     </div>
+                    
+                    <hr class="my-3">
+                    <h6 class="text-muted mb-3"><i class="bi bi-phone me-2"></i>Configuracion Mobile</h6>
+                    
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="appMobileEnabled" name="mobile_enabled" checked>
+                                <label class="form-check-label" for="appMobileEnabled">
+                                    <i class="bi bi-phone me-1"></i>Habilitada en Mobile
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="appVisibleStudents" name="visible_to_students">
+                                <label class="form-check-label" for="appVisibleStudents">
+                                    <i class="bi bi-mortarboard me-1"></i>Visible para Estudiantes
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="appMobileUrl" class="form-label">URL Mobile</label>
+                        <input type="text" class="form-control" id="appMobileUrl" name="mobile_url"
+                               placeholder="ej: /mi-app/">
+                        <div class="form-text">Ruta de acceso desde la app mobile</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="appMobileIcon" class="form-label">Icono Mobile</label>
+                        <input type="text" class="form-control" id="appMobileIcon" name="mobile_icon"
+                               placeholder="ej: bi-app">
+                        <div class="form-text">Clase de Bootstrap Icons para el icono</div>
+                    </div>
+                    
+                    <hr class="my-3">
+                    
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="appActive" name="is_active" checked>
                         <label class="form-check-label" for="appActive">Aplicacion activa</label>
@@ -141,6 +200,45 @@
                         <label for="editAppName" class="form-label">Nombre de la Aplicacion *</label>
                         <input type="text" class="form-control" id="editAppName" name="name" required>
                     </div>
+                    
+                    <hr class="my-3">
+                    <h6 class="text-muted mb-3"><i class="bi bi-phone me-2"></i>Configuracion Mobile</h6>
+                    
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="editAppMobileEnabled" name="mobile_enabled">
+                                <label class="form-check-label" for="editAppMobileEnabled">
+                                    <i class="bi bi-phone me-1"></i>Habilitada en Mobile
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="editAppVisibleStudents" name="visible_to_students">
+                                <label class="form-check-label" for="editAppVisibleStudents">
+                                    <i class="bi bi-mortarboard me-1"></i>Visible para Estudiantes
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editAppMobileUrl" class="form-label">URL Mobile</label>
+                        <input type="text" class="form-control" id="editAppMobileUrl" name="mobile_url"
+                               placeholder="ej: /mi-app/">
+                        <div class="form-text">Ruta de acceso desde la app mobile</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editAppMobileIcon" class="form-label">Icono Mobile</label>
+                        <input type="text" class="form-control" id="editAppMobileIcon" name="mobile_icon"
+                               placeholder="ej: bi-app">
+                        <div class="form-text">Clase de Bootstrap Icons para el icono</div>
+                    </div>
+                    
+                    <hr class="my-3">
+                    
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="editAppActive" name="is_active">
                         <label class="form-check-label" for="editAppActive">Aplicacion activa</label>

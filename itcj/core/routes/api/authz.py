@@ -45,13 +45,25 @@ def create_app():
     key = (payload.get("key") or "").strip()
     name = (payload.get("name") or "").strip()
     is_active = bool(payload.get("is_active", True))
+    mobile_enabled = bool(payload.get("mobile_enabled", True))
+    visible_to_students = bool(payload.get("visible_to_students", False))
+    mobile_url = (payload.get("mobile_url") or "").strip() or None
+    mobile_icon = (payload.get("mobile_icon") or "").strip() or None
     if not key or not name:
         return _bad("key_and_name_required")
     if db.session.query(App).filter_by(key=key).first():
         return _bad("app_key_exists", 409)
-    a = App(key=key, name=name, is_active=is_active)
+    a = App(
+        key=key, name=name, is_active=is_active,
+        mobile_enabled=mobile_enabled, visible_to_students=visible_to_students,
+        mobile_url=mobile_url, mobile_icon=mobile_icon
+    )
     db.session.add(a); db.session.commit()
-    return _ok({"id":a.id,"key":a.key,"name":a.name,"is_active":a.is_active}, 201)
+    return _ok({
+        "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
+        "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
+        "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon
+    }, 201)
 
 @api_authz_bp.patch("/apps/<string:app_key>")
 @api_auth_required
@@ -62,8 +74,16 @@ def update_app(app_key):
     p = request.get_json(silent=True) or {}
     if "name" in p: a.name = (p["name"] or "").strip() or a.name
     if "is_active" in p: a.is_active = bool(p["is_active"])
+    if "mobile_enabled" in p: a.mobile_enabled = bool(p["mobile_enabled"])
+    if "visible_to_students" in p: a.visible_to_students = bool(p["visible_to_students"])
+    if "mobile_url" in p: a.mobile_url = (p["mobile_url"] or "").strip() or None
+    if "mobile_icon" in p: a.mobile_icon = (p["mobile_icon"] or "").strip() or None
     db.session.commit()
-    return _ok({"id":a.id,"key":a.key,"name":a.name,"is_active":a.is_active})
+    return _ok({
+        "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
+        "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
+        "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon
+    })
 
 @api_authz_bp.delete("/apps/<string:app_key>")
 @api_auth_required

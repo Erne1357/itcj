@@ -22,7 +22,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: #f0f4f0;
+    background-color: #fdf2f4;
 }
 
 .garment-card .card-img-placeholder i {
@@ -44,16 +44,16 @@
 
 /* Paginación personalizada */
 .pagination .page-link {
-    color: #386641;
+    color: #8B1538;
     border-color: #dee2e6;
 }
 
 .pagination .page-item.active .page-link {
-    background-color: #386641;
-    border-color: #386641;
+    background-color: #8B1538;
+    border-color: #8B1538;
 }
 
 .pagination .page-link:hover {
-    background-color: #e8f5e9;
-    color: #386641;
+    background-color: #fdf2f4;
+    color: #8B1538;
 }

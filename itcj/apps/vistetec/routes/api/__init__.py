@@ -12,6 +12,9 @@ reports_api_bp = Blueprint('reports_api', __name__)
 # Importar rutas para registrarlas en los blueprints
 from . import catalog
 from . import garments
+from . import time_slots
+from . import appointments
+from . import donations
 
 __all__ = [
     'catalog_api_bp',

@@ -81,13 +81,6 @@
             <i class="bi bi-person"></i>
             <span>Perfil</span>
         </a>
-        {% if user_type != 'student' %}
-        <a href="{{ url_for('pages_core.pages_mobile.mobile_switch_desktop') }}"
-            class="mobile-nav-item">
-            <i class="bi bi-display"></i>
-            <span>Desktop</span>
-        </a>
-        {% endif %}
     </nav>
 
     <!-- Toast container -->

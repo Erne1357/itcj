@@ -140,6 +140,7 @@ services:
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
+      - ../../itcj/apps/vistetec/static:/www/static/vistetec:ro
     depends_on:
       - redis
       - postgres

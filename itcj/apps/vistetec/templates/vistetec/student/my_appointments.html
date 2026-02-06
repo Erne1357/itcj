@@ -1,13 +1,114 @@
 {% extends "vistetec/base.html" %}
 {% block title %}Mis Citas{% endblock %}
 
+{% block extra_css %}
+<style>
+    .appointment-card {
+        border-left: 4px solid #8B1538;
+        transition: transform 0.2s;
+    }
+    .appointment-card:hover {
+        transform: translateX(4px);
+    }
+    .appointment-card.status-cancelled {
+        border-left-color: #dc3545;
+        opacity: 0.7;
+    }
+    .appointment-card.status-completed {
+        border-left-color: #198754;
+    }
+    .appointment-card.status-no_show {
+        border-left-color: #6c757d;
+        opacity: 0.7;
+    }
+    .garment-thumb {
+        width: 60px;
+        height: 60px;
+        object-fit: cover;
+        border-radius: 8px;
+        background-color: #fdf2f4;
+    }
+    .garment-thumb-placeholder {
+        width: 60px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #fdf2f4;
+        border-radius: 8px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
-    <h2 class="fw-bold mb-4">Mis Citas</h2>
-    <div class="text-center py-5">
-        <i class="bi bi-calendar2-week text-muted" style="font-size: 4rem;"></i>
-        <h4 class="text-muted mt-3">Sistema de citas</h4>
-        <p class="text-muted">Disponible próximamente (Fase 3)</p>
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-1">Mis Citas</h2>
+            <p class="text-muted mb-0">Gestiona tus citas para probarte ropa</p>
+        </div>
+        <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="filterStatus" style="width: auto;">
+                <option value="">Todas</option>
+                <option value="scheduled" selected>Programadas</option>
+                <option value="completed">Completadas</option>
+                <option value="cancelled">Canceladas</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Lista de citas -->
+    <div id="appointmentsList">
+        <!-- Se llena con JS -->
+    </div>
+
+    <!-- Estado vacío -->
+    <div id="emptyState" class="text-center py-5 d-none">
+        <i class="bi bi-calendar-x text-muted" style="font-size: 4rem;"></i>
+        <h4 class="text-muted mt-3">No tienes citas</h4>
+        <p class="text-muted">Explora el catálogo y agenda una cita para probarte ropa</p>
+        <a href="{{ url_for('vistetec_pages.student_pages.catalog') }}" class="btn mt-2" style="background-color: #8B1538; color: white;">
+            <i class="bi bi-grid-3x3-gap me-1"></i>Ver catálogo
+        </a>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingState" class="text-center py-5">
+        <div class="spinner-border" role="status" style="color: #8B1538;"></div>
+        <p class="text-muted mt-2">Cargando citas...</p>
     </div>
 </div>
+
+<!-- Modal cancelar cita -->
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold">Cancelar cita</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">¿Estás seguro de que deseas cancelar esta cita?</p>
+                <div class="alert alert-warning small">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    La prenda volverá a estar disponible para otros estudiantes.
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No, volver</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmCancel">
+                    <span id="cancelBtnText">Sí, cancelar cita</span>
+                    <span id="cancelBtnLoading" class="d-none">
+                        <span class="spinner-border spinner-border-sm me-1"></span>Cancelando...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/my_appointments.js') }}?v={{ sv('vistetec', 'js/my_appointments.js') }}"></script>
 {% endblock %}

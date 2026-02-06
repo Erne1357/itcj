@@ -286,7 +286,14 @@ class UsersManager {
             return;
         }
 
-        const badges = appKeys.map(appKey => {
+        // Ordenar apps: itcj siempre al final
+        const sortedAppKeys = [...appKeys].sort((a, b) => {
+            if (a === 'itcj') return 1;
+            if (b === 'itcj') return -1;
+            return a.localeCompare(b);
+        });
+
+        const badges = sortedAppKeys.map(appKey => {
             const app = this.apps.find(a => a.key === appKey);
             return `<span class="badge bg-${app ? app.key : 'primary'}" title="${app ? app.name : appKey}">${appKey}</span>`;
         }).join(' ');

@@ -51,7 +51,7 @@ def sizes():
 
 
 @catalog_api_bp.get('/stats')
-@api_app_required('vistetec')
+@api_app_required('vistetec', perms=['vistetec.catalog.api.stats'])
 def stats():
     """GET /api/vistetec/v1/catalog/stats - Estadísticas generales."""
     return jsonify(catalog_service.get_catalog_stats()), 200

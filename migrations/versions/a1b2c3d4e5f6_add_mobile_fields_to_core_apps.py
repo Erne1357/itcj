@@ -30,8 +30,32 @@ def upgrade():
     # AgendaTec visible para estudiantes por defecto
     op.execute("UPDATE core_apps SET visible_to_students = TRUE WHERE key = 'agendatec'")
 
+    # Copiar rol 'student' de agendatec a vistetec para todos los usuarios que lo tengan
+    # Esto se hace con una sola consulta INSERT...SELECT eficiente
+    op.execute("""
+        INSERT INTO core_user_app_roles (user_id, app_id, role_id)
+        SELECT 
+            uar.user_id,
+            (SELECT id FROM core_apps WHERE key = 'vistetec'),
+            uar.role_id
+        FROM core_user_app_roles uar
+        INNER JOIN core_apps a ON uar.app_id = a.id
+        INNER JOIN core_roles r ON uar.role_id = r.id
+        WHERE a.key = 'agendatec' 
+          AND r.name = 'student'
+          AND (SELECT id FROM core_apps WHERE key = 'vistetec') IS NOT NULL
+        ON CONFLICT (user_id, app_id, role_id) DO NOTHING
+    """)
+
 
 def downgrade():
+    # Eliminar roles de student en vistetec que fueron copiados de agendatec
+    op.execute("""
+        DELETE FROM core_user_app_roles
+        WHERE app_id = (SELECT id FROM core_apps WHERE key = 'vistetec')
+          AND role_id = (SELECT id FROM core_roles WHERE name = 'student')
+    """)
+
     with op.batch_alter_table('core_apps', schema=None) as batch_op:
         batch_op.drop_column('mobile_enabled')
         batch_op.drop_column('mobile_url')

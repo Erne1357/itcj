@@ -1,13 +1,107 @@
 {% extends "vistetec/base.html" %}
 {% block title %}Mis Donaciones{% endblock %}
 
+{% block extra_css %}
+<style>
+    .donation-card {
+        border-left: 4px solid #dc3545;
+        transition: all 0.2s;
+    }
+    .donation-card:hover {
+        transform: translateX(4px);
+    }
+    .donation-card.type-garment {
+        border-left-color: #8B1538;
+    }
+    .donation-card.type-pantry {
+        border-left-color: #fd7e14;
+    }
+    .stat-card {
+        border-radius: 1rem;
+    }
+    .stat-icon {
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
-    <h2 class="fw-bold mb-4">Mis Donaciones</h2>
-    <div class="text-center py-5">
-        <i class="bi bi-heart text-muted" style="font-size: 4rem;"></i>
-        <h4 class="text-muted mt-3">Historial de donaciones</h4>
-        <p class="text-muted">Disponible próximamente (Fase 5)</p>
+    <!-- Header -->
+    <div class="mb-4">
+        <h2 class="fw-bold mb-1">Mis Donaciones</h2>
+        <p class="text-muted mb-0">Tu historial de generosidad</p>
     </div>
+
+    <!-- Stats -->
+    <div class="row g-3 mb-4">
+        <div class="col-4">
+            <div class="card stat-card border-0 shadow-sm h-100">
+                <div class="card-body text-center py-3">
+                    <div class="stat-icon mx-auto mb-2" style="background-color: #fdf2f4;">
+                        <i class="bi bi-heart-fill" style="color: #8B1538;"></i>
+                    </div>
+                    <h4 class="fw-bold mb-0" id="statTotal">-</h4>
+                    <small class="text-muted">Total</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card stat-card border-0 shadow-sm h-100">
+                <div class="card-body text-center py-3">
+                    <div class="stat-icon mx-auto mb-2" style="background-color: #fdf2f4;">
+                        <i class="bi bi-bag-heart" style="color: #8B1538;"></i>
+                    </div>
+                    <h4 class="fw-bold mb-0" id="statGarments">-</h4>
+                    <small class="text-muted">Ropa</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card stat-card border-0 shadow-sm h-100">
+                <div class="card-body text-center py-3">
+                    <div class="stat-icon mx-auto mb-2" style="background-color: #fff3e0;">
+                        <i class="bi bi-box-seam text-warning"></i>
+                    </div>
+                    <h4 class="fw-bold mb-0" id="statPantry">-</h4>
+                    <small class="text-muted">Despensa</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Donation List -->
+    <h5 class="fw-bold mb-3">Historial</h5>
+
+    <div id="donationsList">
+        <!-- Se llena con JS -->
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="text-center py-5 d-none">
+        <i class="bi bi-heart text-muted" style="font-size: 4rem;"></i>
+        <h4 class="text-muted mt-3">Aún no has donado</h4>
+        <p class="text-muted">Cuando dones ropa o despensa, aparecerá aquí tu historial</p>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingState" class="text-center py-5">
+        <div class="spinner-border" role="status" style="color: #8B1538;"></div>
+        <p class="text-muted mt-2">Cargando donaciones...</p>
+    </div>
+
+    <!-- Pagination -->
+    <nav id="paginationNav" class="d-flex justify-content-center mt-4 d-none">
+        <ul class="pagination" id="pagination"></ul>
+    </nav>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/my_donations.js') }}?v={{ sv('vistetec', 'js/my_donations.js') }}"></script>
 {% endblock %}

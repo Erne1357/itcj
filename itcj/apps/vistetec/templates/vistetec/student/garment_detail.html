@@ -4,6 +4,24 @@
 
 {% block extra_css %}
 <link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/catalog.css') }}?v={{ sv('vistetec', 'css/catalog.css') }}" rel="stylesheet">
+<style>
+    .slot-card {
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 2px solid transparent;
+    }
+    .slot-card:hover {
+        border-color: #8B1538;
+        background-color: #fdf2f4;
+    }
+    .slot-card.selected {
+        border-color: #8B1538;
+        background-color: #fdf2f4;
+    }
+    .slot-card .slot-radio {
+        accent-color: #8B1538;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -18,7 +36,7 @@
 
     <!-- Loading -->
     <div id="loadingState" class="text-center py-5">
-        <div class="spinner-border text-success" role="status"></div>
+        <div class="spinner-border" role="status" style="color: #8B1538;"></div>
         <p class="text-muted mt-2">Cargando prenda...</p>
     </div>
 
@@ -86,13 +104,23 @@
                     </div>
                 </div>
 
-                <!-- Botón agendar cita (se habilitará en Fase 3) -->
-                <button class="btn btn-success btn-lg w-100" id="btnSchedule" disabled>
-                    <i class="bi bi-calendar-plus me-2"></i>Agendar cita para probármela
-                </button>
-                <small class="text-muted d-block text-center mt-2">
-                    Sistema de citas próximamente disponible
-                </small>
+                <!-- Botón agendar cita -->
+                <div id="scheduleSection">
+                    <button class="btn btn-lg w-100" id="btnSchedule" style="background-color: #8B1538; border-color: #8B1538; color: white;">
+                        <i class="bi bi-calendar-plus me-2"></i>Agendar cita para probármela
+                    </button>
+                    <small class="text-muted d-block text-center mt-2" id="scheduleHint">
+                        Selecciona un horario disponible
+                    </small>
+                </div>
+
+                <!-- Sección cuando ya no está disponible -->
+                <div id="notAvailableSection" class="d-none">
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-exclamation-circle me-2"></i>
+                        <span id="notAvailableMessage">Esta prenda ya no está disponible</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -101,9 +129,76 @@
     <div id="notFoundState" class="text-center py-5 d-none">
         <i class="bi bi-exclamation-triangle text-warning" style="font-size: 4rem;"></i>
         <h4 class="text-muted mt-3">Prenda no encontrada</h4>
-        <a href="{{ url_for('vistetec_pages.student_pages.catalog') }}" class="btn btn-outline-success mt-2">
+        <a href="{{ url_for('vistetec_pages.student_pages.catalog') }}" class="btn mt-2" style="border-color: #8B1538; color: #8B1538;">
             Volver al catálogo
         </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal agendar cita -->
+<div class="modal fade" id="scheduleModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Agendar cita</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Selecciona un horario para probarte esta prenda:</p>
+
+                <!-- Loading slots -->
+                <div id="slotsLoading" class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
+                    <p class="text-muted small mt-2 mb-0">Cargando horarios...</p>
+                </div>
+
+                <!-- Sin horarios -->
+                <div id="noSlotsState" class="text-center py-4 d-none">
+                    <i class="bi bi-calendar-x text-muted" style="font-size: 2rem;"></i>
+                    <p class="text-muted small mt-2 mb-0">No hay horarios disponibles por ahora</p>
+                </div>
+
+                <!-- Lista de slots -->
+                <div id="slotsList" class="d-none">
+                    <!-- Se llena con JS -->
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn" id="btnConfirmSchedule" disabled style="background-color: #8B1538; color: white;">
+                    <span id="scheduleBtnText">Confirmar cita</span>
+                    <span id="scheduleBtnLoading" class="d-none">
+                        <span class="spinner-border spinner-border-sm me-1"></span>Agendando...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal éxito -->
+<div class="modal fade" id="successModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-center">
+            <div class="modal-body py-5">
+                <div class="mb-3">
+                    <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+                </div>
+                <h4 class="fw-bold">¡Cita agendada!</h4>
+                <p class="text-muted mb-0" id="successMessage">Tu cita ha sido confirmada</p>
+                <p class="fw-bold mt-2" id="appointmentCode"></p>
+            </div>
+            <div class="modal-footer border-0 justify-content-center">
+                <a href="{{ url_for('vistetec_pages.student_pages.my_appointments') }}" class="btn" style="background-color: #8B1538; color: white;">
+                    Ver mis citas
+                </a>
+                <a href="{{ url_for('vistetec_pages.student_pages.catalog') }}" class="btn btn-outline-secondary">
+                    Seguir explorando
+                </a>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
