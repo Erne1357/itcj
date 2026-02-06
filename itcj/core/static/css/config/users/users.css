@@ -35,3 +35,103 @@
 .bg-itcj {
     background-color: #e61d1d !important;
 }
+
+/* ===== Responsive para Users ===== */
+@media (max-width: 768px) {
+    /* Filtros en columna */
+    .card.mb-4 .row.align-items-center {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .card.mb-4 .row .col-auto {
+        width: 100%;
+    }
+
+    .card.mb-4 .form-select {
+        width: 100% !important;
+    }
+
+    /* Search input full width */
+    .input-group[style*="width"] {
+        width: 100% !important;
+    }
+
+    /* Pagination compacta */
+    .pagination {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .page-link {
+        padding: 0.375rem 0.625rem;
+        font-size: 0.8rem;
+    }
+
+    /* Avatares mas pequenos */
+    .user-avatar {
+        width: 28px;
+        height: 28px;
+        font-size: 0.7rem;
+    }
+
+    /* Ocultar columnas en tabla */
+    #usersTable th:nth-child(3),
+    #usersTable td:nth-child(3),
+    #usersTable th:nth-child(5),
+    #usersTable td:nth-child(5) {
+        display: none;
+    }
+
+    /* User info compacto */
+    .user-row .fw-bold {
+        font-size: 0.875rem;
+    }
+
+    .user-row .text-muted.small {
+        font-size: 0.7rem;
+    }
+
+    /* Badges mas pequenos */
+    .badge-role {
+        font-size: 0.65em;
+        padding: 0.2em 0.4em;
+    }
+}
+
+@media (max-width: 576px) {
+    /* Modal de asignacion responsivo */
+    #assignUserModal .modal-body .row {
+        flex-direction: column;
+    }
+
+    #assignUserModal .col-12.col-md-4,
+    #assignUserModal .col-12.col-md-8 {
+        width: 100%;
+        margin-bottom: 1rem;
+    }
+
+    #assignUserModal .list-group {
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    /* User row mas compacto */
+    .user-avatar {
+        width: 24px;
+        height: 24px;
+        font-size: 0.65rem;
+        margin-right: 0.5rem !important;
+    }
+
+    /* Botones de accion */
+    .btn-group-sm .btn {
+        padding: 0.25rem 0.375rem;
+    }
+
+    /* Ocultar mas columnas */
+    #usersTable th:nth-child(4),
+    #usersTable td:nth-child(4) {
+        display: none;
+    }
+}

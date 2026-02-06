@@ -155,3 +155,125 @@
 .back-btn:hover {
     transform: translateX(-5px);
 }
+
+/* ===== Responsive para Departments ===== */
+@media (max-width: 992px) {
+    /* Top level cards en grid de 2 columnas */
+    #mainContainer .col-md-6 {
+        width: 50%;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Direccion icon mas pequeno */
+    .direction-icon {
+        font-size: 3rem;
+    }
+
+    /* Top level cards full width */
+    #mainContainer .col-md-6 {
+        width: 100%;
+    }
+
+    .top-level-card {
+        border-width: 2px;
+    }
+
+    .top-level-card:hover {
+        transform: translateY(-4px);
+    }
+
+    .top-level-icon i {
+        font-size: 2.5rem;
+    }
+
+    /* Subdirection cards compactas */
+    .subdirection-card {
+        border-width: 1px;
+    }
+
+    .subdirection-card:hover {
+        transform: translateY(-3px);
+    }
+
+    .subdirection-icon {
+        font-size: 2rem;
+    }
+
+    /* Admin buttons siempre visibles en mobile */
+    .admin-btn {
+        opacity: 1;
+        width: 28px;
+        height: 28px;
+    }
+
+    /* Department cards */
+    .department-icon {
+        font-size: 2rem;
+    }
+
+    /* Back button mas compacto */
+    .back-btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .back-btn .me-2 {
+        margin-right: 0.5rem !important;
+    }
+}
+
+@media (max-width: 576px) {
+    /* Iconos aun mas pequenos */
+    .direction-icon {
+        font-size: 2.5rem;
+    }
+
+    .top-level-icon i {
+        font-size: 2rem;
+    }
+
+    .subdirection-icon {
+        font-size: 1.75rem;
+    }
+
+    .department-icon {
+        font-size: 1.75rem;
+    }
+
+    /* Cards con menos padding */
+    .top-level-card .card-body,
+    .subdirection-card .card-body,
+    .department-card .card-body {
+        padding: 0.75rem;
+    }
+
+    /* Titulos mas pequenos */
+    .top-level-card h4 {
+        font-size: 1.1rem;
+    }
+
+    .subdirection-card h5 {
+        font-size: 1rem;
+    }
+
+    .department-card h6 {
+        font-size: 0.9rem;
+    }
+
+    /* Admin button en esquina */
+    .admin-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 0.75rem;
+    }
+
+    /* Modal de crear departamento */
+    #createDepartmentModal .modal-body {
+        padding: 0.75rem;
+    }
+
+    #createDepartmentModal .form-label {
+        font-size: 0.875rem;
+    }
+}

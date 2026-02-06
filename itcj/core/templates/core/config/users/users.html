@@ -13,8 +13,8 @@
 {% block page_subtitle %}Administra usuarios y sus asignaciones por aplicacion{% endblock %}
 
 {% block page_actions %}
-<div class="d-flex gap-2">
-    <div class="input-group" style="width: 300px;">
+<div class="d-flex gap-2 flex-mobile-column w-mobile-100">
+    <div class="input-group flex-grow-1" style="min-width: 200px;">
         <button class="input-group-text btn btn-outline-secondary" id="searchButton" type="button">
             <i class="bi bi-search"></i>
         </button>
@@ -22,7 +22,7 @@
             placeholder="Buscar usuarios..." value="{{ current_query or '' }}">
     </div>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newUserModal">
-        <i class="bi bi-person-plus-fill me-1"></i>Nuevo Usuario
+        <i class="bi bi-person-plus-fill me-1"></i><span class="d-none d-sm-inline">Nuevo Usuario</span><span class="d-sm-none">Nuevo</span>
     </button>
 </div>
 {% endblock %}
@@ -35,28 +35,28 @@
 <!-- Filters -->
 <div class="card mb-4">
     <div class="card-body py-2">
-        <div class="row align-items-center">
-            <div class="col-auto">
+        <div class="row align-items-center g-2">
+            <div class="col-12 col-sm-auto">
                 <small class="text-muted fw-bold">Filtros:</small>
             </div>
-            <div class="col-auto">
-                <select class="form-select form-select-sm" id="roleFilter" style="width: auto;">
+            <div class="col-6 col-sm-auto">
+                <select class="form-select form-select-sm" id="roleFilter">
                     <option value="">Todos los roles</option>
                     {% for role in roles %}
                     <option value="{{ role.name }}">{{ role.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-auto">
-                <select class="form-select form-select-sm" id="appFilter" style="width: auto;">
+            <div class="col-6 col-sm-auto">
+                <select class="form-select form-select-sm" id="appFilter">
                     <option value="">Todas las apps</option>
                     {% for app in apps %}
                     <option value="{{ app.key }}">{{ app.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-auto">
-                <select class="form-select form-select-sm" id="statusFilter" style="width: auto;">
+            <div class="col-12 col-sm-auto">
+                <select class="form-select form-select-sm" id="statusFilter">
                     <option value="">Todos los estados</option>
                     <option value="active">Activos</option>
                     <option value="inactive">Inactivos</option>
@@ -67,9 +67,9 @@
 </div>
 
 <!-- Pagination top -->
-<div class="d-flex justify-content-end mb-3">
+<div class="d-flex justify-content-center justify-content-sm-end mb-3">
     <nav aria-label="User pagination">
-        <ul class="pagination pagination-sm mb-0">
+        <ul class="pagination pagination-sm mb-0 flex-wrap justify-content-center">
             {% if pagination.has_prev %}
             <li class="page-item">
                 <a class="page-link" href="{{ url_for('pages_core.pages_config.users_management', page=pagination.prev_num, q=current_query) }}">Anterior</a>
@@ -249,29 +249,32 @@
 </div>
 
 <!-- Modal: Asignar Apps/Roles -->
-<div class="modal fade modal-lg" id="assignUserModal" tabindex="-1">
-    <div class="modal-dialog">
+<div class="modal fade" id="assignUserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">
-                    <i class="bi bi-gear me-2"></i>Asignaciones para:
+                    <i class="bi bi-gear me-2"></i><span class="d-none d-sm-inline">Asignaciones para:</span>
                     <span id="assignUserName"></span>
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="row">
-                    <div class="col-12 col-md-4">
-                        <h6>Aplicaciones</h6>
-                        <div class="list-group" id="appsList">
+                <div class="row g-3">
+                    <div class="col-12 col-md-4 mb-3 mb-md-0">
+                        <h6 class="d-flex justify-content-between align-items-center">
+                            Aplicaciones
+                            <span class="badge bg-secondary d-md-none">{{ apps|length }}</span>
+                        </h6>
+                        <div class="list-group list-group-flush" id="appsList" style="max-height: 300px; overflow-y: auto;">
                             {% for app in apps %}
-                            <button class="list-group-item list-group-item-action app-item"
+                            <button class="list-group-item list-group-item-action app-item py-2"
                                 data-app-key="{{ app.key }}" data-app-name="{{ app.name }}">
                                 <div class="d-flex align-items-center">
                                     <i class="bi bi-app me-2"></i>
-                                    <div>
-                                        <div class="fw-bold">{{ app.name }}</div>
-                                        <small class="text-muted">{{ app.key }}</small>
+                                    <div class="text-truncate">
+                                        <div class="fw-bold small">{{ app.name }}</div>
+                                        <small class="text-muted d-none d-sm-inline">{{ app.key }}</small>
                                     </div>
                                 </div>
                             </button>
@@ -283,7 +286,7 @@
 
                         <!-- Roles Tab -->
                         <div class="mb-4">
-                            <h6 class="text-primary">Roles Asignados</h6>
+                            <h6 class="text-primary small">Roles Asignados</h6>
                             <div id="userRolesList" class="d-flex flex-wrap gap-2 mb-2">
                                 <!-- Se llena dinamicamente -->
                             </div>

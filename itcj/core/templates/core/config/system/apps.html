@@ -13,9 +13,35 @@
 {% block page_subtitle %}Administra las aplicaciones del sistema{% endblock %}
 
 {% block page_actions %}
-<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createAppModal">
-    <i class="bi bi-plus-lg me-1"></i>Nueva Aplicacion
+<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createAppModal">
+    <i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nueva Aplicacion</span><span class="d-sm-none">Nueva</span>
 </button>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    @media (min-width: 576px) {
+        .btn-sm { font-size: 1rem; padding: 0.375rem 0.75rem; }
+    }
+    /* Ocultar columnas en mobile para apps */
+    @media (max-width: 768px) {
+        #appsTable th:nth-child(4),
+        #appsTable td:nth-child(4),
+        #appsTable th:nth-child(5),
+        #appsTable td:nth-child(5),
+        #appsTable th:nth-child(6),
+        #appsTable td:nth-child(6) {
+            display: none;
+        }
+        #appsTable { min-width: 400px; }
+    }
+    @media (max-width: 576px) {
+        #appsTable th:nth-child(3),
+        #appsTable td:nth-child(3) {
+            display: none;
+        }
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -25,23 +51,23 @@
             <table class="table table-hover config-table mb-0" id="appsTable">
                 <thead>
                     <tr>
-                        <th class="px-4">Clave</th>
+                        <th class="px-4 px-sm-3">Clave</th>
                         <th>Nombre</th>
                         <th>Estado</th>
-                        <th>Mobile</th>
-                        <th>Visible Estudiantes</th>
-                        <th>Creada</th>
-                        <th class="text-end pe-4">Acciones</th>
+                        <th class="d-none d-md-table-cell">Mobile</th>
+                        <th class="d-none d-md-table-cell">Visible Est.</th>
+                        <th class="d-none d-md-table-cell">Creada</th>
+                        <th class="text-end pe-4 pe-sm-3">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for app in apps %}
                     <tr data-app-key="{{ app.key }}">
-                        <td class="px-4">
-                            <code class="bg-light px-2 py-1 rounded">{{ app.key }}</code>
+                        <td class="px-4 px-sm-3">
+                            <code class="bg-light px-2 py-1 rounded small">{{ app.key }}</code>
                         </td>
                         <td>
-                            <strong>{{ app.name }}</strong>
+                            <strong class="d-block text-truncate" style="max-width: 150px;">{{ app.name }}</strong>
                         </td>
                         <td>
                             {% if app.is_active %}
