@@ -12,7 +12,7 @@ from itcj.apps.vistetec.routes.api import appointments_api_bp as bp
 # === Endpoints para estudiantes ===
 
 @bp.route('/my-appointments', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.appointments.api.view_own')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.view_own'])
 def list_my_appointments():
     """Lista mis citas como estudiante."""
     status = request.args.get('status')
@@ -28,7 +28,7 @@ def list_my_appointments():
 
 
 @bp.route('', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.appointments.api.create')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.create'])
 def create_appointment():
     """Crea una nueva cita."""
     data = request.get_json()
@@ -58,7 +58,7 @@ def create_appointment():
 
 
 @bp.route('/<int:appointment_id>/cancel', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.appointments.api.cancel')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.cancel'])
 def cancel_my_appointment(appointment_id):
     """Cancela mi cita como estudiante."""
     try:
@@ -80,7 +80,7 @@ def cancel_my_appointment(appointment_id):
 # === Endpoints para voluntarios ===
 
 @bp.route('/volunteer/list', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.appointments.api.view_all')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.view_all'])
 def list_volunteer_appointments():
     """Lista citas de los slots del voluntario."""
     date_str = request.args.get('date')
@@ -98,7 +98,7 @@ def list_volunteer_appointments():
 
 
 @bp.route('/volunteer/today', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.appointments.api.view_all')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.view_all'])
 def list_today_appointments():
     """Lista citas de hoy para el voluntario."""
     appointments = appointment_service.get_today_appointments_for_volunteer(g.current_user["sub"])
@@ -106,7 +106,7 @@ def list_today_appointments():
 
 
 @bp.route('/<int:appointment_id>/attendance', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.appointments.api.attend')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.attend'])
 def mark_attendance(appointment_id):
     """Marca asistencia de una cita."""
     data = request.get_json()
@@ -131,7 +131,7 @@ def mark_attendance(appointment_id):
 
 
 @bp.route('/<int:appointment_id>/complete', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.appointments.api.attend')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.attend'])
 def complete_appointment(appointment_id):
     """Completa una cita con el resultado."""
     data = request.get_json()
@@ -157,7 +157,7 @@ def complete_appointment(appointment_id):
 
 
 @bp.route('/volunteer/<int:appointment_id>/cancel', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.appointments.api.attend')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.attend'])
 def volunteer_cancel_appointment(appointment_id):
     """Cancela una cita como voluntario."""
     try:
@@ -177,7 +177,7 @@ def volunteer_cancel_appointment(appointment_id):
 
 
 @bp.route('/stats', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.appointments.api.view_own')
+@api_app_required('vistetec', perms=['vistetec.appointments.api.view_own'])
 def get_stats():
     """Obtiene estadísticas de citas."""
     # Si es voluntario, filtrar por sus slots

@@ -105,7 +105,7 @@
 
     async function submitDonation() {
         if (donationType !== 'garment') {
-            showToast('Solo se pueden registrar donaciones de ropa por ahora', 'warning');
+            VisteTecUtils.showToast('Solo se pueden registrar donaciones de ropa por ahora', 'warning');
             return;
         }
 
@@ -115,7 +115,7 @@
         const condition = document.getElementById('garmentCondition').value;
 
         if (!name || !category || !condition) {
-            showToast('Completa los campos requeridos de la prenda', 'warning');
+            VisteTecUtils.showToast('Completa los campos requeridos de la prenda', 'warning');
             return;
         }
 
@@ -168,31 +168,12 @@
             successModal.show();
 
         } catch (e) {
-            showToast(e.message, 'danger');
+            VisteTecUtils.showToast(e.message, 'danger');
         } finally {
             btn.disabled = false;
             btnText.classList.remove('d-none');
             btnLoading.classList.add('d-none');
         }
-    }
-
-    // ==================== Utilities ====================
-
-    function showToast(message, type = 'info') {
-        const container = document.getElementById('toastContainer');
-        if (!container) return;
-
-        const toast = document.createElement('div');
-        toast.className = `toast align-items-center text-bg-${type} border-0 show`;
-        toast.setAttribute('role', 'alert');
-        toast.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>`;
-
-        container.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
     }
 
     // Init

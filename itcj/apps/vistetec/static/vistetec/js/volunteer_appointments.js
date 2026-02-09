@@ -237,7 +237,7 @@
         const locationId = document.getElementById('slotLocation').value;
 
         if (!date || !startTime || !endTime) {
-            showToast('Completa todos los campos requeridos', 'warning');
+            VisteTecUtils.showToast('Completa todos los campos requeridos', 'warning');
             return;
         }
 
@@ -265,12 +265,12 @@
             }
 
             slotModal.hide();
-            showToast('Horario creado exitosamente', 'success');
+            VisteTecUtils.showToast('Horario creado exitosamente', 'success');
             loadMySlots();
             document.getElementById('slotForm').reset();
 
         } catch (e) {
-            showToast(e.message, 'danger');
+            VisteTecUtils.showToast(e.message, 'danger');
         } finally {
             btn.disabled = false;
             btnText.classList.remove('d-none');
@@ -279,7 +279,13 @@
     }
 
     window.cancelSlot = async function (slotId) {
-        if (!confirm('¿Eliminar este horario?')) return;
+        const confirmed = await VisteTecUtils.confirmModal(
+            'Eliminar horario',
+            '¿Estás seguro de eliminar este horario?',
+            'Eliminar',
+            'Cancelar'
+        );
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`${API_BASE}/slots/${slotId}`, {
@@ -292,11 +298,11 @@
                 throw new Error(data.error || 'Error al eliminar');
             }
 
-            showToast('Horario eliminado', 'success');
+            VisteTecUtils.showToast('Horario eliminado', 'success');
             loadMySlots();
 
         } catch (e) {
-            showToast(e.message, 'danger');
+            VisteTecUtils.showToast(e.message, 'danger');
         }
     };
 
@@ -311,7 +317,7 @@
             currentAppointment = appointments.find(a => a.id === appointmentId);
 
             if (!currentAppointment) {
-                showToast('Cita no encontrada', 'danger');
+                VisteTecUtils.showToast('Cita no encontrada', 'danger');
                 return;
             }
 
@@ -344,7 +350,7 @@
             attendModal.show();
 
         } catch (e) {
-            showToast('Error al cargar detalles', 'danger');
+            VisteTecUtils.showToast('Error al cargar detalles', 'danger');
         }
     };
 
@@ -372,12 +378,12 @@
             } else {
                 // No show - close and refresh
                 attendModal.hide();
-                showToast('Inasistencia registrada', 'info');
+                VisteTecUtils.showToast('Inasistencia registrada', 'info');
                 loadTodayAppointments();
             }
 
         } catch (e) {
-            showToast(e.message, 'danger');
+            VisteTecUtils.showToast(e.message, 'danger');
         }
     }
 
@@ -400,12 +406,12 @@
             }
 
             attendModal.hide();
-            showToast('Cita completada', 'success');
+            VisteTecUtils.showToast('Cita completada', 'success');
             loadTodayAppointments();
             document.getElementById('outcomeNotes').value = '';
 
         } catch (e) {
-            showToast(e.message, 'danger');
+            VisteTecUtils.showToast(e.message, 'danger');
         }
     }
 
@@ -424,23 +430,6 @@
         const ampm = hour >= 12 ? 'PM' : 'AM';
         const hour12 = hour % 12 || 12;
         return `${hour12}:${m} ${ampm}`;
-    }
-
-    function showToast(message, type = 'info') {
-        const container = document.getElementById('toastContainer');
-        if (!container) return;
-
-        const toast = document.createElement('div');
-        toast.className = `toast align-items-center text-bg-${type} border-0 show`;
-        toast.setAttribute('role', 'alert');
-        toast.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>`;
-
-        container.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
     }
 
     // ==================== Event Listeners ====================

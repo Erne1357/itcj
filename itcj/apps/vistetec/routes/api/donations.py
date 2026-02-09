@@ -8,7 +8,7 @@ from itcj.apps.vistetec.routes.api import donations_api_bp as bp
 
 
 @bp.route('', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.donations.api.view_all')
+@api_app_required('vistetec', perms=['vistetec.donations.api.view_all'])
 def list_donations():
     """Lista todas las donaciones."""
     page = request.args.get('page', 1, type=int)
@@ -25,7 +25,7 @@ def list_donations():
 
 
 @bp.route('/my-donations', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.donations.api.view_own')
+@api_app_required('vistetec', perms=['vistetec.donations.api.view_own'])
 def list_my_donations():
     """Lista mis donaciones como donante."""
     page = request.args.get('page', 1, type=int)
@@ -41,7 +41,7 @@ def list_my_donations():
 
 
 @bp.route('/stats', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.donations.api.stats')
+@api_app_required('vistetec', perms=['vistetec.donations.api.stats'])
 def get_stats():
     """Obtiene estadísticas de donaciones."""
     # Si es estudiante, solo sus stats
@@ -54,7 +54,7 @@ def get_stats():
 
 
 @bp.route('/top-donors', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.donations.api.stats')
+@api_app_required('vistetec', perms=['vistetec.donations.api.stats'])
 def get_top_donors():
     """Obtiene los top donadores."""
     limit = request.args.get('limit', 10, type=int)
@@ -63,7 +63,7 @@ def get_top_donors():
 
 
 @bp.route('/recent', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.donations.api.view_all')
+@api_app_required('vistetec', perms=['vistetec.donations.api.view_all'])
 def get_recent():
     """Obtiene las donaciones más recientes."""
     limit = request.args.get('limit', 10, type=int)
@@ -72,7 +72,7 @@ def get_recent():
 
 
 @bp.route('/garment', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.donations.api.register')
+@api_app_required('vistetec', perms=['vistetec.donations.api.register'])
 def register_garment_donation():
     """Registra una donación de prenda."""
     data = request.get_json()
@@ -122,7 +122,7 @@ def register_garment_donation():
 
 
 @bp.route('/pantry', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.donations.api.register')
+@api_app_required('vistetec', perms=['vistetec.donations.api.register'])
 def register_pantry_donation():
     """Registra una donación de despensa."""
     data = request.get_json()
@@ -153,7 +153,7 @@ def register_pantry_donation():
 
 
 @bp.route('/<int:donation_id>', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.donations.api.view_all')
+@api_app_required('vistetec', perms=['vistetec.donations.api.view_all'])
 def get_donation(donation_id):
     """Obtiene una donación por ID."""
     donation = donation_service.get_donation_by_id(donation_id)

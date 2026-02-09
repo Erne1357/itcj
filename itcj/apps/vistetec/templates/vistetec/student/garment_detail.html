@@ -4,24 +4,7 @@
 
 {% block extra_css %}
 <link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/catalog.css') }}?v={{ sv('vistetec', 'css/catalog.css') }}" rel="stylesheet">
-<style>
-    .slot-card {
-        cursor: pointer;
-        transition: all 0.2s;
-        border: 2px solid transparent;
-    }
-    .slot-card:hover {
-        border-color: #8B1538;
-        background-color: #fdf2f4;
-    }
-    .slot-card.selected {
-        border-color: #8B1538;
-        background-color: #fdf2f4;
-    }
-    .slot-card .slot-radio {
-        accent-color: #8B1538;
-    }
-</style>
+<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/garment_detail.css') }}?v={{ sv('vistetec', 'css/garment_detail.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}

@@ -102,31 +102,10 @@
     <!-- iframe bridge for logout detection -->
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
 
-    <script>
-        // Logout handler
-        document.getElementById('btnLogout')?.addEventListener('click', async () => {
-            try {
-                const res = await fetch('/api/core/v1/auth/logout', {
-                    method: 'POST',
-                    credentials: 'include'
-                });
-                if (res.ok) {
-                    if (window.self !== window.top) {
-                        try {
-                            window.parent.postMessage({
-                                type: 'LOGOUT',
-                                source: 'vistetec',
-                                reason: 'manual_logout'
-                            }, window.location.origin);
-                        } catch (e) {}
-                    }
-                    window.location.href = '/itcj/login';
-                }
-            } catch (error) {
-                console.error('Error logging out:', error);
-            }
-        });
-    </script>
+    <!-- VisteTec utilities (must load before page-specific scripts) -->
+    <script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/vistetec-utils.js') }}?v={{ sv('vistetec', 'js/vistetec-utils.js') }}"></script>
+    <script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/base.js') }}?v={{ sv('vistetec', 'js/base.js') }}"></script>
+
     {% block extra_js %}{% endblock %}
 </body>
 

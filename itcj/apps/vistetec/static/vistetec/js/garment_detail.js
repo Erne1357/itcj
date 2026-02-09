@@ -229,29 +229,12 @@
             successModal.show();
 
         } catch (e) {
-            showToast(e.message, 'danger');
+            VisteTecUtils.showToast(e.message, 'danger');
             btn.disabled = false;
         } finally {
             btnText.classList.remove('d-none');
             btnLoading.classList.add('d-none');
         }
-    }
-
-    function showToast(message, type = 'info') {
-        const container = document.getElementById('toastContainer');
-        if (!container) return;
-
-        const toast = document.createElement('div');
-        toast.className = `toast align-items-center text-bg-${type} border-0 show`;
-        toast.setAttribute('role', 'alert');
-        toast.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">${message}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>`;
-
-        container.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
     }
 
     // Event listeners

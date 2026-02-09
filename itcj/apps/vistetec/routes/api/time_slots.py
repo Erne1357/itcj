@@ -10,7 +10,7 @@ from itcj.apps.vistetec.routes.api import slots_api_bp as bp
 
 
 @bp.route('', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.slots.api.view_available')
+@api_app_required('vistetec', perms=['vistetec.slots.api.view_available'])
 def list_available_slots():
     """Lista slots disponibles para estudiantes."""
     from_date = request.args.get('from_date')
@@ -30,7 +30,7 @@ def list_available_slots():
 
 
 @bp.route('/calendar', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.slots.api.view_available')
+@api_app_required('vistetec', perms=['vistetec.slots.api.view_available'])
 def get_calendar_slots():
     """Obtiene slots agrupados por fecha para un calendario."""
     from_date = request.args.get('from_date')
@@ -48,7 +48,7 @@ def get_calendar_slots():
 
 
 @bp.route('/locations', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.slots.api.view_available')
+@api_app_required('vistetec', perms=['vistetec.slots.api.view_available'])
 def list_locations():
     """Lista ubicaciones disponibles."""
     locations = time_slot_service.get_locations()
@@ -56,7 +56,7 @@ def list_locations():
 
 
 @bp.route('/my-slots', methods=['GET'])
-@api_app_required('vistetec', 'vistetec.slots.api.view_own')
+@api_app_required('vistetec', perms=['vistetec.slots.api.view_own'])
 def list_my_slots():
     """Lista mis slots como voluntario."""
     include_past = request.args.get('include_past', 'false').lower() == 'true'
@@ -70,7 +70,7 @@ def list_my_slots():
 
 
 @bp.route('', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.slots.api.create')
+@api_app_required('vistetec', perms=['vistetec.slots.api.create'])
 def create_slot():
     """Crea un nuevo slot de disponibilidad."""
     data = request.get_json()
@@ -104,7 +104,7 @@ def create_slot():
 
 
 @bp.route('/recurring', methods=['POST'])
-@api_app_required('vistetec', 'vistetec.slots.api.create')
+@api_app_required('vistetec', perms=['vistetec.slots.api.create'])
 def create_recurring_slots():
     """Crea slots recurrentes."""
     data = request.get_json()
@@ -144,7 +144,7 @@ def create_recurring_slots():
 
 
 @bp.route('/<int:slot_id>', methods=['PUT'])
-@api_app_required('vistetec', 'vistetec.slots.api.update')
+@api_app_required('vistetec', perms=['vistetec.slots.api.update'])
 def update_slot(slot_id):
     """Actualiza un slot."""
     data = request.get_json()
@@ -174,7 +174,7 @@ def update_slot(slot_id):
 
 
 @bp.route('/<int:slot_id>', methods=['DELETE'])
-@api_app_required('vistetec', 'vistetec.slots.api.delete')
+@api_app_required('vistetec', perms=['vistetec.slots.api.delete'])
 def cancel_slot(slot_id):
     """Cancela un slot."""
     try:

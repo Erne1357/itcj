@@ -85,32 +85,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-document.addEventListener('DOMContentLoaded', async () => {
-    // Cargar stats de catálogo
-    try {
-        const res = await fetch('/api/vistetec/v1/catalog/stats');
-        if (res.ok) {
-            const data = await res.json();
-            document.getElementById('statAvailable').textContent = data.available || 0;
-            document.getElementById('statDelivered').textContent = data.delivered || 0;
-            document.getElementById('statTotal').textContent = data.total_registered || 0;
-        }
-    } catch (e) {
-        console.error('Error cargando stats catálogo:', e);
-    }
-
-    // Cargar stats de citas
-    try {
-        const res = await fetch('/api/vistetec/v1/appointments/stats');
-        if (res.ok) {
-            const data = await res.json();
-            document.getElementById('statAppointments').textContent = data.today || 0;
-        }
-    } catch (e) {
-        console.error('Error cargando stats citas:', e);
-        document.getElementById('statAppointments').textContent = '0';
-    }
-});
-</script>
+<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/volunteer_dashboard.js') }}?v={{ sv('vistetec', 'js/volunteer_dashboard.js') }}"></script>
 {% endblock %}

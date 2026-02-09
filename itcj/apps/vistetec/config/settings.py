@@ -28,5 +28,5 @@ PANTRY_CATEGORIES = ['enlatados', 'granos', 'higiene', 'limpieza', 'mascotas', '
 # Extensiones de imagen permitidas
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 
-# Tamaño máximo de imagen (3 MB)
-MAX_IMAGE_SIZE = 3 * 1024 * 1024
+# Tamaño máximo de imagen (10 MB - cliente comprime, servidor re-comprime)
+MAX_IMAGE_SIZE = 10 * 1024 * 1024

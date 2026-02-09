@@ -2,24 +2,7 @@
 {% block title %}Registrar Donación{% endblock %}
 
 {% block extra_css %}
-<style>
-    .donation-type-card {
-        cursor: pointer;
-        transition: all 0.2s;
-        border: 2px solid transparent;
-    }
-    .donation-type-card:hover {
-        border-color: #8B1538;
-        background-color: #fdf2f4;
-    }
-    .donation-type-card.selected {
-        border-color: #8B1538;
-        background-color: #fdf2f4;
-    }
-    .donation-type-card input[type="radio"] {
-        accent-color: #8B1538;
-    }
-</style>
+<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/register_donation.css') }}?v={{ sv('vistetec', 'css/register_donation.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
