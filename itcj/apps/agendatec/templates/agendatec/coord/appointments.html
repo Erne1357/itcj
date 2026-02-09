@@ -2,57 +2,57 @@
 {% block title %}Coordinador - Citas del día{% endblock %}
 
 {% block content %}
-<div class="row g-3">
+<div class="row g-2 g-md-3">
   <div class="col-12">
     <div class="card shadow-sm">
-      <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-          <h5 class="card-title mb-0">Citas del día</h5>
-          <div class="badge bg-primary fs-6 px-3 py-2" id="currentPeriod" style="white-space: nowrap;">
+      <div class="card-body py-2 py-md-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 mb-md-3">
+          <h5 class="card-title mb-0 h6">Citas del día</h5>
+          <div class="badge bg-primary px-2 py-1" id="currentPeriod" style="white-space: nowrap; font-size: 0.75rem;">
             <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
           </div>
         </div>
 
         <div class="row g-2 mb-2">
-          <div class="col-12 col-sm-3">
-            <label class="form-label">Día</label>
-            <select class="form-select" id="apDay" disabled>
-              <option value="">Cargando días...</option>
+          <div class="col-6 col-sm-3">
+            <label class="form-label small mb-1">Día</label>
+            <select class="form-select form-select-sm" id="apDay" disabled>
+              <option value="">Cargando...</option>
             </select>
           </div>
 
-          <div class="col-12 col-sm-3">
-            <label class="form-label">Estado de solicitud</label>
-            <select class="form-select" id="reqStatus">
+          <div class="col-6 col-sm-3">
+            <label class="form-label small mb-1">Estado</label>
+            <select class="form-select form-select-sm" id="reqStatus">
               <option value="ALL" selected>Todas</option>
               <option value="PENDING" >Pendientes</option>
               <option value="RESOLVED_SUCCESS">Resueltas</option>
               <option value="RESOLVED_NOT_COMPLETED">No resueltas</option>
               <option value="NO_SHOW">No asistió</option>
-              <option value="ATTENDED_OTHER_SLOT">Asistió en otro horario</option>
+              <option value="ATTENDED_OTHER_SLOT">Otro horario</option>
               <option value="CANCELED">Canceladas</option>
             </select>
           </div>
 
-          <div class="col-12 col-sm-3" id="coordFilterContainer" style="display:none;">
-            <label class="form-label">Coordinador</label>
-            <select class="form-select" id="coordFilter">
+          <div class="col-6 col-sm-3 d-none" id="coordFilterContainer">
+            <label class="form-label small mb-1">Coordinador</label>
+            <select class="form-select form-select-sm" id="coordFilter">
               <option value="ALL" >Todos</option>
-              <option value="MINE" selected>Solo mis citas</option>
+              <option value="MINE" selected>Mis citas</option>
             </select>
           </div>
 
-          <div class="col-12 col-sm-3">
-            <label class="form-label">Vista</label>
-            <div class="btn-group d-flex" role="group">
-              <button class="btn btn-outline-secondary" id="btnViewList">Lista</button>
-              <button class="btn btn-outline-secondary active" id="btnViewTable">Tabla</button>
+          <div class="col-6 col-sm-2">
+            <label class="form-label small mb-1 d-none d-sm-block">Vista</label>
+            <div class="btn-group btn-group-sm d-flex" role="group">
+              <button class="btn btn-outline-secondary" id="btnViewList" title="Lista"><i class="bi bi-list"></i></button>
+              <button class="btn btn-outline-secondary active" id="btnViewTable" title="Tabla"><i class="bi bi-table"></i></button>
             </div>
           </div>
 
-          <div class="col-12 col-sm-3 d-grid">
-            <label class="form-label d-none d-sm-block">&nbsp;</label>
-            <button class="btn btn-outline-primary" id="btnLoadAppointments">Cargar</button>
+          <div class="col-12 col-sm-2 d-grid">
+            <label class="form-label small mb-1 d-none d-sm-block">&nbsp;</label>
+            <button class="btn btn-outline-primary btn-sm" id="btnLoadAppointments"><i class="bi bi-arrow-repeat"></i><span class="d-sm-none ms-1">Cargar</span></button>
           </div>
         </div>
 

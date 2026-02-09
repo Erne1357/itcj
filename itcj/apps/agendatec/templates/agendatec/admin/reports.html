@@ -2,26 +2,32 @@
 {% block title %}Admin · Reportes{% endblock %}
 
 {% block content %}
-<h1 class="h4 mb-3">Reportes</h1>
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <h1 class="h5 h4-md mb-0">Reportes</h1>
+  <button class="btn btn-outline-primary btn-sm d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCard">
+    <i class="bi bi-funnel"></i> Filtros
+  </button>
+</div>
 
+<div class="collapse d-md-block" id="filtersCard">
 <div class="card shadow-sm mb-3">
-  <div class="card-header bg-light">
-    <strong><i class="bi bi-funnel"></i> Filtros</strong>
+  <div class="card-header bg-light py-2">
+    <strong class="small"><i class="bi bi-funnel"></i> Filtros</strong>
   </div>
-  <div class="card-body">
+  <div class="card-body py-2">
     <div class="row g-2 align-items-end mb-2">
       <!-- Rango de fechas -->
-      <div class="col-md-2 col-sm-6">
-        <label class="form-label small fw-semibold">Desde</label>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Desde</label>
         <input id="repFrom" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-md-2 col-sm-6">
-        <label class="form-label small fw-semibold">Hasta</label>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Hasta</label>
         <input id="repTo" type="date" class="form-control form-control-sm">
       </div>
       <!-- Tipo de solicitud -->
-      <div class="col-md-2 col-sm-6">
-        <label class="form-label small fw-semibold">Tipo</label>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Tipo</label>
         <select id="repType" class="form-select form-select-sm">
           <option value="">Todos</option>
           <option value="APPOINTMENT">Citas</option>
@@ -59,8 +65,8 @@
         </div>
       </div>
       <!-- Estado de cita (multi-select) -->
-      <div class="col-md-2 col-sm-6">
-        <label class="form-label small fw-semibold">Estado Cita</label>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Estado Cita</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
                   type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -83,8 +89,8 @@
         </div>
       </div>
       <!-- Programa (multi-select) -->
-      <div class="col-md-2 col-sm-6">
-        <label class="form-label small fw-semibold">Programa</label>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Programa</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
                   type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -96,10 +102,10 @@
         </div>
       </div>
     </div>
-    <div class="row g-2 align-items-end">
+    <div class="row g-2 align-items-end mt-1">
       <!-- Coordinador (multi-select) -->
-      <div class="col-md-2 col-sm-6">
-        <label class="form-label small fw-semibold">Coordinador</label>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Coordinador</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
                   type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -111,7 +117,7 @@
         </div>
       </div>
       <!-- Período -->
-      <div class="col-md-2 col-sm-6">
+      <div class="col-6 col-md-2">
         <label class="form-label small fw-semibold">Período</label>
         <select id="repPeriod" class="form-select form-select-sm">
           <option value="">Cargando períodos...</option>

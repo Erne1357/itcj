@@ -6,64 +6,67 @@
 {% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h4 mb-0">Dashboard de Administración</h1>
-    <div class="d-flex gap-1 align-items-center">
-        <select id="fltPeriod" class="form-select form-select-sm text-muted" style="width: auto; min-width: 160px; font-size: 0.8rem; border-color: #dee2e6;">
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <h1 class="h5 h4-md mb-0">Dashboard<span class="d-none d-sm-inline"> de Administración</span></h1>
+    <div class="d-flex flex-wrap gap-1 align-items-center">
+        <select id="fltPeriod" class="form-select form-select-sm text-muted" style="width: auto; min-width: 140px; font-size: 0.75rem; border-color: #dee2e6;">
             <option value="">Cargando...</option>
         </select>
-        <input id="fltFrom" type="date" class="form-control form-control-sm text-muted" style="width: 120px; font-size: 0.75rem; border-color: #dee2e6;">
-        <input id="fltTo" type="date" class="form-control form-control-sm text-muted" style="width: 120px; font-size: 0.75rem; border-color: #dee2e6;">
+        <input id="fltFrom" type="date" class="form-control form-control-sm text-muted d-none d-md-block" style="width: 115px; font-size: 0.7rem; border-color: #dee2e6;">
+        <input id="fltTo" type="date" class="form-control form-control-sm text-muted d-none d-md-block" style="width: 115px; font-size: 0.7rem; border-color: #dee2e6;">
         <button id="btnApplyRange" class="btn btn-outline-secondary btn-sm" style="font-size: 0.75rem;">
             <i class="bi bi-arrow-repeat"></i>
         </button>
     </div>
 </div>
 
-<div class="row g-5">
-    <div class="col-6 col-md-4 col-lg-2">
+<div class="row g-2 g-md-3">
+    <div class="col-4 col-md-4 col-lg-2">
         <div class="card metric-card shadow-sm">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="metric-sub">Pendientes</div>
                 <div id="mPending" class="metric-value">–</div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col-4 col-md-4 col-lg-2">
         <div class="card metric-card shadow-sm">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="metric-sub">Resueltas</div>
                 <div id="mSolved" class="metric-value">–</div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col-4 col-md-4 col-lg-2">
         <div class="card metric-card shadow-sm">
-            <div class="card-body">
-                <div class="metric-sub">Atendidas s/r</div>
+            <div class="card-body py-2 py-md-3">
+                <div class="metric-sub d-none d-sm-block">Atendidas s/r</div>
+                <div class="metric-sub d-sm-none">Atend.</div>
                 <div id="mNotCompleted" class="metric-value">–</div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col-4 col-md-4 col-lg-2">
         <div class="card metric-card shadow-sm">
-            <div class="card-body">
-                <div class="metric-sub">No asistieron</div>
+            <div class="card-body py-2 py-md-3">
+                <div class="metric-sub d-none d-sm-block">No asistieron</div>
+                <div class="metric-sub d-sm-none">No asist.</div>
                 <div id="mNoShow" class="metric-value">–</div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col-4 col-md-4 col-lg-2">
         <div class="card metric-card shadow-sm">
-            <div class="card-body">
-                <div class="metric-sub">Otro horario</div>
+            <div class="card-body py-2 py-md-3">
+                <div class="metric-sub d-none d-sm-block">Otro horario</div>
+                <div class="metric-sub d-sm-none">Otro hr.</div>
                 <div id="mOtherSlot" class="metric-value">–</div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col-4 col-md-4 col-lg-2">
         <div class="card metric-card shadow-sm">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="metric-sub">Canceladas</div>
                 <div id="mCanceled" class="metric-value">–</div>
             </div>
@@ -71,60 +74,68 @@
     </div>
 </div>
 
-<div class="row g-3 mt-1">
+<div class="row g-2 g-md-3 mt-1">
     <!-- IZQUIERDA: card con pestañas -->
     <div class="col-12 col-lg-8">
         <div class="card shadow-sm">
-            <div class="card-header d-flex align-items-center gap-2 flex-wrap">
-                <!-- Tabs -->
-                <ul class="nav nav-pills" id="leftTabs" role="tablist">
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="tabSeries" data-bs-toggle="tab" data-bs-target="#paneSeries"
-                            type="button" role="tab" aria-controls="paneSeries" aria-selected="true">
-                            Serie día/hora
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="tabPieGlobal" data-bs-toggle="tab" data-bs-target="#panePieGlobal"
-                            type="button" role="tab" aria-controls="panePieGlobal" aria-selected="false">
-                            Pastel global
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="tabPieMini" data-bs-toggle="tab" data-bs-target="#panePieMini"
-                            type="button" role="tab" aria-controls="panePieMini" aria-selected="false">
-                            Por coordinador
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="tabBarsGlobal" data-bs-toggle="tab"
-                            data-bs-target="#paneBarsGlobal" type="button" role="tab" aria-controls="paneBarsGlobal"
-                            aria-selected="false">
-                            Porcentajes global
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="tabBarsCoord" data-bs-toggle="tab" data-bs-target="#paneBarsCoord"
-                            type="button" role="tab" aria-controls="paneBarsCoord" aria-selected="false">
-                            Porcentaces P/coord
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="tabActivity" data-bs-toggle="tab" data-bs-target="#paneActivity"
-                            type="button" role="tab" aria-controls="paneActivity" aria-selected="false">
-                            Actividad por hora
-                        </button>
-                    </li>
-                </ul>
+            <div class="card-header py-2 d-flex align-items-center gap-2 flex-wrap">
+                <!-- Tabs con scroll horizontal -->
+                <div class="nav-tabs-wrapper overflow-auto flex-grow-1">
+                    <ul class="nav nav-pills flex-nowrap" id="leftTabs" role="tablist" style="white-space: nowrap;">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active py-1 px-2" id="tabSeries" data-bs-toggle="tab" data-bs-target="#paneSeries"
+                                type="button" role="tab" aria-controls="paneSeries" aria-selected="true">
+                                <span class="d-none d-sm-inline">Serie día/hora</span>
+                                <span class="d-sm-none">Serie</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-1 px-2" id="tabPieGlobal" data-bs-toggle="tab" data-bs-target="#panePieGlobal"
+                                type="button" role="tab" aria-controls="panePieGlobal" aria-selected="false">
+                                <span class="d-none d-sm-inline">Pastel global</span>
+                                <span class="d-sm-none">Global</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-1 px-2" id="tabPieMini" data-bs-toggle="tab" data-bs-target="#panePieMini"
+                                type="button" role="tab" aria-controls="panePieMini" aria-selected="false">
+                                <span class="d-none d-sm-inline">Por coordinador</span>
+                                <span class="d-sm-none">P/coord</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-1 px-2" id="tabBarsGlobal" data-bs-toggle="tab"
+                                data-bs-target="#paneBarsGlobal" type="button" role="tab" aria-controls="paneBarsGlobal"
+                                aria-selected="false">
+                                <span class="d-none d-md-inline">Porcentajes global</span>
+                                <span class="d-md-none">% Glob</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-1 px-2" id="tabBarsCoord" data-bs-toggle="tab" data-bs-target="#paneBarsCoord"
+                                type="button" role="tab" aria-controls="paneBarsCoord" aria-selected="false">
+                                <span class="d-none d-md-inline">Porcentajes P/coord</span>
+                                <span class="d-md-none">% Coord</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link py-1 px-2" id="tabActivity" data-bs-toggle="tab" data-bs-target="#paneActivity"
+                                type="button" role="tab" aria-controls="paneActivity" aria-selected="false">
+                                <span class="d-none d-sm-inline">Actividad por hora</span>
+                                <span class="d-sm-none">Actividad</span>
+                            </button>
+                        </li>
+                    </ul>
+                </div>
 
                 <!-- Controles para pasteles -->
-                <div id="pieControls" class="ms-auto d-flex flex-wrap align-items-center gap-2">
-                    <div class="form-check form-switch">
+                <div id="pieControls" class="d-flex flex-wrap align-items-center gap-2">
+                    <div class="form-check form-switch mb-0">
                         <input id="pieByDay" class="form-check-input" type="checkbox">
-                        <label class="form-check-label" for="pieByDay">Desglose por día</label>
+                        <label class="form-check-label small" for="pieByDay"><span class="d-none d-md-inline">Desglose por</span> día</label>
                     </div>
 
-                    <select id="pieDay" class="form-select form-select-sm" style="width:auto; min-width: 140px;"
+                    <select id="pieDay" class="form-select form-select-sm" style="width:auto; min-width: 120px;"
                         hidden></select>
 
                     <button id="btnPiesReload" class="btn btn-outline-primary btn-sm">

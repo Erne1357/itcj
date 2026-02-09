@@ -2,10 +2,10 @@
 {% block title %}Admin · Crear Solicitud{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h1 class="h4 mb-0">Crear Solicitud por Estudiante</h1>
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <h1 class="h5 h4-md mb-0">Crear Solicitud<span class="d-none d-sm-inline"> por Estudiante</span></h1>
   <a href="{{ url_for('agendatec_pages.admin_pages.admin_requests') }}" class="btn btn-outline-secondary btn-sm">
-    <i class="bi bi-arrow-left"></i> Volver a solicitudes
+    <i class="bi bi-arrow-left"></i><span class="d-none d-sm-inline"> Volver</span>
   </a>
 </div>
 

@@ -2,55 +2,53 @@
 {% block title %}Coordinador - Inicio{% endblock %}
 
 {% block content %}
-<div class="row g-3">
+<div class="row g-2 g-md-3">
   <div class="col-12 ">
     <div class="card shadow-sm">
-      <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-          <h5 class="card-title d-flex align-items-center gap-2 mb-0">
-            <i class="bi bi-speedometer2"></i> Panel del coordinador
+      <div class="card-body py-2 py-md-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 mb-md-3">
+          <h5 class="card-title d-flex align-items-center gap-2 mb-0 h6">
+            <i class="bi bi-speedometer2"></i> Panel<span class="d-none d-sm-inline"> del coordinador</span>
           </h5>
-          <div class="badge bg-primary fs-6 px-3 py-2" id="currentPeriod" style="white-space: nowrap;">
+          <div class="badge bg-primary px-2 py-1" id="currentPeriod" style="white-space: nowrap; font-size: 0.75rem;">
             <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
           </div>
         </div>
-        <div class="row g-3 mt-2" id="dashKpis">
+        <div class="row g-2 mt-1" id="dashKpis">
           <div class="col-12 col-md-6">
-            <div class="border rounded-3 p-3 h-100">
+            <div class="border rounded-3 p-2 p-md-3 h-100">
               <div class="d-flex align-items-center justify-content-between">
-                <div class="fw-semibold">
-                  <a href="/agendatec/coord/appointments"><i class="bi bi-calendar-check me-1"></i> Citas
+                <div class="fw-semibold small">
+                  <a href="/agendatec/coord/appointments"><i class="bi bi-calendar-check me-1"></i> Citas</a>
                 </div>
-                </a>
               </div>
               <div class="d-flex gap-3 mt-2">
                 <div class="flex-fill">
-                  <div class="text-muted small">Total</div>
-                  <div class="fs-3 fw-bold" id="kpiApTotal">—</div>
+                  <div class="text-muted small" style="font-size: 0.7rem;">Total</div>
+                  <div class="fs-4 fw-bold" id="kpiApTotal">—</div>
                 </div>
                 <div class="flex-fill">
-                  <div class="text-muted small">Pendientes</div>
-                  <div class="fs-3 fw-bold text-warning" id="kpiApPending">—</div>
+                  <div class="text-muted small" style="font-size: 0.7rem;">Pendientes</div>
+                  <div class="fs-4 fw-bold text-warning" id="kpiApPending">—</div>
                 </div>
               </div>
             </div>
           </div>
           <div class="col-12 col-md-6">
-            <div class="border rounded-3 p-3 h-100">
+            <div class="border rounded-3 p-2 p-md-3 h-100">
               <div class="d-flex align-items-center justify-content-between">
-                <div class="fw-semibold">
-                  <a href="/agendatec/coord/drops"><i class="bi bi-arrow-down-circle me-1"></i> Bajas
+                <div class="fw-semibold small">
+                  <a href="/agendatec/coord/drops"><i class="bi bi-arrow-down-circle me-1"></i> Bajas</a>
                 </div>
-                </a>
               </div>
               <div class="d-flex gap-3 mt-2">
                 <div class="flex-fill">
-                  <div class="text-muted small">Total</div>
-                  <div class="fs-3 fw-bold" id="kpiDropTotal">—</div>
+                  <div class="text-muted small" style="font-size: 0.7rem;">Total</div>
+                  <div class="fs-4 fw-bold" id="kpiDropTotal">—</div>
                 </div>
                 <div class="flex-fill">
-                  <div class="text-muted small">Pendientes</div>
-                  <div class="fs-3 fw-bold text-warning" id="kpiDropPending">—</div>
+                  <div class="text-muted small" style="font-size: 0.7rem;">Pendientes</div>
+                  <div class="fs-4 fw-bold text-warning" id="kpiDropPending">—</div>
                 </div>
               </div>
             </div>
@@ -58,8 +56,8 @@
         </div>
 
         <!-- +++ Recordatorios -->
-        <div class="border rounded-3 p-3 mt-3" id="dashReminders">
-          <div class="fw-semibold mb-2"><i class="bi bi-bell me-1"></i> Recordatorios</div>
+        <div class="border rounded-3 p-2 p-md-3 mt-2 mt-md-3" id="dashReminders">
+          <div class="fw-semibold mb-2 small"><i class="bi bi-bell me-1"></i> Recordatorios</div>
           <div id="reminderList" class="d-flex flex-column gap-2"></div>
         </div>
       </div>

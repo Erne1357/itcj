@@ -2,26 +2,28 @@
 {% block title %}Servicio Social - Citas del día{% endblock %}
 {% block content %}
 <div class="card shadow-sm">
-  <div class="card-body">
-    <h5 class="card-title">Citas del día</h5>
+  <div class="card-body py-2 py-md-3">
+    <h5 class="card-title h6 mb-2"><i class="bi bi-calendar-check me-1"></i> Citas del día</h5>
     <div class="row g-2 mb-2">
-      <div class="col-12 col-sm-3">
-        <label class="form-label">Día</label>
-        <select class="form-select" id="ssDay" disabled>
-          <option value="">Cargando días...</option>
+      <div class="col-6 col-sm-3">
+        <label class="form-label small mb-1">Día</label>
+        <select class="form-select form-select-sm" id="ssDay" disabled>
+          <option value="">Cargando...</option>
         </select>
       </div>
 
-      <div class="col-12 col-sm-5">
-        <label class="form-label">Carrera</label>
-        <select class="form-select" id="ssProgram">
+      <div class="col-6 col-sm-5">
+        <label class="form-label small mb-1">Carrera</label>
+        <select class="form-select form-select-sm" id="ssProgram">
           <option value="">Todas</option>
         </select>
       </div>
 
       <div class="col-12 col-sm-2 d-grid">
-        <label class="form-label d-none d-sm-block">&nbsp;</label>
-        <button class="btn btn-outline-primary" id="btnLoadSS">Cargar</button>
+        <label class="form-label d-none d-sm-block small mb-1">&nbsp;</label>
+        <button class="btn btn-outline-primary btn-sm" id="btnLoadSS">
+          <i class="bi bi-search me-1 d-sm-none"></i>Cargar
+        </button>
       </div>
     </div>
 
