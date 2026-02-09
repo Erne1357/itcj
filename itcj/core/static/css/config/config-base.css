@@ -38,7 +38,7 @@
     z-index: 1000;
     display: flex;
     flex-direction: column;
-    transition: var(--config-transition);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.2s ease, visibility 0.3s ease;
     box-shadow: 2px 0 10px rgba(0,0,0,0.1);
 }
 
@@ -123,6 +123,23 @@
 .config-nav-link .badge {
     margin-left: auto;
     font-size: 0.7rem;
+}
+
+/* Botón de regreso al dashboard (móvil) */
+.config-nav-link.back-to-dashboard {
+    background: rgba(13, 110, 253, 0.15);
+    border: 1px solid rgba(13, 110, 253, 0.3);
+    color: #6ea8fe;
+    margin-bottom: 0.5rem;
+}
+
+.config-nav-link.back-to-dashboard:hover {
+    background: rgba(13, 110, 253, 0.25);
+    color: white;
+}
+
+.config-nav-link.back-to-dashboard i {
+    color: #6ea8fe;
 }
 
 .config-sidebar-footer {
@@ -577,10 +594,28 @@
     .config-sidebar {
         transform: translateX(-100%);
         width: var(--config-sidebar-width);
+        /* Forzar hardware acceleration y repaint correcto */
+        will-change: transform;
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+        -webkit-transform: translateX(-100%);
+        visibility: hidden;
     }
 
     .config-sidebar.open {
         transform: translateX(0);
+        -webkit-transform: translateX(0);
+        visibility: visible;
+    }
+    
+    /* IMPORTANTE: Restaurar visibilidad de textos en móvil */
+    .config-sidebar-brand h5,
+    .config-nav-link span,
+    .config-nav-section-title,
+    .config-sidebar-user-info {
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
     }
 
     .config-main {
@@ -942,7 +977,6 @@
 
 /* Overlay para movil */
 .config-overlay {
-    display: none;
     position: fixed;
     top: 0;
     left: 0;
@@ -951,10 +985,15 @@
     background: rgba(0,0,0,0.5);
     z-index: 999;
     backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
 .config-overlay.show {
-    display: block;
+    opacity: 1;
+    visibility: visible;
 }
 
 /* ==================== UTILIDADES RESPONSIVAS ==================== */
@@ -1082,4 +1121,66 @@
 
 .clickable-row:hover {
     background-color: rgba(13, 110, 253, 0.05);
+}
+
+/* ==================== MEJORAS TOUCH MOBILE ==================== */
+@media (max-width: 768px) {
+    /* Botones touch-friendly */
+    .btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    .btn-sm {
+        min-height: 38px;
+        min-width: 38px;
+    }
+    
+    /* Form controls touch-friendly */
+    .form-control,
+    .form-select {
+        min-height: 44px;
+    }
+    
+    /* Links en listas touch-friendly */
+    .list-group-item {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+    }
+    
+    /* Nav links touch-friendly */
+    .config-nav-link {
+        min-height: 48px;
+    }
+    
+    /* Checkbox/radio touch-friendly */
+    .form-check-input {
+        width: 1.25em;
+        height: 1.25em;
+    }
+    
+    /* Better tap targets for action buttons */
+    .btn-group-sm .btn {
+        min-height: 38px;
+        min-width: 38px;
+        padding: 0.5rem;
+    }
+}
+
+/* iOS Safe Area Support */
+@supports (padding: max(0px)) {
+    @media (max-width: 768px) {
+        .config-content {
+            padding-bottom: max(1rem, env(safe-area-inset-bottom));
+        }
+        
+        .config-sidebar {
+            padding-bottom: max(1rem, env(safe-area-inset-bottom));
+        }
+        
+        .modal-footer {
+            padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+        }
+    }
 }

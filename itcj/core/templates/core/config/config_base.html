@@ -34,6 +34,15 @@
             </div>
 
             <nav class="config-sidebar-nav">
+                <!-- Botón Regresar al Dashboard (solo móvil) -->
+                <div class="config-nav-section d-lg-none">
+                    <a href="{{ url_for('pages_core.pages_mobile.mobile_dashboard') }}"
+                       class="config-nav-link back-to-dashboard">
+                        <i class="bi bi-arrow-left-circle"></i>
+                        <span>Regresar al Dashboard</span>
+                    </a>
+                </div>
+
                 <!-- Seccion Principal -->
                 <div class="config-nav-section">
                     <div class="config-nav-section-title">General</div>
@@ -161,14 +170,51 @@
     <script>
         // Toggle sidebar en movil
         function toggleSidebar() {
-            document.getElementById('configSidebar').classList.toggle('open');
-            document.getElementById('sidebarOverlay').classList.toggle('show');
+            const sidebar = document.getElementById('configSidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            if (sidebar.classList.contains('open')) {
+                closeSidebar();
+            } else {
+                // Forzar repaint antes de abrir
+                sidebar.style.display = 'none';
+                sidebar.offsetHeight; // Trigger reflow
+                sidebar.style.display = '';
+                
+                // Pequeño delay para asegurar el repaint
+                requestAnimationFrame(() => {
+                    sidebar.classList.add('open');
+                    overlay.classList.add('show');
+                });
+            }
         }
 
         function closeSidebar() {
-            document.getElementById('configSidebar').classList.remove('open');
-            document.getElementById('sidebarOverlay').classList.remove('show');
+            const sidebar = document.getElementById('configSidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            sidebar.classList.remove('open');
+            overlay.classList.remove('show');
         }
+
+        // Cerrar sidebar al hacer click en un enlace (móvil)
+        document.addEventListener('DOMContentLoaded', function() {
+            const navLinks = document.querySelectorAll('.config-nav-link');
+            navLinks.forEach(link => {
+                link.addEventListener('click', function() {
+                    if (window.innerWidth <= 768) {
+                        closeSidebar();
+                    }
+                });
+            });
+            
+            // Forzar repaint inicial del sidebar en móvil
+            if (window.innerWidth <= 768) {
+                const sidebar = document.getElementById('configSidebar');
+                sidebar.style.display = 'none';
+                sidebar.offsetHeight;
+                sidebar.style.display = '';
+            }
+        });
 
         // Utilidades de toast
         function showSuccess(message) {

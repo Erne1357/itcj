@@ -7,15 +7,28 @@
 
 class ChristmasSnow {
     constructor(options = {}) {
+        // Ajustar cantidad de copos según el tamaño de pantalla
+        const screenWidth = window.innerWidth;
+        let defaultSnowflakeCount;
+        if (screenWidth <= 480) {
+            defaultSnowflakeCount = 12; // Móvil pequeño
+        } else if (screenWidth <= 768) {
+            defaultSnowflakeCount = 18; // Móvil/Tablet
+        } else if (screenWidth <= 1024) {
+            defaultSnowflakeCount = 24; // Tablet grande
+        } else {
+            defaultSnowflakeCount = 30; // Desktop
+        }
+
         // Configuración
         this.config = {
-            snowflakeCount: options.snowflakeCount || 30, // Cantidad de copos (poquito)
+            snowflakeCount: options.snowflakeCount || defaultSnowflakeCount,
             minSize: options.minSize || 10,
             maxSize: options.maxSize || 20,
             minSpeed: options.minSpeed || 1,
             maxSpeed: options.maxSpeed || 3,
-            snowflakeChars: options.snowflakeChars || ['❄', '❅', '❆'], // Caracteres de copos
-            enabled: options.enabled !== false // Por defecto habilitado
+            snowflakeChars: options.snowflakeChars || ['❄', '❅', '❆'],
+            enabled: options.enabled !== false
         };
 
         this.snowflakes = [];
@@ -70,8 +83,19 @@ class ChristmasSnow {
         svg.style.pointerEvents = 'none';
         svg.style.zIndex = '9998';
 
-        // Crear 20 luces
-        const lightCount = 20;
+        // Ajustar cantidad de luces según el ancho de pantalla
+        const screenWidth = window.innerWidth;
+        let lightCount;
+        if (screenWidth <= 480) {
+            lightCount = 8;  // Móvil pequeño
+        } else if (screenWidth <= 768) {
+            lightCount = 12; // Móvil/Tablet
+        } else if (screenWidth <= 1024) {
+            lightCount = 16; // Tablet grande
+        } else {
+            lightCount = 20; // Desktop
+        }
+        
         const lights = [];
 
         for (let i = 0; i < lightCount; i++) {

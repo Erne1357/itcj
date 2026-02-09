@@ -61,6 +61,7 @@
     .pagination {
         flex-wrap: wrap;
         justify-content: center;
+        gap: 0.25rem;
     }
 
     .page-link {
@@ -96,6 +97,30 @@
     .badge-role {
         font-size: 0.65em;
         padding: 0.2em 0.4em;
+    }
+
+    /* Tabla más compacta */
+    #usersTable {
+        font-size: 0.85rem;
+    }
+    
+    #usersTable thead th {
+        padding: 0.5rem;
+        font-size: 0.7rem;
+    }
+    
+    #usersTable td {
+        padding: 0.5rem;
+    }
+    
+    /* User info en tabla */
+    .user-row .d-flex.align-items-center {
+        gap: 0.5rem !important;
+    }
+    
+    /* Actions compactas */
+    .btn-group-sm .btn {
+        padding: 0.25rem 0.5rem;
     }
 }
 
@@ -133,5 +158,42 @@
     #usersTable th:nth-child(4),
     #usersTable td:nth-child(4) {
         display: none;
+    }
+    
+    /* Tabla scroll horizontal más compacta */
+    #usersTable {
+        min-width: 450px;
+    }
+    
+    /* Rol badges con wrapping */
+    .user-row td:nth-child(2) {
+        max-width: 80px;
+    }
+    
+    .user-row td:nth-child(2) .badge {
+        display: inline-block;
+        margin-bottom: 0.125rem;
+    }
+    
+    /* Modal title más compacto */
+    #assignUserModal .modal-title {
+        font-size: 1rem;
+    }
+    
+    #assignUserName {
+        display: block;
+        font-size: 0.875rem;
+        margin-top: 0.25rem;
+    }
+    
+    /* App assignment panel compacto */
+    #appAssignmentPanel h6 {
+        font-size: 0.85rem;
+    }
+    
+    /* Effective perms scrollable */
+    #effectivePermsList {
+        max-height: 120px;
+        overflow-y: auto;
     }
 }
