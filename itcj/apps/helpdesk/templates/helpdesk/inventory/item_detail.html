@@ -9,29 +9,29 @@
 {% block content %}
 <div class="container-fluid" id="item-detail-container">
     <!-- Loading State -->
-    <div id="loading-state" class="text-center py-5">
-        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
-        <p class="text-muted">Cargando información del equipo...</p>
+    <div id="loading-state" class="text-center py-4 py-md-5">
+        <i class="fas fa-spinner fa-spin fa-2x fa-md-3x text-primary mb-2 mb-md-3"></i>
+        <p class="text-muted small">Cargando información del equipo...</p>
     </div>
 
     <!-- Main Content (Se llenará con JavaScript) -->
     <div id="main-content" style="display: none;">
         
         <!-- Header -->
-        <div class="d-flex justify-content-between align-items-start mb-4">
+        <div class="d-flex justify-content-between align-items-start mb-3 mb-md-4 flex-wrap gap-2">
             <div>
                 <div class="mb-2" id="backButtonContainer" style="display: none;">
-                    <a href="#" id="backButton" class="text-muted">
+                    <a href="#" id="backButton" class="text-muted small">
                         <i class="fas fa-arrow-left"></i> <span id="backButtonText">Volver</span>
                     </a>
                 </div>
-                <h1 class="h3 mb-1 text-gray-800" id="item-title">
+                <h1 class="h4 h3-md mb-1 text-gray-800" id="item-title">
                     <i class="fas fa-desktop"></i>
                     <span id="header-inventory-number"></span>
                 </h1>
-                <p class="text-muted mb-0" id="header-description"></p>
+                <p class="text-muted mb-0 small d-none d-sm-block" id="header-description"></p>
             </div>
-            <div id="header-actions">
+            <div id="header-actions" class="d-flex gap-2 flex-wrap">
                 <!-- Botones de acción -->
             </div>
         </div>

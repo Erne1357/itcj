@@ -318,3 +318,187 @@
     background-color: #f0f8ff;
     border-left: 3px solid var(--sitec-primary, #059669);
 }
+
+/* ==================== MOBILE RESPONSIVE - TICKET DETAIL ==================== */
+
+@media (max-width: 576px) {
+    /* Main ticket header */
+    #ticketNumber {
+        font-size: 1.25rem;
+    }
+    
+    #ticketNumber i {
+        font-size: 1rem;
+    }
+    
+    #ticketTitle {
+        font-size: 1.1rem;
+    }
+    
+    /* Badges container - wrap on mobile */
+    #ticketBadges {
+        gap: 0.25rem !important;
+    }
+    
+    #ticketBadges .badge {
+        font-size: 0.65rem;
+        padding: 0.25em 0.5em;
+    }
+    
+    /* Info grid */
+    .row.g-3 .col-md-6 {
+        flex: 0 0 50%;
+        max-width: 50%;
+    }
+    
+    .row.g-3 .col-md-6 small {
+        font-size: 0.65rem;
+    }
+    
+    .row.g-3 .col-md-6 strong {
+        font-size: 0.8rem;
+    }
+    
+    /* Card padding */
+    .card-body.p-4 {
+        padding: 1rem !important;
+    }
+    
+    /* Comments section */
+    #addCommentForm .d-flex {
+        flex-direction: column;
+    }
+    
+    #addCommentForm textarea {
+        margin-bottom: 0.5rem;
+    }
+    
+    #addCommentForm > div:last-child {
+        align-self: flex-end;
+    }
+    
+    /* Comment bubbles */
+    .comment-bubble {
+        padding: 10px 12px;
+    }
+    
+    .comment-author {
+        font-size: 0.8rem;
+    }
+    
+    .comment-time {
+        font-size: 0.7rem;
+    }
+    
+    .comment-text {
+        font-size: 0.85rem;
+    }
+    
+    /* Timeline */
+    .timeline {
+        padding-left: 25px;
+    }
+    
+    .timeline-item-content {
+        font-size: 0.8rem;
+        padding: 8px 10px;
+    }
+    
+    /* Star buttons in rating */
+    .star-btn,
+    .star-btn-attention,
+    .star-btn-speed {
+        width: 40px;
+        height: 40px;
+        font-size: 0.9rem;
+    }
+    
+    /* Assignment avatar */
+    .assignment-avatar {
+        width: 40px;
+        height: 40px;
+        font-size: 1rem;
+    }
+    
+    /* Equipment icon */
+    .equipment-icon-detail {
+        width: 45px;
+        height: 45px;
+        font-size: 1.25rem;
+    }
+    
+    /* Photo thumbnail */
+    .photo-thumbnail-container {
+        max-width: 200px;
+    }
+    
+    /* Action buttons */
+    #actionButtons .btn {
+        font-size: 0.85rem;
+        padding: 0.5rem 0.75rem;
+    }
+    
+    /* Sidebar cards */
+    .col-lg-4 .card-header h6 {
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Stack columns */
+    .col-lg-8 {
+        order: 1;
+    }
+    
+    .col-lg-4 {
+        order: 2;
+    }
+    
+    /* Equipment modal */
+    #equipment-modal-list {
+        max-height: 60vh;
+    }
+    
+    /* Modals */
+    .modal-dialog.modal-lg {
+        margin: 0.5rem;
+        max-width: calc(100% - 1rem);
+    }
+}
+
+/* Requester info styles */
+.requester-info {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.requester-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sitec-primary), var(--sitec-secondary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+@media (max-width: 576px) {
+    .requester-avatar {
+        width: 32px;
+        height: 32px;
+        font-size: 0.8rem;
+    }
+    
+    .requester-info small {
+        font-size: 0.7rem;
+    }
+    
+    .requester-info strong {
+        font-size: 0.85rem;
+    }
+}

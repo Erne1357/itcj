@@ -18,43 +18,47 @@
 </div>
 
 <!-- Quick Stats -->
-<div class="row mb-4">
-    <div class="col-lg-3 col-md-6 mb-3">
+<div class="row mb-4 g-2 g-md-3">
+    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center">
-                <i class="fas fa-ticket-alt fa-3x text-primary mb-3"></i>
-                <h3 class="mb-2" id="totalTickets">-</h3>
-                <p class="text-muted mb-0">Total de Tickets</p>
+            <div class="card-body text-center py-2 py-md-3">
+                <i class="fas fa-ticket-alt fa-lg fa-md-2x text-primary mb-2 d-none d-sm-inline-block"></i>
+                <i class="fas fa-ticket-alt text-primary mb-2 d-sm-none"></i>
+                <h3 class="mb-1 fs-4 fs-md-3" id="totalTickets">-</h3>
+                <p class="text-muted mb-0 small">Total Tickets</p>
             </div>
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6 mb-3">
+    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center">
-                <i class="fas fa-clock fa-3x text-warning mb-3"></i>
-                <h3 class="mb-2" id="pendingTickets">-</h3>
-                <p class="text-muted mb-0">Pendientes</p>
+            <div class="card-body text-center py-2 py-md-3">
+                <i class="fas fa-clock fa-lg fa-md-2x text-warning mb-2 d-none d-sm-inline-block"></i>
+                <i class="fas fa-clock text-warning mb-2 d-sm-none"></i>
+                <h3 class="mb-1 fs-4 fs-md-3" id="pendingTickets">-</h3>
+                <p class="text-muted mb-0 small">Pendientes</p>
             </div>
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6 mb-3">
+    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center">
-                <i class="fas fa-users fa-3x text-info mb-3"></i>
-                <h3 class="mb-2" id="activeUsers">-</h3>
-                <p class="text-muted mb-0">Usuarios Activos</p>
+            <div class="card-body text-center py-2 py-md-3">
+                <i class="fas fa-users fa-lg fa-md-2x text-info mb-2 d-none d-sm-inline-block"></i>
+                <i class="fas fa-users text-info mb-2 d-sm-none"></i>
+                <h3 class="mb-1 fs-4 fs-md-3" id="activeUsers">-</h3>
+                <p class="text-muted mb-0 small">Usuarios</p>
             </div>
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6 mb-3">
+    <div class="col-6 col-lg-3 col-md-6">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center">
-                <i class="fas fa-star fa-3x text-success mb-3"></i>
-                <h3 class="mb-2" id="avgRating">-</h3>
-                <p class="text-muted mb-0">Satisfacción</p>
+            <div class="card-body text-center py-2 py-md-3">
+                <i class="fas fa-star fa-lg fa-md-2x text-success mb-2 d-none d-sm-inline-block"></i>
+                <i class="fas fa-star text-success mb-2 d-sm-none"></i>
+                <h3 class="mb-1 fs-4 fs-md-3" id="avgRating">-</h3>
+                <p class="text-muted mb-0 small">Satisfacción</p>
             </div>
         </div>
     </div>
@@ -65,20 +69,20 @@
     <!-- Tickets Section -->
     <div class="col-md-6 mb-4">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">
+            <div class="card-header bg-primary text-white py-2 py-md-3">
+                <h5 class="mb-0 fs-6 fs-md-5">
                     <i class="fas fa-ticket-alt me-2"></i>Gestión de Tickets
                 </h5>
             </div>
-            <div class="card-body">
-                <div class="d-grid gap-3">
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}" class="btn btn-lg btn-primary">
+            <div class="card-body p-2 p-md-3">
+                <div class="d-grid gap-2 gap-md-3">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}" class="btn btn-primary btn-sm btn-md-lg">
                         <i class="fas fa-user-plus me-2"></i>Asignar Tickets
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.all_tickets') }}" class="btn btn-lg btn-outline-primary">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.all_tickets') }}" class="btn btn-outline-primary btn-sm btn-md-lg">
                         <i class="fas fa-list me-2"></i>Ver Todos los Tickets
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.categories') }}" class="btn btn-lg btn-outline-primary">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.categories') }}" class="btn btn-outline-primary btn-sm btn-md-lg">
                         <i class="fas fa-tags me-2"></i>Gestionar Categorías
                     </a>
                 </div>
@@ -89,20 +93,20 @@
     <!-- Inventory Section -->
     <div class="col-md-6 mb-4">
         <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0">
+            <div class="card-header bg-success text-white py-2 py-md-3">
+                <h5 class="mb-0 fs-6 fs-md-5">
                     <i class="fas fa-warehouse me-2"></i>Gestión de Inventario
                 </h5>
             </div>
-            <div class="card-body">
-                <div class="d-grid gap-3">
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_list') }}" class="btn btn-lg btn-success">
+            <div class="card-body p-2 p-md-3">
+                <div class="d-grid gap-2 gap-md-3">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_list') }}" class="btn btn-success btn-sm btn-md-lg">
                         <i class="fas fa-boxes me-2"></i>Ver Inventario
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_create') }}" class="btn btn-lg btn-outline-success">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_create') }}" class="btn btn-outline-success btn-sm btn-md-lg">
                         <i class="fas fa-plus me-2"></i>Registrar Equipo
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_categories') }}" class="btn btn-lg btn-outline-success">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_categories') }}" class="btn btn-outline-success btn-sm btn-md-lg">
                         <i class="fas fa-folder me-2"></i>Categorías de Inventario
                     </a>
                 </div>
@@ -115,26 +119,26 @@
 <div class="row">
     <div class="col-12">
         <div class="card border-0 shadow-sm">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0">
+            <div class="card-header bg-info text-white py-2 py-md-3">
+                <h5 class="mb-0 fs-6 fs-md-5">
                     <i class="fas fa-chart-bar me-2"></i>Reportes y Estadísticas
                 </h5>
             </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4 mb-3 mb-md-0">
-                        <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" class="btn btn-lg btn-info w-100">
-                            <i class="fas fa-chart-line me-2"></i>Ver Estadísticas
+            <div class="card-body p-2 p-md-3">
+                <div class="row g-2">
+                    <div class="col-12 col-md-4 mb-2 mb-md-0">
+                        <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" class="btn btn-info w-100">
+                            <i class="fas fa-chart-line me-1 me-md-2"></i><span class="d-none d-sm-inline">Ver </span>Estadísticas
                         </a>
                     </div>
-                    <div class="col-md-4 mb-3 mb-md-0">
-                        <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_reports') }}" class="btn btn-lg btn-outline-info w-100">
-                            <i class="fas fa-file-export me-2"></i>Reportes de Inventario
+                    <div class="col-12 col-md-4 mb-2 mb-md-0">
+                        <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_reports') }}" class="btn btn-outline-info w-100">
+                            <i class="fas fa-file-export me-1 me-md-2"></i><span class="d-none d-sm-inline">Reportes </span>Inventario
                         </a>
                     </div>
-                    <div class="col-md-4">
-                        <button class="btn btn-lg btn-outline-info w-100" onclick="generateTicketsReport()">
-                            <i class="fas fa-file-download me-2"></i>Reporte de Tickets
+                    <div class="col-12 col-md-4">
+                        <button class="btn btn-outline-info w-100" onclick="generateTicketsReport()">
+                            <i class="fas fa-file-download me-1 me-md-2"></i><span class="d-none d-sm-inline">Reporte </span>Tickets
                         </button>
                     </div>
                 </div>

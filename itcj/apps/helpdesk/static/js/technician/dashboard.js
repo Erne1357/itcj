@@ -194,12 +194,14 @@ function createTicketCard(ticket, type) {
         <div class="ticket-tech-card border-bottom p-3 priority-${ticket.priority}">
             <div class="row align-items-start">
                 <div class="col-md-8">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
-                        ${HelpdeskUtils.getStatusBadge(ticket.status)}
-                        ${HelpdeskUtils.getAreaBadge(ticket.area)}
-                        ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
-                        ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
+                    <div class="d-flex align-items-center flex-wrap gap-1 gap-md-2 mb-2">
+                        <h6 class="mb-0 fw-bold me-1">${ticket.ticket_number}</h6>
+                        <div class="d-flex flex-wrap gap-1">
+                            ${HelpdeskUtils.getStatusBadge(ticket.status)}
+                            ${HelpdeskUtils.getAreaBadge(ticket.area)}
+                            ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
+                            ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
+                        </div>
                     </div>
                     
                     <h5 class="mb-2">${ticket.title}</h5>
@@ -208,14 +210,14 @@ function createTicketCard(ticket, type) {
                         ${truncateText(ticket.description, 120)}
                     </p>
                     
-                    <div class="text-muted small">
-                        <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
+                    <div class="text-muted small d-flex flex-wrap gap-2">
+                        <span><i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}</span>
                         ${ticket.location ? `
-                            <span class="ms-3">
+                            <span>
                                 <i class="fas fa-map-marker-alt me-1"></i>${ticket.location}
                             </span>
                         ` : ''}
-                        <span class="ms-3">
+                        <span>
                             <i class="fas fa-clock me-1"></i>${timeAgo}
                         </span>
                     </div>
@@ -233,7 +235,7 @@ function createTicketCard(ticket, type) {
                     ` : ''}
                 </div>
                 
-                <div class="col-md-4 text-end">
+                <div class="col-md-4 text-md-end mt-2 mt-md-0">
                     ${getActionButtons(ticket, type)}
                 </div>
             </div>

@@ -39,6 +39,20 @@
     font-weight: 600;
 }
 
+/* Mobile Step Indicators */
+@media (max-width: 576px) {
+    .step-number {
+        width: 36px;
+        height: 36px;
+        font-size: 1rem;
+        margin-bottom: 4px;
+    }
+    
+    .step-text {
+        font-size: 0.7rem;
+    }
+}
+
 /* Area Cards */
 .area-card {
     cursor: pointer;
@@ -240,4 +254,91 @@
 .form-check-input:checked + .form-check-label {
     background: #e7f6f8;
     border-color: #17a2b8;
+}
+
+/* ==================== MOBILE RESPONSIVE - CREATE TICKET ==================== */
+
+@media (max-width: 576px) {
+    /* Area cards on mobile */
+    .area-card .card-body {
+        padding: 0.75rem !important;
+    }
+    
+    .area-card .area-icon i {
+        font-size: 1.5rem !important;
+    }
+    
+    .area-card .card-title {
+        font-size: 0.875rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    /* Equipment cards in modal */
+    .equipment-card {
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .equipment-icon {
+        width: 45px;
+        height: 45px;
+        font-size: 1.25rem;
+    }
+    
+    /* Form improvements */
+    .form-label {
+        font-size: 0.8rem;
+    }
+    
+    .form-control, .form-select {
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    textarea.form-control {
+        min-height: 100px;
+    }
+    
+    /* Button groups */
+    .d-flex.gap-2 {
+        gap: 0.5rem !important;
+    }
+    
+    .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85rem;
+    }
+    
+    /* Group cards */
+    .group-card {
+        padding: 0.75rem;
+    }
+    
+    /* Star rating buttons */
+    .star-btn {
+        width: 45px;
+        height: 45px;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Modal adjustments */
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+    
+    .modal-body {
+        padding: 1rem;
+    }
+    
+    /* Equipment list in modal */
+    #equipment-list,
+    #group-list,
+    #group-equipment-list-modal {
+        max-height: 60vh;
+    }
+    
+    /* Form sections */
+    .mb-4 {
+        margin-bottom: 1rem !important;
+    }
 }

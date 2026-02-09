@@ -21,66 +21,66 @@
 {% block content %}
 
 <!-- Dashboard Overview Cards -->
-<div class="row mb-4">
-    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+<div class="row mb-4 g-2 g-md-3">
+    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
         <div class="card border-0 shadow-sm border-start border-danger border-4 h-100">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Pendientes</small>
-                        <h2 class="text-danger mb-0 fw-bold" id="pendingCount">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Pendientes</small>
+                        <h2 class="text-danger mb-0 fw-bold fs-4 fs-md-2" id="pendingCount">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-clock fa-2x text-danger opacity-50"></i>
+                    <i class="fas fa-clock fa-lg fa-md-2x text-danger opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
         <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Sin Asignar</small>
-                        <h2 class="text-warning mb-0 fw-bold" id="unassignedCount">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Sin Asignar</small>
+                        <h2 class="text-warning mb-0 fw-bold fs-4 fs-md-2" id="unassignedCount">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-user-slash fa-2x text-warning opacity-50"></i>
+                    <i class="fas fa-user-slash fa-lg fa-md-2x text-warning opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6 mb-3 mb-lg-0">
+    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
         <div class="card border-0 shadow-sm border-start border-primary border-4 h-100">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">En Progreso</small>
-                        <h2 class="text-primary mb-0 fw-bold" id="inProgressCount">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">En Progreso</small>
+                        <h2 class="text-primary mb-0 fw-bold fs-4 fs-md-2" id="inProgressCount">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-cog fa-2x text-primary opacity-50"></i>
+                    <i class="fas fa-cog fa-lg fa-md-2x text-primary opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6">
+    <div class="col-6 col-lg-3 col-md-6">
         <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
-            <div class="card-body">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Hoy</small>
-                        <h2 class="text-success mb-0 fw-bold" id="todayCount">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Hoy</small>
+                        <h2 class="text-success mb-0 fw-bold fs-4 fs-md-2" id="todayCount">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-calendar-day fa-2x text-success opacity-50"></i>
+                    <i class="fas fa-calendar-day fa-lg fa-md-2x text-success opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
@@ -109,30 +109,32 @@
 </div>
 
 <!-- Main Tabs -->
-<ul class="nav nav-tabs nav-fill mb-4" id="assignmentTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button">
-            <i class="fas fa-inbox me-2"></i>Cola de Tickets
-            <span class="badge bg-danger ms-2" id="queueBadge">0</span>
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="active-tab" data-bs-toggle="tab" data-bs-target="#active" type="button">
-            <i class="fas fa-tasks me-2"></i>En Proceso
-            <span class="badge bg-primary ms-2" id="activeBadge">0</span>
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="technicians-tab" data-bs-toggle="tab" data-bs-target="#technicians" type="button">
-            <i class="fas fa-users me-2"></i>Técnicos
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button">
-            <i class="fas fa-chart-bar me-2"></i>Estadísticas
-        </button>
-    </li>
-</ul>
+<div class="nav-tabs-wrapper overflow-auto mb-4">
+    <ul class="nav nav-tabs nav-fill flex-nowrap" id="assignmentTabs" role="tablist" style="min-width: max-content;">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active px-2 px-md-3" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button">
+                <i class="fas fa-inbox me-1 me-md-2"></i><span class="d-none d-sm-inline">Cola de </span>Tickets
+                <span class="badge bg-danger ms-1 ms-md-2" id="queueBadge">0</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link px-2 px-md-3" id="active-tab" data-bs-toggle="tab" data-bs-target="#active" type="button">
+                <i class="fas fa-tasks me-1 me-md-2"></i><span class="d-none d-sm-inline">En </span>Proceso
+                <span class="badge bg-primary ms-1 ms-md-2" id="activeBadge">0</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link px-2 px-md-3" id="technicians-tab" data-bs-toggle="tab" data-bs-target="#technicians" type="button">
+                <i class="fas fa-users me-1 me-md-2"></i>Técnicos
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link px-2 px-md-3" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats" type="button">
+                <i class="fas fa-chart-bar me-1 me-md-2"></i><span class="d-none d-sm-inline">Estadísticas</span><span class="d-sm-none">Stats</span>
+            </button>
+        </li>
+    </ul>
+</div>
 
 <!-- Tab Content -->
 <div class="tab-content" id="assignmentTabContent">

@@ -147,24 +147,24 @@
 <div id="mainContent" class="d-none">
     <div class="row">
         <!-- Left Column: Ticket Info -->
-        <div class="col-lg-8">
+        <div class="col-lg-8 mb-4 mb-lg-0">
 
             <!-- Ticket Header Card -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body p-4">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h2 class="mb-2" id="ticketNumber">
-                                <i class="fas fa-ticket-alt me-2 text-primary"></i>
+            <div class="card border-0 shadow-sm mb-3 mb-md-4">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex justify-content-between align-items-start mb-2 mb-md-3">
+                        <div class="flex-grow-1 me-2">
+                            <h2 class="mb-2 fs-4 fs-md-2" id="ticketNumber">
+                                <i class="fas fa-ticket-alt me-1 me-md-2 text-primary"></i>
                                 TK-2025-0000
                             </h2>
-                            <div class="d-flex gap-2 flex-wrap" id="ticketBadges">
+                            <div class="d-flex gap-1 flex-wrap" id="ticketBadges">
                                 <!-- Badges dinámicos -->
                             </div>
                         </div>
 
                         <!-- Quick Actions -->
-                        <div class="dropdown">
+                        <div class="dropdown flex-shrink-0">
                             <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
                                 data-bs-toggle="dropdown">
                                 <i class="fas fa-ellipsis-v"></i>
@@ -175,36 +175,52 @@
                         </div>
                     </div>
 
-                    <h3 class="mb-3" id="ticketTitle">Título del Ticket</h3>
+                    <h3 class="mb-3 fs-5 fs-md-3" id="ticketTitle">Título del Ticket</h3>
+
+                    <!-- Requester Info -->
+                    <div class="requester-info mb-3" id="requesterContainer">
+                        <div class="d-flex align-items-center gap-2 gap-md-3">
+                            <div class="requester-avatar" id="requesterAvatar">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center gap-1 gap-sm-2">
+                                    <strong id="requesterName" class="text-truncate">-</strong>
+                                    <span class="badge bg-secondary" id="requesterDepartment" style="display: none;">-</span>
+                                </div>
+                                <small class="text-muted d-block" id="requesterEmail">-</small>
+                            </div>
+                        </div>
+                    </div>
 
                     <!-- Info Grid -->
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
+                    <div class="row g-2 g-md-3 mb-3">
+                        <div class="col-6 col-md-6">
                             <small class="text-muted d-block mb-1">
-                                <i class="fas fa-calendar me-1"></i>Fecha de Creación
+                                <i class="fas fa-calendar me-1"></i><span class="d-none d-sm-inline">Fecha de </span>Creación
                             </small>
-                            <strong id="ticketCreated">-</strong>
+                            <strong id="ticketCreated" class="small">-</strong>
                         </div>
 
-                        <div class="col-md-6">
+                        <div class="col-6 col-md-6">
                             <small class="text-muted d-block mb-1">
-                                <i class="fas fa-clock me-1"></i>Última Actualización
+                                <i class="fas fa-clock me-1"></i><span class="d-none d-sm-inline">Última </span>Actualización
                             </small>
-                            <strong id="ticketUpdated">-</strong>
+                            <strong id="ticketUpdated" class="small">-</strong>
                         </div>
 
-                        <div class="col-md-6" id="locationContainer" style="display: none;">
+                        <div class="col-6 col-md-6" id="locationContainer" style="display: none;">
                             <small class="text-muted d-block mb-1">
                                 <i class="fas fa-map-marker-alt me-1"></i>Ubicación
                             </small>
-                            <strong id="ticketLocation">-</strong>
+                            <strong id="ticketLocation" class="small">-</strong>
                         </div>
 
-                        <div class="col-md-6" id="folioContainer" style="display: none;">
+                        <div class="col-6 col-md-6" id="folioContainer" style="display: none;">
                             <small class="text-muted d-block mb-1">
-                                <i class="fas fa-file-alt me-1"></i>Folio de Oficio
+                                <i class="fas fa-file-alt me-1"></i>Folio
                             </small>
-                            <strong id="ticketFolio">-</strong>
+                            <strong id="ticketFolio" class="small">-</strong>
                         </div>
                     </div>
 

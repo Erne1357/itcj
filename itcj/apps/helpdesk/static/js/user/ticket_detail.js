@@ -119,6 +119,9 @@ function renderTicketDetail(ticket) {
         ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
     `;
 
+    // Requester Info
+    renderRequesterInfo(ticket);
+
     // Dates
     document.getElementById('ticketCreated').textContent = HelpdeskUtils.formatDate(ticket.created_at);
     document.getElementById('ticketUpdated').textContent = HelpdeskUtils.formatTimeAgo(ticket.updated_at);
@@ -183,6 +186,53 @@ function renderTicketDetail(ticket) {
     // Show comment form if ticket is open
     const isOpen = !['CLOSED', 'CANCELED'].includes(ticket.status);
     document.getElementById('addCommentForm').classList.toggle('d-none', !isOpen);
+}
+
+// ==================== RENDER REQUESTER INFO ====================
+function renderRequesterInfo(ticket) {
+    const requester = ticket.requester;
+    const department = ticket.requester_department || requester?.department;
+    
+    // Avatar - mostrar iniciales si hay nombre
+    const avatarEl = document.getElementById('requesterAvatar');
+    if (requester && requester.name) {
+        const initials = getInitials(requester.name);
+        avatarEl.innerHTML = initials;
+    } else {
+        avatarEl.innerHTML = '<i class="fas fa-user"></i>';
+    }
+    
+    // Nombre del solicitante
+    const nameEl = document.getElementById('requesterName');
+    nameEl.textContent = requester?.name || requester?.full_name || 'Usuario desconocido';
+    
+    // Email del solicitante
+    const emailEl = document.getElementById('requesterEmail');
+    emailEl.textContent = requester?.email || 'Sin correo';
+    
+    // Departamento
+    const deptEl = document.getElementById('requesterDepartment');
+    if (department) {
+        const deptName = typeof department === 'object' ? department.name : department;
+        if (deptName) {
+            deptEl.textContent = deptName;
+            deptEl.style.display = '';
+        } else {
+            deptEl.style.display = 'none';
+        }
+    } else {
+        deptEl.style.display = 'none';
+    }
+}
+
+// Función auxiliar para obtener iniciales
+function getInitials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
 }
 
 function renderQuickActions(ticket) {

@@ -9,88 +9,87 @@
 {% block content %}
 <div class="container-fluid">
     <!-- Encabezado -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 mb-md-4 flex-wrap gap-2">
         <div>
-            <h1 class="h3 mb-0 text-gray-800">
-                <i class="fas fa-boxes fa-fw"></i> Inventario de Equipos
+            <h1 class="h4 h3-md mb-0 text-gray-800">
+                <i class="fas fa-boxes fa-fw"></i> <span class="d-none d-sm-inline">Inventario de </span>Equipos
             </h1>
-            <p class="text-muted mb-0">
+            <p class="text-muted mb-0 small d-none d-sm-block">
                 <span id="total-items-text">Cargando...</span>
             </p>
         </div>
-        <div>
+        <div class="d-flex gap-2 flex-wrap">
             {% if 'admin' in user_roles or 'secretary' in user_roles %}
-            <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" class="btn btn-primary">
-                <i class="fas fa-plus-circle"></i> Registrar Equipo
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Registrar</span>
             </a>
             {% endif %}
-            <button class="btn btn-outline-secondary" onclick="exportToExcel()">
-                <i class="fas fa-file-excel"></i> Exportar
+            <button class="btn btn-outline-secondary btn-sm" onclick="exportToExcel()">
+                <i class="fas fa-file-excel"></i><span class="d-none d-sm-inline"> Exportar</span>
             </button>
         </div>
     </div>
 
     <!-- Filtros -->
-    <div class="card shadow mb-4">
-        <div class="card-header py-3 d-flex justify-content-between align-items-center">
-            <h6 class="m-0 font-weight-bold text-primary">
+    <div class="card shadow mb-3 mb-md-4">
+        <div class="card-header py-2 py-md-3 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary" style="font-size: 0.85rem;">
                 <i class="fas fa-filter"></i> Filtros
             </h6>
-            <button class="btn btn-sm btn-link" type="button" data-toggle="collapse" data-target="#filtersCollapse">
+            <button class="btn btn-sm btn-link p-0" type="button" data-toggle="collapse" data-target="#filtersCollapse">
                 <i class="fas fa-chevron-down"></i>
             </button>
         </div>
         <div class="collapse show" id="filtersCollapse">
-            <div class="card-body">
+            <div class="card-body p-2 p-md-3">
                 <form id="filters-form">
-                    <div class="row">
+                    <div class="row g-2">
                         <!-- Búsqueda -->
-                        <div class="col-md-4 mb-3">
-                            <label for="search-input">
+                        <div class="col-12 col-md-4 mb-2 mb-md-3">
+                            <label for="search-input" class="form-label small mb-1">
                                 <i class="fas fa-search"></i> Buscar
                             </label>
                             <input 
                                 type="text" 
-                                class="form-control" 
+                                class="form-control form-control-sm" 
                                 id="search-input" 
-                                placeholder="Número, marca, modelo, serie..."
-                            >
+                                placeholder="Número, marca, modelo...">
                         </div>
 
                         <!-- Categoría -->
-                        <div class="col-md-3 mb-3">
-                            <label for="category-filter">
+                        <div class="col-6 col-md-3 mb-2 mb-md-3">
+                            <label for="category-filter" class="form-label small mb-1">
                                 <i class="fas fa-tag"></i> Categoría
                             </label>
-                            <select class="form-control" id="category-filter">
-                                <option value="">Todas las categorías</option>
+                            <select class="form-control form-control-sm" id="category-filter">
+                                <option value="">Todas</option>
                                 <!-- Se llenarán con JavaScript -->
                             </select>
                         </div>
 
                         <!-- Estado -->
-                        <div class="col-md-2 mb-3">
-                            <label for="status-filter">
+                        <div class="col-6 col-md-2 mb-2 mb-md-3">
+                            <label for="status-filter" class="form-label small mb-1">
                                 <i class="fas fa-toggle-on"></i> Estado
                             </label>
-                            <select class="form-control" id="status-filter">
+                            <select class="form-control form-control-sm" id="status-filter">
                                 <option value="">Todos</option>
                                 <option value="ACTIVE">Activo</option>
-                                <option value="MAINTENANCE">Mantenimiento</option>
+                                <option value="MAINTENANCE">Mantenim.</option>
                                 <option value="DAMAGED">Dañado</option>
                                 <option value="LOST">Extraviado</option>
                             </select>
                         </div>
 
                         <!-- Asignación -->
-                        <div class="col-md-3 mb-3">
-                            <label for="assigned-filter">
+                        <div class="col-12 col-md-3 mb-2 mb-md-3">
+                            <label for="assigned-filter" class="form-label small mb-1">
                                 <i class="fas fa-user"></i> Asignación
                             </label>
-                            <select class="form-control" id="assigned-filter">
+                            <select class="form-control form-control-sm" id="assigned-filter">
                                 <option value="">Todos</option>
-                                <option value="yes">Asignados a usuario</option>
-                                <option value="no">Globales del departamento</option>
+                                <option value="yes">Asignados</option>
+                                <option value="no">Globales</option>
                             </select>
                         </div>
                     </div>
@@ -133,7 +132,7 @@
         <div class="card-body">
             <!-- Loading -->
             <div id="loading-container" class="text-center py-5">
-                <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+                <i class="fas fa-spinner fa-spin fa-2x fa-md-3x text-primary mb-2 mb-md-3"></i>
                 <p class="text-muted">Cargando inventario...</p>
             </div>
 
