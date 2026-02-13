@@ -212,11 +212,12 @@ function renderRequesterInfo(ticket) {
     
     // Departamento
     const deptEl = document.getElementById('requesterDepartment');
+    const deptTextEl = document.getElementById('requesterDepartmentText');
     if (department) {
         const deptName = typeof department === 'object' ? department.name : department;
         if (deptName) {
-            deptEl.textContent = deptName;
-            deptEl.style.display = '';
+            deptTextEl.textContent = deptName;
+            deptEl.style.display = 'inline-flex';
         } else {
             deptEl.style.display = 'none';
         }

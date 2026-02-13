@@ -8,14 +8,6 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
 
     # Estructura completa de navegación con permisos requeridos
     full_nav_structure = [
-        # ==================== MOBILE ONLY ====================
-        {
-            "label": "Dashboard",
-            "endpoint": "pages_core.pages_mobile.mobile_dashboard",
-            "icon": "fa-th-large",
-            "mobile_only": True  # Solo visible en móvil
-        },
-
         # ==================== USUARIOS ====================
         {
             "label": "Crear Ticket",

@@ -487,6 +487,19 @@
     flex-shrink: 0;
 }
 
+/* Nombre del solicitante - permite múltiples líneas */
+.requester-name-wrap {
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    line-height: 1.3;
+}
+
+.min-width-0 {
+    min-width: 0;
+}
+
 @media (max-width: 576px) {
     .requester-avatar {
         width: 32px;
@@ -500,5 +513,9 @@
     
     .requester-info strong {
         font-size: 0.85rem;
+    }
+    
+    .requester-name-wrap {
+        font-size: 0.9rem;
     }
 }

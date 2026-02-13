@@ -179,16 +179,18 @@
 
                     <!-- Requester Info -->
                     <div class="requester-info mb-3" id="requesterContainer">
-                        <div class="d-flex align-items-center gap-2 gap-md-3">
-                            <div class="requester-avatar" id="requesterAvatar">
+                        <div class="d-flex align-items-start gap-2 gap-md-3">
+                            <div class="requester-avatar flex-shrink-0" id="requesterAvatar">
                                 <i class="fas fa-user"></i>
                             </div>
-                            <div class="flex-grow-1">
-                                <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center gap-1 gap-sm-2">
-                                    <strong id="requesterName" class="text-truncate">-</strong>
-                                    <span class="badge bg-secondary" id="requesterDepartment" style="display: none;">-</span>
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="d-flex flex-column flex-sm-row align-items-start gap-1 gap-sm-2 flex-wrap">
+                                    <strong id="requesterName" class="requester-name-wrap">-</strong>
+                                    <span class="badge bg-info flex-shrink-0" id="requesterDepartment" style="display: none;">
+                                        <i class="fas fa-building me-1"></i><span id="requesterDepartmentText">-</span>
+                                    </span>
                                 </div>
-                                <small class="text-muted d-block" id="requesterEmail">-</small>
+                                <small class="text-muted d-block text-break" id="requesterEmail">-</small>
                             </div>
                         </div>
                     </div>
