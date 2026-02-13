@@ -1,10 +1,41 @@
 """API para gestión de donaciones."""
 
 from flask import jsonify, request, g
+from sqlalchemy import or_
 
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.vistetec.services import donation_service
 from itcj.apps.vistetec.routes.api import donations_api_bp as bp
+from itcj.core.models.user import User
+
+
+@bp.route('/search-donors', methods=['GET'])
+@api_app_required('vistetec', perms=['vistetec.donations.api.register'])
+def search_donors():
+    """Busca estudiantes/usuarios para asignar como donantes."""
+    query = request.args.get('q', '').strip()
+
+    if len(query) < 2:
+        return jsonify([])
+
+    # Buscar por número de control o nombre
+    users = User.query.filter(
+        User.is_active == True,
+        or_(
+            User.control_number.ilike(f'%{query}%'),
+            User.first_name.ilike(f'%{query}%'),
+            User.last_name.ilike(f'%{query}%'),
+        )
+    ).limit(10).all()
+
+    return jsonify([
+        {
+            'id': u.id,
+            'name': u.full_name,
+            'control_number': u.control_number,
+        }
+        for u in users
+    ])
 
 
 @bp.route('', methods=['GET'])
@@ -140,6 +171,7 @@ def register_pantry_donation():
             quantity=data.get('quantity', 1),
             donor_id=data.get('donor_id'),
             donor_name=data.get('donor_name'),
+            campaign_id=data.get('campaign_id'),
             notes=data.get('notes')
         )
 

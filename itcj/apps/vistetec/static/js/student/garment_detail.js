@@ -99,10 +99,18 @@
         slotsLoading.classList.remove('d-none');
         noSlotsState.classList.add('d-none');
         slotsList.classList.add('d-none');
+        document.getElementById('campaignSection').classList.add('d-none');
 
         try {
             const res = await fetch(`${API_BASE}/slots`);
-            if (!res.ok) throw new Error('Error al cargar horarios');
+            if (!res.ok) {
+                if (res.status === 403) {
+                    VisteTecUtils.showToast('No tienes permisos para ver horarios disponibles', 'warning');
+                } else {
+                    VisteTecUtils.showToast('Error al cargar horarios', 'danger');
+                }
+                throw new Error(`HTTP ${res.status}`);
+            }
             const slots = await res.json();
 
             slotsLoading.classList.add('d-none');
@@ -115,8 +123,11 @@
             renderSlots(slots);
             slotsList.classList.remove('d-none');
 
+            // Cargar campañas activas
+            loadActiveCampaigns();
+
         } catch (e) {
-            console.error(e);
+            console.error('Error cargando slots:', e);
             slotsLoading.classList.add('d-none');
             noSlotsState.classList.remove('d-none');
         }
@@ -133,18 +144,30 @@
             grouped[date].push(s);
         });
 
-        let html = '';
-        Object.keys(grouped).sort().forEach(date => {
+        let html = '<div class="accordion" id="slotsAccordion">';
+        Object.keys(grouped).sort().forEach((date, index) => {
             const dateSlots = grouped[date];
             const dateStr = formatDate(date);
+            const accordionId = `collapse${index}`;
 
-            html += `<div class="mb-3">
-                <h6 class="fw-bold text-muted small mb-2">${dateStr}</h6>
-                <div class="d-flex flex-column gap-2">`;
+            html += `
+            <div class="accordion-item border-0 mb-2">
+                <h2 class="accordion-header">
+                    <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#${accordionId}"
+                            aria-expanded="${index === 0}" aria-controls="${accordionId}"
+                            style="background-color: #fdf2f4; color: #8B1538; font-size: 0.9rem;">
+                        <i class="bi bi-calendar3 me-2"></i>${dateStr}
+                        <span class="badge bg-light text-dark ms-2">${dateSlots.length} ${dateSlots.length === 1 ? 'horario' : 'horarios'}</span>
+                    </button>
+                </h2>
+                <div id="${accordionId}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}"
+                     data-bs-parent="#slotsAccordion">
+                    <div class="accordion-body p-2">
+                        <div class="d-flex flex-column gap-2">`;
 
             dateSlots.forEach(s => {
                 const timeStr = `${formatTime(s.start_time)} - ${formatTime(s.end_time)}`;
-                const volunteerName = s.volunteer ? s.volunteer.name : 'Voluntario';
                 const locationName = s.location ? s.location.name : '';
                 const spotsText = s.available_spots === 1 ? '1 lugar' : `${s.available_spots} lugares`;
 
@@ -155,8 +178,7 @@
                         <div class="flex-grow-1">
                             <div class="fw-bold">${timeStr}</div>
                             <div class="text-muted small">
-                                <i class="bi bi-person me-1"></i>${volunteerName}
-                                ${locationName ? `<span class="mx-1">|</span><i class="bi bi-geo-alt me-1"></i>${locationName}` : ''}
+                                ${locationName ? `<i class="bi bi-geo-alt me-1"></i>${escapeHtml(locationName)}` : '<i class="bi bi-clock me-1"></i>Horario disponible'}
                             </div>
                         </div>
                         <span class="badge bg-light text-dark">${spotsText}</span>
@@ -164,9 +186,10 @@
                 </label>`;
             });
 
-            html += `</div></div>`;
+            html += `</div></div></div></div>`;
         });
 
+        html += '</div>';
         slotsList.innerHTML = html;
 
         // Event listeners para selección
@@ -196,6 +219,54 @@
         return `${hour12}:${m} ${ampm}`;
     }
 
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // ==================== Campañas ====================
+
+    async function loadActiveCampaigns() {
+        try {
+            const res = await fetch(`${API_BASE}/pantry/campaigns/active`);
+            const campaigns = res.ok ? await res.json() : [];
+
+            const campaignList = document.getElementById('campaignList');
+            const campaignNeeds = document.getElementById('campaignNeeds');
+
+            // Mostrar campañas si hay (qué artículos se necesitan)
+            if (campaigns.length > 0) {
+                campaignList.innerHTML = campaigns.map(c => {
+                    // Mostrar el artículo que se necesita
+                    const itemName = c.requested_item ? c.requested_item.name : c.name;
+                    const progress = c.goal_quantity
+                        ? `<span class="text-muted">(${c.collected_quantity}/${c.goal_quantity})</span>`
+                        : '';
+                    return `<div class="d-flex align-items-center gap-1">
+                        <i class="bi bi-box-seam text-warning" style="font-size: 0.8rem;"></i>
+                        <span>${escapeHtml(itemName)}</span>
+                        ${progress}
+                    </div>`;
+                }).join('');
+                campaignNeeds.classList.remove('d-none');
+            } else {
+                campaignNeeds.classList.add('d-none');
+            }
+
+            // Siempre mostrar la sección (porque también se puede donar ropa)
+            document.getElementById('campaignSection').classList.remove('d-none');
+            document.getElementById('willBringDonation').checked = false;
+        } catch (e) {
+            // Aún mostrar la sección para donación de ropa
+            document.getElementById('campaignSection').classList.remove('d-none');
+            document.getElementById('campaignNeeds').classList.add('d-none');
+            document.getElementById('willBringDonation').checked = false;
+            // Silently fail - campaigns are optional
+        }
+    }
+
     async function confirmSchedule() {
         if (!selectedSlotId) return;
 
@@ -214,6 +285,7 @@
                 body: JSON.stringify({
                     garment_id: GARMENT_ID,
                     slot_id: selectedSlotId,
+                    will_bring_donation: !!document.getElementById('willBringDonation')?.checked,
                 }),
             });
 

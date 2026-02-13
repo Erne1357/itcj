@@ -58,7 +58,7 @@ def create_garment(data, image_file=None, registered_by_id=None):
     )
 
     if image_file:
-        garment.image_path = image_service.save_garment_image(image_file)
+        garment.image_path = image_service.save_garment_image(image_file, garment.code)
 
     db.session.add(garment)
     db.session.commit()
@@ -93,7 +93,7 @@ def update_garment(garment_id, data, image_file=None):
     if image_file:
         # Eliminar imagen anterior
         image_service.delete_garment_image(garment.image_path)
-        garment.image_path = image_service.save_garment_image(image_file)
+        garment.image_path = image_service.save_garment_image(image_file, garment.code)
 
     db.session.commit()
     return garment

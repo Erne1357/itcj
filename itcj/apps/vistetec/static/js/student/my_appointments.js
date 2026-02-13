@@ -95,6 +95,7 @@
                                 ${garment.size ? `<span class="badge bg-light text-dark border">${garment.size}</span>` : ''}
                                 ${a.location ? `<span class="badge bg-light text-dark border"><i class="bi bi-geo-alt me-1"></i>${a.location.name}</span>` : ''}
                                 <span class="badge bg-light text-dark border">${a.code}</span>
+                                ${a.will_bring_donation ? '<span class="badge bg-warning-subtle text-warning border"><i class="bi bi-gift me-1"></i>Donación</span>' : ''}
                             </div>
                         </div>
                     </div>

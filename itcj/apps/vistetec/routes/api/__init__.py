@@ -15,6 +15,8 @@ from . import garments
 from . import time_slots
 from . import appointments
 from . import donations
+from . import pantry
+from . import reports
 
 __all__ = [
     'catalog_api_bp',

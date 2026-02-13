@@ -8,6 +8,7 @@ from sqlalchemy import and_, func
 from itcj.core.extensions import db
 from itcj.apps.vistetec.models.appointment import Appointment
 from itcj.apps.vistetec.models.time_slot import TimeSlot
+from itcj.apps.vistetec.models.slot_volunteer import SlotVolunteer
 from itcj.apps.vistetec.models.garment import Garment
 
 
@@ -27,6 +28,13 @@ def _generate_code() -> str:
         new_num = 1
 
     return f"{prefix}{new_num:04d}"
+
+
+def _verify_volunteer_for_slot(slot_id: int, volunteer_id: int) -> bool:
+    """Verifica que un voluntario está inscrito en un slot."""
+    return SlotVolunteer.query.filter_by(
+        slot_id=slot_id, volunteer_id=volunteer_id
+    ).first() is not None
 
 
 def get_student_appointments(
@@ -52,9 +60,11 @@ def get_volunteer_appointments(
     date_filter: Optional[date] = None,
     status: Optional[str] = None
 ) -> list[Appointment]:
-    """Obtiene las citas para los slots de un voluntario."""
-    query = Appointment.query.join(TimeSlot).filter(
-        TimeSlot.volunteer_id == volunteer_id
+    """Obtiene las citas para los slots donde un voluntario está inscrito."""
+    query = Appointment.query.join(TimeSlot).join(
+        SlotVolunteer, SlotVolunteer.slot_id == TimeSlot.id
+    ).filter(
+        SlotVolunteer.volunteer_id == volunteer_id
     )
 
     if date_filter:
@@ -79,7 +89,8 @@ def get_appointment_by_code(code: str) -> Optional[Appointment]:
 def create_appointment(
     student_id: int,
     garment_id: int,
-    slot_id: int
+    slot_id: int,
+    will_bring_donation: bool = False
 ) -> Appointment:
     """Crea una nueva cita."""
     # Verificar que el slot existe y tiene disponibilidad
@@ -133,7 +144,8 @@ def create_appointment(
         garment_id=garment_id,
         slot_id=slot_id,
         location_id=slot.location_id,
-        status='scheduled'
+        status='scheduled',
+        will_bring_donation=will_bring_donation
     )
 
     # Actualizar contador del slot
@@ -160,12 +172,11 @@ def cancel_appointment(
 
     # Verificar permisos
     if not is_volunteer and appointment.student_id != user_id:
-        raise ValueError("No tienes permiso para cancelar esta cita")
+        raise ValueError(f"No tienes permiso para cancelar esta cita 1 {user_id=} {appointment.student_id=}")
 
     if is_volunteer:
-        # Verificar que el voluntario es dueño del slot
-        if appointment.slot.volunteer_id != user_id:
-            raise ValueError("No tienes permiso para cancelar esta cita")
+        if not _verify_volunteer_for_slot(appointment.slot_id, user_id):
+            raise ValueError("No tienes permiso para cancelar esta cita 2")
 
     if appointment.status not in ['scheduled']:
         raise ValueError("Esta cita no se puede cancelar")
@@ -194,8 +205,7 @@ def mark_attendance(
     if not appointment:
         raise ValueError("Cita no encontrada")
 
-    # Verificar que el voluntario es dueño del slot
-    if appointment.slot.volunteer_id != volunteer_id:
+    if not _verify_volunteer_for_slot(appointment.slot_id, volunteer_id):
         raise ValueError("No tienes permiso para modificar esta cita")
 
     if appointment.status != 'scheduled':
@@ -229,7 +239,7 @@ def complete_appointment(
     if not appointment:
         raise ValueError("Cita no encontrada")
 
-    if appointment.slot.volunteer_id != volunteer_id:
+    if not _verify_volunteer_for_slot(appointment.slot_id, volunteer_id):
         raise ValueError("No tienes permiso para modificar esta cita")
 
     if appointment.status != 'attended':
@@ -255,10 +265,12 @@ def complete_appointment(
 
 
 def get_today_appointments_for_volunteer(volunteer_id: int) -> list[Appointment]:
-    """Obtiene las citas de hoy para un voluntario."""
+    """Obtiene las citas de hoy para un voluntario (slots donde está inscrito)."""
     today = date.today()
-    return Appointment.query.join(TimeSlot).filter(
-        TimeSlot.volunteer_id == volunteer_id,
+    return Appointment.query.join(TimeSlot).join(
+        SlotVolunteer, SlotVolunteer.slot_id == TimeSlot.id
+    ).filter(
+        SlotVolunteer.volunteer_id == volunteer_id,
         TimeSlot.date == today,
         Appointment.status.in_(['scheduled', 'attended'])
     ).order_by(TimeSlot.start_time).all()
@@ -269,15 +281,19 @@ def get_appointment_stats(volunteer_id: Optional[int] = None) -> dict:
     base_query = Appointment.query
 
     if volunteer_id:
-        base_query = base_query.join(TimeSlot).filter(
-            TimeSlot.volunteer_id == volunteer_id
+        base_query = base_query.join(TimeSlot).join(
+            SlotVolunteer, SlotVolunteer.slot_id == TimeSlot.id
+        ).filter(
+            SlotVolunteer.volunteer_id == volunteer_id
         )
 
     today = date.today()
 
     # Citas de hoy
-    today_query = base_query.join(TimeSlot) if not volunteer_id else base_query
-    today_count = today_query.filter(TimeSlot.date == today).count()
+    if volunteer_id:
+        today_count = base_query.filter(TimeSlot.date == today).count()
+    else:
+        today_count = base_query.join(TimeSlot).filter(TimeSlot.date == today).count()
 
     # Por estado
     scheduled = base_query.filter(Appointment.status == 'scheduled').count()

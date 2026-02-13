@@ -117,19 +117,22 @@ def register_new_garment_donation(
     """Registra una donación creando una nueva prenda."""
     from itcj.apps.vistetec.services import garment_service
 
-    # Crear la prenda
+    # Crear la prenda (create_garment espera data como dict)
+    data = {
+        'name': garment_data.get('name'),
+        'category': garment_data.get('category'),
+        'condition': garment_data.get('condition'),
+        'description': garment_data.get('description'),
+        'size': garment_data.get('size'),
+        'color': garment_data.get('color'),
+        'brand': garment_data.get('brand'),
+        'gender': garment_data.get('gender'),
+        'material': garment_data.get('material'),
+        'donated_by_id': donor_id,
+    }
     garment = garment_service.create_garment(
-        name=garment_data.get('name'),
-        category=garment_data.get('category'),
-        condition=garment_data.get('condition'),
+        data=data,
         registered_by_id=registered_by_id,
-        donated_by_id=donor_id,
-        description=garment_data.get('description'),
-        size=garment_data.get('size'),
-        color=garment_data.get('color'),
-        brand=garment_data.get('brand'),
-        gender=garment_data.get('gender'),
-        material=garment_data.get('material')
     )
 
     # Registrar la donación
@@ -155,14 +158,23 @@ def register_pantry_donation(
     quantity: int = 1,
     donor_id: Optional[int] = None,
     donor_name: Optional[str] = None,
+    campaign_id: Optional[int] = None,
     notes: Optional[str] = None
 ) -> Donation:
     """Registra una donación de despensa."""
-    from itcj.apps.vistetec.models.pantry import PantryItem
+    from itcj.apps.vistetec.models.pantry_item import PantryItem
+    from itcj.apps.vistetec.models.pantry_campaign import PantryCampaign
 
     item = PantryItem.query.get(pantry_item_id)
     if not item:
         raise ValueError("Producto de despensa no encontrado")
+
+    # Validar campaña si se especifica
+    campaign = None
+    if campaign_id:
+        campaign = PantryCampaign.query.get(campaign_id)
+        if not campaign:
+            raise ValueError("Campaña no encontrada")
 
     donation = Donation(
         code=_generate_code(),
@@ -171,12 +183,17 @@ def register_pantry_donation(
         donation_type='pantry',
         pantry_item_id=pantry_item_id,
         quantity=quantity,
+        campaign_id=campaign_id,
         registered_by_id=registered_by_id,
         notes=notes
     )
 
     # Actualizar stock del producto
     item.current_stock += quantity
+
+    # Actualizar cantidad recolectada de la campaña si aplica
+    if campaign:
+        campaign.collected_quantity += quantity
 
     db.session.add(donation)
     db.session.commit()

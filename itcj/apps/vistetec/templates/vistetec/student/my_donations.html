@@ -2,7 +2,7 @@
 {% block title %}Mis Donaciones{% endblock %}
 
 {% block extra_css %}
-<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/my_donations.css') }}?v={{ sv('vistetec', 'css/my_donations.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='vistetec/css/student/my_donations.css') }}?v={{ sv('vistetec', 'css/student/my_donations.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -78,5 +78,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/my_donations.js') }}?v={{ sv('vistetec', 'js/my_donations.js') }}"></script>
+<script src="{{ url_for('static', filename='vistetec/js/student/my_donations.js') }}?v={{ sv('vistetec', 'js/student/my_donations.js') }}"></script>
 {% endblock %}

@@ -20,6 +20,8 @@ class Appointment(db.Model):
     outcome = db.Column(db.String(20), nullable=True)  # taken, not_fit, declined
     notes = db.Column(db.Text)
 
+    will_bring_donation = db.Column(db.Boolean, nullable=True, server_default=db.text("FALSE"))
+
     attended_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)
     attended_at = db.Column(db.DateTime, nullable=True)
 
@@ -52,6 +54,7 @@ class Appointment(db.Model):
             'status': self.status,
             'outcome': self.outcome,
             'notes': self.notes,
+            'will_bring_donation': self.will_bring_donation,
             'attended_at': self.attended_at.isoformat() if self.attended_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -60,6 +63,7 @@ class Appointment(db.Model):
             data['student'] = {
                 'id': self.student.id,
                 'name': self.student.full_name,
+                'control_number': self.student.control_number,
             } if self.student else None
             data['garment'] = self.garment.to_dict() if self.garment else None
             data['slot'] = self.slot.to_dict() if self.slot else None

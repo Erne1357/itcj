@@ -2,7 +2,7 @@
 {% block title %}Registrar Donación{% endblock %}
 
 {% block extra_css %}
-<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/register_donation.css') }}?v={{ sv('vistetec', 'css/register_donation.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='vistetec/css/volunteer/register_donation.css') }}?v={{ sv('vistetec', 'css/volunteer/register_donation.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -152,13 +152,41 @@
         </div>
     </div>
 
-    <!-- Paso 3: Detalles de la donación (Despensa) - Placeholder -->
+    <!-- Paso 3: Detalles de la donación (Despensa) -->
     <div id="step3Pantry" class="mb-4 d-none">
         <h5 class="fw-bold mb-3">3. Detalles de la despensa</h5>
         <div class="card border-0 shadow-sm">
-            <div class="card-body text-center py-4">
-                <i class="bi bi-box-seam text-muted" style="font-size: 2rem;"></i>
-                <p class="text-muted mt-2 mb-0">Módulo de despensa disponible próximamente</p>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">Artículo <span class="text-danger">*</span></label>
+                        <select class="form-select" id="pantryItem" required>
+                            <option value="">Seleccionar artículo...</option>
+                        </select>
+                        <div id="pantryItemsLoading" class="small text-muted mt-1 d-none">
+                            <span class="spinner-border spinner-border-sm me-1"></span>Cargando artículos...
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Cantidad <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="pantryQuantity" min="1" value="1" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Unidad</label>
+                        <input type="text" class="form-control" id="pantryUnit" readonly disabled placeholder="-">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Asociar a campaña</label>
+                        <select class="form-select" id="pantryCampaign">
+                            <option value="">Sin asociar a campaña</option>
+                        </select>
+                        <small class="text-muted">Si hay una campaña activa relacionada, se asociará automáticamente</small>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notas adicionales</label>
+                        <textarea class="form-control" id="pantryNotes" rows="2" placeholder="Observaciones..."></textarea>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -203,5 +231,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/register_donation.js') }}?v={{ sv('vistetec', 'js/register_donation.js') }}"></script>
+<script src="{{ url_for('static', filename='vistetec/js/volunteer/register_donation.js') }}?v={{ sv('vistetec', 'js/volunteer/register_donation.js') }}"></script>
 {% endblock %}

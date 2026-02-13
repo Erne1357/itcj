@@ -3,7 +3,7 @@
 {% block title %}Catálogo{% endblock %}
 
 {% block extra_css %}
-<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/catalog.css') }}?v={{ sv('vistetec', 'css/catalog.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='vistetec/css/student/catalog.css') }}?v={{ sv('vistetec', 'css/student/catalog.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -90,5 +90,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/catalog.js') }}?v={{ sv('vistetec', 'js/catalog.js') }}"></script>
+<script src="{{ url_for('static', filename='vistetec/js/student/catalog.js') }}?v={{ sv('vistetec', 'js/student/catalog.js') }}"></script>
 {% endblock %}

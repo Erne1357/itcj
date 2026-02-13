@@ -45,7 +45,8 @@ def create_appointment():
         appointment = appointment_service.create_appointment(
             student_id=g.current_user["sub"],
             garment_id=data['garment_id'],
-            slot_id=data['slot_id']
+            slot_id=data['slot_id'],
+            will_bring_donation=bool(data.get('will_bring_donation', False))
         )
 
         return jsonify({
@@ -64,13 +65,13 @@ def cancel_my_appointment(appointment_id):
     try:
         appointment = appointment_service.cancel_appointment(
             appointment_id=appointment_id,
-            user_id=g.current_user["sub"],
+            user_id=int(g.current_user["sub"]),
             is_volunteer=False
         )
 
         return jsonify({
             'message': 'Cita cancelada',
-            'appointment': appointment.to_dict()
+            'appointment': appointment.to_dict(include_relations=True)
         })
 
     except ValueError as e:
@@ -180,13 +181,14 @@ def volunteer_cancel_appointment(appointment_id):
 @api_app_required('vistetec', perms=['vistetec.appointments.api.view_own'])
 def get_stats():
     """Obtiene estadísticas de citas."""
-    # Si es voluntario, filtrar por sus slots
-    from itcj.core.models.user import User
-    user = g.user
+    from itcj.core.services.authz_service import user_roles_in_app
+
+    user_id = int(g.current_user["sub"])
+    user_roles = user_roles_in_app(user_id, "vistetec")
 
     volunteer_id = None
-    if any(r.name == 'volunteer' for r in user.roles):
-        volunteer_id = user.id
+    if 'volunteer' in user_roles:
+        volunteer_id = user_id
 
     stats = appointment_service.get_appointment_stats(volunteer_id=volunteer_id)
     return jsonify(stats)

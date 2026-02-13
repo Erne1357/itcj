@@ -1,12 +1,168 @@
 {% extends "vistetec/base.html" %}
 {% block title %}Dashboard Admin{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/admin/dashboard.css') }}?v={{ sv('vistetec', 'css/admin/dashboard.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
     <h2 class="fw-bold mb-4">Dashboard Administrativo</h2>
-    <div class="text-center py-5">
-        <i class="bi bi-speedometer text-muted" style="font-size: 4rem;"></i>
-        <h4 class="text-muted mt-3">Dashboard administrativo</h4>
-        <p class="text-muted">Disponible próximamente (Fase 8)</p>
+
+    <!-- Loading -->
+    <div id="dashboardLoading" class="text-center py-5">
+        <div class="spinner-border" style="color: #8B1538;" role="status"></div>
+        <p class="text-muted mt-2">Cargando datos...</p>
+    </div>
+
+    <div id="dashboardContent" class="d-none">
+        <!-- KPI Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-lg-3">
+                <div class="card border-0 shadow-sm kpi-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <div class="kpi-icon" style="background-color: #8B153820; color: #8B1538;">
+                                <i class="bi bi-bag-heart"></i>
+                            </div>
+                            <div>
+                                <div class="kpi-value" id="kpiGarments">0</div>
+                                <div class="kpi-label">Prendas</div>
+                            </div>
+                        </div>
+                        <div class="kpi-sub" id="kpiGarmentsAvailable">-</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="card border-0 shadow-sm kpi-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <div class="kpi-icon" style="background-color: #dc354520; color: #dc3545;">
+                                <i class="bi bi-heart"></i>
+                            </div>
+                            <div>
+                                <div class="kpi-value" id="kpiDonations">0</div>
+                                <div class="kpi-label">Donaciones</div>
+                            </div>
+                        </div>
+                        <div class="kpi-sub" id="kpiDonationsRecent">-</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="card border-0 shadow-sm kpi-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <div class="kpi-icon" style="background-color: #19875420; color: #198754;">
+                                <i class="bi bi-calendar-check"></i>
+                            </div>
+                            <div>
+                                <div class="kpi-value" id="kpiAppointments">0</div>
+                                <div class="kpi-label">Citas</div>
+                            </div>
+                        </div>
+                        <div class="kpi-sub" id="kpiAttendanceRate">-</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-lg-3">
+                <div class="card border-0 shadow-sm kpi-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <div class="kpi-icon" style="background-color: #0d6efd20; color: #0d6efd;">
+                                <i class="bi bi-box-seam"></i>
+                            </div>
+                            <div>
+                                <div class="kpi-value" id="kpiPantryStock">0</div>
+                                <div class="kpi-label">Stock Despensa</div>
+                            </div>
+                        </div>
+                        <div class="kpi-sub" id="kpiPantryCampaigns">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Panels + Activity -->
+        <div class="row g-3">
+            <!-- Garment Status -->
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-0 fw-bold">
+                        <i class="bi bi-bag me-1" style="color: #8B1538;"></i> Estado de Prendas
+                    </div>
+                    <div class="card-body pt-0" id="garmentStatusList"></div>
+                </div>
+            </div>
+
+            <!-- Appointment Status -->
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-0 fw-bold">
+                        <i class="bi bi-calendar2-week me-1" style="color: #198754;"></i> Estado de Citas
+                    </div>
+                    <div class="card-body pt-0">
+                        <div id="appointmentStatusList"></div>
+                        <div id="outcomesSection"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-0 fw-bold">
+                        <i class="bi bi-clock-history me-1" style="color: #0d6efd;"></i> Actividad Reciente
+                    </div>
+                    <div class="card-body pt-0" id="activityList">
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm text-muted"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="row g-3 mt-2">
+            <div class="col-6 col-md-3">
+                <a href="{{ url_for('vistetec_pages.admin_pages.garments') }}" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
+                    <div class="card-body text-center py-3">
+                        <i class="bi bi-tag" style="font-size: 1.5rem; color: #8B1538;"></i>
+                        <div class="small fw-bold mt-1">Gestionar Prendas</div>
+                    </div>
+                </a>
+            </div>
+            <div class="col-6 col-md-3">
+                <a href="{{ url_for('vistetec_pages.admin_pages.pantry') }}" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
+                    <div class="card-body text-center py-3">
+                        <i class="bi bi-box-seam" style="font-size: 1.5rem; color: #0d6efd;"></i>
+                        <div class="small fw-bold mt-1">Despensa</div>
+                    </div>
+                </a>
+            </div>
+            <div class="col-6 col-md-3">
+                <a href="{{ url_for('vistetec_pages.admin_pages.campaigns') }}" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
+                    <div class="card-body text-center py-3">
+                        <i class="bi bi-megaphone" style="font-size: 1.5rem; color: #ffc107;"></i>
+                        <div class="small fw-bold mt-1">Campañas</div>
+                    </div>
+                </a>
+            </div>
+            <div class="col-6 col-md-3">
+                <a href="{{ url_for('vistetec_pages.admin_pages.reports') }}" class="card border-0 shadow-sm text-decoration-none text-dark h-100">
+                    <div class="card-body text-center py-3">
+                        <i class="bi bi-graph-up" style="font-size: 1.5rem; color: #198754;"></i>
+                        <div class="small fw-bold mt-1">Reportes</div>
+                    </div>
+                </a>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='vistetec/js/admin/dashboard.js') }}?v={{ sv('vistetec', 'js/admin/dashboard.js') }}"></script>
 {% endblock %}

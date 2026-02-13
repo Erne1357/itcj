@@ -51,6 +51,7 @@ vistetec_pages_bp.register_blueprint(admin_pages_bp, url_prefix='/admin')
 def inject_vistetec_nav():
     """Inyecta navegación dinámica de VisteTec en todas las páginas."""
     nav_items = []
+    user_roles = set()
 
     if g.get("current_user") and not getattr(request, 'is_error_handler', False):
         try:
@@ -67,7 +68,7 @@ def inject_vistetec_nav():
                         'icon': 'bi-grid-3x3-gap',
                     },
                     {
-                        'label': 'Mis Citas',
+                        'label': 'Mis Apartados',
                         'endpoint': 'vistetec_pages.student_pages.my_appointments',
                         'icon': 'bi-calendar-check',
                     },
@@ -144,10 +145,12 @@ def inject_vistetec_nav():
         except Exception as e:
             current_app.logger.warning(f"Error en context processor de VisteTec: {e}")
             nav_items = []
+            user_roles = set()
 
     return {
         "vistetec_nav_items": nav_items,
         "current_route": request.endpoint,
+        "user_roles": user_roles,
     }
 
 

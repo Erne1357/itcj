@@ -79,6 +79,14 @@
                     </div>`;
             }
 
+            // Campaign badge if donation is associated with a campaign
+            const campaignBadge = d.campaign ? `
+                <div class="mt-2">
+                    <span class="badge bg-success-subtle text-success">
+                        <i class="bi bi-flag me-1"></i>${d.campaign.name}
+                    </span>
+                </div>` : '';
+
             return `
             <div class="card donation-card type-${d.donation_type} mb-3 border-0 shadow-sm">
                 <div class="card-body p-3">
@@ -87,6 +95,7 @@
                         <small class="text-muted">${dateStr}</small>
                     </div>
                     ${itemInfo}
+                    ${campaignBadge}
                     ${d.notes ? `<p class="text-muted small mb-0 mt-2"><i class="bi bi-chat-text me-1"></i>${d.notes}</p>` : ''}
                 </div>
             </div>`;

@@ -1,11 +1,221 @@
 {% extends "vistetec/base.html" %}
 {% block title %}Despensa{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/admin/pantry.css') }}?v={{ sv('vistetec', 'css/admin/pantry.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
-    <h2 class="fw-bold mb-4">Despensa</h2>
-    <div class="text-center py-5">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold mb-1">Despensa</h2>
+            <p class="text-muted mb-0">Gestión de inventario de despensa</p>
+        </div>
+        <button class="btn" id="btnNewItem" style="background-color: #8B1538; color: white;">
+            <i class="bi bi-plus-circle me-1"></i>Nuevo artículo
+        </button>
+    </div>
+
+    <!-- Stats -->
+    <div class="row g-3 mb-4">
+        <div class="col-4">
+            <div class="card stat-card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="stat-icon mx-auto mb-2" style="background-color: #fdf2f4;">
+                        <i class="bi bi-box-seam" style="color: #8B1538;"></i>
+                    </div>
+                    <h4 class="fw-bold mb-0" id="statTotalItems">-</h4>
+                    <small class="text-muted">Artículos</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card stat-card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="stat-icon mx-auto mb-2" style="background-color: #d4edda;">
+                        <i class="bi bi-stack text-success"></i>
+                    </div>
+                    <h4 class="fw-bold mb-0" id="statTotalStock">-</h4>
+                    <small class="text-muted">Stock total</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card stat-card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="stat-icon mx-auto mb-2" style="background-color: #f8d7da;">
+                        <i class="bi bi-exclamation-triangle text-danger"></i>
+                    </div>
+                    <h4 class="fw-bold mb-0" id="statLowStock">-</h4>
+                    <small class="text-muted">Stock bajo</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-3">
+            <div class="row g-2">
+                <div class="col-12 col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="searchInput" placeholder="Buscar artículo...">
+                    </div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <select class="form-select" id="filterCategory">
+                        <option value="">Todas las categorías</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de items -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table pantry-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>Artículo</th>
+                            <th>Categoría</th>
+                            <th>Unidad</th>
+                            <th>Stock</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="itemsTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="emptyState" class="text-center py-5 d-none">
         <i class="bi bi-box-seam text-muted" style="font-size: 4rem;"></i>
-        <p class="text-muted">Disponible próximamente (Fase 6)</p>
+        <h4 class="text-muted mt-3">Sin artículos</h4>
+        <p class="text-muted">Agrega artículos de despensa para comenzar a gestionar el inventario</p>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingState" class="text-center py-5">
+        <div class="spinner-border" role="status" style="color: #8B1538;"></div>
+        <p class="text-muted mt-2">Cargando inventario...</p>
+    </div>
+
+    <!-- Paginación -->
+    <nav id="paginationNav" class="d-flex justify-content-center mt-4 d-none">
+        <ul class="pagination" id="pagination"></ul>
+    </nav>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal crear/editar item -->
+<div class="modal fade" id="itemModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold" id="itemModalTitle">Nuevo artículo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="itemForm">
+                    <input type="hidden" id="itemId">
+                    <div class="mb-3">
+                        <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="itemName" placeholder="Ej: Lata de atún" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Categoría</label>
+                        <select class="form-select" id="itemCategory">
+                            <option value="">Sin categoría</option>
+                            <option value="enlatados">Enlatados</option>
+                            <option value="granos">Granos</option>
+                            <option value="higiene">Higiene</option>
+                            <option value="mascotas">Mascotas</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Unidad de medida</label>
+                        <select class="form-select" id="itemUnit">
+                            <option value="">Piezas</option>
+                            <option value="pieza">Pieza</option>
+                            <option value="kg">Kilogramo</option>
+                            <option value="litro">Litro</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn" id="btnSaveItem" style="background-color: #8B1538; color: white;">
+                    Guardar
+                </button>
+            </div>
+        </div>
     </div>
 </div>
+
+<!-- Modal entrada de stock -->
+<div class="modal fade" id="stockInModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold">Entrada de stock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="stockInItemId">
+                <p class="text-muted mb-3">Artículo: <strong id="stockInItemName"></strong></p>
+                <div class="mb-3">
+                    <label class="form-label">Cantidad a ingresar</label>
+                    <input type="number" class="form-control" id="stockInQuantity" min="1" value="1">
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" id="btnSaveStockIn">
+                    <i class="bi bi-plus-circle me-1"></i>Registrar entrada
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal salida de stock -->
+<div class="modal fade" id="stockOutModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold">Salida de stock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="stockOutItemId">
+                <p class="text-muted mb-3">Artículo: <strong id="stockOutItemName"></strong></p>
+                <p class="small text-muted">Stock actual: <span id="stockOutMax"></span></p>
+                <div class="mb-3">
+                    <label class="form-label">Cantidad a retirar</label>
+                    <input type="number" class="form-control" id="stockOutQuantity" min="1" value="1">
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" id="btnSaveStockOut">
+                    <i class="bi bi-dash-circle me-1"></i>Registrar salida
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='vistetec/js/admin/pantry.js') }}?v={{ sv('vistetec', 'js/admin/pantry.js') }}"></script>
 {% endblock %}

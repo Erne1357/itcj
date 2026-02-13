@@ -74,13 +74,14 @@ def _compress_image(file, max_dimension=1920, quality=85):
     return output, 'jpg'
 
 
-def save_garment_image(file):
+def save_garment_image(file, garment_code):
     """
     Guarda la imagen de una prenda en el filesystem.
     Comprime automaticamente con Pillow antes de guardar.
 
     Args:
         file: FileStorage object del request.
+        garment_code: Código de la prenda (ej: PRD-2025-0001).
 
     Returns:
         str: Ruta relativa de la imagen guardada (para almacenar en BD).
@@ -91,13 +92,16 @@ def save_garment_image(file):
     if not file or not file.filename:
         raise ValueError('No se proporcionó un archivo.')
 
+    if not garment_code:
+        raise ValueError('No se proporcionó el código de la prenda.')
+
     if not _allowed_file(file.filename):
         raise ValueError(
             f'Tipo de archivo no permitido. Usa: {", ".join(ALLOWED_EXTENSIONS)}'
         )
 
     # Verificar tamano del archivo raw (limite generoso, la compresion lo reducira)
-    max_size = current_app.config.get('VISTETEC_MAX_IMAGE_SIZE', 10 * 1024 * 1024)
+    max_size = current_app.config.get('VISTETEC_MAX_IMAGE_SIZE', 3 * 1024 * 1024)
     file.seek(0, os.SEEK_END)
     size = file.tell()
     file.seek(0)
@@ -112,9 +116,11 @@ def save_garment_image(file):
     except Exception as e:
         raise ValueError(f'Error al procesar la imagen: {str(e)}')
 
-    # Generar ruta: YYYY/MM/garment_<uuid>.jpg
+    # Generar ruta: YYYY/MM/<garment_code>.jpg (ej: 2026/02/PRD-2025-0001.jpg)
     now = datetime.now()
-    filename = f'garment_{uuid.uuid4().hex[:8]}.{ext}'
+    # Sanitizar el código para usarlo como nombre de archivo
+    safe_code = secure_filename(garment_code)
+    filename = f'{safe_code}.{ext}'
     relative_dir = os.path.join(str(now.year), f'{now.month:02d}')
     relative_path = os.path.join(relative_dir, filename)
 

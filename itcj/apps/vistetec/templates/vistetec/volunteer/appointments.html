@@ -2,7 +2,7 @@
 {% block title %}Gestión de Citas{% endblock %}
 
 {% block extra_css %}
-<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/volunteer_appointments.css') }}?v={{ sv('vistetec', 'css/volunteer_appointments.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='vistetec/css/volunteer/appointments.css') }}?v={{ sv('vistetec', 'css/volunteer/appointments.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -11,10 +11,10 @@
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
             <h2 class="fw-bold mb-1">Gestión de Citas</h2>
-            <p class="text-muted mb-0">Administra tus horarios y atiende citas</p>
+            <p class="text-muted mb-0">Inscríbete a horarios y atiende citas</p>
         </div>
-        <button class="btn" id="btnNewSlot" style="background-color: #8B1538; color: white;">
-            <i class="bi bi-plus-circle me-1"></i>Nuevo horario
+        <button class="btn" id="btnNewSchedule" style="background-color: #8B1538; color: white;">
+            <i class="bi bi-plus-circle me-1"></i>Crear horarios
         </button>
     </div>
 
@@ -27,8 +27,23 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="slots-tab" data-bs-toggle="pill" data-bs-target="#slots" type="button">
-                <i class="bi bi-clock me-1"></i>Mis horarios
+            <button class="nav-link" id="upcoming-tab" data-bs-toggle="pill" data-bs-target="#upcoming" type="button">
+                <i class="bi bi-calendar-week me-1"></i>Próximas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="past-tab" data-bs-toggle="pill" data-bs-target="#past" type="button">
+                <i class="bi bi-calendar-check me-1"></i>Pasadas
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="available-tab" data-bs-toggle="pill" data-bs-target="#available" type="button">
+                <i class="bi bi-clock me-1"></i>Horarios disponibles
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="mysignups-tab" data-bs-toggle="pill" data-bs-target="#mysignups" type="button">
+                <i class="bi bi-check2-square me-1"></i>Mis inscripciones
             </button>
         </li>
     </ul>
@@ -37,12 +52,16 @@
     <div class="tab-content" id="appointmentsContent">
         <!-- Citas de hoy -->
         <div class="tab-pane fade show active" id="today" role="tabpanel">
-            <div id="todayList">
-                <!-- Se llena con JS -->
+            <!-- Filtros -->
+            <div class="mb-3 d-flex gap-2 flex-wrap">
+                <input type="date" class="form-control form-control-sm" id="filterTodayDate" style="width: auto;">
+                <button class="btn btn-outline-secondary btn-sm" id="btnTodayToday">Hoy</button>
+                <button class="btn btn-outline-secondary btn-sm" id="btnTodayClear">Limpiar</button>
             </div>
+            <div id="todayList"></div>
             <div id="todayEmpty" class="text-center py-5 d-none">
                 <i class="bi bi-calendar-check text-muted" style="font-size: 3rem;"></i>
-                <h5 class="text-muted mt-3">No hay citas para hoy</h5>
+                <h5 class="text-muted mt-3">No hay citas para este día</h5>
                 <p class="text-muted small">Cuando tengas citas programadas, aparecerán aquí</p>
             </div>
             <div id="todayLoading" class="text-center py-4">
@@ -50,20 +69,52 @@
             </div>
         </div>
 
-        <!-- Mis horarios -->
-        <div class="tab-pane fade" id="slots" role="tabpanel">
-            <div id="slotsList">
-                <!-- Se llena con JS -->
+        <!-- Próximas citas -->
+        <div class="tab-pane fade" id="upcoming" role="tabpanel">
+            <div id="upcomingList"></div>
+            <div id="upcomingEmpty" class="text-center py-5 d-none">
+                <i class="bi bi-calendar-week text-muted" style="font-size: 3rem;"></i>
+                <h5 class="text-muted mt-3">No hay citas próximas</h5>
             </div>
-            <div id="slotsEmpty" class="text-center py-5 d-none">
+            <div id="upcomingLoading" class="text-center py-4 d-none">
+                <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
+            </div>
+        </div>
+
+        <!-- Citas pasadas -->
+        <div class="tab-pane fade" id="past" role="tabpanel">
+            <div id="pastList"></div>
+            <div id="pastEmpty" class="text-center py-5 d-none">
+                <i class="bi bi-calendar-check text-muted" style="font-size: 3rem;"></i>
+                <h5 class="text-muted mt-3">No hay citas pasadas</h5>
+            </div>
+            <div id="pastLoading" class="text-center py-4 d-none">
+                <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
+            </div>
+        </div>
+
+        <!-- Horarios disponibles (todos los slots futuros) -->
+        <div class="tab-pane fade" id="available" role="tabpanel">
+            <div id="availableList"></div>
+            <div id="availableEmpty" class="text-center py-5 d-none">
                 <i class="bi bi-clock text-muted" style="font-size: 3rem;"></i>
-                <h5 class="text-muted mt-3">No tienes horarios creados</h5>
-                <p class="text-muted small">Crea horarios para que los estudiantes puedan agendar citas</p>
-                <button class="btn mt-2" style="background-color: #8B1538; color: white;" onclick="document.getElementById('btnNewSlot').click()">
-                    <i class="bi bi-plus me-1"></i>Crear horario
-                </button>
+                <h5 class="text-muted mt-3">No hay horarios disponibles</h5>
+                <p class="text-muted small">Cuando se creen horarios, aparecerán aquí para inscribirte</p>
             </div>
-            <div id="slotsLoading" class="text-center py-4">
+            <div id="availableLoading" class="text-center py-4 d-none">
+                <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
+            </div>
+        </div>
+
+        <!-- Mis inscripciones -->
+        <div class="tab-pane fade" id="mysignups" role="tabpanel">
+            <div id="signupsList"></div>
+            <div id="signupsEmpty" class="text-center py-5 d-none">
+                <i class="bi bi-check2-square text-muted" style="font-size: 3rem;"></i>
+                <h5 class="text-muted mt-3">No estás inscrito en ningún horario</h5>
+                <p class="text-muted small">Ve a "Horarios disponibles" para inscribirte</p>
+            </div>
+            <div id="signupsLoading" class="text-center py-4 d-none">
                 <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
             </div>
         </div>
@@ -72,54 +123,98 @@
 {% endblock %}
 
 {% block modals %}
-<!-- Modal crear horario -->
-<div class="modal fade" id="slotModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+<!-- Modal crear horarios -->
+<div class="modal fade" id="scheduleModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content">
             <div class="modal-header border-0">
-                <h5 class="modal-title fw-bold">Nuevo horario de disponibilidad</h5>
+                <h5 class="modal-title fw-bold">Crear horarios de atención</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="slotForm">
-                    <div class="mb-3">
-                        <label class="form-label">Fecha <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="slotDate" required>
+                <form id="scheduleForm">
+                    <!-- Rango de fechas -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Fecha inicio <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="schedStartDate" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Fecha fin <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="schedEndDate" required>
+                        </div>
                     </div>
+
+                    <!-- Días de la semana -->
+                    <div class="mb-3">
+                        <label class="form-label">Días de la semana <span class="text-danger">*</span></label>
+                        <div class="weekday-toggles d-flex flex-wrap gap-2">
+                            <button type="button" class="weekday-btn" data-day="0">Lun</button>
+                            <button type="button" class="weekday-btn" data-day="1">Mar</button>
+                            <button type="button" class="weekday-btn" data-day="2">Mié</button>
+                            <button type="button" class="weekday-btn" data-day="3">Jue</button>
+                            <button type="button" class="weekday-btn" data-day="4">Vie</button>
+                            <button type="button" class="weekday-btn" data-day="5">Sáb</button>
+                            <button type="button" class="weekday-btn" data-day="6">Dom</button>
+                        </div>
+                    </div>
+
+                    <!-- Bloque horario -->
                     <div class="row g-3 mb-3">
                         <div class="col-6">
                             <label class="form-label">Hora inicio <span class="text-danger">*</span></label>
-                            <input type="time" class="form-control" id="slotStartTime" required>
+                            <input type="time" class="form-control" id="schedStartTime" required>
                         </div>
                         <div class="col-6">
                             <label class="form-label">Hora fin <span class="text-danger">*</span></label>
-                            <input type="time" class="form-control" id="slotEndTime" required>
+                            <input type="time" class="form-control" id="schedEndTime" required>
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Máximo de citas</label>
-                        <select class="form-select" id="slotMaxAppts">
-                            <option value="1">1 estudiante</option>
-                            <option value="2">2 estudiantes</option>
-                            <option value="3">3 estudiantes</option>
-                            <option value="4">4 estudiantes</option>
-                            <option value="5">5 estudiantes</option>
-                        </select>
+
+                    <!-- Duración y alumnos -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Duración por slot <span class="text-danger">*</span></label>
+                            <select class="form-select" id="schedDuration">
+                                <option value="15">15 minutos</option>
+                                <option value="20">20 minutos</option>
+                                <option value="30" selected>30 minutos</option>
+                                <option value="45">45 minutos</option>
+                                <option value="60">60 minutos</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Alumnos por slot</label>
+                            <select class="form-select" id="schedMaxStudents">
+                                <option value="1">1 estudiante</option>
+                                <option value="2">2 estudiantes</option>
+                                <option value="3">3 estudiantes</option>
+                                <option value="4">4 estudiantes</option>
+                                <option value="5">5 estudiantes</option>
+                            </select>
+                        </div>
                     </div>
+
+                    <!-- Ubicación -->
                     <div class="mb-3">
                         <label class="form-label">Ubicación</label>
-                        <select class="form-select" id="slotLocation">
+                        <select class="form-select" id="schedLocation">
                             <option value="">Sin especificar</option>
-                            <!-- Se llena con JS -->
                         </select>
+                    </div>
+
+                    <!-- Preview -->
+                    <div class="schedule-preview" id="schedulePreview">
+                        <i class="bi bi-info-circle me-1"></i>
+                        <span id="previewText">Selecciona fechas y horarios para ver la vista previa</span>
                     </div>
                 </form>
             </div>
             <div class="modal-footer border-0">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn" id="btnSaveSlot" style="background-color: #8B1538; color: white;">
-                    <span id="saveSlotText">Crear horario</span>
-                    <span id="saveSlotLoading" class="d-none">
+                <button type="button" class="btn" id="btnSaveSchedule" style="background-color: #8B1538; color: white;">
+                    <span id="saveScheduleText">Crear horarios</span>
+                    <span id="saveScheduleLoading" class="d-none">
                         <span class="spinner-border spinner-border-sm me-1"></span>Creando...
                     </span>
                 </button>
@@ -137,8 +232,12 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div id="attendInfo" class="mb-4">
-                    <!-- Se llena con JS -->
+                <div id="attendInfo" class="mb-3"></div>
+
+                <!-- Indicador de donación -->
+                <div id="donationIndicator" class="donation-indicator d-none mb-3">
+                    <i class="bi bi-gift me-2"></i>
+                    <span>El estudiante indicó que traería una donación</span>
                 </div>
 
                 <div id="attendanceStep">
@@ -178,5 +277,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/volunteer_appointments.js') }}?v={{ sv('vistetec', 'js/volunteer_appointments.js') }}"></script>
+<script src="{{ url_for('static', filename='vistetec/js/volunteer/appointments.js') }}?v={{ sv('vistetec', 'js/volunteer/appointments.js') }}"></script>
 {% endblock %}

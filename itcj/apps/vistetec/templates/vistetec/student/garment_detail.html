@@ -3,8 +3,8 @@
 {% block title %}Detalle de Prenda{% endblock %}
 
 {% block extra_css %}
-<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/catalog.css') }}?v={{ sv('vistetec', 'css/catalog.css') }}" rel="stylesheet">
-<link href="{{ url_for('vistetec_pages.static', filename='vistetec/css/garment_detail.css') }}?v={{ sv('vistetec', 'css/garment_detail.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='vistetec/css/student/catalog.css') }}?v={{ sv('vistetec', 'css/student/catalog.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='vistetec/css/student/garment_detail.css') }}?v={{ sv('vistetec', 'css/student/garment_detail.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -87,13 +87,13 @@
                     </div>
                 </div>
 
-                <!-- Botón agendar cita -->
+                <!-- Botón apartar prenda -->
                 <div id="scheduleSection">
                     <button class="btn btn-lg w-100" id="btnSchedule" style="background-color: #8B1538; border-color: #8B1538; color: white;">
-                        <i class="bi bi-calendar-plus me-2"></i>Agendar cita para probármela
+                        <i class="bi bi-bag-check me-2"></i>¡La quiero! Apartarla
                     </button>
                     <small class="text-muted d-block text-center mt-2" id="scheduleHint">
-                        Selecciona un horario disponible
+                        Elige cuándo pasas por ella
                     </small>
                 </div>
 
@@ -125,11 +125,45 @@
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold">Agendar cita</h5>
+                <h5 class="modal-title fw-bold">Apartar prenda</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted small mb-3">Selecciona un horario para probarte esta prenda:</p>
+
+                <!-- Sección de donación opcional -->
+                <div id="campaignSection" class="d-none">
+                    <div class="campaign-banner">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <i class="bi bi-gift" style="color: #8B1538;"></i>
+                            <strong class="small">¿Quieres ayudar a otros?</strong>
+                        </div>
+                        
+                        <!-- Campañas activas - qué se necesita -->
+                        <div id="campaignNeeds" class="small mb-2 d-none">
+                            <span class="text-muted">Estamos recolectando:</span>
+                            <div id="campaignList" class="mt-1"></div>
+                        </div>
+                        
+                        <!-- También se puede donar ropa -->
+                        <div class="small text-muted mb-2">
+                            <i class="bi bi-bag-heart me-1"></i>También puedes donar ropa en buen estado
+                        </div>
+                        
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="willBringDonation">
+                            <label class="form-check-label small" for="willBringDonation">
+                                <strong>Llevaré una donación cuando pase</strong>
+                            </label>
+                        </div>
+                        
+                        <div class="small text-muted mt-2" style="font-size: 0.75rem;">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Donar es completamente opcional. Recibirás tu prenda sin importar si traes donación o no.
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-muted small mb-3">¿Cuándo puedes pasar a recogerla?</p>
 
                 <!-- Loading slots -->
                 <div id="slotsLoading" class="text-center py-4">
@@ -151,9 +185,9 @@
             <div class="modal-footer border-0 pt-0">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn" id="btnConfirmSchedule" disabled style="background-color: #8B1538; color: white;">
-                    <span id="scheduleBtnText">Confirmar cita</span>
+                    <span id="scheduleBtnText">¡Apartarla!</span>
                     <span id="scheduleBtnLoading" class="d-none">
-                        <span class="spinner-border spinner-border-sm me-1"></span>Agendando...
+                        <span class="spinner-border spinner-border-sm me-1"></span>Apartando...
                     </span>
                 </button>
             </div>
@@ -167,15 +201,15 @@
         <div class="modal-content text-center">
             <div class="modal-body py-5">
                 <div class="mb-3">
-                    <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+                    <i class="bi bi-bag-check-fill text-success" style="font-size: 4rem;"></i>
                 </div>
-                <h4 class="fw-bold">¡Cita agendada!</h4>
-                <p class="text-muted mb-0" id="successMessage">Tu cita ha sido confirmada</p>
+                <h4 class="fw-bold">¡Prenda apartada!</h4>
+                <p class="text-muted mb-0" id="successMessage">Te esperamos en el horario seleccionado</p>
                 <p class="fw-bold mt-2" id="appointmentCode"></p>
             </div>
             <div class="modal-footer border-0 justify-content-center">
                 <a href="{{ url_for('vistetec_pages.student_pages.my_appointments') }}" class="btn" style="background-color: #8B1538; color: white;">
-                    Ver mis citas
+                    Ver mis apartados
                 </a>
                 <a href="{{ url_for('vistetec_pages.student_pages.catalog') }}" class="btn btn-outline-secondary">
                     Seguir explorando
@@ -190,5 +224,5 @@
 <script>
     const GARMENT_ID = {{ garment_id }};
 </script>
-<script src="{{ url_for('vistetec_pages.static', filename='vistetec/js/garment_detail.js') }}?v={{ sv('vistetec', 'js/garment_detail.js') }}"></script>
+<script src="{{ url_for('static', filename='vistetec/js/student/garment_detail.js') }}?v={{ sv('vistetec', 'js/student/garment_detail.js') }}"></script>
 {% endblock %}

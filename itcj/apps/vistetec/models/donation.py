@@ -19,6 +19,7 @@ class Donation(db.Model):
     # Si es despensa
     pantry_item_id = db.Column(db.Integer, db.ForeignKey('vistetec_pantry_items.id'), nullable=True)
     quantity = db.Column(db.Integer, nullable=False, server_default=db.text("1"))
+    campaign_id = db.Column(db.Integer, db.ForeignKey('vistetec_pantry_campaigns.id'), nullable=True)
 
     registered_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=True)
     notes = db.Column(db.Text)
@@ -29,6 +30,7 @@ class Donation(db.Model):
     donor = db.relationship('User', foreign_keys=[donor_id], lazy='joined')
     garment = db.relationship('Garment', back_populates='donation', lazy='joined')
     pantry_item = db.relationship('PantryItem', back_populates='donations', lazy='joined')
+    campaign = db.relationship('PantryCampaign', lazy='joined')
     registered_by = db.relationship('User', foreign_keys=[registered_by_id], lazy='joined')
 
     __table_args__ = (
@@ -49,6 +51,7 @@ class Donation(db.Model):
             'garment_id': self.garment_id,
             'pantry_item_id': self.pantry_item_id,
             'quantity': self.quantity,
+            'campaign_id': self.campaign_id,
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
@@ -59,6 +62,7 @@ class Donation(db.Model):
             } if self.donor else None
             data['garment'] = self.garment.to_dict() if self.garment else None
             data['pantry_item'] = self.pantry_item.to_dict() if self.pantry_item else None
+            data['campaign'] = self.campaign.to_dict() if self.campaign else None
             data['registered_by'] = {
                 'id': self.registered_by.id,
                 'name': self.registered_by.full_name,

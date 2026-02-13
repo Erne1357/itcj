@@ -1,11 +1,120 @@
 {% extends "vistetec/base.html" %}
 {% block title %}Campañas{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/admin/campaigns.css') }}?v={{ sv('vistetec', 'css/admin/campaigns.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
-    <h2 class="fw-bold mb-4">Campañas de Recolección</h2>
-    <div class="text-center py-5">
-        <i class="bi bi-megaphone text-muted" style="font-size: 4rem;"></i>
-        <p class="text-muted">Disponible próximamente (Fase 6)</p>
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h2 class="fw-bold mb-1">Campañas de Recolección</h2>
+            <p class="text-muted mb-0">Gestiona las campañas de recolección de despensa</p>
+        </div>
+        <button class="btn" id="btnNewCampaign" style="background-color: #8B1538; color: white;">
+            <i class="bi bi-plus-circle me-1"></i>Nueva campaña
+        </button>
+    </div>
+
+    <!-- Campañas activas -->
+    <h5 class="fw-bold mb-3"><i class="bi bi-lightning-fill text-warning me-1"></i>Campañas activas</h5>
+    <div class="row g-3 mb-4" id="activeCampaigns">
+        <!-- Se llena con JS -->
+    </div>
+    <div id="noActiveCampaigns" class="text-center py-4 mb-4 d-none">
+        <i class="bi bi-megaphone text-muted" style="font-size: 2.5rem;"></i>
+        <p class="text-muted mt-2">No hay campañas activas</p>
+    </div>
+
+    <!-- Historial de campañas -->
+    <h5 class="fw-bold mb-3"><i class="bi bi-clock-history me-1"></i>Historial</h5>
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mb-0">
+                    <thead>
+                        <tr>
+                            <th>Campaña</th>
+                            <th>Artículo</th>
+                            <th>Progreso</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="allCampaignsBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="campaignsLoading" class="text-center py-4">
+        <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
+    </div>
+
+    <!-- Paginación -->
+    <nav id="campaignsPaginationNav" class="d-flex justify-content-center mt-4 d-none">
+        <ul class="pagination" id="campaignsPagination"></ul>
+    </nav>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal crear/editar campaña -->
+<div class="modal fade" id="campaignModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-bold" id="campaignModalTitle">Nueva campaña</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="campaignForm">
+                    <input type="hidden" id="campaignId">
+                    <div class="mb-3">
+                        <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="campaignName" placeholder="Ej: Colecta de Navidad 2026" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descripción</label>
+                        <textarea class="form-control" id="campaignDescription" rows="2" placeholder="Descripción de la campaña..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Artículo solicitado</label>
+                        <select class="form-select" id="campaignItem">
+                            <option value="">Sin artículo específico</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Meta de recolección</label>
+                        <input type="number" class="form-control" id="campaignGoal" min="1" placeholder="Cantidad objetivo">
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label">Fecha inicio</label>
+                            <input type="date" class="form-control" id="campaignStartDate">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Fecha fin</label>
+                            <input type="date" class="form-control" id="campaignEndDate">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn" id="btnSaveCampaign" style="background-color: #8B1538; color: white;">
+                    Guardar
+                </button>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='vistetec/js/admin/campaigns.js') }}?v={{ sv('vistetec', 'js/admin/campaigns.js') }}"></script>
 {% endblock %}

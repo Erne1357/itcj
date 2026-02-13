@@ -1,0 +1,48 @@
+/* Estilos para gestión de campañas - Admin */
+
+.campaign-card {
+    border-radius: 1rem;
+    transition: transform 0.15s ease;
+}
+
+.campaign-card:hover {
+    transform: translateY(-2px);
+}
+
+.campaign-card .progress {
+    height: 10px;
+    border-radius: 5px;
+}
+
+.campaign-card .progress-bar {
+    background-color: #8B1538;
+}
+
+.campaign-badge-active {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.campaign-badge-ended {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.campaign-dates {
+    font-size: 0.82rem;
+    color: #6c757d;
+}
+
+.campaign-stats {
+    font-size: 0.9rem;
+}
+
+.campaign-stats strong {
+    font-size: 1.2rem;
+}
+
+@media (max-width: 768px) {
+    .campaign-card {
+        border-radius: 0.75rem;
+    }
+}

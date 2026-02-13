@@ -1,11 +1,83 @@
 {% extends "vistetec/base.html" %}
 {% block title %}Reportes{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/admin/reports.css') }}?v={{ sv('vistetec', 'css/admin/reports.css') }}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
-    <h2 class="fw-bold mb-4">Reportes y Estadísticas</h2>
-    <div class="text-center py-5">
-        <i class="bi bi-graph-up text-muted" style="font-size: 4rem;"></i>
-        <p class="text-muted">Disponible próximamente (Fase 8)</p>
+    <h2 class="fw-bold mb-3">Reportes y Estadísticas</h2>
+
+    <!-- Date Filters -->
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body py-2">
+            <div class="report-filters">
+                <div class="d-flex align-items-center gap-2">
+                    <label class="form-label mb-0 small text-muted">Desde:</label>
+                    <input type="date" class="form-control form-control-sm" id="dateFrom" style="max-width: 160px;">
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <label class="form-label mb-0 small text-muted">Hasta:</label>
+                    <input type="date" class="form-control form-control-sm" id="dateTo" style="max-width: 160px;">
+                </div>
+                <button class="btn btn-sm" id="btnApplyFilter" style="background-color: #8B1538; color: white;">
+                    <i class="bi bi-funnel me-1"></i>Filtrar
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="btnClearFilter">
+                    <i class="bi bi-x-lg me-1"></i>Limpiar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Cards -->
+    <div class="row g-3">
+        <!-- Garments Report -->
+        <div class="col-lg-4">
+            <div class="card report-card h-100">
+                <div class="card-header">
+                    <i class="bi bi-bag me-1" style="color: #8B1538;"></i> Prendas
+                </div>
+                <div class="card-body" id="garmentReport">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm text-muted"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Donations Report -->
+        <div class="col-lg-4">
+            <div class="card report-card h-100">
+                <div class="card-header">
+                    <i class="bi bi-heart me-1" style="color: #dc3545;"></i> Donaciones
+                </div>
+                <div class="card-body" id="donationReport">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm text-muted"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Appointments Report -->
+        <div class="col-lg-4">
+            <div class="card report-card h-100">
+                <div class="card-header">
+                    <i class="bi bi-calendar-check me-1" style="color: #198754;"></i> Citas
+                </div>
+                <div class="card-body" id="appointmentReport">
+                    <div class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm text-muted"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='vistetec/js/admin/reports.js') }}?v={{ sv('vistetec', 'js/admin/reports.js') }}"></script>
 {% endblock %}

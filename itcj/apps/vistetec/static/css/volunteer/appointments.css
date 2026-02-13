@@ -1,0 +1,121 @@
+/* VisteTec - Volunteer Appointments */
+
+.nav-pills .nav-link {
+    color: #6c757d;
+    border-radius: 0.5rem;
+}
+.nav-pills .nav-link.active {
+    background-color: #8B1538;
+}
+
+/* Appointment cards */
+.appointment-item {
+    border-left: 4px solid #8B1538;
+    transition: all 0.2s;
+}
+.appointment-item.status-attended {
+    border-left-color: #0dcaf0;
+}
+.appointment-item.status-completed {
+    border-left-color: #198754;
+}
+.appointment-item.status-no_show {
+    border-left-color: #6c757d;
+}
+
+/* Slot cards */
+.slot-item {
+    border-left: 4px solid #dee2e6;
+    transition: all 0.2s;
+}
+.slot-item.signed-up {
+    border-left-color: #8B1538;
+}
+.slot-item.inactive {
+    border-left-color: #dc3545;
+    opacity: 0.6;
+}
+
+/* Garment thumbnails */
+.garment-mini {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 8px;
+}
+.garment-mini-placeholder {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #fdf2f4;
+    border-radius: 8px;
+}
+
+/* Weekday toggle buttons */
+.weekday-btn {
+    width: 48px;
+    height: 40px;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    background: white;
+    color: #495057;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.weekday-btn:hover {
+    border-color: #8B1538;
+    color: #8B1538;
+}
+.weekday-btn.active {
+    background-color: #8B1538;
+    border-color: #8B1538;
+    color: white;
+}
+
+/* Schedule preview */
+.schedule-preview {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.88rem;
+    color: #495057;
+}
+
+/* Donation indicator */
+.donation-indicator {
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    color: #664d03;
+    display: flex;
+    align-items: center;
+}
+
+/* Signup button */
+.signup-btn {
+    min-width: 130px;
+    font-size: 0.82rem;
+}
+
+@media (max-width: 576px) {
+    .weekday-btn {
+        width: 40px;
+        height: 36px;
+        font-size: 0.75rem;
+    }
+    .signup-btn {
+        min-width: auto;
+        font-size: 0.75rem;
+    }
+    .nav-pills .nav-link {
+        font-size: 0.82rem;
+        padding: 0.4rem 0.6rem;
+    }
+}

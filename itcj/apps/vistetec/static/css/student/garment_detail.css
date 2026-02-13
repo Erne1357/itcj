@@ -1,0 +1,42 @@
+.slot-card {
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+}
+.slot-card:hover {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+}
+.slot-card.selected {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+}
+.slot-card .slot-radio {
+    accent-color: #8B1538;
+}
+
+/* Campaign banner */
+.campaign-banner {
+    background-color: #fdf2f4;
+    border: 1px solid #e8c4cc;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+}
+.campaign-banner .form-check-input:checked {
+    background-color: #8B1538;
+    border-color: #8B1538;
+}
+
+/* Accordion for slots */
+.accordion-button:not(.collapsed) {
+    background-color: #fdf2f4;
+    color: #8B1538;
+    box-shadow: none;
+}
+.accordion-button:focus {
+    box-shadow: none;
+    border-color: rgba(139, 21, 56, 0.25);
+}
+.accordion-button::after {
+    filter: brightness(0) saturate(100%) invert(13%) sepia(45%) saturate(4297%) hue-rotate(331deg) brightness(94%) contrast(91%);
+}
