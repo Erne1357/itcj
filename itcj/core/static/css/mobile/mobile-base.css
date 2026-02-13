@@ -1,6 +1,6 @@
 /* ==============================================
    ITCJ Mobile Dashboard - Base Styles
-   Mobile-first responsive design
+   Mobile-first responsive design (SPA Mode)
    ============================================== */
 
 :root {
@@ -12,8 +12,7 @@
     --mobile-text: #1f2937;
     --mobile-text-muted: #6b7280;
     --mobile-border: #e5e7eb;
-    --mobile-header-height: 56px;
-    --mobile-bottom-nav-height: 60px;
+    --mobile-bottom-nav-height: 64px;
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -34,122 +33,17 @@
 }
 
 /* ==============================================
-   HEADER
-   ============================================== */
-
-.mobile-header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: calc(var(--mobile-header-height) + var(--mobile-safe-top));
-    background: var(--mobile-primary);
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 16px;
-    padding-top: var(--mobile-safe-top);
-    z-index: 1000;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-}
-
-.mobile-header-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.mobile-header-logo {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-}
-
-.mobile-header-title {
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-}
-
-.mobile-header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.mobile-header-btn {
-    background: rgba(255, 255, 255, 0.15);
-    border: none;
-    color: white;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    position: relative;
-    transition: background 0.2s;
-    font-size: 18px;
-}
-
-.mobile-header-btn:active {
-    background: rgba(255, 255, 255, 0.25);
-}
-
-.mobile-header-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    font-weight: 700;
-    color: white;
-    text-decoration: none;
-    transition: background 0.2s;
-}
-
-.mobile-header-avatar:hover,
-.mobile-header-avatar:active {
-    background: rgba(255, 255, 255, 0.3);
-    color: white;
-}
-
-.mobile-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    background: #ef4444;
-    color: white;
-    font-size: 10px;
-    font-weight: 700;
-    min-width: 16px;
-    height: 16px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 4px;
-    line-height: 1;
-}
-
-/* ==============================================
-   MAIN CONTENT
+   MAIN CONTENT (Dashboard)
    ============================================== */
 
 .mobile-main {
-    padding-top: calc(var(--mobile-header-height) + var(--mobile-safe-top));
+    padding-top: var(--mobile-safe-top);
     padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 16px);
     min-height: 100vh;
 }
 
 /* ==============================================
-   BOTTOM NAVIGATION
+   BOTTOM NAVIGATION (siempre visible)
    ============================================== */
 
 .mobile-bottom-nav {
@@ -163,9 +57,10 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-around;
-    padding-top: 6px;
+    padding-top: 8px;
     padding-bottom: var(--mobile-safe-bottom);
-    z-index: 1000;
+    z-index: 1050;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08);
 }
 
 .mobile-nav-item {
@@ -174,12 +69,15 @@
     align-items: center;
     text-decoration: none;
     color: var(--mobile-text-muted);
-    font-size: 10px;
+    background: none;
+    border: none;
+    font-size: 11px;
     font-weight: 500;
-    min-width: 64px;
-    min-height: 44px;
+    min-width: 72px;
+    min-height: 48px;
+    cursor: pointer;
     padding: 4px 0;
-    transition: color 0.2s;
+    transition: color 0.2s, transform 0.15s;
     position: relative;
 }
 
@@ -187,31 +85,219 @@
     color: var(--mobile-primary);
 }
 
+.mobile-nav-item.active i {
+    transform: scale(1.1);
+}
+
 .mobile-nav-item:hover {
     color: var(--mobile-primary);
 }
 
+.mobile-nav-item:active {
+    transform: scale(0.95);
+}
+
 .mobile-nav-item i {
-    font-size: 22px;
+    font-size: 24px;
     margin-bottom: 2px;
+    transition: transform 0.2s;
 }
 
 .mobile-nav-badge {
     position: absolute;
-    top: 0;
-    right: 12px;
+    top: -2px;
+    right: 14px;
     background: #ef4444;
     color: white;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
-    min-width: 14px;
-    height: 14px;
-    border-radius: 7px;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 3px;
+    padding: 0 4px;
     line-height: 1;
+    animation: pulse-badge 2s infinite;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* ==============================================
+   APP IFRAME CONTAINER (SPA Mode)
+   ============================================== */
+
+.mobile-app-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom));
+    z-index: 1000;
+    background: var(--mobile-bg);
+    display: none;
+}
+
+.mobile-app-container.active {
+    display: block;
+}
+
+.mobile-app-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
+}
+
+/* ==============================================
+   VIEWS (Notifications, Profile)
+   ============================================== */
+
+.mobile-view {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom));
+    z-index: 1000;
+    background: var(--mobile-bg);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.mobile-view-header {
+    position: sticky;
+    top: 0;
+    background: var(--mobile-primary);
+    color: white;
+    padding: calc(var(--mobile-safe-top) + 16px) 16px 16px;
+    z-index: 10;
+}
+
+.mobile-view-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+}
+
+/* Notifications List */
+.mobile-notifications-list {
+    padding: 16px;
+}
+
+.mobile-notification-item {
+    background: var(--mobile-card-bg);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    border-left: 4px solid var(--mobile-primary);
+    transition: transform 0.15s;
+}
+
+.mobile-notification-item:active {
+    transform: scale(0.98);
+}
+
+.mobile-notification-item.unread {
+    background: #f0fdf4;
+    border-left-color: var(--mobile-primary-light);
+}
+
+.mobile-notification-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--mobile-text);
+    margin-bottom: 4px;
+}
+
+.mobile-notification-body {
+    font-size: 13px;
+    color: var(--mobile-text-muted);
+    margin-bottom: 6px;
+}
+
+.mobile-notification-time {
+    font-size: 11px;
+    color: var(--mobile-text-muted);
+    opacity: 0.7;
+}
+
+.mobile-notification-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--mobile-text-muted);
+}
+
+.mobile-notification-empty i {
+    font-size: 48px;
+    opacity: 0.3;
+    display: block;
+    margin-bottom: 12px;
+}
+
+/* Profile View */
+.mobile-profile-content {
+    padding: 20px 16px;
+}
+
+.mobile-profile-card {
+    background: var(--mobile-card-bg);
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 20px;
+}
+
+.mobile-profile-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--mobile-primary), var(--mobile-primary-light));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: 700;
+    margin: 0 auto 16px;
+}
+
+.mobile-profile-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--mobile-text);
+    margin-bottom: 4px;
+}
+
+.mobile-profile-email {
+    font-size: 14px;
+    color: var(--mobile-text-muted);
+    margin: 0;
+}
+
+.mobile-profile-actions {
+    padding: 0 8px;
+}
+
+/* Profile iframe container */
+.mobile-profile-iframe-container {
+    padding: 0;
+    overflow: hidden;
+}
+
+.mobile-profile-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
 }
 
 /* ==============================================
@@ -319,6 +405,56 @@
     line-height: 1;
 }
 
+/* Desktop app cards */
+@media (min-width: 768px) {
+    .mobile-app-card {
+        padding: 24px 20px;
+        min-height: 140px;
+        border-radius: 18px;
+    }
+    
+    .mobile-app-card-icon {
+        width: 60px;
+        height: 60px;
+        margin-bottom: 12px;
+        border-radius: 16px;
+        font-size: 30px;
+    }
+    
+    .mobile-app-card-icon img {
+        width: 42px;
+        height: 42px;
+    }
+    
+    .mobile-app-card-name {
+        font-size: 14px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-app-card {
+        padding: 28px 24px;
+        min-height: 160px;
+        border-radius: 20px;
+    }
+    
+    .mobile-app-card-icon {
+        width: 68px;
+        height: 68px;
+        margin-bottom: 14px;
+        font-size: 34px;
+    }
+    
+    .mobile-app-card-icon img {
+        width: 48px;
+        height: 48px;
+    }
+    
+    .mobile-app-card-name {
+        font-size: 15px;
+    }
+}
+
 /* ==============================================
    SECTION TITLES
    ============================================== */
@@ -396,4 +532,353 @@
     color: var(--mobile-primary);
     font-size: 13px;
     display: none;
+}
+
+/* ==============================================
+   GREETING & USER CARD
+   ============================================== */
+
+.mobile-greeting {
+    padding: calc(var(--mobile-safe-top) + 24px) 20px 16px;
+    background: linear-gradient(135deg, var(--mobile-primary) 0%, var(--mobile-primary-dark) 100%);
+    color: white;
+    margin-bottom: -28px;
+    padding-bottom: 23px;
+}
+
+.mobile-greeting-text {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 0 4px;
+}
+
+.mobile-greeting-sub {
+    font-size: 14px;
+    opacity: 0.85;
+    margin: 0;
+}
+
+.mobile-user-card {
+    background: var(--mobile-card-bg);
+    border-radius: 16px;
+    margin: 0 16px 20px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    position: relative;
+    z-index: 1;
+}
+
+.mobile-user-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--mobile-primary), var(--mobile-primary-light));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.mobile-user-avatar.staff {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.mobile-user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.mobile-user-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--mobile-text);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mobile-user-detail {
+    font-size: 12px;
+    color: var(--mobile-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+.mobile-user-detail i {
+    font-size: 11px;
+    width: 14px;
+    text-align: center;
+}
+
+/* Quick Actions */
+.mobile-quick-actions {
+    display: flex;
+    gap: 10px;
+    padding: 0 16px 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.mobile-quick-actions::-webkit-scrollbar {
+    display: none;
+}
+
+.mobile-quick-action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    background: var(--mobile-card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--mobile-border);
+    text-decoration: none;
+    color: var(--mobile-text);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.mobile-quick-action-btn:hover {
+    color: var(--mobile-text);
+    text-decoration: none;
+}
+
+.mobile-quick-action-btn:active {
+    transform: scale(0.95);
+}
+
+.mobile-quick-action-btn i {
+    font-size: 20px;
+    color: var(--mobile-primary);
+}
+
+/* ==============================================
+   HIDE VIEWS BY DEFAULT (SPA Mode)
+   ============================================== */
+
+/* Cuando el dashboard está visible */
+.mobile-body[data-active-view="home"] .mobile-main {
+    display: block;
+}
+
+.mobile-body[data-active-view="home"] .mobile-app-container,
+.mobile-body[data-active-view="home"] .mobile-view {
+    display: none !important;
+}
+
+/* Cuando hay app activa */
+.mobile-body[data-active-view="app"] .mobile-main,
+.mobile-body[data-active-view="app"] .mobile-view {
+    display: none !important;
+}
+
+.mobile-body[data-active-view="app"] .mobile-app-container {
+    display: block !important;
+}
+
+/* Cuando está en notificaciones */
+.mobile-body[data-active-view="notifications"] .mobile-main,
+.mobile-body[data-active-view="notifications"] .mobile-app-container {
+    display: none !important;
+}
+
+.mobile-body[data-active-view="notifications"] #mobileNotificationsView {
+    display: block !important;
+}
+
+/* Cuando está en perfil (Staff - iframe) */
+.mobile-body[data-active-view="profile"] .mobile-main,
+.mobile-body[data-active-view="profile"] .mobile-app-container {
+    display: none !important;
+}
+
+.mobile-body[data-active-view="profile"] #mobileProfileView {
+    display: block !important;
+}
+
+/* Cuando está en perfil (Estudiante - inline) */
+.mobile-body[data-active-view="student-profile"] .mobile-main,
+.mobile-body[data-active-view="student-profile"] .mobile-app-container {
+    display: none !important;
+}
+
+.mobile-body[data-active-view="student-profile"] #mobileStudentProfileView {
+    display: block !important;
+}
+
+/* ==============================================
+   STUDENT PROFILE (Vista inline para estudiantes)
+   ============================================== */
+
+.mobile-student-profile {
+    padding: 20px 16px;
+}
+
+.student-profile-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.student-profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    font-weight: 700;
+    margin: 0 auto 16px;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.student-profile-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--mobile-text);
+    margin: 0 0 8px 0;
+}
+
+.student-profile-badge {
+    display: inline-flex;
+    align-items: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.student-profile-info {
+    background: var(--mobile-card-bg);
+    border-radius: 16px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    margin-bottom: 24px;
+}
+
+.student-profile-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 12px;
+    border-bottom: 1px solid var(--mobile-border);
+}
+
+.student-profile-item:last-child {
+    border-bottom: none;
+}
+
+.student-profile-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: var(--mobile-primary);
+    flex-shrink: 0;
+}
+
+.student-profile-icon.text-success {
+    color: #10b981;
+    background: #ecfdf5;
+}
+
+.student-profile-icon.text-danger {
+    color: #ef4444;
+    background: #fef2f2;
+}
+
+.student-profile-data {
+    flex: 1;
+    min-width: 0;
+}
+
+.student-profile-label {
+    display: block;
+    font-size: 12px;
+    color: var(--mobile-text-muted);
+    margin-bottom: 2px;
+}
+
+.student-profile-value {
+    display: block;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--mobile-text);
+    word-break: break-word;
+}
+
+.student-profile-value.text-success {
+    color: #10b981;
+}
+
+.student-profile-value.text-danger {
+    color: #ef4444;
+}
+
+.student-profile-actions {
+    padding: 0 4px;
+}
+
+.student-profile-actions .btn {
+    padding: 14px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 12px;
+}
+
+/* ==============================================
+   FAB LOGOUT BUTTON (Para Staff en vista perfil)
+   ============================================== */
+
+.mobile-fab-logout {
+    position: fixed;
+    bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-safe-bottom) + 20px);
+    right: 20px;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    border: none;
+    border-radius: 28px;
+    padding: 14px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+    cursor: pointer;
+    z-index: 1040;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.mobile-fab-logout:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
+}
+
+.mobile-fab-logout:active {
+    transform: scale(0.95);
+}
+
+.mobile-fab-logout i {
+    font-size: 18px;
 }

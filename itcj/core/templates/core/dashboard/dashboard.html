@@ -145,18 +145,24 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
                         disabled></button>
                 </div>
-                <div class="modal-body windows-body d-flex align-items-center">
-                    <i class="bi bi-exclamation-triangle-fill text-warning fs-1 me-3"></i>
-                    <div>
-                        <p class="mb-2 windows-text">❌ ¡Contraseña por defecto detectada!</p>
-                        <p class="mb-2 windows-text">Para continuar, debe actualizar su contraseña por motivos de
-                            seguridad.</p>
-                        <div class="mb-3">
-                            <label class="form-label windows-text">Nueva contraseña (mínimo 8 caracteres)</label>
-                            <input type="password" class="form-control windows-input" id="newPw" minlength="8">
+                <div class="modal-body windows-body">
+                    <div class="d-flex align-items-start mb-3">
+                        <i class="bi bi-exclamation-triangle-fill text-warning fs-1 me-3"></i>
+                        <div>
+                            <p class="mb-2 windows-text">❌ ¡Contraseña por defecto detectada!</p>
+                            <p class="mb-0 windows-text">Para continuar, debe actualizar su contraseña por motivos de
+                                seguridad.</p>
                         </div>
-                        <div id="pwErr" class="text-danger small d-none windows-text"></div>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label windows-text">Nueva contraseña (mínimo 8 caracteres)</label>
+                        <input type="password" class="form-control windows-input" id="newPw" minlength="8" placeholder="Ingresa tu nueva contraseña">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label windows-text">Confirmar contraseña</label>
+                        <input type="password" class="form-control windows-input" id="confirmPw" minlength="8" placeholder="Confirma tu nueva contraseña">
+                    </div>
+                    <div id="pwErr" class="text-danger small d-none windows-text"></div>
                 </div>
                 <div class="modal-footer windows-footer">
                     <button id="btnSavePw" class="btn btn-primary windows-btn">Aceptar</button>

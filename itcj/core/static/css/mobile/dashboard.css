@@ -6,39 +6,35 @@
    GREETING
    ============================================== */
 
-.mobile-greeting {
-    padding: 20px 16px 8px;
-}
+/* Los estilos base del greeting están en mobile-base.css */
 
-.mobile-greeting-text {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--mobile-text);
-    margin: 0;
-    line-height: 1.2;
-}
-
-.mobile-greeting-sub {
-    font-size: 14px;
-    color: var(--mobile-text-muted);
-    margin: 4px 0 0;
-}
-
+/* Desktop: centrar contenido y mejorar layout */
 @media (min-width: 768px) {
     .mobile-greeting {
-        max-width: 720px;
-        margin: 0 auto;
-        padding: 28px 24px 12px;
+        padding: calc(var(--mobile-safe-top) + 32px) 24px 24px;
+        padding-bottom: 80px;
+        margin-bottom: -35px;
     }
 
     .mobile-greeting-text {
-        font-size: 28px;
+        font-size: 32px;
+    }
+    
+    .mobile-greeting-sub {
+        font-size: 16px;
     }
 }
 
 @media (min-width: 1024px) {
     .mobile-greeting {
-        max-width: 960px;
+        padding: calc(var(--mobile-safe-top) + 40px) 32px 32px;
+        padding-bottom: 90px;
+        margin-bottom: -40px;
+        border-radius: 0 0 24px 24px;
+    }
+    
+    .mobile-greeting-text {
+        font-size: 36px;
     }
 }
 
@@ -178,4 +174,113 @@
 .mobile-quick-action-btn i {
     font-size: 16px;
     color: var(--mobile-primary);
+}
+
+/* ==============================================
+   DESKTOP LAYOUT IMPROVEMENTS
+   ============================================== */
+
+@media (min-width: 768px) {
+    /* Contenedor principal centrado */
+    .mobile-main {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    /* User card más grande en desktop */
+    .mobile-user-card {
+        padding: 24px;
+        gap: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    
+    .mobile-user-avatar {
+        width: 64px;
+        height: 64px;
+        font-size: 22px;
+    }
+    
+    .mobile-user-name {
+        font-size: 18px;
+    }
+    
+    .mobile-user-detail {
+        font-size: 14px;
+        margin-top: 4px;
+    }
+    
+    .mobile-user-detail i {
+        font-size: 14px;
+    }
+    
+    /* Section titles */
+    .mobile-section-title {
+        font-size: 16px;
+        padding: 16px 24px 12px;
+        max-width: 720px;
+        margin: 0 auto;
+    }
+    
+    /* App grid - 3 columnas en tablet */
+    .mobile-app-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 24px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-main {
+        max-width: 1000px;
+    }
+    
+    /* User card aún más grande */
+    .mobile-user-card {
+        padding: 28px 32px;
+        border-radius: 20px;
+    }
+    
+    .mobile-user-avatar {
+        width: 72px;
+        height: 72px;
+        font-size: 26px;
+    }
+    
+    .mobile-user-name {
+        font-size: 20px;
+    }
+    
+    .mobile-user-detail {
+        font-size: 15px;
+    }
+    
+    /* Section titles */
+    .mobile-section-title {
+        font-size: 18px;
+        max-width: 960px;
+    }
+    
+    /* App grid - 4 columnas en desktop */
+    .mobile-app-grid {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+        max-width: 960px;
+        padding: 0 32px 32px;
+    }
+}
+
+@media (min-width: 1200px) {
+    .mobile-main {
+        max-width: 1100px;
+    }
+    
+    .mobile-app-grid {
+        max-width: 1040px;
+    }
+    
+    .mobile-section-title {
+        max-width: 1040px;
+    }
 }

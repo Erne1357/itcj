@@ -123,6 +123,30 @@
     color: var(--mobile-text-muted);
     margin-top: 4px;
     opacity: 0.8;
+    display: flex;
+    align-items: center;
+}
+
+/* Indicador visual para notificaciones con enlace */
+.mobile-notification-item.clickable {
+    cursor: pointer;
+}
+
+.mobile-notification-item.clickable::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-top: 2px solid var(--mobile-text-muted);
+    border-right: 2px solid var(--mobile-text-muted);
+    transform: rotate(45deg);
+    flex-shrink: 0;
+    opacity: 0.5;
+    margin-left: auto;
+    align-self: center;
+}
+
+.mobile-notification-item.clickable:active {
+    background: #ecfdf5;
 }
 
 /* ==============================================

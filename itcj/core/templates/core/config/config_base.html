@@ -11,13 +11,96 @@
 
     <!-- CSS Base de Configuracion -->
     <link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/config-base.css') }}?v={{ sv('core', 'css/config/config-base.css') }}">
+    
+    <!-- Mobile App Shell (para flecha de regreso en iframe) -->
+    <link href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}" rel="stylesheet">
+    
+    <style>
+        :root {
+            --app-primary: #6366f1;
+            --app-primary-dark: #4f46e5;
+            --app-primary-light: #eef2ff;
+        }
+        
+        /* Header móvil con flecha de regreso (solo en iframe) */
+        .config-mobile-header {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+            z-index: 1050;
+            align-items: center;
+            padding: 0 12px;
+            gap: 8px;
+        }
+        
+        body.in-mobile-iframe .config-mobile-header {
+            display: flex;
+        }
+        
+        body.in-mobile-iframe .config-wrapper {
+            padding-top: 56px;
+        }
+        
+        .config-mobile-header .config-mobile-title {
+            color: white;
+            font-weight: 600;
+            font-size: 16px;
+            flex: 1;
+        }
+        
+        /* Toggle dentro del header móvil */
+        .config-mobile-header .config-mobile-toggle {
+            position: static;
+            background: rgba(255,255,255,0.15);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+        
+        /* Ocultar el toggle flotante en iframe móvil */
+        body.in-mobile-iframe #normalMobileToggle {
+            display: none !important;
+        }
+        
+        /* Ajustar sidebar para que salga sobre el header móvil */
+        body.in-mobile-iframe .config-sidebar {
+            top: 0;
+            height: 100vh;
+            z-index: 1060;
+        }
+        
+        body.in-mobile-iframe .config-overlay {
+            z-index: 1055;
+        }
+    </style>
 
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-    <div class="config-wrapper">
-        <!-- Boton toggle movil -->
+    <!-- Header móvil con flecha de regreso (solo visible en iframe) -->
+    <div class="config-mobile-header">
+        <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+            <i class="bi bi-arrow-left"></i>
+        </button>
+        <span class="config-mobile-title">Configuración</span>
         <button class="config-mobile-toggle" onclick="toggleSidebar()">
+            <i class="bi bi-list"></i>
+        </button>
+    </div>
+
+    <div class="config-wrapper">
+        <!-- Boton toggle movil (solo visible cuando NO está en iframe) -->
+        <button class="config-mobile-toggle" onclick="toggleSidebar()" id="normalMobileToggle">
             <i class="bi bi-list"></i>
         </button>
 
@@ -34,15 +117,6 @@
             </div>
 
             <nav class="config-sidebar-nav">
-                <!-- Botón Regresar al Dashboard (solo móvil) -->
-                <div class="config-nav-section d-lg-none">
-                    <a href="{{ url_for('pages_core.pages_mobile.mobile_dashboard') }}"
-                       class="config-nav-link back-to-dashboard">
-                        <i class="bi bi-arrow-left-circle"></i>
-                        <span>Regresar al Dashboard</span>
-                    </a>
-                </div>
-
                 <!-- Seccion Principal -->
                 <div class="config-nav-section">
                     <div class="config-nav-section-title">General</div>
@@ -168,6 +242,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 
     <script>
+        // Detectar si estamos en un iframe móvil
+        const inIframe = window.self !== window.top;
+        if (inIframe) {
+            document.body.classList.add('in-mobile-iframe');
+            // Ocultar el toggle normal
+            const normalToggle = document.getElementById('normalMobileToggle');
+            if (normalToggle) normalToggle.style.display = 'none';
+        }
+
         // Toggle sidebar en movil
         function toggleSidebar() {
             const sidebar = document.getElementById('configSidebar');
@@ -196,6 +279,23 @@
             overlay.classList.remove('show');
         }
 
+        // Regresar al dashboard (para iframe móvil)
+        function goToDashboard() {
+            if (inIframe) {
+                try {
+                    window.parent.postMessage({
+                        type: 'CLOSE_APP',
+                        source: 'config'
+                    }, window.location.origin);
+                } catch (e) {
+                    console.warn('No se pudo notificar al parent:', e);
+                    window.location.href = '/itcj/m/';
+                }
+            } else {
+                window.location.href = '/itcj/m/';
+            }
+        }
+
         // Cerrar sidebar al hacer click en un enlace (móvil)
         document.addEventListener('DOMContentLoaded', function() {
             const navLinks = document.querySelectorAll('.config-nav-link');
@@ -213,6 +313,12 @@
                 sidebar.style.display = 'none';
                 sidebar.offsetHeight;
                 sidebar.style.display = '';
+            }
+            
+            // Bind del botón de regreso al dashboard
+            const backBtn = document.getElementById('mobileBackToDashboard');
+            if (backBtn) {
+                backBtn.addEventListener('click', goToDashboard);
             }
         });
 

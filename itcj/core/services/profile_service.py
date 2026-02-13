@@ -27,7 +27,7 @@ def get_user_profile_data(user_id: int) -> dict:
         'roles': user_roles_in_app(user_id, 'itcj'),
         'is_active': user.is_active,
         'created_at': user.created_at,
-        'last_login': user.last_login if hasattr(user, 'last_login') else None
+        'last_login_at': user.last_login
     }
     
     # 2. Puestos organizacionales activos

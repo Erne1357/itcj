@@ -35,78 +35,145 @@
     }
 
     // Función para bloquear toda la interfaz
+    // Detectar si estamos en mobile o desktop
+    const isMobile = document.body.classList.contains('mobile-body');
+
     function blockInterface() {
-        // Bloquear todos los elementos interactivos
-        const selectors = [
-            '.desktop-icon',
-            '.start-button',
-            '.pinned-app',
-            '.system-icon',
-            'button:not(#btnSavePw):not(.btn-close)',
-            '.taskbar button',
-            '.taskbar input'
-        ];
+        if (isMobile) {
+            // Bloquear interfaz mobile
+            const mobileSelectors = [
+                '.mobile-main',
+                '.mobile-bottom-nav',
+                '.mobile-app-card',
+                '.mobile-quick-action-btn',
+                '.mobile-nav-item'
+            ];
 
-        selectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(element => {
-                element.style.pointerEvents = 'none';
-                element.style.opacity = '0.5';
-                element.style.cursor = 'not-allowed';
+            mobileSelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(element => {
+                    element.style.pointerEvents = 'none';
+                    element.style.opacity = '0.5';
+                });
             });
-        });
 
-        // Bloquear toda la taskbar
-        const taskbar = document.querySelector('.taskbar');
-        if (taskbar) {
-            taskbar.style.pointerEvents = 'none';
-            taskbar.style.opacity = '0.7';
-        }
+            // Bloquear navegación inferior
+            const bottomNav = document.getElementById('mobileBottomNav');
+            if (bottomNav) {
+                bottomNav.style.pointerEvents = 'none';
+                bottomNav.style.opacity = '0.5';
+            }
 
-        // Bloquear el desktop
-        const desktop = document.getElementById('desktop-grid');
-        if (desktop) {
-            desktop.style.pointerEvents = 'none';
-            desktop.style.opacity = '0.6';
+            // Bloquear contenido principal
+            const mainContent = document.getElementById('mobileMainContent');
+            if (mainContent) {
+                mainContent.style.pointerEvents = 'none';
+                mainContent.style.opacity = '0.6';
+            }
+        } else {
+            // Bloquear interfaz desktop (original)
+            const selectors = [
+                '.desktop-icon',
+                '.start-button',
+                '.pinned-app',
+                '.system-icon',
+                'button:not(#btnSavePw):not(.btn-close)',
+                '.taskbar button',
+                '.taskbar input'
+            ];
+
+            selectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(element => {
+                    element.style.pointerEvents = 'none';
+                    element.style.opacity = '0.5';
+                    element.style.cursor = 'not-allowed';
+                });
+            });
+
+            // Bloquear toda la taskbar
+            const taskbar = document.querySelector('.taskbar');
+            if (taskbar) {
+                taskbar.style.pointerEvents = 'none';
+                taskbar.style.opacity = '0.7';
+            }
+
+            // Bloquear el desktop
+            const desktop = document.getElementById('desktop-grid');
+            if (desktop) {
+                desktop.style.pointerEvents = 'none';
+                desktop.style.opacity = '0.6';
+            }
         }
     }
 
     // Función para desbloquear la interfaz
     function unblockInterface() {
-        // Desbloquear todos los elementos
-        const selectors = [
-            '.desktop-icon',
-            '.start-button',
-            '.pinned-app',
-            '.system-icon',
-            'button',
-            '.taskbar button',
-            '.taskbar input'
-        ];
+        if (isMobile) {
+            // Desbloquear interfaz mobile
+            const mobileSelectors = [
+                '.mobile-main',
+                '.mobile-bottom-nav',
+                '.mobile-app-card',
+                '.mobile-quick-action-btn',
+                '.mobile-nav-item'
+            ];
 
-        selectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(element => {
-                element.style.pointerEvents = '';
-                element.style.opacity = '';
-                element.style.cursor = '';
+            mobileSelectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(element => {
+                    element.style.pointerEvents = '';
+                    element.style.opacity = '';
+                });
             });
-        });
 
-        // Desbloquear la taskbar
-        const taskbar = document.querySelector('.taskbar');
-        if (taskbar) {
-            taskbar.style.pointerEvents = '';
-            taskbar.style.opacity = '';
-        }
+            const bottomNav = document.getElementById('mobileBottomNav');
+            if (bottomNav) {
+                bottomNav.style.pointerEvents = '';
+                bottomNav.style.opacity = '';
+            }
 
-        // Desbloquear el desktop
-        const desktop = document.getElementById('desktop-grid');
-        if (desktop) {
-            desktop.style.pointerEvents = '';
-            desktop.style.opacity = '';
+            const mainContent = document.getElementById('mobileMainContent');
+            if (mainContent) {
+                mainContent.style.pointerEvents = '';
+                mainContent.style.opacity = '';
+            }
+        } else {
+            // Desbloquear interfaz desktop (original)
+            const selectors = [
+                '.desktop-icon',
+                '.start-button',
+                '.pinned-app',
+                '.system-icon',
+                'button',
+                '.taskbar button',
+                '.taskbar input'
+            ];
+
+            selectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(element => {
+                    element.style.pointerEvents = '';
+                    element.style.opacity = '';
+                    element.style.cursor = '';
+                });
+            });
+
+            // Desbloquear la taskbar
+            const taskbar = document.querySelector('.taskbar');
+            if (taskbar) {
+                taskbar.style.pointerEvents = '';
+                taskbar.style.opacity = '';
+            }
+
+            // Desbloquear el desktop
+            const desktop = document.getElementById('desktop-grid');
+            if (desktop) {
+                desktop.style.pointerEvents = '';
+                desktop.style.opacity = '';
+            }
         }
     }
+
     const modalEl = document.getElementById("forcePwModal");
     const newPw = document.getElementById("newPw");
+    const confirmPw = document.getElementById("confirmPw");
     const btnSave = document.getElementById("btnSavePw");
     const pwErr = document.getElementById("pwErr");
 
@@ -138,10 +205,18 @@
     // Función para manejar el cambio de contraseña
     const handlePasswordChange = async () => {
         const v = (newPw.value || "").trim();
+        const confirmV = confirmPw ? (confirmPw.value || "").trim() : v;
 
         // Validar que la contraseña tenga al menos 8 caracteres
         if (v.length < 8) {
             pwErr.textContent = "La contraseña debe tener al menos 8 caracteres.";
+            pwErr.classList.remove("d-none");
+            return;
+        }
+
+        // Validar que las contraseñas coincidan
+        if (v !== confirmV) {
+            pwErr.textContent = "Las contraseñas no coinciden.";
             pwErr.classList.remove("d-none");
             return;
         }
@@ -190,6 +265,7 @@
         } finally {
             btnSave.disabled = false;
             newPw.value = "";
+            if (confirmPw) confirmPw.value = "";
         }
     };
 

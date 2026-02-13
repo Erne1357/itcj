@@ -79,11 +79,10 @@ class MobileNotifications {
                 });
             }
 
-            // Bind click en items no leidos para marcar como leido
-            listEl.querySelectorAll('.mobile-notification-item.unread').forEach(el => {
+            // Bind click en items para manejar notificaciones
+            listEl.querySelectorAll('.mobile-notification-item').forEach(el => {
                 el.addEventListener('click', () => {
-                    const id = el.dataset.id;
-                    if (id) this.markAsRead(id, el);
+                    this.handleNotificationClick(el);
                 });
             });
 
@@ -106,20 +105,82 @@ class MobileNotifications {
         const isUnread = !n.is_read;
         const icon = this.getAppIcon(n.app_key);
         const time = this.formatTime(n.created_at);
+        
+        // Extraer URL del data si existe
+        let dataUrl = '';
+        let dataJson = '';
+        if (n.data) {
+            try {
+                const data = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
+                if (data.url) {
+                    dataUrl = data.url;
+                }
+                dataJson = JSON.stringify(data);
+            } catch (e) {
+                console.warn('[MobileNotifications] Error parsing data:', e);
+            }
+        }
 
         return `
-            <div class="mobile-notification-item ${isUnread ? 'unread' : ''}"
-                 data-id="${n.id}" role="button">
+            <div class="mobile-notification-item ${isUnread ? 'unread' : ''} ${dataUrl ? 'clickable' : ''}"
+                 data-id="${n.id}" 
+                 data-url="${this.escape(dataUrl)}"
+                 data-app-key="${n.app_key || ''}"
+                 role="button">
                 <div class="mobile-notification-icon">
                     <i class="bi ${icon}"></i>
                 </div>
                 <div class="mobile-notification-content">
                     <div class="mobile-notification-title">${this.escape(n.title || '')}</div>
                     <div class="mobile-notification-body">${this.escape(n.body || '')}</div>
-                    <div class="mobile-notification-time">${time}</div>
+                    <div class="mobile-notification-time">
+                        ${time}
+                        ${dataUrl ? '<i class="bi bi-box-arrow-up-right ms-1"></i>' : ''}
+                    </div>
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Obtiene el nombre de la app basado en la URL
+     */
+    getAppNameFromUrl(url) {
+        if (!url) return 'Aplicación';
+        
+        const appNames = {
+            'help-desk': 'Help Desk',
+            'helpdesk': 'Help Desk',
+            'agendatec': 'AgendaTec',
+            'vistetec': 'VisteTec',
+        };
+
+        // Extraer el primer segmento de la URL
+        const match = url.match(/^\/([^\/]+)/);
+        if (match) {
+            const segment = match[1].toLowerCase();
+            return appNames[segment] || segment.charAt(0).toUpperCase() + segment.slice(1);
+        }
+        return 'Aplicación';
+    }
+
+    /**
+     * Maneja el clic en una notificación
+     */
+    handleNotificationClick(el) {
+        const id = el.dataset.id;
+        const url = el.dataset.url;
+        
+        // Marcar como leída si no lo está
+        if (el.classList.contains('unread') && id) {
+            this.markAsRead(id, el);
+        }
+        
+        // Si tiene URL, abrir en iframe
+        if (url && window.mobileApp) {
+            const appName = this.getAppNameFromUrl(url);
+            window.mobileApp.openAppInIframe(url, appName);
+        }
     }
 
     /**

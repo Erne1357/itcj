@@ -18,7 +18,7 @@
     border-color: #084a8e;
 }
 body {
-    background: url('../images/fondo.png') no-repeat center center fixed;
+    background: url('../images/fondo.webp') no-repeat center center fixed;
     background-size: cover;
     min-height: 100vh;
     display: flex;

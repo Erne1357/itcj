@@ -8,7 +8,6 @@ pages_profile_bp = Blueprint("pages_profile", __name__)
 
 @pages_profile_bp.get("/profile")
 @login_required
-@app_required('itcj', roles=['coordinator', 'social_service', 'admin', 'staff'])
 def profile():
     user_id = int(g.current_user['sub'])
     
