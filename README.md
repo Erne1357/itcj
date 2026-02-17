@@ -95,6 +95,14 @@ ITCJ/
             utils/             # Utilidades específicas
             README.md          # Documentación de Help-Desk
 
+        vistetec/              # Sistema de reciclaje de ropa y despensa
+            models/            # Modelos de VisteTec
+            routes/            # API y páginas
+            services/          # Lógica de negocio
+            templates/         # Templates específicos
+            static/            # Assets específicos
+            README.md          # Documentación de VisteTec
+
  migrations/                    # Migraciones de base de datos (Alembic)
  database/                      # Scripts SQL y dumps
     DDL/                       # Definición de esquemas
@@ -226,6 +234,42 @@ PENDING â’ ASSIGNED â’ IN_PROGRESS â’ RESOLVED_SUCCESS/RESOLVED_FAILED 
 - **Métricas**: Análisis de SLA, tiempos de resolución, calidad
 
 "š **Documentación detallada**: [`itcj/apps/helpdesk/README.md`](itcj/apps/helpdesk/README.md)
+
+---
+
+### 3. VisteTec - Sistema de Reciclaje de Ropa y Gestión de Despensa
+
+Sistema integral de economía circular que facilita la donación, distribución y reciclaje de prendas de vestir entre la comunidad estudiantil, con gestión adicional de campañas de recolección de despensa.
+
+**Características principales**:
+- Catálogo digital de prendas con filtros e imágenes optimizadas
+- Sistema de citas para probarse ropa con horarios organizados
+- Registro completo de donaciones (ropa y despensa)
+- Gestión de inventario de despensa con entrada/salida
+- Campañas de recolección con metas y progreso visible
+- Dashboard administrativo con métricas y reportes
+- Compresión automática de imágenes (cliente + servidor con Pillow)
+- Reconocimiento público a donadores
+
+**Roles**:
+- `student`: Navega catálogo, agenda citas, ve sus donaciones
+- `volunteer`: Gestiona prendas, atiende citas, registra donaciones, maneja despensa
+- `admin`: Control completo, reportes, campañas, configuración
+
+**Tecnologías especiales**:
+- Pillow 11.3.0 para compresión de imágenes (JPEG 85%, max 1920px)
+- Acordeones colapsables para organización de horarios por día
+- Búsqueda de estudiantes en tiempo real con debounce
+- Sistema de campañas con auto-incremento de collected_quantity
+
+**Módulos principales**:
+- **Catálogo**: Navegación pública de prendas disponibles
+- **Citas**: Sistema de agendado con slots y gestión de horarios
+- **Donaciones**: Registro de prendas y despensa con búsqueda de donantes
+- **Despensa**: CRUD de items, stock (in/out), campañas de recolección
+- **Reportes**: Dashboard administrativo con métricas y actividad reciente
+
+"š **Documentación detallada**: [`itcj/apps/vistetec/README.md`](itcj/apps/vistetec/README.md)
 
 ---
 
@@ -513,6 +557,15 @@ flask helpdesk-update-sla
 - `helpdesk_inventory_history`: Historial de cambios
 - `helpdesk_ticket_inventory_item`: Relación tickets-equipos
 
+#### VisteTec
+- `vistetec_garments`: Prendas de vestir
+- `vistetec_appointments`: Citas para probarse ropa
+- `vistetec_time_slots`: Horarios de atención
+- `vistetec_donations`: Registro de donaciones
+- `vistetec_pantry_items`: Artículos de despensa
+- `vistetec_pantry_campaigns`: Campañas de recolección
+- `vistetec_locations`: Ubicaciones físicas
+
 ---
 
 ## Documentación de API
@@ -656,6 +709,74 @@ flask helpdesk-update-sla
 ### AgendaTec API
 
 Consultar [`itcj/apps/agendatec/README.md`](itcj/apps/agendatec/README.md) para documentación completa.
+
+---
+
+### VisteTec API
+
+#### GET `/api/vistetec/v1/catalog`
+**Query params**:
+- `category`: Filtrar por categoría (camisa, pantalon, vestido)
+- `size`: Filtrar por talla
+- `page`: Página (default: 1)
+- `per_page`: Resultados por página (default: 12)
+
+**Response**:
+```json
+{
+  "garments": [
+    {
+      "id": 1,
+      "name": "Camisa azul manga larga",
+      "category": "camisa",
+      "size": "M",
+      "condition": "como_nuevo",
+      "image_path": "2026/02/abc123.jpg",
+      "is_available": true
+    }
+  ],
+  "pagination": { "page": 1, "pages": 5, "total": 48 }
+}
+```
+
+---
+
+#### POST `/api/vistetec/v1/appointments`
+**Body**:
+```json
+{
+  "garment_id": 1,
+  "slot_id": 42,
+  "will_bring_donation": true
+}
+```
+
+**Response**:
+```json
+{
+  "message": "Cita agendada correctamente",
+  "appointment": {
+    "id": 123,
+    "code": "VT-2026-0123",
+    "status": "scheduled"
+  }
+}
+```
+
+---
+
+#### POST `/api/vistetec/v1/donations/pantry`
+**Body**:
+```json
+{
+  "pantry_item_id": 5,
+  "quantity": 10,
+  "donor_id": 123,
+  "campaign_id": 2
+}
+```
+
+Consultar [`itcj/apps/vistetec/README.md`](itcj/apps/vistetec/README.md) para documentación completa de la API.
 
 ---
 
@@ -976,6 +1097,7 @@ docs(readme): update installation instructions
 - **Documentación de Apps**: Ver README específico de cada app
   - [`itcj/apps/agendatec/README.md`](itcj/apps/agendatec/README.md)
   - [`itcj/apps/helpdesk/README.md`](itcj/apps/helpdesk/README.md)
+  - [`itcj/apps/vistetec/README.md`](itcj/apps/vistetec/README.md)
 - **Base de Datos**: Ver [`database/VERIFICATION_GUIDE.md`](database/VERIFICATION_GUIDE.md)
 
 ---
@@ -988,11 +1110,12 @@ Este proyecto es de uso interno del Instituto Tecnológico de Ciudad Juárez.
 
 ## Changelog
 
-### Versión Actual (Diciembre 2025)
+### Versión Actual (Febrero 2026)
 
 #### Apps Disponibles
 ✅ **AgendaTec**: Sistema de altas/bajas funcional
 ✅ **Help-Desk**: Sistema de tickets con inventario
+✅ **VisteTec**: Sistema de reciclaje de ropa y gestión de despensa
 
 #### Características Implementadas
 ✅ Autenticación JWT con refresh automático
@@ -1002,10 +1125,14 @@ Este proyecto es de uso interno del Instituto Tecnológico de Ciudad Juárez.
 ✅ Gestión de inventario institucional
 ✅ Métricas de SLA y calidad
 ✅ Sistema de calificaciones y encuestas
+✅ Catálogo digital con citas (VisteTec)
+✅ Gestión de donaciones y campañas (VisteTec)
+✅ Compresión de imágenes automática (VisteTec)
 ✅ Responsive design (Bootstrap 5)
 ✅ Docker Compose para despliegue
 
 #### En Desarrollo
+⏳ Reconocimiento público de donadores (VisteTec)
 ⏳ Dashboard de métricas general
 ⏳ Sistema de reportes avanzados
 ⏳ Notificaciones por email

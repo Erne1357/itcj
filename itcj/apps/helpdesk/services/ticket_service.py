@@ -322,6 +322,7 @@ def list_tickets(
     assigned_to_team: str = None,
     created_by_me: bool = False,
     department_id: int = None,
+    search: str = None,  # Búsqueda por título, número o descripción
     page: int = 1,
     per_page: int = 20
 ) -> dict:
@@ -338,6 +339,7 @@ def list_tickets(
         assigned_to_team: Solo tickets asignados al equipo (sin usuario específico)
         created_by_me: Solo tickets creados por mí
         department_id: Solo tickets de un departamento
+        search: Búsqueda por título, número de ticket o descripción
         page: Página actual
         per_page: Tickets por página
     
@@ -409,6 +411,17 @@ def list_tickets(
     
     if department_id:
         query = query.filter(Ticket.requester_department_id == department_id)
+    
+    # Búsqueda por texto (título, número de ticket o descripción)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Ticket.title.ilike(search_term),
+                Ticket.ticket_number.ilike(search_term),
+                Ticket.description.ilike(search_term)
+            )
+        )
     
     # ORDENAMIENTO: FIFO (created_at)
     query = query.order_by(Ticket.created_at.desc())

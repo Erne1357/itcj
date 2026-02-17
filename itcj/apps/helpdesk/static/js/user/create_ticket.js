@@ -312,19 +312,19 @@ const AreaSelection = {
         const categorySection = document.getElementById('category-section');
         const equipmentSection = document.getElementById('equipment-section');
 
+        // SIEMPRE mostrar selector de categoría (tanto SOPORTE como DESARROLLO)
+        categorySection.style.display = 'block';
+        document.getElementById('category_id').required = true;
+
         if (area === 'SOPORTE') {
-            // Para SOPORTE: ocultar categorías, mostrar equipos
-            categorySection.style.display = 'none';
+            // Para SOPORTE: mostrar categorías Y equipos
             equipmentSection.style.display = 'block';
-            document.getElementById('category_id').required = false;
 
             // Ocultar campos personalizados en SOPORTE
             CustomFields.hideFields();
         } else {
             // Para DESARROLLO: mostrar categorías, ocultar equipos
-            categorySection.style.display = 'block';
             equipmentSection.style.display = 'none';
-            document.getElementById('category_id').required = true;
             // Limpiar selección de equipo si había
             Equipment.clearSelection();
 
@@ -1245,9 +1245,10 @@ const FormValidation = {
             data.requester_id = parseInt(requesterIdInput.value);
         }
 
-        // Para DESARROLLO: incluir category_id
-        if (data.area === 'DESARROLLO') {
-            data.category_id = parseInt(document.getElementById('category_id').value);
+        // SIEMPRE incluir category_id (tanto DESARROLLO como SOPORTE)
+        const categoryId = document.getElementById('category_id').value;
+        if (categoryId) {
+            data.category_id = parseInt(categoryId);
         }
 
         // Para SOPORTE: incluir inventory_item_ids si se seleccionaron
@@ -1259,11 +1260,6 @@ const FormValidation = {
                 } catch {
                     data.inventory_item_ids = [];
                 }
-            }
-
-            // Para SOPORTE aún necesitamos una categoría (puede ser genérica)
-            if (AppState.categories.length > 0) {
-                data.category_id = AppState.categories[0].id;
             }
         }
 

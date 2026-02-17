@@ -42,6 +42,24 @@
     return false
   }
 
+  function checkForLoginForm() {
+    // Verificar si estamos en la página de login (formulario presente)
+    const loginForm = document.getElementById('loginForm')
+    const isLoginPage = loginForm !== null || 
+                        document.title.toLowerCase().includes('inicio de sesión') ||
+                        document.title.toLowerCase().includes('login')
+    
+    if (isLoginPage) {
+      notifyParent('SESSION_EXPIRED', {
+        reason: 'login_page_loaded',
+        path: window.location.pathname
+      })
+      return true
+    }
+    
+    return false
+  }
+
   function checkForSessionExpired() {
     // Verificar si hay indicadores de sesión expirada
     const hasSessionError = document.querySelector('[data-session-expired]') ||
@@ -112,11 +130,29 @@
     subtree: true
   })
 
-  // Verificación inicial
+  // Verificación inicial al cargar la página
   window.addEventListener('load', () => {
+    // Prioridad: verificar si es página de login primero
+    if (checkForLoginForm()) return
     checkForLogout()
     checkForSessionExpired()
   })
+  
+  // También verificar inmediatamente cuando el DOM está listo
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (checkForLoginForm()) return
+      checkForLogout()
+      checkForSessionExpired()
+    })
+  } else {
+    // DOM ya está listo, verificar ahora
+    setTimeout(() => {
+      if (checkForLoginForm()) return
+      checkForLogout()
+      checkForSessionExpired()
+    }, 100)
+  }
 
   // Limpiar al cerrar
   window.addEventListener('beforeunload', () => {

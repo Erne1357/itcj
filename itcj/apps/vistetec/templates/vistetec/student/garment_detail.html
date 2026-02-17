@@ -90,7 +90,7 @@
                 <!-- Botón apartar prenda -->
                 <div id="scheduleSection">
                     <button class="btn btn-lg w-100" id="btnSchedule" style="background-color: #8B1538; border-color: #8B1538; color: white;">
-                        <i class="bi bi-bag-check me-2"></i>¡La quiero! Apartarla
+                        <i class="bi bi-bag-check me-2"></i>¡La quiero!
                     </button>
                     <small class="text-muted d-block text-center mt-2" id="scheduleHint">
                         Elige cuándo pasas por ella
@@ -125,7 +125,7 @@
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold">Apartar prenda</h5>
+                <h5 class="modal-title fw-bold">¿Cuándo puedes recogerla?</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -163,23 +163,84 @@
                     </div>
                 </div>
 
-                <p class="text-muted small mb-3">¿Cuándo puedes pasar a recogerla?</p>
+                <!-- Paso 1: Seleccionar fecha -->
+                <div id="step1-dateSelection">
+                    <p class="text-muted small mb-3">
+                        <strong>Paso 1:</strong> Selecciona un día disponible para recoger tu prenda
+                    </p>
 
-                <!-- Loading slots -->
-                <div id="slotsLoading" class="text-center py-4">
-                    <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
-                    <p class="text-muted small mt-2 mb-0">Cargando horarios...</p>
+                    <!-- Loading slots -->
+                    <div id="slotsLoading" class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm" style="color: #8B1538;"></div>
+                        <p class="text-muted small mt-2 mb-0">Cargando disponibilidad...</p>
+                    </div>
+
+                    <!-- Sin horarios -->
+                    <div id="noSlotsState" class="text-center py-4 d-none">
+                        <i class="bi bi-calendar-x text-muted" style="font-size: 2rem;"></i>
+                        <p class="text-muted small mt-2 mb-0">No hay horarios disponibles por ahora</p>
+                    </div>
+
+                    <!-- Calendario -->
+                    <div id="calendarContainer" class="d-none">
+                        <!-- Navegación mes -->
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnPrevMonth">
+                                <i class="bi bi-chevron-left"></i>
+                            </button>
+                            <h6 class="mb-0 fw-bold" id="calendarMonth"></h6>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnNextMonth">
+                                <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+
+                        <!-- Grid del calendario -->
+                        <div class="calendar-grid mb-3">
+                            <div class="calendar-header">Lun</div>
+                            <div class="calendar-header">Mar</div>
+                            <div class="calendar-header">Mié</div>
+                            <div class="calendar-header">Jue</div>
+                            <div class="calendar-header">Vie</div>
+                            <div class="calendar-header">Sáb</div>
+                            <div class="calendar-header">Dom</div>
+                            <!-- Los días se llenan con JS -->
+                        </div>
+
+                        <!-- Leyenda -->
+                        <div class="calendar-legend">
+                            <div class="legend-item">
+                                <span class="legend-dot high"></span>
+                                <small>Alta disponibilidad</small>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-dot medium"></span>
+                                <small>Disponibilidad media</small>
+                            </div>
+                            <div class="legend-item">
+                                <span class="legend-dot low"></span>
+                                <small>Pocos lugares</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Sin horarios -->
-                <div id="noSlotsState" class="text-center py-4 d-none">
-                    <i class="bi bi-calendar-x text-muted" style="font-size: 2rem;"></i>
-                    <p class="text-muted small mt-2 mb-0">No hay horarios disponibles por ahora</p>
-                </div>
+                <!-- Paso 2: Seleccionar horario -->
+                <div id="step2-timeSelection" class="d-none">
+                    <div class="d-flex align-items-center mb-3">
+                        <button type="button" class="btn btn-sm btn-link text-decoration-none p-0" id="btnBackToCalendar">
+                            <i class="bi bi-arrow-left me-1"></i> Cambiar día
+                        </button>
+                    </div>
+                    
+                    <p class="text-muted small mb-1">
+                        <strong>Paso 2:</strong> Elige tu horario
+                    </p>
+                    <p class="fw-bold mb-3" style="color: #8B1538;" id="selectedDateDisplay"></p>
 
-                <!-- Lista de slots -->
-                <div id="slotsList" class="d-none">
-                    <!-- Se llena con JS -->
+                    <!-- Lista de horarios del día -->
+                    <div id="timeSlotsList">
+                        <!-- Se llena con JS -->
+                    </div>
                 </div>
             </div>
             <div class="modal-footer border-0 pt-0">

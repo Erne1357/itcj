@@ -89,17 +89,29 @@
         notFoundState.classList.remove('d-none');
     }
 
-    // ==================== Sistema de citas ====================
+    // ==================== Sistema de citas con calendario ====================
+
+    let allSlots = [];
+    let slotsByDate = {};
+    let currentMonth = new Date();
+    let selectedDate = null;
 
     async function loadAvailableSlots() {
         const slotsLoading = document.getElementById('slotsLoading');
         const noSlotsState = document.getElementById('noSlotsState');
-        const slotsList = document.getElementById('slotsList');
+        const calendarContainer = document.getElementById('calendarContainer');
+        const step1 = document.getElementById('step1-dateSelection');
+        const step2 = document.getElementById('step2-timeSelection');
 
+        // Reset
+        step1.classList.remove('d-none');
+        step2.classList.add('d-none');
         slotsLoading.classList.remove('d-none');
         noSlotsState.classList.add('d-none');
-        slotsList.classList.add('d-none');
+        calendarContainer.classList.add('d-none');
         document.getElementById('campaignSection').classList.add('d-none');
+        selectedDate = null;
+        selectedSlotId = null;
 
         try {
             const res = await fetch(`${API_BASE}/slots`);
@@ -111,17 +123,30 @@
                 }
                 throw new Error(`HTTP ${res.status}`);
             }
-            const slots = await res.json();
+            allSlots = await res.json();
 
             slotsLoading.classList.add('d-none');
 
-            if (!slots.length) {
+            if (!allSlots.length) {
                 noSlotsState.classList.remove('d-none');
                 return;
             }
 
-            renderSlots(slots);
-            slotsList.classList.remove('d-none');
+            // Agrupar slots por fecha
+            slotsByDate = {};
+            allSlots.forEach(s => {
+                if (!slotsByDate[s.date]) {
+                    slotsByDate[s.date] = [];
+                }
+                slotsByDate[s.date].push(s);
+            });
+
+            // Inicializar mes actual al primer día disponible
+            const firstDate = Object.keys(slotsByDate).sort()[0];
+            currentMonth = new Date(firstDate + 'T00:00:00');
+
+            renderCalendar();
+            calendarContainer.classList.remove('d-none');
 
             // Cargar campañas activas
             loadActiveCampaigns();
@@ -133,75 +158,166 @@
         }
     }
 
-    function renderSlots(slots) {
-        const slotsList = document.getElementById('slotsList');
+    function renderCalendar() {
+        const monthDisplay = document.getElementById('calendarMonth');
+        const grid = document.querySelector('.calendar-grid');
+        
+        // Mostrar mes/año
+        const options = { month: 'long', year: 'numeric' };
+        let monthStr = currentMonth.toLocaleDateString('es-MX', options);
+        monthStr = monthStr.charAt(0).toUpperCase() + monthStr.slice(1);
+        monthDisplay.textContent = monthStr;
 
-        // Agrupar por fecha
-        const grouped = {};
-        slots.forEach(s => {
-            const date = s.date;
-            if (!grouped[date]) grouped[date] = [];
-            grouped[date].push(s);
+        // Limpiar días anteriores (mantener headers)
+        const existingDays = grid.querySelectorAll('.calendar-day');
+        existingDays.forEach(day => day.remove());
+
+        // Calcular inicio del mes
+        const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+        const lastDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+        
+        // Ajustar para que Lunes sea 0
+        let startDayOfWeek = firstDay.getDay() - 1;
+        if (startDayOfWeek === -1) startDayOfWeek = 6;
+
+        // Agregar días vacíos al inicio
+        for (let i = 0; i < startDayOfWeek; i++) {
+            const emptyDay = document.createElement('div');
+            emptyDay.className = 'calendar-day empty';
+            grid.appendChild(emptyDay);
+        }
+
+        // Agregar días del mes
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let day = 1; day <= lastDay.getDate(); day++) {
+            const currentDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+            const dateStr = formatDateKey(currentDate);
+            const daySlots = slotsByDate[dateStr] || [];
+            
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day';
+            
+            // Verificar si el día está en el pasado
+            if (currentDate < today) {
+                dayElement.classList.add('disabled');
+            } else if (daySlots.length > 0) {
+                dayElement.classList.add('available');
+                
+                // Calcular nivel de disponibilidad
+                const totalSpots = daySlots.reduce((sum, s) => sum + s.available_spots, 0);
+                const avgSpots = totalSpots / daySlots.length;
+                
+                if (avgSpots >= 5) {
+                    dayElement.classList.add('high');
+                } else if (avgSpots >= 2) {
+                    dayElement.classList.add('medium');
+                } else {
+                    dayElement.classList.add('low');
+                }
+                
+                dayElement.dataset.date = dateStr;
+                dayElement.addEventListener('click', () => selectDate(dateStr));
+            } else {
+                dayElement.classList.add('disabled');
+            }
+            
+            dayElement.innerHTML = `
+                <span class="calendar-day-number">${day}</span>
+                ${daySlots.length > 0 ? '<span class="calendar-day-indicator"></span>' : ''}
+            `;
+            
+            grid.appendChild(dayElement);
+        }
+    }
+
+    function selectDate(dateStr) {
+        selectedDate = dateStr;
+        
+        // Actualizar visual del calendario
+        document.querySelectorAll('.calendar-day.available').forEach(day => {
+            day.classList.remove('selected');
         });
+        document.querySelector(`[data-date="${dateStr}"]`)?.classList.add('selected');
+        
+        // Mostrar paso 2
+        const step1 = document.getElementById('step1-dateSelection');
+        const step2 = document.getElementById('step2-timeSelection');
+        step1.classList.add('d-none');
+        step2.classList.remove('d-none');
+        
+        renderTimeSlots(dateStr);
+    }
 
-        let html = '<div class="accordion" id="slotsAccordion">';
-        Object.keys(grouped).sort().forEach((date, index) => {
-            const dateSlots = grouped[date];
-            const dateStr = formatDate(date);
-            const accordionId = `collapse${index}`;
-
+    function renderTimeSlots(dateStr) {
+        const dateDisplay = document.getElementById('selectedDateDisplay');
+        const timeSlotsList = document.getElementById('timeSlotsList');
+        
+        // Formatear fecha para mostrar
+        dateDisplay.textContent = formatDate(dateStr);
+        
+        const daySlots = slotsByDate[dateStr] || [];
+        daySlots.sort((a, b) => a.start_time.localeCompare(b.start_time));
+        
+        let html = '<div class="d-flex flex-column gap-2">';
+        
+        daySlots.forEach(s => {
+            const timeStr = `${formatTime(s.start_time)} - ${formatTime(s.end_time)}`;
+            const locationName = s.location ? s.location.name : '';
+            const spotsText = s.available_spots === 1 ? '1 lugar disponible' : `${s.available_spots} lugares disponibles`;
+            
             html += `
-            <div class="accordion-item border-0 mb-2">
-                <h2 class="accordion-header">
-                    <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button"
-                            data-bs-toggle="collapse" data-bs-target="#${accordionId}"
-                            aria-expanded="${index === 0}" aria-controls="${accordionId}"
-                            style="background-color: #fdf2f4; color: #8B1538; font-size: 0.9rem;">
-                        <i class="bi bi-calendar3 me-2"></i>${dateStr}
-                        <span class="badge bg-light text-dark ms-2">${dateSlots.length} ${dateSlots.length === 1 ? 'horario' : 'horarios'}</span>
-                    </button>
-                </h2>
-                <div id="${accordionId}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}"
-                     data-bs-parent="#slotsAccordion">
-                    <div class="accordion-body p-2">
-                        <div class="d-flex flex-column gap-2">`;
-
-            dateSlots.forEach(s => {
-                const timeStr = `${formatTime(s.start_time)} - ${formatTime(s.end_time)}`;
-                const locationName = s.location ? s.location.name : '';
-                const spotsText = s.available_spots === 1 ? '1 lugar' : `${s.available_spots} lugares`;
-
-                html += `
-                <label class="slot-card card border rounded-3 p-3 mb-0" data-slot-id="${s.id}">
-                    <div class="d-flex align-items-center gap-3">
-                        <input type="radio" name="slot" value="${s.id}" class="slot-radio">
-                        <div class="flex-grow-1">
-                            <div class="fw-bold">${timeStr}</div>
-                            <div class="text-muted small">
-                                ${locationName ? `<i class="bi bi-geo-alt me-1"></i>${escapeHtml(locationName)}` : '<i class="bi bi-clock me-1"></i>Horario disponible'}
-                            </div>
-                        </div>
-                        <span class="badge bg-light text-dark">${spotsText}</span>
+            <label class="time-slot-card card rounded-3 p-3 mb-0" data-slot-id="${s.id}">
+                <div class="d-flex align-items-center gap-3">
+                    <input type="radio" name="timeSlot" value="${s.id}" class="slot-radio">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold">${timeStr}</div>
+                        ${locationName ? `<div class="text-muted small mt-1">
+                            <i class="bi bi-geo-alt me-1"></i>${escapeHtml(locationName)}
+                        </div>` : ''}
                     </div>
-                </label>`;
-            });
-
-            html += `</div></div></div></div>`;
+                    <div class="text-end">
+                        <span class="badge bg-success-subtle text-success">${spotsText}</span>
+                    </div>
+                </div>
+            </label>`;
         });
-
+        
         html += '</div>';
-        slotsList.innerHTML = html;
-
+        timeSlotsList.innerHTML = html;
+        
         // Event listeners para selección
-        slotsList.querySelectorAll('.slot-card').forEach(card => {
+        timeSlotsList.querySelectorAll('.time-slot-card').forEach(card => {
             card.addEventListener('click', () => {
-                slotsList.querySelectorAll('.slot-card').forEach(c => c.classList.remove('selected'));
+                timeSlotsList.querySelectorAll('.time-slot-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
                 card.querySelector('input').checked = true;
                 selectedSlotId = parseInt(card.dataset.slotId);
                 document.getElementById('btnConfirmSchedule').disabled = false;
             });
         });
+    }
+
+    function formatDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function changeMonth(direction) {
+        currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + direction, 1);
+        renderCalendar();
+    }
+
+    function backToCalendar() {
+        const step1 = document.getElementById('step1-dateSelection');
+        const step2 = document.getElementById('step2-timeSelection');
+        step1.classList.remove('d-none');
+        step2.classList.add('d-none');
+        selectedSlotId = null;
+        document.getElementById('btnConfirmSchedule').disabled = true;
     }
 
     function formatDate(dateStr) {
@@ -318,6 +434,11 @@
     });
 
     document.getElementById('btnConfirmSchedule').addEventListener('click', confirmSchedule);
+    
+    // Navegación del calendario
+    document.getElementById('btnPrevMonth').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('btnNextMonth').addEventListener('click', () => changeMonth(1));
+    document.getElementById('btnBackToCalendar').addEventListener('click', backToCalendar);
 
     // Init
     scheduleModal = new bootstrap.Modal(document.getElementById('scheduleModal'));

@@ -245,6 +245,7 @@ def list_tickets():
         - assigned_to_team: desarrollo/soporte - Solo asignados al equipo (sin usuario específico)
         - created_by_me: true/false - Solo donde soy el requester (quien solicitó el ticket)
         - department_id: Filtrar por departamento
+        - search: Buscar por título, número de ticket o descripción
         - page: Número de página (default: 1)
         - per_page: Items por página (default: 20, max: 100)
     
@@ -267,6 +268,7 @@ def list_tickets():
     assigned_to_team = request.args.get('assigned_to_team')
     created_by_me = request.args.get('created_by_me', 'false').lower() == 'true'
     department_id = request.args.get('department_id', type=int)
+    search = request.args.get('search', '').strip() or None
     page = request.args.get('page', 1, type=int)
     # Permitir per_page alto para admins/técnicos (0 o -1 = sin límite, max 1000)
     requested_per_page = request.args.get('per_page', 20, type=int)
@@ -291,6 +293,7 @@ def list_tickets():
             assigned_to_team=assigned_to_team,
             created_by_me=created_by_me,
             department_id=department_id,
+            search=search,
             page=page,
             per_page=per_page
         )

@@ -1,5 +1,5 @@
 # itcj/core/routes/pages/config.py
-from flask import Blueprint, render_template, request, redirect, url_for, g
+from flask import Blueprint, render_template, request, redirect, url_for, g, jsonify, flash
 from itcj.core.models.app import App
 from itcj.core.models.department import Department
 from itcj.core.models.position import Position
@@ -9,6 +9,7 @@ from itcj.core.models.user import User
 from itcj.core.utils.decorators import login_required, app_required
 from itcj.core.extensions import db
 from sqlalchemy import or_
+from itcj.core.utils import msgraph_mail
 
 # Blueprint de configuración
 pages_config_bp = Blueprint('pages_config', __name__, template_folder='templates', static_folder='static')
@@ -161,3 +162,86 @@ def position_detail(position_id):
     position = Position.query.get_or_404(position_id)
     roles = Role.query.order_by(Role.name.asc()).all()
     return render_template("core/config/organization/position_detail.html", position_id=position_id, position=position, roles=roles)
+
+# === Correo ===
+
+@pages_config_bp.get("/config/email")
+@login_required
+@app_required('itcj', roles=['admin'])
+def email_management():
+    """Pagina de configuracion de correo por aplicacion"""
+    apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
+    # Obtener estado de conexion para cada app
+    apps_email = []
+    for app in apps:
+        acct = msgraph_mail.read_account_info(app.key)
+        apps_email.append({
+            "key": app.key,
+            "name": app.name,
+            "connected": acct is not None,
+            "username": acct.get("username") if acct else None,
+            "account_name": acct.get("name") if acct else None,
+        })
+    return render_template("core/config/system/email.html", apps_email=apps_email)
+
+
+@pages_config_bp.get("/config/email/auth/login")
+@login_required
+@app_required('itcj', roles=['admin'])
+def email_auth_login():
+    """Redirige al flujo OAuth de Microsoft para una app especifica"""
+    app_key = request.args.get("app", "").strip()
+    if not app_key:
+        flash("Falta el parametro 'app'.", "danger")
+        return redirect(url_for("pages_core.pages_config.email_management"))
+    # Verificar que la app existe
+    app_obj = App.query.filter_by(key=app_key, is_active=True).first()
+    if not app_obj:
+        flash(f"Aplicacion '{app_key}' no encontrada.", "danger")
+        return redirect(url_for("pages_core.pages_config.email_management"))
+    auth_url = msgraph_mail.build_auth_url(app_key)
+    return redirect(auth_url)
+
+
+@pages_config_bp.get("/config/email/auth/callback")
+def email_auth_callback():
+    """Callback de OAuth de Microsoft. Recibe code y state (app_key)."""
+    code = request.args.get("code")
+    app_key = request.args.get("state", "").strip()
+    if not code:
+        flash("Falta el codigo de autorizacion.", "danger")
+        return redirect(url_for("pages_core.pages_config.email_management"))
+    if not app_key:
+        flash("Falta el parametro state (app).", "danger")
+        return redirect(url_for("pages_core.pages_config.email_management"))
+    result = msgraph_mail.process_auth_code(app_key, code)
+    if result.get("error"):
+        flash(f"Error MSAL: {result.get('error_description', result['error'])}", "danger")
+    else:
+        flash(f"Correo conectado para {app_key}: {result.get('username', '')}", "success")
+    return redirect(url_for("pages_core.pages_config.email_management"))
+
+
+@pages_config_bp.post("/config/email/auth/logout")
+@login_required
+@app_required('itcj', roles=['admin'])
+def email_auth_logout():
+    """Desconecta la cuenta de correo de una app (AJAX)"""
+    app_key = request.args.get("app", "").strip()
+    if not app_key:
+        return jsonify({"ok": False, "error": "Falta parametro 'app'"}), 400
+    msgraph_mail.clear_account_and_cache(app_key)
+    return jsonify({"ok": True})
+
+
+@pages_config_bp.get("/config/email/auth/status")
+@login_required
+@app_required('itcj', roles=['admin'])
+def email_auth_status():
+    """Retorna estado de conexion de correo de una app (AJAX)"""
+    app_key = request.args.get("app", "").strip()
+    if not app_key:
+        return jsonify({"connected": False, "error": "Falta parametro 'app'"}), 400
+    token = msgraph_mail.acquire_token_silent(app_key)
+    acct = msgraph_mail.read_account_info(app_key)
+    return jsonify({"connected": bool(token), "account": acct})

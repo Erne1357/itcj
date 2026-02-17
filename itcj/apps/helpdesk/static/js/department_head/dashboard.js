@@ -52,57 +52,32 @@ window.refreshDashboard = refreshDashboard;
 // ==================== LOAD STATS ====================
 async function loadDepartmentStats() {
     try {
-        const response = await HelpdeskUtils.api.getTickets({
-            department_id: DEPARTMENT_ID,
-            per_page: 1000
-        });
-        
-        const tickets = response.tickets || [];
-        
-        // Active tickets
-        const active = tickets.filter(t => 
-            !['CLOSED', 'CANCELED'].includes(t.status)
-        ).length;
-        
-        // Resolved tickets
-        const resolved = tickets.filter(t => 
-            ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED'].includes(t.status)
-        ).length;
-        
-        // Calculate average time
-        const resolvedWithTime = tickets.filter(t => 
-            t.resolved_at && t.created_at
-        );
-        
-        let avgHours = 0;
-        if (resolvedWithTime.length > 0) {
-            const totalHours = resolvedWithTime.reduce((sum, t) => {
-                const created = new Date(t.created_at);
-                const resolved = new Date(t.resolved_at);
-                const hours = (resolved - created) / (1000 * 60 * 60);
-                return sum + hours;
-            }, 0);
-            avgHours = totalHours / resolvedWithTime.length;
-        }
-        
-        // Calculate satisfaction
-        const rated = tickets.filter(t => t.rating);
-        const satisfaction = rated.length > 0
-            ? (rated.reduce((sum, t) => sum + t.rating, 0) / rated.length / 5 * 100)
-            : 0;
+        // Use dedicated stats endpoint instead of loading all tickets
+        const stats = await HelpdeskUtils.api.getDepartmentStats(DEPARTMENT_ID);
         
         // Update UI
-        document.getElementById('activeTicketsCount').textContent = active;
-        document.getElementById('resolvedCount').textContent = resolved;
-        document.getElementById('avgTime').textContent = avgHours > 0 
-            ? `${avgHours.toFixed(1)}h` 
+        document.getElementById('activeTicketsCount').textContent = stats.active_tickets || 0;
+        document.getElementById('resolvedCount').textContent = stats.resolved_tickets || 0;
+        
+        // Format average time
+        const avgTime = stats.avg_resolution_hours 
+            ? `${stats.avg_resolution_hours.toFixed(1)}h`
             : '-';
-        document.getElementById('satisfaction').textContent = satisfaction > 0 
-            ? `${satisfaction.toFixed(0)}%` 
+        document.getElementById('avgTime').textContent = avgTime;
+        
+        // Format satisfaction
+        const satisfaction = stats.satisfaction_percent !== null && stats.rated_tickets_count > 0
+            ? `${stats.satisfaction_percent.toFixed(0)}%`
             : '-';
+        document.getElementById('satisfaction').textContent = satisfaction;
         
     } catch (error) {
         console.error('Error loading stats:', error);
+        // Set fallback values
+        document.getElementById('activeTicketsCount').textContent = '-';
+        document.getElementById('resolvedCount').textContent = '-';
+        document.getElementById('avgTime').textContent = '-';
+        document.getElementById('satisfaction').textContent = '-';
     }
 }
 

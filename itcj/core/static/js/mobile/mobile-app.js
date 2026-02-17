@@ -48,6 +48,7 @@ class MobileApp {
         this.bindAppCards();
         this.bindQuickActions();
         this.setupIframeMessageListener();
+        this.setupIframeLoadMonitor();
     }
 
     /**
@@ -425,6 +426,7 @@ class MobileApp {
      * Compatible con iframe_bridge.js para detectar logout/session expired
      */
     setupIframeMessageListener() {
+        // Escuchar mensajes postMessage del iframe
         window.addEventListener('message', (event) => {
             if (event.origin !== window.location.origin) return;
 
@@ -458,11 +460,62 @@ class MobileApp {
     }
 
     /**
+     * Configura monitoreo del evento load de los iframes para detectar sesión expirada
+     * Esto captura casos donde el iframe carga la página de login directamente
+     */
+    setupIframeLoadMonitor() {
+        // Monitor para el iframe de apps
+        if (this.appFrame) {
+            this.appFrame.addEventListener('load', () => this.checkIframeForLogin(this.appFrame, 'app'));
+        }
+        // Monitor para el iframe de perfil (staff)
+        if (this.profileFrame) {
+            this.profileFrame.addEventListener('load', () => this.checkIframeForLogin(this.profileFrame, 'profile'));
+        }
+    }
+
+    /**
+     * Verifica si el iframe ha cargado una página de login (sesión expirada)
+     */
+    checkIframeForLogin(iframe, source) {
+        try {
+            // Intentar acceder al contenido del iframe (solo funciona si es mismo origen)
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (!iframeDoc) return;
+
+            const iframeUrl = iframe.contentWindow?.location?.pathname || '';
+            const iframeTitle = iframeDoc.title || '';
+            
+            console.log(`[MobileApp] Iframe ${source} cargó:`, iframeUrl, 'Título:', iframeTitle);
+
+            // Detectar si es página de login
+            const isLoginPage = iframeUrl.includes('/login') || 
+                               iframeUrl.includes('/logout') ||
+                               iframeTitle.toLowerCase().includes('inicio de sesión') ||
+                               iframeTitle.toLowerCase().includes('login') ||
+                               iframeDoc.querySelector('#loginForm') !== null;
+
+            if (isLoginPage) {
+                console.log('[MobileApp] Página de login detectada en iframe, sesión expirada');
+                this.handleSessionEnd('iframe_login_detected');
+            }
+        } catch (e) {
+            // Error de cross-origin - no podemos acceder al contenido
+            // Esto podría pasar si hay una redirección a otro dominio
+            console.warn('[MobileApp] No se pudo verificar contenido del iframe:', e.message);
+        }
+    }
+
+    /**
      * Maneja el fin de sesión (logout o expiración)
      * Redirige toda la página al login
      */
     handleSessionEnd(reason) {
         console.log('[MobileApp] Finalizando sesión, razón:', reason);
+        
+        // Evitar múltiples redirecciones
+        if (this._sessionEnding) return;
+        this._sessionEnding = true;
         
         // Limpiar iframes
         if (this.appFrame) {

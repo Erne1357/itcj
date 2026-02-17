@@ -22,17 +22,39 @@
 
     // ==================== TODAY'S APPOINTMENTS ====================
 
-    async function loadTodayAppointments() {
+    async function loadTodayAppointments(date = null) {
         const list = document.getElementById('todayList');
         const empty = document.getElementById('todayEmpty');
         const loading = document.getElementById('todayLoading');
+        const filterDateInput = document.getElementById('filterTodayDate');
+        const dateIndicator = document.getElementById('todayDateIndicator');
 
         loading.classList.remove('d-none');
         list.innerHTML = '';
         empty.classList.add('d-none');
 
         try {
-            const res = await fetch(`${API_BASE}/appointments/volunteer/today`);
+            // Si no se proporciona fecha, usar el día de hoy
+            const targetDate = date || new Date().toISOString().split('T')[0];
+            
+            // Actualizar el input de fecha para reflejar la fecha que se está mostrando
+            filterDateInput.value = targetDate;
+
+            // Actualizar indicador de fecha
+            const dateObj = new Date(targetDate + 'T00:00:00');
+            const today = new Date().toISOString().split('T')[0];
+            const isToday = targetDate === today;
+            
+            if (isToday) {
+                dateIndicator.innerHTML = '<i class="bi bi-circle-fill text-success me-1" style="font-size: 0.5rem;"></i>Mostrando citas de hoy';
+            } else {
+                const options = { weekday: 'long', day: 'numeric', month: 'long' };
+                let dateStr = dateObj.toLocaleDateString('es-MX', options);
+                dateStr = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+                dateIndicator.innerHTML = `<i class="bi bi-calendar-event me-1"></i>Mostrando: ${dateStr}`;
+            }
+
+            const res = await fetch(`${API_BASE}/appointments/volunteer/list?date=${targetDate}`);
             if (!res.ok) throw new Error('Error');
             const appointments = await res.json();
 
@@ -41,11 +63,17 @@
 
             if (!appointments.length) {
                 empty.classList.remove('d-none');
+                // Actualizar el mensaje para que sea más claro
+                const emptyTitle = document.querySelector('#todayEmpty h5');
+                if (emptyTitle) {
+                    emptyTitle.textContent = isToday ? 'No hay citas para hoy' : 'No hay citas para este día';
+                }
                 return;
             }
 
             list.innerHTML = appointments.map(renderAppointmentCard).join('');
         } catch (e) {
+            console.error('Error loading appointments:', e);
             loading.classList.add('d-none');
             empty.classList.remove('d-none');
         }
@@ -118,103 +146,386 @@
 
     // ==================== AVAILABLE SLOTS ====================
 
+    let allAvailableSlots = [];
+    let slotsByDateAvailable = {};
+    let currentMonthAvailable = new Date();
+    let selectedDateAvailable = null;
+    let selectedSlotIds = new Set();
+
     async function loadAvailableSlots() {
-        const list = document.getElementById('availableList');
+        const content = document.getElementById('availableContent');
         const empty = document.getElementById('availableEmpty');
         const loading = document.getElementById('availableLoading');
+        const noDateSelected = document.getElementById('noDateSelected');
+        const dateSelectedContent = document.getElementById('dateSelectedContent');
 
         loading.classList.remove('d-none');
-        list.innerHTML = '';
+        content.classList.add('d-none');
         empty.classList.add('d-none');
+        noDateSelected.classList.remove('d-none');
+        dateSelectedContent.classList.add('d-none');
+
+        selectedSlotIds.clear();
+        updateBulkSignupButton();
 
         try {
             const res = await fetch(`${API_BASE}/slots/all`);
             if (!res.ok) throw new Error('Error');
-            const slots = await res.json();
+            allAvailableSlots = await res.json();
 
             loading.classList.add('d-none');
 
-            if (!slots.length) {
+            if (!allAvailableSlots.length) {
                 empty.classList.remove('d-none');
                 return;
             }
 
-            renderAvailableSlots(slots, list);
+            // Agrupar slots por fecha
+            slotsByDateAvailable = {};
+            allAvailableSlots.forEach(s => {
+                if (!slotsByDateAvailable[s.date]) {
+                    slotsByDateAvailable[s.date] = [];
+                }
+                slotsByDateAvailable[s.date].push(s);
+            });
+
+            // Inicializar mes actual al primer día disponible
+            const firstDate = Object.keys(slotsByDateAvailable).sort()[0];
+            currentMonthAvailable = new Date(firstDate + 'T00:00:00');
+
+            renderAvailableCalendar();
+            content.classList.remove('d-none');
+
         } catch (e) {
             loading.classList.add('d-none');
             empty.classList.remove('d-none');
         }
     }
 
-    function renderAvailableSlots(slots, container) {
-        const grouped = {};
-        slots.forEach(s => {
-            if (!grouped[s.date]) grouped[s.date] = [];
-            grouped[s.date].push(s);
+    function renderAvailableCalendar() {
+        const monthDisplay = document.getElementById('availableCalendarMonth');
+        const grid = document.querySelector('.calendar-grid-volunteer');
+        
+        // Mostrar mes/año
+        const options = { month: 'long', year: 'numeric' };
+        let monthStr = currentMonthAvailable.toLocaleDateString('es-MX', options);
+        monthStr = monthStr.charAt(0).toUpperCase() + monthStr.slice(1);
+        monthDisplay.textContent = monthStr;
+
+        // Limpiar días anteriores (mantener headers)
+        const existingDays = grid.querySelectorAll('.calendar-day-volunteer');
+        existingDays.forEach(day => day.remove());
+
+        // Calcular inicio del mes
+        const firstDay = new Date(currentMonthAvailable.getFullYear(), currentMonthAvailable.getMonth(), 1);
+        const lastDay = new Date(currentMonthAvailable.getFullYear(), currentMonthAvailable.getMonth() + 1, 0);
+        
+        // Ajustar para que Lunes sea 0
+        let startDayOfWeek = firstDay.getDay() - 1;
+        if (startDayOfWeek === -1) startDayOfWeek = 6;
+
+        // Agregar días vacíos al inicio
+        for (let i = 0; i < startDayOfWeek; i++) {
+            const emptyDay = document.createElement('div');
+            emptyDay.className = 'calendar-day-volunteer empty';
+            grid.appendChild(emptyDay);
+        }
+
+        // Agregar días del mes
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (let day = 1; day <= lastDay.getDate(); day++) {
+            const currentDate = new Date(currentMonthAvailable.getFullYear(), currentMonthAvailable.getMonth(), day);
+            const dateStr = formatDateKey(currentDate);
+            const daySlots = slotsByDateAvailable[dateStr] || [];
+            
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day-volunteer';
+            dayElement.textContent = day;
+            
+            // Verificar si el día está en el pasado
+            if (currentDate < today) {
+                dayElement.classList.add('disabled');
+            } else if (daySlots.length > 0) {
+                dayElement.classList.add('available');
+                
+                // Verificar si todos los slots están inscritos
+                const signedUpCount = daySlots.filter(s => s.is_signed_up).length;
+                if (signedUpCount === daySlots.length) {
+                    dayElement.classList.add('has-signups');
+                } else if (signedUpCount > 0) {
+                    dayElement.classList.add('has-partial-signups');
+                }
+                
+                dayElement.dataset.date = dateStr;
+                dayElement.addEventListener('click', () => selectAvailableDate(dateStr));
+                
+                // Marcar si es el día seleccionado
+                if (dateStr === selectedDateAvailable) {
+                    dayElement.classList.add('active');
+                }
+            } else {
+                dayElement.classList.add('disabled');
+            }
+            
+            grid.appendChild(dayElement);
+        }
+    }
+
+    function selectAvailableDate(dateStr) {
+        selectedDateAvailable = dateStr;
+        
+        // Actualizar visual del calendario
+        document.querySelectorAll('.calendar-day-volunteer.available').forEach(day => {
+            day.classList.remove('active');
         });
+        document.querySelector(`[data-date="${dateStr}"]`)?.classList.add('active');
+        
+        // Mostrar horarios
+        const noDateSelected = document.getElementById('noDateSelected');
+        const dateSelectedContent = document.getElementById('dateSelectedContent');
+        noDateSelected.classList.add('d-none');
+        dateSelectedContent.classList.remove('d-none');
+        
+        renderAvailableTimeSlots(dateStr);
+    }
 
-        let html = '<div class="accordion" id="availableSlotsAccordion">';
-        Object.keys(grouped).sort().forEach((dateKey, index) => {
-            const dateSlots = grouped[dateKey];
-            const dateStr = formatDate(dateKey);
-            const accordionId = `availableCollapse${index}`;
-
+    function renderAvailableTimeSlots(dateStr) {
+        const dateTitle = document.getElementById('selectedDateTitle');
+        const dateSummary = document.getElementById('selectedDateSummary');
+        const timeSlotsList = document.getElementById('availableTimeSlots');
+        
+        // Formatear fecha para mostrar
+        dateTitle.textContent = formatDate(dateStr);
+        
+        const daySlots = slotsByDateAvailable[dateStr] || [];
+        daySlots.sort((a, b) => a.start_time.localeCompare(b.start_time));
+        
+        const signedUpCount = daySlots.filter(s => s.is_signed_up).length;
+        dateSummary.textContent = `${daySlots.length} horario${daySlots.length !== 1 ? 's' : ''} disponible${daySlots.length !== 1 ? 's' : ''} • ${signedUpCount} inscrito${signedUpCount !== 1 ? 's' : ''}`;
+        
+        let html = '<div class="d-flex flex-column gap-2">';
+        
+        daySlots.forEach(s => {
+            const timeStr = `${formatTime(s.start_time)} - ${formatTime(s.end_time)}`;
+            const locationName = s.location ? s.location.name : '';
+            const spotsUsed = `${s.current_appointments}/${s.max_appointments}`;
+            const volunteerCount = s.volunteers ? s.volunteers.length : 0;
+            
+            const isSelected = selectedSlotIds.has(s.id);
+            const isAlreadySigned = s.is_signed_up;
+            
             html += `
-            <div class="accordion-item border-0 mb-2">
-                <h2 class="accordion-header">
-                    <button class="accordion-button ${index !== 0 ? 'collapsed' : ''}" type="button"
-                            data-bs-toggle="collapse" data-bs-target="#${accordionId}"
-                            aria-expanded="${index === 0}" aria-controls="${accordionId}"
-                            style="background-color: #fdf2f4; color: #8B1538; font-size: 0.9rem;">
-                        <i class="bi bi-calendar3 me-2"></i>${dateStr}
-                        <span class="badge bg-light text-dark ms-2">${dateSlots.length} ${dateSlots.length === 1 ? 'horario' : 'horarios'}</span>
-                    </button>
-                </h2>
-                <div id="${accordionId}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}"
-                     data-bs-parent="#availableSlotsAccordion">
-                    <div class="accordion-body p-2">`;
-
-            dateSlots.forEach(s => {
-                const timeStr = `${formatTime(s.start_time)} - ${formatTime(s.end_time)}`;
-                const spotsUsed = `${s.current_appointments}/${s.max_appointments}`;
-                const locationName = s.location ? escapeHtml(s.location.name) : '';
-                const volunteerCount = s.volunteers ? s.volunteers.length : 0;
-
-                const signupBtn = s.is_signed_up
-                    ? `<button class="btn btn-sm btn-outline-danger signup-btn" onclick="window.unsignupSlot(${s.id})">
-                        <i class="bi bi-x-lg me-1"></i>Desinscribirme
-                       </button>`
-                    : `<button class="btn btn-sm signup-btn" style="background-color: #8B1538; color: white;" onclick="window.signupSlot(${s.id})">
-                        <i class="bi bi-check-lg me-1"></i>Inscribirme
-                       </button>`;
-
-                html += `
-                <div class="card slot-item ${s.is_signed_up ? 'signed-up' : ''} mb-2 border-0 shadow-sm">
-                    <div class="card-body p-3">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <div>
-                                <span class="fw-bold">${timeStr}</span>
-                                ${locationName ? `<span class="text-muted ms-2"><i class="bi bi-geo-alt me-1"></i>${locationName}</span>` : ''}
-                            </div>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-light text-dark" title="Alumnos agendados">
-                                    <i class="bi bi-people me-1"></i>${spotsUsed}
-                                </span>
-                                <span class="badge ${volunteerCount > 0 ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'}" title="Voluntarios inscritos">
-                                    <i class="bi bi-person-badge me-1"></i>${volunteerCount}
-                                </span>
-                                ${signupBtn}
-                            </div>
+            <div class="volunteer-time-slot ${isAlreadySigned ? 'already-signed' : ''} ${isSelected ? 'selected' : ''} p-3" data-slot-id="${s.id}">
+                <div class="d-flex align-items-start gap-3">
+                    <input type="checkbox" ${isAlreadySigned ? 'checked disabled' : ''} 
+                           ${isSelected ? 'checked' : ''} 
+                           data-slot-id="${s.id}"
+                           class="mt-1">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold mb-1">${timeStr}</div>
+                        ${locationName ? `<div class="text-muted small">
+                            <i class="bi bi-geo-alt me-1"></i>${escapeHtml(locationName)}
+                        </div>` : ''}
+                        <div class="d-flex gap-2 mt-2">
+                            <span class="badge bg-light text-dark" title="Alumnos agendados">
+                                <i class="bi bi-people me-1"></i>${spotsUsed}
+                            </span>
+                            <span class="badge ${volunteerCount > 0 ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'}" title="Voluntarios inscritos">
+                                <i class="bi bi-person-badge me-1"></i>${volunteerCount}
+                            </span>
+                            ${isAlreadySigned ? '<span class="badge bg-success-subtle text-success"><i class="bi bi-check-circle me-1"></i>Ya inscrito</span>' : ''}
                         </div>
                     </div>
-                </div>`;
-            });
-
-            html += `</div></div></div>`;
+                </div>
+            </div>`;
         });
-
+        
         html += '</div>';
-        container.innerHTML = html;
+        timeSlotsList.innerHTML = html;
+        
+        // Event listeners para selección
+        timeSlotsList.querySelectorAll('.volunteer-time-slot:not(.already-signed)').forEach(card => {
+            card.addEventListener('click', (e) => {
+                if (e.target.tagName === 'INPUT') return; // Ya se maneja en el checkbox
+                const checkbox = card.querySelector('input[type="checkbox"]');
+                checkbox.checked = !checkbox.checked;
+                toggleSlotSelection(parseInt(card.dataset.slotId), checkbox.checked);
+            });
+        });
+        
+        timeSlotsList.querySelectorAll('input[type="checkbox"]:not([disabled])').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                toggleSlotSelection(parseInt(e.target.dataset.slotId), e.target.checked);
+            });
+        });
+    }
+
+    function toggleSlotSelection(slotId, isSelected) {
+        if (isSelected) {
+            selectedSlotIds.add(slotId);
+        } else {
+            selectedSlotIds.delete(slotId);
+        }
+        
+        // Actualizar visual
+        const card = document.querySelector(`.volunteer-time-slot[data-slot-id="${slotId}"]`);
+        if (card) {
+            card.classList.toggle('selected', isSelected);
+        }
+        
+        updateBulkSignupButton();
+    }
+
+    function updateBulkSignupButton() {
+        const btn = document.getElementById('btnBulkSignup');
+        const countBadge = document.getElementById('bulkSignupCount');
+        
+        const count = selectedSlotIds.size;
+        countBadge.textContent = count;
+        btn.disabled = count === 0;
+        
+        if (count === 0) {
+            document.getElementById('bulkSignupText').textContent = 'Inscribirme';
+        } else {
+            document.getElementById('bulkSignupText').textContent = `Inscribirme a ${count}`;
+        }
+    }
+
+    function changeAvailableMonth(direction) {
+        currentMonthAvailable = new Date(currentMonthAvailable.getFullYear(), currentMonthAvailable.getMonth() + direction, 1);
+        renderAvailableCalendar();
+    }
+
+    function selectAllTimesForDay() {
+        if (!selectedDateAvailable) return;
+        
+        const daySlots = slotsByDateAvailable[selectedDateAvailable] || [];
+        const checkboxes = document.querySelectorAll('#availableTimeSlots input[type="checkbox"]:not([disabled])');
+        
+        // Verificar si todos están seleccionados
+        const allSelected = Array.from(checkboxes).every(cb => cb.checked);
+        
+        // Alternar
+        checkboxes.forEach(cb => {
+            const slotId = parseInt(cb.dataset.slotId);
+            cb.checked = !allSelected;
+            toggleSlotSelection(slotId, !allSelected);
+        });
+    }
+
+    async function bulkSignup() {
+        if (selectedSlotIds.size === 0) return;
+        
+        const btn = document.getElementById('btnBulkSignup');
+        const btnIcon = btn.querySelector('i.bi-check2-all');
+        const btnText = document.getElementById('bulkSignupText');
+        const btnCount = document.getElementById('bulkSignupCount');
+        
+        const originalBtnText = btnText.textContent;
+        const originalCountDisplay = btnCount.style.display;
+        
+        // Cambiar a estado de cargando
+        btn.disabled = true;
+        btnIcon.className = 'bi bi-hourglass-split spinner-icon me-1';
+        btnText.textContent = 'Inscribiendo...';
+        btnCount.style.display = 'none';
+        
+        try {
+            const slotIds = Array.from(selectedSlotIds);
+            
+            // Procesar cada inscripción y capturar los errores con detalles
+            const results = await Promise.allSettled(
+                slotIds.map(async slotId => {
+                    const res = await fetch(`${API_BASE}/slots/${slotId}/signup`, { method: 'POST' });
+                    const data = await res.json();
+                    
+                    if (!res.ok) {
+                        throw new Error(data.error || data.message || 'Error desconocido');
+                    }
+                    
+                    return data;
+                })
+            );
+            
+            const successful = results.filter(r => r.status === 'fulfilled');
+            const failed = results.filter(r => r.status === 'rejected');
+            
+            // Restaurar el botón ANTES de mostrar mensajes y recargar
+            btn.disabled = false;
+            btnIcon.className = 'bi bi-check2-all me-1';
+            btnText.textContent = originalBtnText;
+            btnCount.style.display = originalCountDisplay;
+            
+            // Mostrar mensajes de éxito
+            if (successful.length > 0) {
+                VisteTecUtils.showToast(
+                    `✓ Te inscribiste exitosamente a ${successful.length} horario${successful.length !== 1 ? 's' : ''}`, 
+                    'success'
+                );
+            }
+            
+            // Mostrar mensajes de error específicos
+            if (failed.length > 0) {
+                // Agrupar errores similares
+                const errorMessages = failed.map(r => r.reason.message);
+                const uniqueErrors = [...new Set(errorMessages)];
+                
+                if (uniqueErrors.length === 1) {
+                    // Un solo tipo de error
+                    VisteTecUtils.showToast(
+                        `✗ ${failed.length} horario${failed.length !== 1 ? 's' : ''}: ${uniqueErrors[0]}`, 
+                        'danger'
+                    );
+                } else {
+                    // Múltiples errores diferentes
+                    VisteTecUtils.showToast(
+                        `✗ No se pudo inscribir a ${failed.length} horario${failed.length !== 1 ? 's' : ''}. Revisa los detalles.`, 
+                        'warning'
+                    );
+                    
+                    // Log detallado en consola para debugging
+                    console.warn('Detalles de errores de inscripción:');
+                    failed.forEach((r, i) => {
+                        console.warn(`  Horario ${i + 1}:`, r.reason.message);
+                    });
+                }
+            }
+            
+            // Limpiar selección
+            selectedSlotIds.clear();
+            
+            // Recargar slots después de restaurar el botón
+            await loadAvailableSlots();
+            
+            // Si había un día seleccionado, volver a mostrarlo
+            if (selectedDateAvailable && slotsByDateAvailable[selectedDateAvailable]) {
+                selectAvailableDate(selectedDateAvailable);
+            }
+            
+        } catch (e) {
+            console.error('Error inesperado en inscripción:', e);
+            VisteTecUtils.showToast('Error inesperado al inscribirse. Por favor intenta de nuevo.', 'danger');
+            
+            // Asegurarse de restaurar el botón incluso si hay error
+            const currentBtn = document.getElementById('btnBulkSignup');
+            const currentBtnIcon = currentBtn?.querySelector('i');
+            const currentBtnText = document.getElementById('bulkSignupText');
+            const currentBtnCount = document.getElementById('bulkSignupCount');
+            
+            if (currentBtn) currentBtn.disabled = false;
+            if (currentBtnIcon) currentBtnIcon.className = 'bi bi-check2-all me-1';
+            if (currentBtnText) currentBtnText.textContent = originalBtnText;
+            if (currentBtnCount) currentBtnCount.style.display = originalCountDisplay;
+        }
+    }
+
+    function formatDateKey(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     }
 
     // ==================== MY SIGNUPS ====================
@@ -318,12 +629,16 @@
         try {
             const res = await fetch(`${API_BASE}/slots/${slotId}/signup`, { method: 'POST' });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Error');
+            
+            if (!res.ok) {
+                throw new Error(data.error || data.message || 'Error al inscribirse');
+            }
 
-            VisteTecUtils.showToast('Te has inscrito al horario', 'success');
+            VisteTecUtils.showToast('✓ Te has inscrito al horario', 'success');
             loadAvailableSlots();
         } catch (e) {
-            VisteTecUtils.showToast(e.message, 'danger');
+            console.error('Error en inscripción:', e);
+            VisteTecUtils.showToast(`✗ ${e.message}`, 'danger');
         }
     };
 
@@ -334,13 +649,17 @@
         try {
             const res = await fetch(`${API_BASE}/slots/${slotId}/unsignup`, { method: 'POST' });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Error');
+            
+            if (!res.ok) {
+                throw new Error(data.error || data.message || 'Error al desinscribirse');
+            }
 
-            VisteTecUtils.showToast('Inscripción cancelada', 'info');
+            VisteTecUtils.showToast('✓ Inscripción cancelada', 'info');
             loadAvailableSlots();
             loadMySignups();
         } catch (e) {
-            VisteTecUtils.showToast(e.message, 'danger');
+            console.error('Error al desinscribirse:', e);
+            VisteTecUtils.showToast(`✗ ${e.message}`, 'danger');
         }
     };
 
@@ -671,36 +990,6 @@
         }
     }
 
-    async function loadTodayByDate(date = null) {
-        const list = document.getElementById('todayList');
-        const empty = document.getElementById('todayEmpty');
-        const loading = document.getElementById('todayLoading');
-
-        loading.classList.remove('d-none');
-        list.innerHTML = '';
-        empty.classList.add('d-none');
-
-        try {
-            const targetDate = date || new Date().toISOString().split('T')[0];
-            const res = await fetch(`${API_BASE}/appointments/volunteer/list?date=${targetDate}`);
-            if (!res.ok) throw new Error('Error');
-            const appointments = await res.json();
-
-            loading.classList.add('d-none');
-            document.getElementById('todayCount').textContent = appointments.length;
-
-            if (!appointments.length) {
-                empty.classList.remove('d-none');
-                return;
-            }
-
-            list.innerHTML = appointments.map(renderAppointmentCard).join('');
-        } catch (e) {
-            loading.classList.add('d-none');
-            empty.classList.remove('d-none');
-        }
-    }
-
     // ==================== UTILITIES ====================
 
     function escapeHtml(str) {
@@ -764,19 +1053,20 @@
     document.getElementById('upcoming-tab').addEventListener('shown.bs.tab', loadUpcomingAppointments);
     document.getElementById('past-tab').addEventListener('shown.bs.tab', loadPastAppointments);
 
+    // Available slots calendar navigation
+    document.getElementById('btnAvailPrevMonth').addEventListener('click', () => changeAvailableMonth(-1));
+    document.getElementById('btnAvailNextMonth').addEventListener('click', () => changeAvailableMonth(1));
+    document.getElementById('btnSelectAllTimes').addEventListener('click', selectAllTimesForDay);
+    document.getElementById('btnBulkSignup').addEventListener('click', bulkSignup);
+
     // Date filter for today's appointments
     document.getElementById('filterTodayDate').addEventListener('change', (e) => {
-        loadTodayByDate(e.target.value);
+        loadTodayAppointments(e.target.value);
     });
 
     document.getElementById('btnTodayToday').addEventListener('click', () => {
-        document.getElementById('filterTodayDate').value = '';
-        loadTodayAppointments();
-    });
-
-    document.getElementById('btnTodayClear').addEventListener('click', () => {
-        document.getElementById('filterTodayDate').value = '';
-        loadTodayAppointments();
+        const today = new Date().toISOString().split('T')[0];
+        loadTodayAppointments(today);
     });
 
     // ==================== INIT ====================

@@ -1,3 +1,150 @@
+/* Calendario - Grid Layout */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+}
+
+.calendar-header {
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6c757d;
+    padding: 0.5rem 0;
+    text-transform: uppercase;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+    background-color: #f8f9fa;
+    position: relative;
+}
+
+.calendar-day.empty {
+    cursor: default;
+    background-color: transparent;
+}
+
+.calendar-day.disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    background-color: #f8f9fa;
+}
+
+.calendar-day.available {
+    background-color: white;
+    border-color: #dee2e6;
+}
+
+.calendar-day.available:hover {
+    border-color: #8B1538;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(139, 21, 56, 0.15);
+}
+
+.calendar-day.available.selected {
+    border-color: #8B1538;
+    background-color: #8B1538;
+    color: white;
+}
+
+.calendar-day-number {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.calendar-day-indicator {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-top: 2px;
+}
+
+/* Indicadores de disponibilidad */
+.calendar-day.available.high .calendar-day-indicator {
+    background-color: #28a745;
+}
+
+.calendar-day.available.medium .calendar-day-indicator {
+    background-color: #ffc107;
+}
+
+.calendar-day.available.low .calendar-day-indicator {
+    background-color: #dc3545;
+}
+
+.calendar-day.available.selected .calendar-day-indicator {
+    background-color: white;
+}
+
+/* Leyenda del calendario */
+.calendar-legend {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.legend-dot.high {
+    background-color: #28a745;
+}
+
+.legend-dot.medium {
+    background-color: #ffc107;
+}
+
+.legend-dot.low {
+    background-color: #dc3545;
+}
+
+/* Tarjetas de horarios */
+.time-slot-card {
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid #dee2e6;
+    background-color: white;
+}
+
+.time-slot-card:hover {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+    transform: translateX(4px);
+}
+
+.time-slot-card.selected {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+}
+
+.time-slot-card .slot-radio {
+    accent-color: #8B1538;
+}
+
+/* Legacy slot card support */
 .slot-card {
     cursor: pointer;
     transition: all 0.2s;

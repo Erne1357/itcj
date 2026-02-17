@@ -146,12 +146,11 @@ async function loadResolvedTickets() {
     HelpdeskUtils.showLoading('historyList');
 
     try {
-        // Usar assigned_to_me para obtener solo tickets que yo resolví
-        // (los tickets resueltos mantienen su assigned_to_user_id)
+        // Limit to 20 most recent resolved tickets instead of 100
         const response = await HelpdeskUtils.api.getTickets({
             assigned_to_me: true,
             status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED',
-            per_page: 100
+            per_page: 20
         });
 
         myTickets.resolved = response.tickets || [];
@@ -277,21 +276,36 @@ function getActionButtons(ticket, type) {
 }
 
 // ==================== DASHBOARD STATS ====================
-function updateDashboardStats() {
-    const totalTickets = myTickets.assigned.length + myTickets.inProgress.length;
-    
-    // Count resolved today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const resolvedToday = myTickets.resolved.filter(t => {
-        const resolvedDate = new Date(t.resolved_at);
-        return resolvedDate >= today;
-    }).length;
-    
-    document.getElementById('myTicketsCount').textContent = totalTickets;
-    document.getElementById('assignedCount').textContent = myTickets.assigned.length;
-    document.getElementById('inProgressCount').textContent = myTickets.inProgress.length;
-    document.getElementById('resolvedTodayCount').textContent = resolvedToday;
+async function updateDashboardStats() {
+    try {
+        // Use dedicated stats endpoint instead of local calculations
+        const stats = await HelpdeskUtils.api.getTechnicianStats();
+        
+        const totalTickets = stats.assigned_count + stats.in_progress_count;
+        
+        document.getElementById('myTicketsCount').textContent = totalTickets;
+        document.getElementById('assignedCount').textContent = stats.assigned_count;
+        document.getElementById('inProgressCount').textContent = stats.in_progress_count;
+        document.getElementById('resolvedTodayCount').textContent = stats.resolved_today_count || 0;
+        
+    } catch (error) {
+        console.error('Error loading technician stats:', error);
+        // Fallback to local calculations if API fails
+        const totalTickets = myTickets.assigned.length + myTickets.inProgress.length;
+        
+        // Count resolved today from loaded tickets
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const resolvedToday = myTickets.resolved.filter(t => {
+            const resolvedDate = new Date(t.resolved_at);
+            return resolvedDate >= today;
+        }).length;
+        
+        document.getElementById('myTicketsCount').textContent = totalTickets;
+        document.getElementById('assignedCount').textContent = myTickets.assigned.length;
+        document.getElementById('inProgressCount').textContent = myTickets.inProgress.length;
+        document.getElementById('resolvedTodayCount').textContent = resolvedToday;
+    }
 }
 
 // ==================== START WORK MODAL ====================
