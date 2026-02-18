@@ -1319,6 +1319,13 @@ const FormValidation = {
 
                 if (!response.ok) {
                     const error = await response.json();
+                    if (error.error === 'ticket_creation_restricted') {
+                        HelpdeskUtils.showToast(error.message, 'error');
+                        setTimeout(() => {
+                            window.location.href = '/help-desk/user/my-tickets';
+                        }, 3000);
+                        return;
+                    }
                     throw new Error(error.message || 'Error al crear ticket');
                 }
 

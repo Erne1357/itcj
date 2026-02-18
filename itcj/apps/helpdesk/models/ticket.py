@@ -209,6 +209,7 @@ class Ticket(db.Model):
                 'requester': {
                     'id': self.requester.id,
                     'name': self.requester.full_name,
+                    'email': self.requester.email,
                     'username': self.requester.username or self.requester.control_number
                 } if self.requester else None,
                 'category': self.category.to_dict() if self.category else None,
@@ -218,7 +219,7 @@ class Ticket(db.Model):
                     'username': self.assigned_to.username or self.assigned_to.control_number
                 } if self.assigned_to else None,
                 'assigned_to_team': self.assigned_to_team,
-                'department': {
+                'requester_department': {
                     'id': self.requester_department.id,
                     'name': self.requester_department.name
                 } if self.requester_department else None,
@@ -337,9 +338,17 @@ class Ticket(db.Model):
                     
                     # Métricas de calidad
                     'quality': {
-                        'has_rating': self.rating is not None,
-                        'rating_value': self.rating,
-                        'rating_category': self._get_rating_category(self.rating) if self.rating else None,
+                        'has_rating': self.rating_attention is not None,
+                        'rating_attention': self.rating_attention,
+                        'rating_speed': self.rating_speed,
+                        'rating_efficiency': self.rating_efficiency,
+                        'rating_comment': self.rating_comment,
+                        'rating_average': round((self.rating_attention + self.rating_speed) / 2, 1)
+                            if self.rating_attention is not None and self.rating_speed is not None else None,
+                        'rating_category': self._get_rating_category(
+                            round((self.rating_attention + self.rating_speed) / 2, 1)
+                            if self.rating_attention is not None and self.rating_speed is not None else None
+                        ),
                         'has_comments': self.comments.count() > 0 if hasattr(self, 'comments') else False,
                         'resolution_quality': self._get_resolution_quality()
                     }

@@ -4,6 +4,7 @@ let currentPage = 1;
 const itemsPerPage = 10;
 let currentFilters = {};
 let totalTickets = 0;
+let allTickets = []; // Variable global para almacenar todos los tickets
 let summaryStats = {
     total: 0,
     active: 0,
@@ -97,6 +98,7 @@ async function loadMyTickets() {
             if (tutorialData && tutorialData.ticket) {
                 console.log('🎫 Cargando ticket de ejemplo del tutorial');
                 const tickets = [tutorialData.ticket];
+                allTickets = tickets; // Guardar en variable global
                 totalTickets = 1;
                 renderTickets(tickets);
                 return;
@@ -119,6 +121,7 @@ async function loadMyTickets() {
         const response = await HelpdeskUtils.api.getTickets(params);
         const tickets = response.tickets || [];
         totalTickets = response.total || 0;
+        allTickets = tickets; // Guardar tickets en variable global
 
         renderTickets(tickets);
 
@@ -441,7 +444,9 @@ function openRatingModal(ticketId) {
         radio.checked = false;
     });
     
-    document.getElementById('btnSubmitRating').disabled = true;
+    const submitBtn = document.getElementById('btnSubmitRating');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Enviar Calificación';
     
     // Show modal
     const modal = new bootstrap.Modal(document.getElementById('ratingModal'));

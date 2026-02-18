@@ -324,7 +324,8 @@ def list_tickets(
     department_id: int = None,
     search: str = None,  # Búsqueda por título, número o descripción
     page: int = 1,
-    per_page: int = 20
+    per_page: int = 20,
+    include_metrics: bool = False
 ) -> dict:
     """
     Lista tickets según filtros y permisos del usuario.
@@ -430,7 +431,7 @@ def list_tickets(
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
     return {
-        'tickets': [t.to_dict(include_relations=True) for t in pagination.items],
+        'tickets': [t.to_dict(include_relations=True, include_metrics=include_metrics) for t in pagination.items],
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page,

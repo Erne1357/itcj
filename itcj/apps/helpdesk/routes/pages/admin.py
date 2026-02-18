@@ -152,7 +152,7 @@ def stats():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
+
     return render_template(
         'helpdesk/admin/stats.html',
         user_roles=user_roles,
