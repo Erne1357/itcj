@@ -1,39 +1,67 @@
 // itcj/apps/helpdesk/static/js/admin/tickets_list.js
 
-let allTickets = [];
-let filteredTickets = [];
 let currentPage = 1;
-const itemsPerPage = 15;
+const itemsPerPage = 20;
+let currentFilters = {};
+let totalTickets = 0;
+let summaryStats = {
+    total: 0,
+    pending: 0,
+    inProgress: 0,
+    resolved: 0
+};
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
-    loadAllTickets();
+    loadSummaryStats();
+    loadTickets();
     setupFilters();
     setupWebSocketListeners();
 });
 
-// ==================== LOAD TICKETS ====================
-async function loadAllTickets() {
+// ==================== LOAD SUMMARY STATS ====================
+async function loadSummaryStats() {
     try {
-        console.log('🎫 Cargando todos los tickets del sistema...');
+        // Cargar estadísticas de resumen (solo conteos, sin paginación)
+        const [totalResp, pendingResp, inProgressResp, resolvedResp] = await Promise.all([
+            HelpdeskUtils.api.getTickets({ per_page: 1, page: 1 }),
+            HelpdeskUtils.api.getTickets({ status: 'PENDING', per_page: 1, page: 1 }),
+            HelpdeskUtils.api.getTickets({ status: 'ASSIGNED,IN_PROGRESS', per_page: 1, page: 1 }),
+            HelpdeskUtils.api.getTickets({ status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED', per_page: 1, page: 1 })
+        ]);
 
-        // Cargar todos los tickets usando la API (per_page: 0 = sin limite)
-        const response = await HelpdeskUtils.api.getTickets({ per_page: 0 });
-        allTickets = response.tickets || [];
-
-        // Ordenar por fecha de creación descendente (más nuevos primero)
-        allTickets.sort((a, b) => {
-            const dateA = new Date(a.created_at);
-            const dateB = new Date(b.created_at);
-            return dateB - dateA; // Descendente
-        });
-
-        filteredTickets = [...allTickets];
+        summaryStats = {
+            total: totalResp.total || 0,
+            pending: pendingResp.total || 0,
+            inProgress: inProgressResp.total || 0,
+            resolved: resolvedResp.total || 0
+        };
 
         updateSummaryCards();
-        renderTickets();
+    } catch (error) {
+        console.error('Error loading summary stats:', error);
+    }
+}
 
-        console.log('✅ Tickets cargados:', allTickets.length);
+// ==================== LOAD TICKETS (CON PAGINACIÓN BACKEND) ====================
+async function loadTickets() {
+    try {
+        console.log('🎫 Cargando tickets (página', currentPage, ')...');
+
+        // Construir parámetros de consulta
+        const params = {
+            page: currentPage,
+            per_page: itemsPerPage,
+            ...currentFilters
+        };
+
+        const response = await HelpdeskUtils.api.getTickets(params);
+        const tickets = response.tickets || [];
+        totalTickets = response.total || 0;
+
+        renderTickets(tickets);
+
+        console.log('✅ Tickets cargados:', tickets.length, 'de', totalTickets);
 
     } catch (error) {
         console.error('Error loading tickets:', error);
@@ -45,19 +73,10 @@ async function loadAllTickets() {
 
 // ==================== SUMMARY CARDS ====================
 function updateSummaryCards() {
-    const total = allTickets.length;
-    const pending = allTickets.filter(t => t.status === 'PENDING').length;
-    const inProgress = allTickets.filter(t =>
-        ['ASSIGNED', 'IN_PROGRESS'].includes(t.status)
-    ).length;
-    const resolved = allTickets.filter(t =>
-        ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED'].includes(t.status)
-    ).length;
-
-    document.getElementById('totalTickets').textContent = total;
-    document.getElementById('pendingTickets').textContent = pending;
-    document.getElementById('inProgressTickets').textContent = inProgress;
-    document.getElementById('resolvedTickets').textContent = resolved;
+    document.getElementById('totalTickets').textContent = summaryStats.total;
+    document.getElementById('pendingTickets').textContent = summaryStats.pending;
+    document.getElementById('inProgressTickets').textContent = summaryStats.inProgress;
+    document.getElementById('resolvedTickets').textContent = summaryStats.resolved;
 }
 
 // ==================== FILTERS ====================
@@ -71,7 +90,13 @@ function setupFilters() {
     filterStatus.addEventListener('change', applyFilters);
     filterArea.addEventListener('change', applyFilters);
     filterPriority.addEventListener('change', applyFilters);
-    searchInput.addEventListener('input', applyFilters);
+    
+    // Debounce para búsqueda
+    let searchTimeout;
+    searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(applyFilters, 500);
+    });
 
     btnClearFilters.addEventListener('click', () => {
         filterStatus.value = '';
@@ -86,50 +111,42 @@ function applyFilters() {
     const statusFilter = document.getElementById('filterStatus').value;
     const areaFilter = document.getElementById('filterArea').value;
     const priorityFilter = document.getElementById('filterPriority').value;
-    const searchText = document.getElementById('searchInput').value.toLowerCase();
+    const searchText = document.getElementById('searchInput').value.trim();
 
-    filteredTickets = allTickets.filter(ticket => {
-        // Filtro por estado
-        if (statusFilter && ticket.status !== statusFilter) return false;
+    // Construir objeto de filtros
+    currentFilters = {};
+    
+    if (statusFilter) currentFilters.status = statusFilter;
+    if (areaFilter) currentFilters.area = areaFilter;
+    if (priorityFilter) currentFilters.priority = priorityFilter;
+    if (searchText) currentFilters.search = searchText;
 
-        // Filtro por área
-        if (areaFilter && ticket.area !== areaFilter) return false;
-
-        // Filtro por prioridad
-        if (priorityFilter && ticket.priority !== priorityFilter) return false;
-
-        // Filtro por búsqueda de texto
-        if (searchText) {
-            const titleMatch = ticket.title.toLowerCase().includes(searchText);
-            const numberMatch = ticket.ticket_number.toLowerCase().includes(searchText);
-            const descMatch = ticket.description.toLowerCase().includes(searchText);
-
-            if (!titleMatch && !numberMatch && !descMatch) return false;
-        }
-
-        return true;
-    });
-
+    // Resetear a página 1 cuando cambian los filtros
     currentPage = 1;
-    renderTickets();
+    
+    // Recargar tickets con nuevos filtros
+    loadTickets();
+    
+    // Recargar estadísticas de resumen con filtros
+    loadSummaryStats();
 }
 
 // ==================== RENDER TICKETS ====================
-function renderTickets() {
+function renderTickets(tickets) {
     const container = document.getElementById('ticketsList');
     const countBadge = document.getElementById('ticketCount');
 
     // Update count
-    countBadge.textContent = `${filteredTickets.length} ticket${filteredTickets.length !== 1 ? 's' : ''}`;
+    countBadge.textContent = `${totalTickets} ticket${totalTickets !== 1 ? 's' : ''}`;
 
     // Empty state
-    if (filteredTickets.length === 0) {
+    if (tickets.length === 0) {
         container.innerHTML = `
             <div class="text-center py-5">
                 <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
                 <h5 class="text-muted">No hay tickets</h5>
                 <p class="text-muted">
-                    ${allTickets.length === 0
+                    ${totalTickets === 0
                         ? 'Aún no hay tickets en el sistema.'
                         : 'No hay tickets que coincidan con los filtros aplicados.'}
                 </p>
@@ -139,16 +156,11 @@ function renderTickets() {
         return;
     }
 
-    // Pagination
-    const totalPages = Math.ceil(filteredTickets.length / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const ticketsToShow = filteredTickets.slice(startIndex, endIndex);
-
     // Render tickets
-    container.innerHTML = ticketsToShow.map(ticket => createTicketCard(ticket)).join('');
+    container.innerHTML = tickets.map(ticket => createTicketCard(ticket)).join('');
 
     // Render pagination
+    const totalPages = Math.ceil(totalTickets / itemsPerPage);
     renderPagination(totalPages);
 }
 
@@ -316,7 +328,7 @@ function renderPagination(totalPages) {
 
 function changePage(page) {
     currentPage = page;
-    renderTickets();
+    loadTickets(); // Cargar desde backend
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -361,7 +373,8 @@ function bindAdminSocketEvents() {
     window.__hdJoinAdmin?.();
 
     const debouncedRefresh = debounce(() => {
-        loadAllTickets();
+        loadSummaryStats();
+        loadTickets();
         HelpdeskUtils.showToast('Lista actualizada', 'info');
     }, 500);
 

@@ -21,23 +21,34 @@
 {% block page_subtitle %}Codigo: <code id="positionCode">...</code>{% endblock %}
 
 {% block page_actions %}
-<div class="btn-group">
-    <button class="btn btn-outline-danger" id="deletePositionBtn">
-        <i class="bi bi-trash me-1"></i>Eliminar Puesto
+<div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-outline-danger btn-sm" id="deletePositionBtn">
+        <i class="bi bi-trash me-1"></i><span class="d-none d-sm-inline">Eliminar</span>
     </button>
-    <button class="btn btn-primary" id="savePositionBtn">
-        <i class="bi bi-check-lg me-1"></i>Guardar Cambios
+    <button class="btn btn-primary btn-sm" id="savePositionBtn">
+        <i class="bi bi-check-lg me-1"></i><span class="d-none d-sm-inline">Guardar</span>
     </button>
 </div>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+    @media (min-width: 576px) {
+        #deletePositionBtn, #savePositionBtn {
+            font-size: 1rem;
+            padding: 0.375rem 0.75rem;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="row">
+<div class="row g-3 g-lg-4">
     <!-- Informacion General -->
-    <div class="col-12 col-lg-6 mb-4">
+    <div class="col-12 col-lg-6 mb-3 mb-lg-4">
         <div class="card h-100">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Informacion General</h5>
+                <h5 class="mb-0 fs-6"><i class="bi bi-info-circle me-2"></i>Informacion General</h5>
             </div>
             <div class="card-body">
                 <form id="positionForm">
@@ -75,7 +86,7 @@
                         </div>
                     </div>
 
-                    <div class="alert alert-info" id="codeInfo">
+                    <div class="alert alert-info py-2" id="codeInfo">
                         <i class="bi bi-info-circle me-2"></i>
                         <strong>Codigo:</strong> <span id="displayCode"></span>
                         <br>
@@ -87,12 +98,12 @@
     </div>
 
     <!-- Usuarios Asignados -->
-    <div class="col-12 col-lg-6 mb-4">
+    <div class="col-12 col-lg-6 mb-3 mb-lg-4">
         <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-people me-2"></i>Usuarios Asignados</h5>
-                <button class="btn btn-sm btn-primary" id="assignUserBtn">
-                    <i class="bi bi-person-plus me-1"></i>Asignar Usuario
+            <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
+                <h5 class="mb-0 fs-6"><i class="bi bi-people me-2"></i>Usuarios Asignados</h5>
+                <button class="btn btn-sm btn-primary w-100 w-sm-auto" id="assignUserBtn">
+                    <i class="bi bi-person-plus me-1"></i><span class="d-none d-sm-inline">Asignar</span><span class="d-sm-none">Asignar Usuario</span>
                 </button>
             </div>
             <div class="card-body" id="usersListContainer">
@@ -108,10 +119,10 @@
     <!-- Aplicaciones y Permisos -->
     <div class="col-12">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-app me-2"></i>Aplicaciones y Permisos</h5>
-                <button class="btn btn-sm btn-primary" id="manageAppsBtn">
-                    <i class="bi bi-gear me-1"></i>Gestionar Aplicaciones
+            <div class="card-header d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2">
+                <h5 class="mb-0 fs-6"><i class="bi bi-app me-2"></i>Aplicaciones y Permisos</h5>
+                <button class="btn btn-sm btn-primary w-100 w-sm-auto" id="manageAppsBtn">
+                    <i class="bi bi-gear me-1"></i><span class="d-none d-sm-inline">Gestionar Apps</span><span class="d-sm-none">Gestionar Aplicaciones</span>
                 </button>
             </div>
             <div class="card-body" id="appsContainer">

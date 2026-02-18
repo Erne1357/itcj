@@ -6,6 +6,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Help-Desk{% endblock %} - ITCJ</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}">
 
     <!-- CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -13,18 +14,32 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="{{ url_for('static', filename='helpdesk/css/helpdesk.css') }}?v={{ sv('helpdesk', 'css/helpdesk.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}" rel="stylesheet">
+    
+    <style>
+        :root {
+            --app-primary: #059669;
+            --app-primary-dark: #047857;
+            --app-primary-light: #ecfdf5;
+        }
+    </style>
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="bg-light ">
+<body class="bg-light">
 
     <!-- Header con Navegación -->
-    <header class="sitec-header-nav sticky-top shadow-sm mb-4">
-        <div class="container-fluid">
-            <nav class="navbar navbar-expand-lg navbar-dark py-2">
-                <div class="container-fluid">
+    <header class="sitec-header-nav sticky-top shadow-sm mb-2 mb-md-4">
+        <div class="container-fluid px-2 px-md-3">
+            <nav class="navbar navbar-expand-lg navbar-dark py-1 py-md-2">
+                <div class="container-fluid px-0">
+                    <!-- Botón de regreso al dashboard (solo visible en iframe móvil) -->
+                    <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+                        <i class="bi bi-arrow-left"></i>
+                    </button>
+
                     <!-- Logo y Título -->
-                    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('helpdesk_pages.home') }}">
+                    <a class="navbar-brand d-flex align-items-center gap-1 gap-md-2" href="{{ url_for('helpdesk_pages.home') }}">
                         <div class="sitec-logo-small">
                             <span class="fw-bold text-white">CC</span>
                         </div>
@@ -34,21 +49,26 @@
                         </div>
                     </a>
 
-                    <!-- Mobile Toggle -->
-                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#helpdeskNav">
+                    <!-- Header Actions (visible on mobile too) -->
+                    <div class="d-flex align-items-center gap-1 gap-md-2 order-lg-last">
+                        {% block header_back %} {% endblock %}
+                        {% block header_actions %} {% endblock %}
+                    </div>
+
+                    <!-- Hamburger button que abre sidebar en móvil -->
+                    <button class="navbar-toggler border-0 ms-2 sidebar-trigger d-lg-none" type="button" id="sidebarTrigger">
                         <span class="navbar-toggler-icon"></span>
                     </button>
-                    {% block header_back %} {% endblock %}
-                    {% block header_actions %} {% endblock %}
-                    <!-- Navegación -->
-                    <div class="collapse navbar-collapse" id="helpdeskNav">
+                    
+                    <!-- Navegación Desktop -->
+                    <div class="collapse navbar-collapse d-none d-lg-flex" id="helpdeskNav">
                         <ul class="navbar-nav ms-auto align-items-lg-center">
                             
                             {% if helpdesk_nav_items %}
                                 {% for item in helpdesk_nav_items %}
                                     {% if item.dropdown %}
                                         <!-- Dropdown Menu -->
-                                        <li class="nav-item dropdown">
+                                        <li class="nav-item dropdown{% if item.mobile_only %} d-lg-none{% endif %}">
                                             <a class="nav-link dropdown-toggle" href="#" role="button" 
                                                data-bs-toggle="dropdown" aria-expanded="false">
                                                 <i class="fas {{ item.icon }} me-1"></i>
@@ -68,7 +88,7 @@
                                         </li>
                                     {% else %}
                                         <!-- Regular Link -->
-                                        <li class="nav-item">
+                                        <li class="nav-item{% if item.mobile_only %} d-lg-none{% endif %}">
                                             <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" 
                                                href="{{ item.url }}">
                                                 <i class="fas {{ item.icon }} me-1"></i>
@@ -108,6 +128,59 @@
         </div>
     </header>
 
+    <!-- Sidebar móvil -->
+    <div class="app-sidebar-overlay" id="appSidebarOverlay"></div>
+    <aside class="app-sidebar" id="appSidebar">
+        <div class="app-sidebar-header">
+            <h5 class="app-sidebar-title">
+                <i class="fas fa-headset"></i>
+                Help-Desk
+            </h5>
+            <button type="button" class="app-sidebar-close" id="sidebarClose">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        
+        <nav class="app-sidebar-nav">
+            <div class="app-sidebar-section">
+                <div class="app-sidebar-section-title">Navegación</div>
+                {% if helpdesk_nav_items %}
+                    {% for item in helpdesk_nav_items %}
+                        {% if item.dropdown %}
+                            {% for sub_item in item.dropdown %}
+                            <a href="{{ sub_item.url }}" class="app-sidebar-item {% if current_route == sub_item.endpoint %}active{% endif %}">
+                                <i class="fas {{ sub_item.icon }}"></i>
+                                <span>{{ sub_item.label }}</span>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}">
+                                <i class="fas {{ item.icon }}"></i>
+                                <span>{{ item.label }}</span>
+                            </a>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </nav>
+        
+        <div class="app-sidebar-footer">
+            <div class="app-sidebar-user">
+                <div class="app-sidebar-user-avatar">
+                    {{ current_user.name[:1]|upper if current_user and current_user.name else 'U' }}
+                </div>
+                <div class="app-sidebar-user-info">
+                    <div class="app-sidebar-user-name">{{ current_user.name if current_user else 'Usuario' }}</div>
+                    <div class="app-sidebar-user-role">Centro de Cómputo</div>
+                </div>
+            </div>
+            <button type="button" class="app-sidebar-logout" id="sidebarLogout">
+                <i class="bi bi-box-arrow-right"></i>
+                Cerrar sesión
+            </button>
+        </div>
+    </aside>
+
     <!-- Breadcrumb (Opcional) -->
     {% if show_breadcrumb %}
     <nav aria-label="breadcrumb" class="bg-white border-bottom">
@@ -122,7 +195,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-5">
+    <main class="container-fluid px-3 px-md-4 px-lg-5">
         {% block content %}{% endblock %}
     </main>
 
@@ -149,6 +222,9 @@
 
     <!-- Update checker for zero-downtime deployment notifications -->
     <script src="{{ url_for('static', filename='core/js/update-checker.js') }}?v={{ sv('core', 'js/update-checker.js') }}"></script>
+
+    <!-- Mobile App Shell (sidebar & back button) -->
+    <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
 
     <script>
         // Logout handler
@@ -179,6 +255,11 @@
             } catch (error) {
                 console.error('Error logging out:', error);
             }
+        });
+
+        // Sidebar logout handler
+        document.getElementById('sidebarLogout')?.addEventListener('click', function() {
+            document.getElementById('btnLogout')?.click();
         });
 
         // Initialize Helpdesk Notification FAB Widget

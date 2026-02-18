@@ -322,8 +322,10 @@ def list_tickets(
     assigned_to_team: str = None,
     created_by_me: bool = False,
     department_id: int = None,
+    search: str = None,  # Búsqueda por título, número o descripción
     page: int = 1,
-    per_page: int = 20
+    per_page: int = 20,
+    include_metrics: bool = False
 ) -> dict:
     """
     Lista tickets según filtros y permisos del usuario.
@@ -338,6 +340,7 @@ def list_tickets(
         assigned_to_team: Solo tickets asignados al equipo (sin usuario específico)
         created_by_me: Solo tickets creados por mí
         department_id: Solo tickets de un departamento
+        search: Búsqueda por título, número de ticket o descripción
         page: Página actual
         per_page: Tickets por página
     
@@ -410,6 +413,17 @@ def list_tickets(
     if department_id:
         query = query.filter(Ticket.requester_department_id == department_id)
     
+    # Búsqueda por texto (título, número de ticket o descripción)
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Ticket.title.ilike(search_term),
+                Ticket.ticket_number.ilike(search_term),
+                Ticket.description.ilike(search_term)
+            )
+        )
+    
     # ORDENAMIENTO: FIFO (created_at)
     query = query.order_by(Ticket.created_at.desc())
     
@@ -417,7 +431,7 @@ def list_tickets(
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
     return {
-        'tickets': [t.to_dict(include_relations=True) for t in pagination.items],
+        'tickets': [t.to_dict(include_relations=True, include_metrics=include_metrics) for t in pagination.items],
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page,

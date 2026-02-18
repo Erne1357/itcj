@@ -9,34 +9,34 @@
 {% block content %}
 <div class="container-fluid">
     <!-- Encabezado -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 mb-md-4 flex-wrap gap-2">
         <div>
-            <h1 class="h3 mb-0 text-gray-800">
+            <h1 class="h4 h3-md mb-0 text-gray-800">
                 <i class="fas fa-plus-circle fa-fw"></i> 
-                <span id="page-title">Registrar Nuevo Equipo</span>
+                <span id="page-title">Registrar<span class="d-none d-sm-inline"> Nuevo</span> Equipo</span>
             </h1>
-            <p class="text-muted mb-0" id="page-subtitle">Complete la información del equipo para agregarlo al inventario</p>
+            <p class="text-muted mb-0 small d-none d-sm-block" id="page-subtitle">Complete la información del equipo para agregarlo al inventario</p>
         </div>
         <div>
-            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary">
-                <i class="fas fa-arrow-left"></i> Volver a Lista
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left"></i><span class="d-none d-sm-inline"> Volver</span>
             </a>
         </div>
     </div>
 
     <!-- Selector de Modo -->
-    <div class="mode-selector text-center">
-        <div class="btn-group btn-group-lg" role="group">
+    <div class="mode-selector text-center mb-3 mb-md-4">
+        <div class="btn-group btn-group-sm btn-group-md-lg" role="group">
             <button type="button" class="mode-btn active" id="mode-individual-btn" onclick="switchMode('individual')">
-                <i class="fas fa-box mr-2"></i>
-                Registro Individual
+                <i class="fas fa-box mr-1 mr-md-2"></i>
+                <span class="d-none d-sm-inline">Registro </span>Individual
             </button>
             <button type="button" class="mode-btn" id="mode-bulk-btn" onclick="switchMode('bulk')">
-                <i class="fas fa-boxes mr-2"></i>
-                Registro Masivo
+                <i class="fas fa-boxes mr-1 mr-md-2"></i>
+                <span class="d-none d-sm-inline">Registro </span>Masivo
             </button>
         </div>
-        <p class="text-muted mt-2 mb-0">
+        <p class="text-muted mt-2 mb-0 d-none d-sm-block">
             <small id="mode-description">Registra un equipo con toda su información detallada</small>
         </p>
     </div>
@@ -498,7 +498,7 @@
                     </div>
                     <div class="card-body">
                         <div class="text-center py-3">
-                            <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                            <i class="fas fa-check-circle fa-2x fa-md-3x text-success mb-2 mb-md-3"></i>
                             <h5 class="text-success mb-0">ACTIVO</h5>
                             <p class="text-muted mb-0">
                                 <small>El equipo se registrará con estado activo</small>
@@ -661,7 +661,7 @@
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-body text-center py-5">
-                <i class="fas fa-cog fa-spin fa-3x text-primary mb-4"></i>
+                <i class="fas fa-cog fa-spin fa-2x fa-md-3x text-primary mb-3 mb-md-4"></i>
                 <h5 class="mb-3">Registrando Equipos...</h5>
                 <div class="progress mb-3" style="height: 25px;">
                     <div 

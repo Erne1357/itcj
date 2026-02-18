@@ -286,7 +286,14 @@ class UsersManager {
             return;
         }
 
-        const badges = appKeys.map(appKey => {
+        // Ordenar apps: itcj siempre al final
+        const sortedAppKeys = [...appKeys].sort((a, b) => {
+            if (a === 'itcj') return 1;
+            if (b === 'itcj') return -1;
+            return a.localeCompare(b);
+        });
+
+        const badges = sortedAppKeys.map(appKey => {
             const app = this.apps.find(a => a.key === appKey);
             return `<span class="badge bg-${app ? app.key : 'primary'}" title="${app ? app.name : appKey}">${appKey}</span>`;
         }).join(' ');
@@ -638,8 +645,9 @@ class UsersManager {
         // Generar filas de usuarios
         users.forEach(user => {
             const row = document.createElement('tr');
-            row.className = 'user-row';
+            row.className = 'user-row clickable-row';
             row.setAttribute('data-user-id', user.id);
+            row.setAttribute('data-href', `/itcj/config/users/${user.id}`);
             
             row.innerHTML = `
                 <td class="px-4 py-3">

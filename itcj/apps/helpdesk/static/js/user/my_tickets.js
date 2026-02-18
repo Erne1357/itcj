@@ -1,9 +1,16 @@
 // itcj/apps/helpdesk/static/js/user/my_tickets.js
 
-let allTickets = [];
-let filteredTickets = [];
 let currentPage = 1;
 const itemsPerPage = 10;
+let currentFilters = {};
+let totalTickets = 0;
+let allTickets = []; // Variable global para almacenar todos los tickets
+let summaryStats = {
+    total: 0,
+    active: 0,
+    resolved: 0,
+    pendingRating: 0
+};
 
 let currentRatingAttention = 0;
 let currentRatingSpeed = 0;
@@ -25,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const delay = isTutorialMode ? 100 : 0;
 
     setTimeout(() => {
+        loadSummaryStats();
         loadMyTickets();
         setupFilters();
         setupRatingModal();
@@ -32,10 +40,51 @@ document.addEventListener('DOMContentLoaded', () => {
     }, delay);
 });
 
-// ==================== LOAD TICKETS ====================
+// ==================== LOAD SUMMARY STATS ====================
+async function loadSummaryStats() {
+    try {
+        // Verificar si está en modo tutorial
+        const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
+
+        if (isTutorialMode) {
+            const tutorialData = window.getTutorialTicketData();
+            if (tutorialData && tutorialData.ticket) {
+                summaryStats = {
+                    total: 1,
+                    active: 1,
+                    resolved: 0,
+                    pendingRating: 0
+                };
+                updateSummaryCards();
+                return;
+            }
+        }
+
+        // Cargar estadísticas de resumen (solo conteos)
+        const [totalResp, activeResp, resolvedResp, ratingResp] = await Promise.all([
+            HelpdeskUtils.api.getTickets({ created_by_me: true, per_page: 1, page: 1 }),
+            HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'PENDING,ASSIGNED,IN_PROGRESS', per_page: 1, page: 1 }),
+            HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED', per_page: 1, page: 1 }),
+            HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'RESOLVED_SUCCESS,RESOLVED_FAILED', per_page: 1, page: 1 })
+        ]);
+
+        summaryStats = {
+            total: totalResp.total || 0,
+            active: activeResp.total || 0,
+            resolved: resolvedResp.total || 0,
+            pendingRating: ratingResp.total || 0
+        };
+
+        updateSummaryCards();
+    } catch (error) {
+        console.error('Error loading summary stats:', error);
+    }
+}
+
+// ==================== LOAD TICKETS (CON PAGINACIÓN BACKEND) ====================
 async function loadMyTickets() {
     try {
-        console.log('🎫 Cargando tickets...');
+        console.log('🎫 Cargando tickets (página', currentPage, ')...');
 
         // Verificar si está en modo tutorial
         const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
@@ -48,25 +97,35 @@ async function loadMyTickets() {
 
             if (tutorialData && tutorialData.ticket) {
                 console.log('🎫 Cargando ticket de ejemplo del tutorial');
-                allTickets = [tutorialData.ticket];
-                filteredTickets = [...allTickets];
-
-                updateSummaryCards();
-                renderTickets();
+                const tickets = [tutorialData.ticket];
+                allTickets = tickets; // Guardar en variable global
+                totalTickets = 1;
+                renderTickets(tickets);
                 return;
             } else {
                 console.warn('⚠️ Modo tutorial activo pero sin datos de ticket');
             }
         }
 
-        // Modo normal: cargar tickets de la BD
+        // Modo normal: cargar tickets de la BD con paginación
         console.log('🎫 Cargando tickets desde la BD');
-        const response = await HelpdeskUtils.api.getTickets({ created_by_me: true });
-        allTickets = response.tickets || [];
-        filteredTickets = [...allTickets];
+        
+        // Construir parámetros de consulta
+        const params = {
+            created_by_me: true,
+            page: currentPage,
+            per_page: itemsPerPage,
+            ...currentFilters
+        };
 
-        updateSummaryCards();
-        renderTickets();
+        const response = await HelpdeskUtils.api.getTickets(params);
+        const tickets = response.tickets || [];
+        totalTickets = response.total || 0;
+        allTickets = tickets; // Guardar tickets en variable global
+
+        renderTickets(tickets);
+
+        console.log('✅ Tickets cargados:', tickets.length, 'de', totalTickets);
 
     } catch (error) {
         console.error('Error loading tickets:', error);
@@ -78,43 +137,71 @@ async function loadMyTickets() {
 
 // ==================== SUMMARY CARDS ====================
 function updateSummaryCards() {
-    const total = allTickets.length;
-    const active = allTickets.filter(t => 
-        ['PENDING', 'ASSIGNED', 'IN_PROGRESS'].includes(t.status)
-    ).length;
-    const resolved = allTickets.filter(t => 
-        ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED'].includes(t.status)
-    ).length;
-    const pendingRating = allTickets.filter(t => 
-        ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(t.status) && !t.rating_attention
-    ).length;
+    document.getElementById('totalTickets').textContent = summaryStats.total;
+    document.getElementById('activeTickets').textContent = summaryStats.active;
+    document.getElementById('resolvedTickets').textContent = summaryStats.resolved;
+    document.getElementById('pendingRating').textContent = summaryStats.pendingRating;
+}
+
+// ==================== FILTERS ====================
+function setupFilters() {
+    const filterStatus = document.getElementById('filterStatus');
+    const filterArea = document.getElementById('filterArea');
+    const searchInput = document.getElementById('searchInput');
+
+    filterStatus.addEventListener('change', applyFilters);
+    filterArea.addEventListener('change', applyFilters);
     
-    document.getElementById('totalTickets').textContent = total;
-    document.getElementById('activeTickets').textContent = active;
-    document.getElementById('resolvedTickets').textContent = resolved;
-    document.getElementById('pendingRating').textContent = pendingRating;
+    // Debounce para búsqueda
+    let searchTimeout;
+    searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(applyFilters, 500);
+    });
+}
+
+function applyFilters() {
+    const statusFilter = document.getElementById('filterStatus').value;
+    const areaFilter = document.getElementById('filterArea').value;
+    const searchText = document.getElementById('searchInput').value.trim();
+
+    // Construir objeto de filtros
+    currentFilters = {};
+    
+    if (statusFilter) currentFilters.status = statusFilter;
+    if (areaFilter) currentFilters.area = areaFilter;
+    if (searchText) currentFilters.search = searchText;
+
+    // Resetear a página 1 cuando cambian los filtros
+    currentPage = 1;
+    
+    // Recargar tickets con nuevos filtros
+    loadMyTickets();
+    
+    // Recargar estadísticas de resumen con filtros
+    loadSummaryStats();
 }
 
 // ==================== RENDER TICKETS ====================
-function renderTickets() {
+function renderTickets(tickets) {
     const container = document.getElementById('ticketsList');
     const countBadge = document.getElementById('ticketCount');
     
     // Update count
-    countBadge.textContent = `${filteredTickets.length} ticket${filteredTickets.length !== 1 ? 's' : ''}`;
+    countBadge.textContent = `${totalTickets} ticket${totalTickets !== 1 ? 's' : ''}`;
     
     // Empty state
-    if (filteredTickets.length === 0) {
+    if (tickets.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-inbox text-muted"></i>
                 <h5 class="text-muted">No hay tickets</h5>
                 <p class="text-muted">
-                    ${allTickets.length === 0 
+                    ${totalTickets === 0 
                         ? 'Aún no has creado ningún ticket.' 
                         : 'No hay tickets que coincidan con los filtros.'}
                 </p>
-                ${allTickets.length === 0 ? `
+                ${totalTickets === 0 ? `
                     <a href="/help-desk/user/create" class="btn btn-primary mt-3">
                         <i class="fas fa-plus me-2"></i>Crear mi primer ticket
                     </a>
@@ -125,16 +212,11 @@ function renderTickets() {
         return;
     }
     
-    // Pagination
-    const totalPages = Math.ceil(filteredTickets.length / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const ticketsToShow = filteredTickets.slice(startIndex, endIndex);
-    
     // Render tickets
-    container.innerHTML = ticketsToShow.map(ticket => createTicketCard(ticket)).join('');
+    container.innerHTML = tickets.map(ticket => createTicketCard(ticket)).join('');
     
     // Render pagination
+    const totalPages = Math.ceil(totalTickets / itemsPerPage);
     renderPagination(totalPages);
 }
 
@@ -294,52 +376,8 @@ function renderPagination(totalPages) {
 
 function changePage(page) {
     currentPage = page;
-    renderTickets();
+    loadMyTickets(); // Cargar desde backend
     window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// ==================== FILTERS ====================
-function setupFilters() {
-    const filterStatus = document.getElementById('filterStatus');
-    const filterArea = document.getElementById('filterArea');
-    const searchInput = document.getElementById('searchInput');
-    
-    filterStatus.addEventListener('change', applyFilters);
-    filterArea.addEventListener('change', applyFilters);
-    
-    // Debounce search
-    let searchTimeout;
-    searchInput.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(applyFilters, 300);
-    });
-}
-
-function applyFilters() {
-    const status = document.getElementById('filterStatus').value;
-    const area = document.getElementById('filterArea').value;
-    const search = document.getElementById('searchInput').value.toLowerCase().trim();
-    
-    filteredTickets = allTickets.filter(ticket => {
-        // Status filter
-        if (status && ticket.status !== status) return false;
-        
-        // Area filter
-        if (area && ticket.area !== area) return false;
-        
-        // Search filter
-        if (search) {
-            const matchTitle = ticket.title.toLowerCase().includes(search);
-            const matchNumber = ticket.ticket_number.toLowerCase().includes(search);
-            const matchDescription = ticket.description.toLowerCase().includes(search);
-            if (!matchTitle && !matchNumber && !matchDescription) return false;
-        }
-        
-        return true;
-    });
-    
-    currentPage = 1;
-    renderTickets();
 }
 
 // ==================== RATING MODAL ====================
@@ -406,7 +444,9 @@ function openRatingModal(ticketId) {
         radio.checked = false;
     });
     
-    document.getElementById('btnSubmitRating').disabled = true;
+    const submitBtn = document.getElementById('btnSubmitRating');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Enviar Calificación';
     
     // Show modal
     const modal = new bootstrap.Modal(document.getElementById('ratingModal'));

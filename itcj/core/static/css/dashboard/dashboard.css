@@ -21,7 +21,7 @@ body {
 .desktop-background {
   position: absolute;
   inset: 0;
-  background-image: url("../../images/windows.png");
+  background-image: url("../../images/windows.webp");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;

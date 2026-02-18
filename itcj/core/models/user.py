@@ -30,7 +30,7 @@ class User(db.Model):
 
     # one-to-many
     requests = db.relationship("Request", back_populates="student", cascade="all, delete", passive_deletes=True)
-    appointments = db.relationship("Appointment", back_populates="student", cascade="all, delete", passive_deletes=True)
+    appointments = db.relationship("itcj.apps.agendatec.models.appointment.Appointment", back_populates="student", cascade="all, delete", passive_deletes=True)
     notifications = db.relationship("Notification", back_populates="user", cascade="all, delete", passive_deletes=True)
     audit_logs = db.relationship("AuditLog", back_populates="actor", cascade="all, delete-orphan", passive_deletes=True)
 

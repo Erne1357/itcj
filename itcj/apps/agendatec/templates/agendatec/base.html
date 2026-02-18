@@ -11,7 +11,16 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/notify.css') }}?v={{ sv('agendatec', 'css/notify.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/base.css') }}?v={{ sv('agendatec', 'css/base.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}">
   <link rel="shortcut icon" href="{{url_for('static', filename='agendatec/icon/favicon.ico') }}?v={{ sv('agendatec', 'icon/favicon.ico') }}" type="image/x-icon">
+  
+  <style>
+    :root {
+      --app-primary: #0d6efd;
+      --app-primary-dark: #0a58ca;
+      --app-primary-light: #cfe2ff;
+    }
+  </style>
   {% block extra_css %}{% endblock %}
 </head>
 
@@ -25,16 +34,24 @@
 
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top" >
       <div class="container-fluid">
+        <!-- Botón de regreso al dashboard (solo visible en iframe móvil) -->
+        <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+          <i class="bi bi-arrow-left"></i>
+        </button>
+
         <a class="navbar-brand d-flex align-items-center gap-2" href="/agendatec/">
           <img src="{{ url_for('static', filename='agendatec/images/Liebre_Solida.png') }}" alt="Logo" height="24" width="24"
             style="filter: brightness(0) invert(1);" />
           <span class="fw-semibold">AgendaTec</span>
         </a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+        
+        <!-- Hamburger button que abre sidebar en móvil -->
+        <button class="navbar-toggler sidebar-trigger" type="button" id="sidebarTrigger">
           <span class="navbar-toggler-icon"></span>
         </button>
 
-        <div class="collapse navbar-collapse" id="mainNav">
+        <!-- Navegación desktop (collapsa en móvil pero el sidebar lo reemplaza) -->
+        <div class="collapse navbar-collapse d-none d-lg-flex" id="mainNav">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             {% if current_user %}
             {% for it in agendatec_nav_items %}
@@ -50,7 +67,6 @@
           </ul>
           <div class="d-flex">
             {% if current_user %}
-            <!--Bloque de nombre con los colores al revez, nombre en azul y fondo en blanco-->
             <span class="navbar-text text-white bg-primary px-3 py-1 rounded-3 me-2">
               {{ current_user.name }}
             </span>
@@ -60,6 +76,52 @@
         </div>
       </div>
     </nav>
+
+    <!-- Sidebar móvil -->
+    <div class="app-sidebar-overlay" id="appSidebarOverlay"></div>
+    <aside class="app-sidebar" id="appSidebar">
+      <div class="app-sidebar-header">
+        <h5 class="app-sidebar-title">
+          <i class="bi bi-calendar-check"></i>
+          AgendaTec
+        </h5>
+        <button type="button" class="app-sidebar-close" id="sidebarClose">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      
+      <nav class="app-sidebar-nav">
+        <div class="app-sidebar-section">
+          <div class="app-sidebar-section-title">Navegación</div>
+          {% if current_user %}
+          {% for it in agendatec_nav_items %}
+          <a href="{{ it.url }}" class="app-sidebar-item {% if is_active(it.url) %}active{% endif %}">
+            <i class="bi {{ it.icon }}"></i>
+            <span>{{ it.label }}</span>
+          </a>
+          {% endfor %}
+          {% endif %}
+        </div>
+      </nav>
+      
+      <div class="app-sidebar-footer">
+        {% if current_user %}
+        <div class="app-sidebar-user">
+          <div class="app-sidebar-user-avatar">
+            {{ current_user.name[:1]|upper if current_user.name else 'U' }}
+          </div>
+          <div class="app-sidebar-user-info">
+            <div class="app-sidebar-user-name">{{ current_user.name }}</div>
+            <div class="app-sidebar-user-role">{{ current_user.role|title if current_user.role else '' }}</div>
+          </div>
+        </div>
+        <button type="button" class="app-sidebar-logout" id="sidebarLogout">
+          <i class="bi bi-box-arrow-right"></i>
+          Cerrar sesión
+        </button>
+        {% endif %}
+      </div>
+    </aside>
 
     <main class="container py-3">
       {% block content %}{% endblock %}
@@ -98,6 +160,13 @@
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ sv('core', 'js/socket-base.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/update-checker.js') }}?v={{ sv('core', 'js/update-checker.js') }}"></script>
+    <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
+    <script>
+      // Sidebar logout handler
+      document.getElementById('sidebarLogout')?.addEventListener('click', function() {
+        document.getElementById('btnLogout')?.click();
+      });
+    </script>
     {% block extra_js %}{% endblock %}
   </body>
 

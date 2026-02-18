@@ -2,17 +2,17 @@
 {% block title %}Admin · Períodos Académicos{% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h1 class="h4 mb-0">Períodos Académicos</h1>
-  <div class="d-flex gap-2">
-    <select id="fltStatus" class="form-select form-select-sm">
-      <option value="">Todos los estados</option>
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <h1 class="h5 h4-md mb-0">Períodos<span class="d-none d-sm-inline"> Académicos</span></h1>
+  <div class="d-flex flex-wrap gap-2">
+    <select id="fltStatus" class="form-select form-select-sm" style="width: auto; min-width: 110px;">
+      <option value="">Todos<span class="d-none d-sm-inline"> los estados</span></option>
       <option value="ACTIVE">Activo</option>
       <option value="INACTIVE">Inactivo</option>
       <option value="ARCHIVED">Archivado</option>
     </select>
     <button id="btnReload" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i></button>
-    <button id="btnNew" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Nuevo Período</button>
+    <button id="btnNew" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i><span class="d-none d-sm-inline"> Nuevo Período</span></button>
   </div>
 </div>
 

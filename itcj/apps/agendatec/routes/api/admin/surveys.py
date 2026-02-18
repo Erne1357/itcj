@@ -17,7 +17,7 @@ from itcj.apps.agendatec.models.request import Request as Req
 from itcj.core.models.user import User
 from itcj.core.utils.decorators import api_app_required, api_auth_required
 from itcj.core.utils.email_tools import student_email
-from itcj.apps.agendatec.utils.msgraph_mail import acquire_token_silent, graph_send_mail
+from itcj.core.utils.msgraph_mail import acquire_token_silent, graph_send_mail
 
 from .helpers import range_from_query
 
@@ -41,7 +41,7 @@ def send_surveys():
         JSON con sent (cantidad enviados), errors y total_targets
     """
     # Token MSAL
-    token = acquire_token_silent()
+    token = acquire_token_silent("agendatec")
     if not token:
         return jsonify({
             "error": "no_ms_session",

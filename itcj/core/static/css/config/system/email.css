@@ -1,0 +1,31 @@
+/* Email config cards */
+.email-app-card {
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.email-app-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.email-app-card.border-success {
+    border-width: 2px;
+}
+
+.email-app-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    background: linear-gradient(135deg, #0d6efd, #0b5ed7);
+    color: white;
+    flex-shrink: 0;
+}
+
+.email-status-badge {
+    font-size: 0.75rem;
+}
+
+.email-account-info {
+    min-height: 28px;
+}

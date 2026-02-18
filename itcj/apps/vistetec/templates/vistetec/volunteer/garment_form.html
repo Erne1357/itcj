@@ -1,0 +1,153 @@
+{% extends "vistetec/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/volunteer/garment_form.css') }}?v={{ sv('vistetec', 'css/volunteer/garment_form.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container py-3" style="max-width: 800px;">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('vistetec_pages.volunteer_pages.dashboard') }}">Dashboard</a></li>
+            <li class="breadcrumb-item active">{{ title }}</li>
+        </ol>
+    </nav>
+
+    <h2 class="fw-bold mb-4">{{ title }}</h2>
+
+    <form id="garmentForm" enctype="multipart/form-data">
+        <div class="row g-4">
+            <!-- Imagen -->
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body text-center p-4">
+                        <div id="imagePreviewContainer" class="mb-3">
+                            <div id="imagePlaceholder" class="bg-light rounded d-flex flex-column align-items-center justify-content-center mx-auto"
+                                 style="width: 250px; height: 250px; cursor: pointer; border: 2px dashed #dee2e6;"
+                                 onclick="document.getElementById('imageInput').click()">
+                                <i class="bi bi-camera text-muted" style="font-size: 3rem;"></i>
+                                <small class="text-muted mt-2">Toca para tomar o subir foto</small>
+                            </div>
+                            <img id="imagePreview" class="rounded d-none" style="max-width: 250px; max-height: 250px; object-fit: cover; cursor: pointer;"
+                                 onclick="document.getElementById('imageInput').click()">
+                        </div>
+                        <input type="file" id="imageInput" name="image" accept="image/jpeg,image/png,image/webp"
+                               capture="environment" class="d-none">
+                        <small class="text-muted">JPG, PNG o WebP. Máximo 3 MB.</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Datos básicos -->
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="fw-bold mb-3">Información de la prenda</h5>
+
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Nombre <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="name" name="name"
+                                   placeholder="Ej: Camisa azul manga larga" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Descripción</label>
+                            <textarea class="form-control" id="description" name="description" rows="2"
+                                      placeholder="Detalles adicionales de la prenda"></textarea>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label for="category" class="form-label">Categoría <span class="text-danger">*</span></label>
+                                <select class="form-select" id="category" name="category" required>
+                                    <option value="">Seleccionar...</option>
+                                    <option value="camisa">Camisa</option>
+                                    <option value="pantalon">Pantalón</option>
+                                    <option value="vestido">Vestido</option>
+                                    <option value="falda">Falda</option>
+                                    <option value="chamarra">Chamarra</option>
+                                    <option value="sueter">Suéter</option>
+                                    <option value="zapatos">Zapatos</option>
+                                    <option value="tenis">Tenis</option>
+                                    <option value="accesorios">Accesorios</option>
+                                    <option value="otro">Otro</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label for="condition" class="form-label">Condición <span class="text-danger">*</span></label>
+                                <select class="form-select" id="condition" name="condition" required>
+                                    <option value="">Seleccionar...</option>
+                                    <option value="nuevo">Nuevo</option>
+                                    <option value="como_nuevo">Como nuevo</option>
+                                    <option value="buen_estado">Buen estado</option>
+                                    <option value="usado">Usado</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detalles -->
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <h5 class="fw-bold mb-3">Detalles</h5>
+                        <div class="row g-3">
+                            <div class="col-6 col-md-4">
+                                <label for="gender" class="form-label">Género</label>
+                                <select class="form-select" id="gender" name="gender">
+                                    <option value="">Sin especificar</option>
+                                    <option value="masculino">Masculino</option>
+                                    <option value="femenino">Femenino</option>
+                                    <option value="unisex">Unisex</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <label for="size" class="form-label">Talla</label>
+                                <input type="text" class="form-control" id="size" name="size"
+                                       placeholder="S, M, L, XL, 28...">
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <label for="color" class="form-label">Color</label>
+                                <input type="text" class="form-control" id="color" name="color"
+                                       placeholder="Azul, negro...">
+                            </div>
+                            <div class="col-6 col-md-6">
+                                <label for="brand" class="form-label">Marca</label>
+                                <input type="text" class="form-control" id="brand" name="brand"
+                                       placeholder="Nike, Zara...">
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label for="material" class="form-label">Material</label>
+                                <input type="text" class="form-control" id="material" name="material"
+                                       placeholder="Algodón, poliéster...">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit -->
+            <div class="col-12">
+                <button type="submit" class="btn btn-lg w-100" id="btnSubmit" style="background-color: #8B1538; border-color: #8B1538; color: white;">
+                    <i class="bi bi-check-circle me-2"></i>
+                    <span id="btnSubmitText">Registrar Prenda</span>
+                    <span id="btnSubmitLoading" class="d-none">
+                        <span class="spinner-border spinner-border-sm me-1"></span>Guardando...
+                    </span>
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const GARMENT_ID = {{ garment_id | default('null') }};
+</script>
+<script src="{{ url_for('static', filename='vistetec/js/volunteer/garment_form.js') }}?v={{ sv('vistetec', 'js/volunteer/garment_form.js') }}"></script>
+{% endblock %}

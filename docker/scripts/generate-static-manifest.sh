@@ -23,6 +23,7 @@ apps = {
     'core':      'itcj/core/static',
     'agendatec': 'itcj/apps/agendatec/static',
     'helpdesk':  'itcj/apps/helpdesk/static',
+    'vistetec':  'itcj/apps/vistetec/static',
 }
 
 manifest = {}

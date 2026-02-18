@@ -5,100 +5,100 @@
 {% block content %}
 <div class="container-fluid">
     <!-- Encabezado -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
-            <h1 class="h3 mb-0 text-gray-800">
-                <i class="fas fa-boxes fa-fw"></i> Dashboard de Inventario
+            <h1 class="h4 h3-md mb-0 text-gray-800">
+                <i class="fas fa-boxes fa-fw"></i> <span class="d-none d-sm-inline">Dashboard de </span>Inventario
             </h1>
-            <p class="text-muted mb-0">Visión general del inventario institucional</p>
+            <p class="text-muted mb-0 small d-none d-sm-block">Visión general del inventario institucional</p>
         </div>
-        <div>
-            <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" class="btn btn-primary">
-                <i class="fas fa-plus-circle"></i> Registrar Equipo
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Registrar</span>
             </a>
-            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary">
-                <i class="fas fa-list"></i> Ver Inventario
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-list"></i><span class="d-none d-sm-inline"> Ver Inventario</span>
             </a>
         </div>
     </div>
 
     <!-- Stats Rápidas -->
-    <div class="row mb-4" id="quick-stats">
+    <div class="row mb-4 g-2" id="quick-stats">
         <!-- Se llenarán con JavaScript -->
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-primary shadow h-100 py-2">
-                <div class="card-body">
+        <div class="col-6 col-xl-3 col-md-6 mb-2 mb-xl-0">
+            <div class="card border-left-primary shadow h-100 py-1 py-md-2">
+                <div class="card-body py-2">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1" style="font-size: 0.65rem;">
                                 Total Equipos
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-total">
                                 <i class="fas fa-spinner fa-spin"></i>
                             </div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-boxes fa-2x text-gray-300"></i>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-boxes fa-lg fa-md-2x text-gray-300"></i>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-success shadow h-100 py-2">
-                <div class="card-body">
+        <div class="col-6 col-xl-3 col-md-6 mb-2 mb-xl-0">
+            <div class="card border-left-success shadow h-100 py-1 py-md-2">
+                <div class="card-body py-2">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size: 0.65rem;">
                                 Activos
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-active">
                                 <i class="fas fa-spinner fa-spin"></i>
                             </div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-check-circle fa-2x text-gray-300"></i>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-check-circle fa-lg fa-md-2x text-gray-300"></i>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-warning shadow h-100 py-2">
-                <div class="card-body">
+        <div class="col-6 col-xl-3 col-md-6 mb-2 mb-xl-0">
+            <div class="card border-left-warning shadow h-100 py-1 py-md-2">
+                <div class="card-body py-2">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                                En Mantenimiento
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">
+                                <span class="d-none d-md-inline">En </span>Mantenimiento
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-maintenance">
                                 <i class="fas fa-spinner fa-spin"></i>
                             </div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-tools fa-2x text-gray-300"></i>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-tools fa-lg fa-md-2x text-gray-300"></i>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-xl-3 col-md-6 mb-4">
-            <div class="card border-left-info shadow h-100 py-2">
-                <div class="card-body">
+        <div class="col-6 col-xl-3 col-md-6">
+            <div class="card border-left-info shadow h-100 py-1 py-md-2">
+                <div class="card-body py-2">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
-                                Asignados a Usuarios
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1" style="font-size: 0.65rem;">
+                                Asignados
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-assigned">
                                 <i class="fas fa-spinner fa-spin"></i>
                             </div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-user-check fa-2x text-gray-300"></i>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-user-check fa-lg fa-md-2x text-gray-300"></i>
                         </div>
                     </div>
                 </div>
@@ -107,49 +107,49 @@
     </div>
 
     <!-- Alertas y Gráficas -->
-    <div class="row">
+    <div class="row g-2 g-md-3">
         <!-- Alertas -->
-        <div class="col-lg-4 mb-4">
+        <div class="col-12 col-lg-4 mb-3 mb-lg-0">
             <div class="card shadow h-100">
-                <div class="card-header py-3 d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-danger">
+                <div class="card-header py-2 py-md-3 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-danger" style="font-size: 0.85rem;">
                         <i class="fas fa-exclamation-triangle"></i> Alertas
                     </h6>
                     <span class="badge badge-danger" id="alerts-count">0</span>
                 </div>
-                <div class="card-body" id="alerts-container" style="max-height: 400px; overflow-y: auto;">
-                    <div class="text-center text-muted py-4">
-                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
-                        <p>Cargando alertas...</p>
+                <div class="card-body p-2 p-md-3" id="alerts-container" style="max-height: 300px; overflow-y: auto;">
+                    <div class="text-center text-muted py-3">
+                        <i class="fas fa-spinner fa-spin fa-lg mb-2"></i>
+                        <p class="small mb-0">Cargando alertas...</p>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Gráfica por Categoría -->
-        <div class="col-lg-4 mb-4">
+        <div class="col-6 col-lg-4 mb-3 mb-lg-0">
             <div class="card shadow h-100">
-                <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-primary">
-                        <i class="fas fa-chart-pie"></i> Por Categoría
+                <div class="card-header py-2 py-md-3">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size: 0.85rem;">
+                        <i class="fas fa-chart-pie"></i> <span class="d-none d-sm-inline">Por </span>Categoría
                     </h6>
                 </div>
-                <div class="card-body">
-                    <canvas id="categoryChart" height="280"></canvas>
+                <div class="card-body p-2 p-md-3">
+                    <canvas id="categoryChart" height="220"></canvas>
                 </div>
             </div>
         </div>
 
         <!-- Gráfica por Estado -->
-        <div class="col-lg-4 mb-4">
+        <div class="col-6 col-lg-4 mb-3 mb-lg-0">
             <div class="card shadow h-100">
-                <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-success">
-                        <i class="fas fa-chart-pie"></i> Por Estado
+                <div class="card-header py-2 py-md-3">
+                    <h6 class="m-0 font-weight-bold text-success" style="font-size: 0.85rem;">
+                        <i class="fas fa-chart-pie"></i> <span class="d-none d-sm-inline">Por </span>Estado
                     </h6>
                 </div>
-                <div class="card-body">
-                    <canvas id="statusChart" height="280"></canvas>
+                <div class="card-body p-2 p-md-3">
+                    <canvas id="statusChart" height="220"></canvas>
                 </div>
             </div>
         </div>

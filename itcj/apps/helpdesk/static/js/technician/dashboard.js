@@ -146,12 +146,11 @@ async function loadResolvedTickets() {
     HelpdeskUtils.showLoading('historyList');
 
     try {
-        // Usar assigned_to_me para obtener solo tickets que yo resolví
-        // (los tickets resueltos mantienen su assigned_to_user_id)
+        // Limit to 20 most recent resolved tickets instead of 100
         const response = await HelpdeskUtils.api.getTickets({
             assigned_to_me: true,
             status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED',
-            per_page: 100
+            per_page: 20
         });
 
         myTickets.resolved = response.tickets || [];
@@ -194,12 +193,14 @@ function createTicketCard(ticket, type) {
         <div class="ticket-tech-card border-bottom p-3 priority-${ticket.priority}">
             <div class="row align-items-start">
                 <div class="col-md-8">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
-                        ${HelpdeskUtils.getStatusBadge(ticket.status)}
-                        ${HelpdeskUtils.getAreaBadge(ticket.area)}
-                        ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
-                        ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
+                    <div class="d-flex align-items-center flex-wrap gap-1 gap-md-2 mb-2">
+                        <h6 class="mb-0 fw-bold me-1">${ticket.ticket_number}</h6>
+                        <div class="d-flex flex-wrap gap-1">
+                            ${HelpdeskUtils.getStatusBadge(ticket.status)}
+                            ${HelpdeskUtils.getAreaBadge(ticket.area)}
+                            ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
+                            ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
+                        </div>
                     </div>
                     
                     <h5 class="mb-2">${ticket.title}</h5>
@@ -208,14 +209,14 @@ function createTicketCard(ticket, type) {
                         ${truncateText(ticket.description, 120)}
                     </p>
                     
-                    <div class="text-muted small">
-                        <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
+                    <div class="text-muted small d-flex flex-wrap gap-2">
+                        <span><i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}</span>
                         ${ticket.location ? `
-                            <span class="ms-3">
+                            <span>
                                 <i class="fas fa-map-marker-alt me-1"></i>${ticket.location}
                             </span>
                         ` : ''}
-                        <span class="ms-3">
+                        <span>
                             <i class="fas fa-clock me-1"></i>${timeAgo}
                         </span>
                     </div>
@@ -233,7 +234,7 @@ function createTicketCard(ticket, type) {
                     ` : ''}
                 </div>
                 
-                <div class="col-md-4 text-end">
+                <div class="col-md-4 text-md-end mt-2 mt-md-0">
                     ${getActionButtons(ticket, type)}
                 </div>
             </div>
@@ -275,21 +276,36 @@ function getActionButtons(ticket, type) {
 }
 
 // ==================== DASHBOARD STATS ====================
-function updateDashboardStats() {
-    const totalTickets = myTickets.assigned.length + myTickets.inProgress.length;
-    
-    // Count resolved today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const resolvedToday = myTickets.resolved.filter(t => {
-        const resolvedDate = new Date(t.resolved_at);
-        return resolvedDate >= today;
-    }).length;
-    
-    document.getElementById('myTicketsCount').textContent = totalTickets;
-    document.getElementById('assignedCount').textContent = myTickets.assigned.length;
-    document.getElementById('inProgressCount').textContent = myTickets.inProgress.length;
-    document.getElementById('resolvedTodayCount').textContent = resolvedToday;
+async function updateDashboardStats() {
+    try {
+        // Use dedicated stats endpoint instead of local calculations
+        const stats = await HelpdeskUtils.api.getTechnicianStats();
+        
+        const totalTickets = stats.assigned_count + stats.in_progress_count;
+        
+        document.getElementById('myTicketsCount').textContent = totalTickets;
+        document.getElementById('assignedCount').textContent = stats.assigned_count;
+        document.getElementById('inProgressCount').textContent = stats.in_progress_count;
+        document.getElementById('resolvedTodayCount').textContent = stats.resolved_today_count || 0;
+        
+    } catch (error) {
+        console.error('Error loading technician stats:', error);
+        // Fallback to local calculations if API fails
+        const totalTickets = myTickets.assigned.length + myTickets.inProgress.length;
+        
+        // Count resolved today from loaded tickets
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const resolvedToday = myTickets.resolved.filter(t => {
+            const resolvedDate = new Date(t.resolved_at);
+            return resolvedDate >= today;
+        }).length;
+        
+        document.getElementById('myTicketsCount').textContent = totalTickets;
+        document.getElementById('assignedCount').textContent = myTickets.assigned.length;
+        document.getElementById('inProgressCount').textContent = myTickets.inProgress.length;
+        document.getElementById('resolvedTodayCount').textContent = resolvedToday;
+    }
 }
 
 // ==================== START WORK MODAL ====================

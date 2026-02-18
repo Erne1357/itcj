@@ -280,6 +280,13 @@
 }
 
 /* Responsive */
+@media (max-width: 992px) {
+    /* Modal de tema - columnas en stack */
+    #themeModal .modal-body .row > .col-lg-6 {
+        width: 100%;
+    }
+}
+
 @media (max-width: 768px) {
     .active-theme-info {
         flex-direction: column;
@@ -304,17 +311,148 @@
         width: 100%;
     }
 
+    /* Color pickers en fila */
     .color-picker-wrapper {
         flex-direction: row;
         align-items: center;
+        gap: 0.5rem;
     }
 
     .form-control-color {
         width: 50px;
+        height: 32px;
         flex-shrink: 0;
     }
 
     .color-hex-input {
         flex: 1;
+    }
+
+    /* Formulario de fechas en columna */
+    #themeModal .row.g-2 > .col-6 {
+        width: 100%;
+    }
+
+    /* Theme cards grid */
+    #themesContainer .col-md-6,
+    #themesContainer .col-lg-4 {
+        width: 100%;
+    }
+
+    /* Theme card compacto */
+    .theme-preview {
+        height: 70px;
+    }
+
+    .preview-color-dot {
+        width: 20px;
+        height: 20px;
+    }
+
+    .theme-info {
+        padding: 0.75rem;
+    }
+
+    .theme-info h5 {
+        font-size: 0.9rem;
+    }
+
+    .theme-info .theme-description {
+        font-size: 0.8rem;
+    }
+
+    .theme-actions {
+        padding: 0.5rem 0.75rem;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .theme-actions .btn-group {
+        width: 100%;
+    }
+
+    .theme-actions .btn-group .btn {
+        flex: 1;
+    }
+
+    /* Section header */
+    .section-header h4 {
+        font-size: 1rem;
+    }
+
+    /* Decoraciones grid */
+    .decorations-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .decoration-item {
+        padding: 0.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    /* Active theme card */
+    .active-theme-card .card-header {
+        font-size: 0.85rem;
+        padding: 0.75rem;
+    }
+
+    .active-theme-card .card-header .badge {
+        font-size: 0.65rem;
+    }
+
+    .active-theme-preview {
+        height: 50px;
+    }
+
+    .active-theme-preview .preview-color-dot {
+        width: 14px;
+        height: 14px;
+    }
+
+    .active-theme-details h5 {
+        font-size: 1rem;
+    }
+
+    .active-theme-details p {
+        font-size: 0.8rem;
+    }
+
+    /* Theme cards aun mas compactos */
+    .theme-card {
+        margin-bottom: 0.5rem;
+    }
+
+    .theme-preview {
+        height: 60px;
+    }
+
+    .preview-color-dot {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Form controls en modal */
+    #themeModal .form-label {
+        font-size: 0.8rem;
+    }
+
+    #themeModal .input-group-sm .form-control,
+    #themeModal .input-group-sm .form-select {
+        font-size: 0.8rem;
+    }
+
+    /* Empty state */
+    .empty-themes {
+        padding: 2rem 1rem;
+    }
+
+    .empty-themes i {
+        font-size: 3rem;
+    }
+
+    /* No active theme */
+    .no-active-theme i {
+        font-size: 2rem;
     }
 }

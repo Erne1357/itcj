@@ -66,6 +66,16 @@ async function loadTicketDetail() {
         console.log('🎫 Cargando desde la BD (modo normal)');
         const ticketResponse = await HelpdeskUtils.api.getTicket(ticketId);
         currentTicket = ticketResponse.ticket;
+        
+        // Verificar si el usuario actual es el técnico asignado
+        // Usamos el currentUserId que viene del backend (definido en el template)
+        if (typeof currentUserId !== 'undefined' && currentTicket.assigned_to) {
+            window.isAssignedToCurrentUser = currentTicket.assigned_to.id === currentUserId;
+            console.log('👤 Usuario actual:', currentUserId, '| Técnico asignado:', currentTicket.assigned_to.id, '| ¿Es el mismo?:', window.isAssignedToCurrentUser);
+        } else {
+            window.isAssignedToCurrentUser = false;
+            console.log('👤 No se pudo verificar asignación (currentUserId no definido o sin técnico asignado)');
+        }
 
         // Load comments
         const commentsResponse = await HelpdeskUtils.api.getComments(ticketId);
@@ -119,6 +129,9 @@ function renderTicketDetail(ticket) {
         ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
     `;
 
+    // Requester Info
+    renderRequesterInfo(ticket);
+
     // Dates
     document.getElementById('ticketCreated').textContent = HelpdeskUtils.formatDate(ticket.created_at);
     document.getElementById('ticketUpdated').textContent = HelpdeskUtils.formatTimeAgo(ticket.updated_at);
@@ -144,7 +157,7 @@ function renderTicketDetail(ticket) {
     // Resolution (if exists)
     if (ticket.resolution_notes) {
         document.getElementById('resolutionContainer').classList.remove('d-none');
-        document.getElementById('resolutionNotes').textContent = ticket.resolution_notes;
+        document.getElementById('resolutionNotesDisplay').textContent = ticket.resolution_notes;
         document.getElementById('resolvedBy').textContent = ticket.resolved_by?.full_name || 'N/A';
         document.getElementById('resolvedAt').textContent = HelpdeskUtils.formatDate(ticket.resolved_at);
     }
@@ -183,6 +196,59 @@ function renderTicketDetail(ticket) {
     // Show comment form if ticket is open
     const isOpen = !['CLOSED', 'CANCELED'].includes(ticket.status);
     document.getElementById('addCommentForm').classList.toggle('d-none', !isOpen);
+}
+
+// ==================== RENDER REQUESTER INFO ====================
+function renderRequesterInfo(ticket) {
+    const requester = ticket.requester;
+    // Buscar departamento en múltiples ubicaciones posibles
+    const department = ticket.requester_department || ticket.department || requester?.department;
+    
+    // Avatar - mostrar iniciales si hay nombre
+    const avatarEl = document.getElementById('requesterAvatar');
+    if (requester && requester.name) {
+        const initials = getInitials(requester.name);
+        avatarEl.innerHTML = initials;
+    } else {
+        avatarEl.innerHTML = '<i class="fas fa-user"></i>';
+    }
+    
+    // Nombre del solicitante
+    const nameEl = document.getElementById('requesterName');
+    nameEl.textContent = requester?.name || requester?.full_name || 'Usuario desconocido';
+    
+    // Email del solicitante
+    const emailEl = document.getElementById('requesterEmail');
+    emailEl.textContent = requester?.email || 'Sin correo';
+    
+    // Departamento
+    const deptEl = document.getElementById('requesterDepartment');
+    const deptTextEl = document.getElementById('requesterDepartmentText');
+    if (department) {
+        const deptName = typeof department === 'object' ? department.name : department;
+        if (deptName) {
+            deptTextEl.textContent = deptName;
+            deptEl.style.display = 'inline-flex';
+        } else {
+            // Si el objeto existe pero no tiene nombre
+            deptTextEl.textContent = 'Sin departamento';
+            deptEl.style.display = 'inline-flex';
+        }
+    } else {
+        // Si no hay departamento asignado
+        deptTextEl.textContent = 'Sin departamento';
+        deptEl.style.display = 'inline-flex';
+    }
+}
+
+// Función auxiliar para obtener iniciales
+function getInitials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
 }
 
 function renderQuickActions(ticket) {
@@ -469,7 +535,34 @@ function renderActionButtons(ticket) {
     const container = document.getElementById('actionButtons');
     let html = '';
 
-    const canRate = ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(ticket.status) && !ticket.rating_attention;
+    // Verificar si el usuario actual es el técnico asignado
+    // Usamos una variable global que se establece al cargar el ticket
+    const isAssignedTechnician = window.isAssignedToCurrentUser || false;
+    
+    // Solo mostrar botones de técnico si el usuario ES el técnico asignado
+    if (isAssignedTechnician) {
+        // Botón: Iniciar trabajo (ASSIGNED -> IN_PROGRESS)
+        if (ticket.status === 'ASSIGNED') {
+            html += `
+                <button class="btn btn-primary btn-lg btn-action" onclick="startTicketWork()">
+                    <i class="fas fa-play me-2"></i>Iniciar Trabajo
+                </button>
+            `;
+        }
+
+        // Botón: Resolver ticket (IN_PROGRESS -> RESOLVED)
+        if (ticket.status === 'IN_PROGRESS') {
+            html += `
+                <button class="btn btn-success btn-lg btn-action" onclick="openResolveModal()">
+                    <i class="fas fa-check-circle me-2"></i>Resolver Ticket
+                </button>
+            `;
+        }
+    }
+
+    // Botones de usuario (solo para el solicitante del ticket)
+    const isRequester = typeof currentUserId !== 'undefined' && ticket.requester && ticket.requester.id === currentUserId;
+    const canRate = isRequester && ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(ticket.status) && !ticket.rating_attention;
     const canCancel = ['PENDING', 'ASSIGNED'].includes(ticket.status);
 
     if (canRate) {
@@ -489,6 +582,338 @@ function renderActionButtons(ticket) {
     }
 
     container.innerHTML = html;
+}
+
+// ==================== TECHNICIAN ACTIONS ====================
+function startTicketWork() {
+    if (!currentTicket) return;
+
+    // Llenar información del ticket en el modal
+    document.getElementById('startWorkTicketInfo').innerHTML = `
+        <div class="d-flex align-items-center">
+            <div class="flex-grow-1">
+                <h6 class="mb-1">${currentTicket.ticket_number}</h6>
+                <p class="mb-1 text-truncate">${currentTicket.title}</p>
+                ${HelpdeskUtils.getPriorityBadge(currentTicket.priority)}
+            </div>
+        </div>
+    `;
+    
+    // Abrir modal
+    const modal = new bootstrap.Modal(document.getElementById('startWorkModal'));
+    modal.show();
+}
+window.startTicketWork = startTicketWork;
+
+// Confirmar inicio de trabajo desde el modal
+async function confirmStartWork() {
+    if (!currentTicket) return;
+
+    const btn = document.getElementById('btnConfirmStart');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Iniciando...';
+
+    try {
+        HelpdeskUtils.showToast('Iniciando trabajo...', 'info');
+
+        const response = await fetch(`/api/help-desk/v1/tickets/${currentTicket.id}/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Error al iniciar trabajo');
+        }
+
+        HelpdeskUtils.showToast('¡Trabajo iniciado!', 'success');
+
+        // Cerrar modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('startWorkModal'));
+        modal.hide();
+        
+        // Recargar el ticket
+        await loadTicketDetail();
+
+    } catch (error) {
+        console.error('Error starting work:', error);
+        HelpdeskUtils.showToast(`Error: ${error.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+window.confirmStartWork = confirmStartWork;
+
+function openResolveModal() {
+    if (!currentTicket) return;
+
+    document.getElementById('resolveTicketInfo').innerHTML = `
+        <h6 class="mb-2">${currentTicket.ticket_number}: ${currentTicket.title}</h6>
+        <div class="d-flex gap-2 mb-2">
+            ${HelpdeskUtils.getStatusBadge(currentTicket.status)}
+            ${HelpdeskUtils.getPriorityBadge(currentTicket.priority)}
+        </div>
+        <p class="mb-0 small text-muted">${currentTicket.description.substring(0, 200)}...</p>
+    `;
+
+    // Reset form
+    const notesField = document.getElementById('resolutionNotes');
+    notesField.value = '';
+    notesField.classList.remove('is-invalid', 'is-valid');
+    
+    document.getElementById('resolutionSuccess').checked = true;
+    document.getElementById('timeInvested').value = '';
+    document.getElementById('timeUnit').value = 'minutes';
+    
+    // Reset contador
+    updateNotesCounter();
+
+    // Reiniciar estado del botón
+    const btn = document.getElementById('btnConfirmResolve');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Resolver Ticket';
+
+    // Cargar técnicos disponibles
+    loadAvailableTechnicians(currentTicket);
+
+    const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
+    modal.show();
+}
+window.openResolveModal = openResolveModal;
+
+// Actualizar contador de caracteres de las notas
+function updateNotesCounter() {
+    const notesField = document.getElementById('resolutionNotes');
+    const counter = document.getElementById('resolutionNotesCounter');
+    
+    if (!notesField || !counter) return;
+    
+    const length = notesField.value.trim().length;
+    counter.textContent = `${length} / 10 caracteres mínimo`;
+    
+    // Actualizar estilos según validez
+    if (length >= 10) {
+        notesField.classList.remove('is-invalid');
+        notesField.classList.add('is-valid');
+        counter.classList.remove('text-danger');
+        counter.classList.add('text-success');
+    } else if (length > 0) {
+        notesField.classList.remove('is-valid');
+        notesField.classList.add('is-invalid');
+        counter.classList.remove('text-success');
+        counter.classList.add('text-danger');
+    } else {
+        notesField.classList.remove('is-invalid', 'is-valid');
+        counter.classList.remove('text-success', 'text-danger');
+    }
+}
+
+async function loadAvailableTechnicians(ticket) {
+    const container = document.getElementById('collaboratorsList');
+
+    // Mostrar loading
+    container.innerHTML = `
+        <div class="text-center text-muted py-2">
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            Cargando técnicos...
+        </div>
+    `;
+
+    try {
+        // Obtener técnicos del área del ticket
+        const response = await fetch(`/api/help-desk/v1/assignments/technicians/${ticket.area}`);
+
+        if (!response.ok) {
+            throw new Error('Error al cargar técnicos');
+        }
+
+        const data = await response.json();
+        const technicians = data.technicians || [];
+
+        if (technicians.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-2">
+                    <i class="fas fa-users-slash me-2"></i>
+                    No hay técnicos disponibles
+                </div>
+            `;
+            return;
+        }
+
+        // Renderizar checkboxes
+        container.innerHTML = technicians.map(tech => {
+            const isAssigned = ticket.assigned_to && tech.id === ticket.assigned_to.id;
+
+            return `
+                <div class="form-check mb-2">
+                    <input class="form-check-input collaborator-check" 
+                           type="checkbox" 
+                           value="${tech.id}" 
+                           id="collab_${tech.id}"
+                           ${isAssigned ? 'checked disabled' : ''}>
+                    <label class="form-check-label d-flex justify-content-between align-items-center w-100" 
+                           for="collab_${tech.id}">
+                        <span>
+                            ${tech.name}
+                            ${isAssigned ? '<span class="badge bg-primary ms-2">Asignado</span>' : ''}
+                        </span>
+                        <small class="text-muted">${tech.active_tickets} activos</small>
+                    </label>
+                </div>
+            `;
+        }).join('');
+
+    } catch (error) {
+        console.error('Error loading technicians:', error);
+        container.innerHTML = `
+            <div class="text-center text-danger py-2">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <small>Error al cargar técnicos</small>
+            </div>
+        `;
+    }
+}
+
+async function confirmResolve() {
+    if (!currentTicket) return;
+
+    const resolutionType = document.querySelector('input[name="resolutionType"]:checked')?.value;
+    const notesField = document.getElementById('resolutionNotes');
+    console.log('Tipo de notas seleccionado:', notesField);
+    console.log('Notas ingresadas:', notesField.value);
+    const notes = notesField ? notesField.value.trim() : '';
+
+    console.log('🔍 Validando notas:', { notes, length: notes.length });
+
+    // Validar notas primero
+    if (!notes || notes.length < 10) {
+        HelpdeskUtils.showToast('Las notas de resolución deben tener al menos 10 caracteres', 'warning');
+        if (notesField) {
+            notesField.focus();
+            notesField.classList.add('is-invalid');
+            notesField.classList.remove('is-valid');
+            
+            // Actualizar contador
+            updateNotesCounter();
+        }
+        return;
+    }
+    
+    console.log('✅ Validación exitosa, continuando con resolución...');
+    
+    // Remover clase de error si había
+    if (notesField) {
+        notesField.classList.remove('is-invalid');
+        notesField.classList.add('is-valid');
+    }
+
+    // Obtener tiempo y convertir a minutos según la unidad seleccionada
+    const timeValue = parseFloat(document.getElementById('timeInvested')?.value) || null;
+    const timeUnit = document.getElementById('timeUnit')?.value || 'minutes';
+    let timeInvested = null;
+
+    if (timeValue && timeValue > 0) {
+        switch (timeUnit) {
+            case 'minutes':
+                timeInvested = Math.round(timeValue);
+                break;
+            case 'hours':
+                timeInvested = Math.round(timeValue * 60);
+                break;
+            case 'days':
+                // 1 día = 8 horas laborales = 480 minutos
+                timeInvested = Math.round(timeValue * 8 * 60);
+                break;
+            default:
+                timeInvested = Math.round(timeValue);
+        }
+    }
+
+    const btn = document.getElementById('btnConfirmResolve');
+    const originalText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Resolviendo...';
+
+    try {
+        // 1. Resolver el ticket
+        await HelpdeskUtils.api.resolveTicket(currentTicket.id, {
+            success: resolutionType === 'success',
+            resolution_notes: notes,
+            time_invested_minutes: timeInvested
+        });
+
+        // 2. Capturar colaboradores seleccionados
+        const selectedCollaborators = [];
+
+        // Obtener checkboxes marcados (excepto el disabled que es el asignado)
+        document.querySelectorAll('.collaborator-check:checked:not(:disabled)').forEach(checkbox => {
+            selectedCollaborators.push({
+                user_id: parseInt(checkbox.value),
+                collaboration_role: 'COLLABORATOR',
+                time_invested_minutes: null,
+                notes: null
+            });
+        });
+
+        // El asignado principal siempre se agrega como LEAD
+        if (currentTicket.assigned_to && currentTicket.assigned_to.id) {
+            selectedCollaborators.push({
+                user_id: currentTicket.assigned_to.id,
+                collaboration_role: 'LEAD',
+                time_invested_minutes: timeInvested,
+                notes: notes
+            });
+        }
+
+        // 3. Agregar colaboradores si hay
+        if (selectedCollaborators.length > 0) {
+            try {
+                const collabResponse = await fetch(
+                    `/api/help-desk/v1/tickets/${currentTicket.id}/collaborators/batch`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ collaborators: selectedCollaborators })
+                    }
+                );
+
+                if (collabResponse.ok) {
+                    const collabData = await collabResponse.json();
+                    console.log(`${collabData.count} colaboradores agregados`);
+                } else {
+                    console.warn('No se pudieron agregar algunos colaboradores');
+                }
+            } catch (collabError) {
+                console.error('Error adding collaborators:', collabError);
+            }
+        }
+
+        // 4. Mostrar éxito
+        HelpdeskUtils.showToast(
+            resolutionType === 'success'
+                ? '¡Ticket resuelto exitosamente!'
+                : 'Ticket marcado como atendido',
+            'success'
+        );
+
+        // 5. Cerrar modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('resolveModal'));
+        modal.hide();
+
+        // 6. Recargar el ticket
+        await loadTicketDetail();
+
+    } catch (error) {
+        console.error('Error resolving ticket:', error);
+        const errorMessage = error.message || 'Error desconocido';
+        HelpdeskUtils.showToast(`Error al resolver ticket: ${errorMessage}`, 'error');
+
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
 }
 
 // ==================== RATING MODAL ====================
@@ -518,6 +943,25 @@ function setupRatingModal() {
     });
 
     document.getElementById('btnSubmitRating').addEventListener('click', submitRating);
+    
+    // Setup resolve modal button
+    const btnConfirmResolve = document.getElementById('btnConfirmResolve');
+    if (btnConfirmResolve) {
+        btnConfirmResolve.addEventListener('click', confirmResolve);
+    }
+    
+    // Setup start work modal button
+    const btnConfirmStart = document.getElementById('btnConfirmStart');
+    if (btnConfirmStart) {
+        btnConfirmStart.addEventListener('click', confirmStartWork);
+    }
+    
+    // Setup notes counter for resolve modal
+    const resolutionNotes = document.getElementById('resolutionNotes');
+    if (resolutionNotes) {
+        resolutionNotes.addEventListener('input', updateNotesCounter);
+        resolutionNotes.addEventListener('blur', updateNotesCounter);
+    }
 }
 
 function checkRatingFormValidity() {

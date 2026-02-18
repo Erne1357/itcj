@@ -5,34 +5,34 @@
 {% endblock %}
 
 {% block content %}
-<div class="row g-3">
+<div class="row g-2 g-md-3">
     <div class="col-12">
         <div class="card shadow-sm">
-            <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-                    <h5 class="card-title mb-0">Configurar horario del día</h5>
-                    <div class="badge bg-primary fs-6 px-3 py-2" id="currentPeriod" style="white-space: nowrap;">
+            <div class="card-body py-2 py-md-3">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 mb-md-3">
+                    <h5 class="card-title mb-0 h6">Configurar horario<span class="d-none d-sm-inline"> del día</span></h5>
+                    <div class="badge bg-primary px-2 py-1" id="currentPeriod" style="white-space: nowrap; font-size: 0.75rem;">
                         <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
                     </div>
                 </div>
                 <form id="dayConfigForm" class="row g-2 align-items-end">
                     <div class="col-12 col-sm-4">
-                        <label class="form-label">Día</label>
-                        <select class="form-select" id="cfgDay" required disabled>
-                            <option value="">Cargando días habilitados...</option>
+                        <label class="form-label small mb-1">Día</label>
+                        <select class="form-select form-select-sm" id="cfgDay" required disabled>
+                            <option value="">Cargando días...</option>
                         </select>
                     </div>
                     <div class="col-6 col-sm-2">
-                        <label class="form-label">Inicio</label>
-                        <input type="time" class="form-control" id="cfgStart" value="09:00" required>
+                        <label class="form-label small mb-1">Inicio</label>
+                        <input type="time" class="form-control form-control-sm" id="cfgStart" value="09:00" required>
                     </div>
                     <div class="col-6 col-sm-2">
-                        <label class="form-label">Fin</label>
-                        <input type="time" class="form-control" id="cfgEnd" value="13:00" required>
+                        <label class="form-label small mb-1">Fin</label>
+                        <input type="time" class="form-control form-control-sm" id="cfgEnd" value="13:00" required>
                     </div>
                     <div class="col-6 col-sm-2">
-                        <label class="form-label">Min/cita</label>
-                        <select class="form-select" id="cfgMinutes">
+                        <label class="form-label small mb-1">Min/cita</label>
+                        <select class="form-select form-select-sm" id="cfgMinutes">
                             <option>5</option>
                             <option>10</option>
                             <option>15</option>
@@ -41,7 +41,7 @@
                         </select>
                     </div>
                     <div class="col-6 col-sm-2 d-grid">
-                        <button class="btn btn-primary" id="btnSaveCfg">Guardar y generar</button>
+                        <button class="btn btn-primary btn-sm" id="btnSaveCfg"><i class="bi bi-check-lg"></i><span class="d-none d-md-inline"> Guardar</span></button>
                     </div>
                 </form>
                 <div id="cfgResult" class="mt-2 small text-muted"></div>
@@ -49,34 +49,34 @@
         </div>
     </div>
 </div>
-<div class="card shadow-sm mt-3">
-    <div class="card-body">
-        <h5 class="card-title mb-3 " id = "tittleView">Vista del día seleccionado</h5>
+<div class="card shadow-sm mt-2 mt-md-3">
+    <div class="card-body py-2 py-md-3">
+        <h5 class="card-title mb-2 mb-md-3 h6" id = "tittleView">Vista del día</h5>
 
         <!-- KPIs -->
-        <div class="row g-3 mb-3" id="daySummary">
+        <div class="row g-2 mb-2 mb-md-3" id="daySummary">
             <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small">Horarios totales</div>
-                    <div class="fs-4 fw-semibold" id="kpiTotal">—</div>
+                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small" style="font-size: 0.7rem;">Horarios totales</div>
+                    <div class="fs-5 fw-semibold" id="kpiTotal">—</div>
                 </div>
             </div>
             <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small">Horarios libres</div>
-                    <div class="fs-4 fw-semibold text-success" id="kpiFree">—</div>
+                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small" style="font-size: 0.7rem;">Horarios libres</div>
+                    <div class="fs-5 fw-semibold text-success" id="kpiFree">—</div>
                 </div>
             </div>
             <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small">Horarios reservados</div>
-                    <div class="fs-4 fw-semibold text-primary" id="kpiBooked">—</div>
+                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small" style="font-size: 0.7rem;">Reservados</div>
+                    <div class="fs-5 fw-semibold text-primary" id="kpiBooked">—</div>
                 </div>
             </div>
             <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-3 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small">Ventanas definidas</div>
-                    <div class="fs-4 fw-semibold" id="kpiWindows">—</div>
+                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
+                    <div class="text-muted small" style="font-size: 0.7rem;">Ventanas</div>
+                    <div class="fs-5 fw-semibold" id="kpiWindows">—</div>
                 </div>
             </div>
         </div>
@@ -111,31 +111,30 @@
 </div>
 
 
-<div class="card shadow-sm mt-3">
-    <div class="card-body">
-        <h6 class="card-title">Eliminar horas</h6>
+<div class="card shadow-sm mt-2 mt-md-3">
+    <div class="card-body py-2 py-md-3">
+        <h6 class="card-title mb-2">Eliminar horas</h6>
         <div class="row g-2 align-items-end">
             <div class="col-12 col-sm-4">
-                <label class="form-label">Día</label>
-                <select class="form-select" id="cfgDayDel" required disabled>
-                    <option value="">Cargando días habilitados...</option>
+                <label class="form-label small mb-1">Día</label>
+                <select class="form-select form-select-sm" id="cfgDayDel" required disabled>
+                    <option value="">Cargando días...</option>
                 </select>
             </div>
             <div class="col-6 col-sm-2">
-                <label class="form-label">Inicio</label>
-                <input id="delStart" type="time" class="form-control" value="09:00" required />
+                <label class="form-label small mb-1">Inicio</label>
+                <input id="delStart" type="time" class="form-control form-control-sm" value="09:00" required />
             </div>
             <div class="col-6 col-sm-2">
-                <label class="form-label">Fin</label>
-                <input id="delEnd" type="time" class="form-control" value="13:00" required />
+                <label class="form-label small mb-1">Fin</label>
+                <input id="delEnd" type="time" class="form-control form-control-sm" value="13:00" required />
             </div>
             <div class="col-12 col-sm-3 d-grid">
-                <button id="btnDeleteRange" class="btn btn-outline-danger">Eliminar rango</button>
+                <button id="btnDeleteRange" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i><span class="d-none d-sm-inline"> Eliminar</span></button>
             </div>
         </div>
-        <div class="form-text mt-2">
-            Solo se eliminan horarios <strong>no reservados</strong>. Si existen reservados en el rango, se aborta con
-            aviso.
+        <div class="form-text mt-1 small">
+            Solo se eliminan horarios <strong>no reservados</strong>.
         </div>
     </div>
 </div>

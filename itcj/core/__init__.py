@@ -15,6 +15,7 @@ from .routes.api.users import api_users_bp
 from .routes.api.notifications import api_notifications_bp
 from .routes.api.deploy import api_deploy_bp
 from .routes.api.themes import api_themes_bp
+from .routes.api.mobile import api_mobile_bp
 api_core_bp.register_blueprint(api_departments_bp, url_prefix="/departments")
 api_core_bp.register_blueprint(api_positions_bp, url_prefix="/positions")
 api_core_bp.register_blueprint(api_auth_bp, url_prefix="/auth")
@@ -24,12 +25,15 @@ api_core_bp.register_blueprint(api_users_bp, url_prefix="/users")
 api_core_bp.register_blueprint(api_notifications_bp, url_prefix="/notifications")
 api_core_bp.register_blueprint(api_deploy_bp, url_prefix="/deploy")
 api_core_bp.register_blueprint(api_themes_bp, url_prefix="/themes")
+api_core_bp.register_blueprint(api_mobile_bp, url_prefix="/mobile")
 
 from .routes.pages.auth import pages_auth_bp
 from .routes.pages.dashboard import pages_dashboard_bp
 from .routes.pages.config import pages_config_bp
 from .routes.pages.profile import pages_profile_bp
+from .routes.pages.mobile import pages_mobile_bp
 pages_core_bp.register_blueprint(pages_auth_bp)
 pages_core_bp.register_blueprint(pages_dashboard_bp)
 pages_core_bp.register_blueprint(pages_config_bp)
 pages_core_bp.register_blueprint(pages_profile_bp)
+pages_core_bp.register_blueprint(pages_mobile_bp)

@@ -1,0 +1,143 @@
+{% extends "core/mobile/base_mobile.html" %}
+{% from "core/mobile/components/app_card.html" import render_app_card %}
+
+{% block title %}ITCJ - Mi Dashboard{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='core/css/mobile/dashboard.css') }}?v={{ sv('core', 'css/mobile/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Saludo -->
+<div class="mobile-greeting">
+    <h2 class="mobile-greeting-text">Hola, {{ user.first_name }}!</h2>
+    <p class="mobile-greeting-sub">Bienvenido al portal ITCJ</p>
+</div>
+
+<!-- Tarjeta de info del estudiante -->
+<div class="mobile-user-card">
+    <div class="mobile-user-avatar">
+        {{ user.first_name[:1]|upper }}{{ user.last_name[:1]|upper }}
+    </div>
+    <div class="mobile-user-info">
+        <div class="mobile-user-name">{{ user.full_name }}</div>
+        <div class="mobile-user-detail">
+            <i class="bi bi-hash"></i> {{ user.control_number }}
+        </div>
+        {% if user.email %}
+        <div class="mobile-user-detail">
+            <i class="bi bi-envelope"></i> {{ user.email }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Grid de aplicaciones -->
+<div class="mobile-section-title">
+    <i class="bi bi-grid-3x3-gap"></i> Mis Aplicaciones
+</div>
+
+<div class="mobile-app-grid">
+    {% for app in apps %}
+    {{ render_app_card(app) }}
+    {% else %}
+    <div class="mobile-empty-state">
+        <i class="bi bi-inbox"></i>
+        <p>No tienes aplicaciones asignadas</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block student_profile %}
+<!-- Perfil del estudiante (inline, sin iframe) -->
+<div class="mobile-view-header">
+    <h5 class="mobile-view-title">
+        <i class="bi bi-person me-2"></i>Mi Perfil
+    </h5>
+</div>
+
+<div class="mobile-student-profile">
+    <!-- Avatar y nombre -->
+    <div class="student-profile-header">
+        <div class="student-profile-avatar">
+            {{ user.first_name[:1]|upper }}{{ user.last_name[:1]|upper }}
+        </div>
+        <h4 class="student-profile-name">{{ user.full_name }}</h4>
+        <span class="student-profile-badge">
+            <i class="bi bi-mortarboard me-1"></i>Estudiante
+        </span>
+    </div>
+    
+    <!-- Información del estudiante -->
+    <div class="student-profile-info">
+        <div class="student-profile-item">
+            <div class="student-profile-icon">
+                <i class="bi bi-hash"></i>
+            </div>
+            <div class="student-profile-data">
+                <span class="student-profile-label">Número de Control</span>
+                <span class="student-profile-value">{{ user.control_number }}</span>
+            </div>
+        </div>
+        
+        {% if user.email %}
+        <div class="student-profile-item">
+            <div class="student-profile-icon">
+                <i class="bi bi-envelope"></i>
+            </div>
+            <div class="student-profile-data">
+                <span class="student-profile-label">Correo Electrónico</span>
+                <span class="student-profile-value">{{ user.email }}</span>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="student-profile-item">
+            <div class="student-profile-icon">
+                <i class="bi bi-calendar-check"></i>
+            </div>
+            <div class="student-profile-data">
+                <span class="student-profile-label">Fecha de Registro</span>
+                <span class="student-profile-value">
+                    {{ user.created_at.strftime('%d de %B, %Y') if user.created_at else 'No disponible' }}
+                </span>
+            </div>
+        </div>
+        
+        {% if user.last_login %}
+        <div class="student-profile-item">
+            <div class="student-profile-icon">
+                <i class="bi bi-clock-history"></i>
+            </div>
+            <div class="student-profile-data">
+                <span class="student-profile-label">Último Acceso</span>
+                <span class="student-profile-value">
+                    {{ user.last_login.strftime('%d/%m/%Y a las %H:%M') }}
+                </span>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="student-profile-item">
+            <div class="student-profile-icon {{ 'text-success' if user.is_active else 'text-danger' }}">
+                <i class="bi bi-{{ 'check-circle' if user.is_active else 'x-circle' }}"></i>
+            </div>
+            <div class="student-profile-data">
+                <span class="student-profile-label">Estado de Cuenta</span>
+                <span class="student-profile-value {{ 'text-success' if user.is_active else 'text-danger' }}">
+                    {{ 'Activa' if user.is_active else 'Inactiva' }}
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Botón de cerrar sesión -->
+    <div class="student-profile-actions">
+        <button type="button" class="btn btn-outline-danger w-100" id="studentLogoutBtn">
+            <i class="bi bi-box-arrow-right me-2"></i>Cerrar Sesión
+        </button>
+    </div>
+</div>
+{% endblock %}

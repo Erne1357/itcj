@@ -8,73 +8,73 @@
 
 {% block header_actions %}
 <a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" class="btn btn-light btn-sm">
-    <i class="fas fa-plus me-2"></i>Nuevo Ticket
+    <i class="fas fa-plus"></i><span class="d-none d-sm-inline ms-2">Nuevo Ticket</span>
 </a>
 {% endblock %}
 
 {% block content %}
 
 <!-- Summary Cards -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm border-start border-primary border-4">
-            <div class="card-body">
+<div class="row mb-4 g-2 g-md-3">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-primary border-4 h-100">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Total</small>
-                        <h2 class="text-primary mb-0 fw-bold" id="totalTickets">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Total</small>
+                        <h2 class="text-primary mb-0 fw-bold fs-4 fs-md-2" id="totalTickets">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-ticket-alt fa-2x text-primary opacity-50"></i>
+                    <i class="fas fa-ticket-alt fa-lg fa-md-2x text-primary opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm border-start border-warning border-4">
-            <div class="card-body">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Activos</small>
-                        <h2 class="text-warning mb-0 fw-bold" id="activeTickets">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Activos</small>
+                        <h2 class="text-warning mb-0 fw-bold fs-4 fs-md-2" id="activeTickets">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-cog fa-2x text-warning opacity-50"></i>
+                    <i class="fas fa-cog fa-lg fa-md-2x text-warning opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm border-start border-success border-4">
-            <div class="card-body">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Resueltos</small>
-                        <h2 class="text-success mb-0 fw-bold" id="resolvedTickets">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Resueltos</small>
+                        <h2 class="text-success mb-0 fw-bold fs-4 fs-md-2" id="resolvedTickets">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-check-circle fa-2x text-success opacity-50"></i>
+                    <i class="fas fa-check-circle fa-lg fa-md-2x text-success opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm border-start border-info border-4">
-            <div class="card-body">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-info border-4 h-100">
+            <div class="card-body py-2 py-md-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="text-muted fw-semibold">Por Calificar</small>
-                        <h2 class="text-info mb-0 fw-bold" id="pendingRating">
+                        <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Por Calificar</small>
+                        <h2 class="text-info mb-0 fw-bold fs-4 fs-md-2" id="pendingRating">
                             <span class="spinner-border spinner-border-sm" role="status"></span>
                         </h2>
                     </div>
-                    <i class="fas fa-star fa-2x text-info opacity-50"></i>
+                    <i class="fas fa-star fa-lg fa-md-2x text-info opacity-50 d-none d-sm-block"></i>
                 </div>
             </div>
         </div>
@@ -82,15 +82,16 @@
 </div>
 
 <!-- Filters and Search -->
+<!-- Filters and Search -->
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-body">
-        <div class="row g-3 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">
-                    <i class="fas fa-filter me-2"></i>Filtrar por Estado
+    <div class="card-body p-2 p-md-3">
+        <div class="row g-2 g-md-3 align-items-end">
+            <div class="col-6 col-md-4">
+                <label class="form-label fw-semibold small">
+                    <i class="fas fa-filter me-1 d-none d-sm-inline"></i>Estado
                 </label>
-                <select class="form-select" id="filterStatus">
-                    <option value="">Todos los estados</option>
+                <select class="form-select form-select-sm" id="filterStatus">
+                    <option value="">Todos</option>
                     <option value="PENDING">Pendiente</option>
                     <option value="ASSIGNED">Asignado</option>
                     <option value="IN_PROGRESS">En Progreso</option>
@@ -101,25 +102,25 @@
                 </select>
             </div>
             
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">
-                    <i class="fas fa-layer-group me-2"></i>Filtrar por Área
+            <div class="col-6 col-md-4">
+                <label class="form-label fw-semibold small">
+                    <i class="fas fa-layer-group me-1 d-none d-sm-inline"></i>Área
                 </label>
-                <select class="form-select" id="filterArea">
-                    <option value="">Todas las áreas</option>
+                <select class="form-select form-select-sm" id="filterArea">
+                    <option value="">Todas</option>
                     <option value="DESARROLLO">Desarrollo</option>
                     <option value="SOPORTE">Soporte</option>
                 </select>
             </div>
             
-            <div class="col-md-4">
-                <label class="form-label fw-semibold">
-                    <i class="fas fa-search me-2"></i>Buscar
+            <div class="col-12 col-md-4">
+                <label class="form-label fw-semibold small">
+                    <i class="fas fa-search me-1 d-none d-sm-inline"></i>Buscar
                 </label>
                 <input type="text" 
-                       class="form-control" 
+                       class="form-control form-control-sm" 
                        id="searchInput" 
-                       placeholder="Buscar por título o número...">
+                       placeholder="Título o número...">
             </div>
         </div>
     </div>
@@ -127,31 +128,31 @@
 
 <!-- Tickets List -->
 <div class="card border-0 shadow-sm">
-    <div class="card-header bg-white border-bottom">
+    <div class="card-header bg-white border-bottom p-2 p-md-3">
         <div class="d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">
-                <i class="fas fa-list me-2"></i>Historial de Tickets
+            <h5 class="mb-0 fs-6 fs-md-5">
+                <i class="fas fa-list me-1 me-md-2"></i><span class="d-none d-sm-inline">Historial de </span>Tickets
             </h5>
-            <span class="badge bg-secondary" id="ticketCount">0 tickets</span>
+            <span class="badge bg-secondary" id="ticketCount">0</span>
         </div>
     </div>
     <div class="card-body p-0">
         <div id="ticketsList">
             <!-- Loading state -->
-            <div class="text-center py-5">
+            <div class="text-center py-4 py-md-5">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Cargando...</span>
                 </div>
-                <p class="text-muted mt-3">Cargando tickets...</p>
+                <p class="text-muted mt-2 mt-md-3 small">Cargando tickets...</p>
             </div>
         </div>
     </div>
 </div>
 
 <!-- Pagination -->
-<div class="d-flex justify-content-center mt-4">
+<div class="d-flex justify-content-center mt-3 mt-md-4">
     <nav id="paginationNav" style="display: none;">
-        <ul class="pagination" id="paginationList">
+        <ul class="pagination pagination-sm" id="paginationList">
             <!-- Se generará dinámicamente -->
         </ul>
     </nav>

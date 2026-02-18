@@ -10,19 +10,19 @@
 <div class="container-fluid">
     
     <!-- Header -->
-    <div class="pending-header shadow">
-        <div class="d-flex justify-content-between align-items-start">
+    <div class="pending-header shadow mb-3 mb-md-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
             <div>
-                <h1 class="mb-2">
+                <h1 class="h4 h3-md mb-1 mb-md-2">
                     <i class="fas fa-hourglass-half mr-2"></i>
-                    Equipos Pendientes de Asignación
+                    <span class="d-none d-md-inline">Equipos </span>Pendientes<span class="d-none d-sm-inline"> de Asignación</span>
                 </h1>
-                <p class="mb-0 opacity-75">
+                <p class="mb-0 opacity-75 small d-none d-sm-block">
                     Equipos registrados que aún no han sido asignados a un departamento
                 </p>
             </div>
             <div>
-                <span class="badge badge-light badge-lg">
+                <span class="badge badge-light badge-sm badge-md-lg">
                     <i class="fas fa-inbox mr-1"></i>
                     <span id="pending-count">0</span> pendientes
                 </span>
@@ -31,49 +31,49 @@
     </div>
 
     <!-- Estadísticas Rápidas -->
-    <div class="row mb-4">
-        <div class="col-lg-3 col-md-6 mb-3">
+    <div class="row mb-3 mb-md-4 g-2">
+        <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
             <div class="card border-left-warning shadow h-100">
-                <div class="card-body">
+                <div class="card-body py-2 py-md-3">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">
                                 Total Pendientes
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-total">0</div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-hourglass-half fa-2x text-gray-300"></i>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-hourglass-half fa-lg fa-md-2x text-gray-300"></i>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-lg-3 col-md-6 mb-3">
+        <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
             <div class="card border-left-info shadow h-100">
-                <div class="card-body">
+                <div class="card-body py-2 py-md-3">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">
+                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1" style="font-size: 0.65rem;">
                                 Seleccionados
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-selected">0</div>
                         </div>
-                        <div class="col-auto">
-                            <i class="fas fa-check-square fa-2x text-gray-300"></i>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-check-square fa-lg fa-md-2x text-gray-300"></i>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-lg-3 col-md-6 mb-3">
+        <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
             <div class="card border-left-primary shadow h-100">
-                <div class="card-body">
+                <div class="card-body py-2 py-md-3">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1" style="font-size: 0.65rem;">
                                 Categorías
                             </div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-categories">0</div>
@@ -140,7 +140,7 @@
 
     <!-- Loading -->
     <div id="loading-container" class="text-center py-5">
-        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <i class="fas fa-spinner fa-spin fa-2x fa-md-3x text-primary mb-2 mb-md-3"></i>
         <p class="text-muted">Cargando equipos pendientes...</p>
     </div>
 

@@ -802,13 +802,23 @@ FIN COMENTADO: Nieve en íconos */
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 768px) {
     .christmas-lights {
-        height: 30px;
-        gap: 15px;
+        height: 35px;
     }
 
     .christmas-light {
         width: 10px;
         height: 10px;
+        margin-top: 15px;
+    }
+    
+    .christmas-light::before {
+        height: 10px;
+    }
+    
+    .christmas-light::after {
+        width: 5px;
+        height: 5px;
+        top: -3px;
     }
 
     .desktop-icon .icon-container::after {
@@ -820,6 +830,47 @@ FIN COMENTADO: Nieve en íconos */
     /* Muñeco de nieve más pequeño en móviles */
     .snowman-container {
         right: 80px;
-        transform: scale(0.8);
+        transform: scale(0.7);
+    }
+    
+    .snowflake {
+        font-size: 0.7em !important;
+    }
+    
+    .desktop::before,
+    .desktop::after {
+        width: 120px;
+        height: 120px;
+    }
+}
+
+@media (max-width: 480px) {
+    .christmas-lights {
+        height: 28px;
+    }
+
+    .christmas-light {
+        width: 8px;
+        height: 8px;
+        margin-top: 12px;
+    }
+    
+    .christmas-light::before {
+        height: 8px;
+    }
+    
+    .christmas-light::after {
+        width: 4px;
+        height: 4px;
+        top: -2px;
+    }
+
+    .snowman-container {
+        right: 20px;
+        transform: scale(0.5);
+    }
+    
+    .snowflake {
+        font-size: 0.6em !important;
     }
 }

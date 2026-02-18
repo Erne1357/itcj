@@ -23,19 +23,43 @@
 </button>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+    /* Tabs scrolleables en mobile */
+    @media (max-width: 768px) {
+        #permissionsTabs {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }
+        #permissionsTabs .nav-link {
+            white-space: nowrap;
+            font-size: 0.85rem;
+            padding: 0.5rem 0.75rem;
+        }
+        #permissionsTable th:nth-child(3),
+        #permissionsTable td:nth-child(3) {
+            display: none;
+        }
+        #permissionsTable { min-width: 350px; }
+        #roleSelect { width: 100% !important; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- Tabs Navigation -->
-<ul class="nav nav-tabs mb-4" id="permissionsTabs" role="tablist">
+<ul class="nav nav-tabs mb-4 flex-nowrap" id="permissionsTabs" role="tablist">
     <li class="nav-item" role="presentation">
         <button class="nav-link active" id="permissions-tab" data-bs-toggle="tab"
                 data-bs-target="#permissions" type="button" role="tab">
-            <i class="bi bi-key me-1"></i>Permisos ({{ permissions|length }})
+            <i class="bi bi-key me-1"></i><span class="d-none d-sm-inline">Permisos</span> ({{ permissions|length }})
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="role-permissions-tab" data-bs-toggle="tab"
                 data-bs-target="#role-permissions" type="button" role="tab">
-            <i class="bi bi-people me-1"></i>Asignaciones por Rol
+            <i class="bi bi-people me-1"></i><span class="d-none d-sm-inline">Asignaciones por Rol</span><span class="d-sm-none">Por Rol</span>
         </button>
     </li>
 </ul>
@@ -49,10 +73,10 @@
                     <table class="table table-hover config-table mb-0" id="permissionsTable">
                         <thead>
                             <tr>
-                                <th class="px-4">Codigo</th>
+                                <th class="px-4 px-sm-3">Codigo</th>
                                 <th>Nombre</th>
-                                <th>Descripcion</th>
-                                <th class="text-end pe-4">Acciones</th>
+                                <th class="d-none d-md-table-cell">Descripcion</th>
+                                <th class="text-end pe-4 pe-sm-3">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>

@@ -44,67 +44,35 @@ window.refreshDashboard = refreshDashboard;
 // ==================== DASHBOARD STATS ====================
 async function loadDashboardStats() {
     try {
-        // Get department tickets
-        const response = await HelpdeskUtils.api.getTickets({
-            department_id: DEPARTMENT_ID,
-            per_page: 100
-        });
-        
-        const tickets = response.tickets || [];
-        
-        // Count active tickets
-        const active = tickets.filter(t => 
-            ['PENDING', 'ASSIGNED', 'IN_PROGRESS'].includes(t.status)
-        ).length;
-        
-        // Count resolved
-        const resolved = tickets.filter(t => 
-            ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED'].includes(t.status)
-        ).length;
-        
-        // Calculate average time (placeholder for now)
-        const avgTime = calculateAverageTime(tickets);
-        
-        // Calculate satisfaction (placeholder for now)
-        const satisfaction = calculateSatisfaction(tickets);
+        // Use dedicated stats endpoint instead of loading all tickets
+        const stats = await HelpdeskUtils.api.getDepartmentStats(DEPARTMENT_ID);
         
         // Update cards
-        document.getElementById('activeTicketsCount').textContent = active;
-        document.getElementById('resolvedCount').textContent = resolved;
+        document.getElementById('activeTicketsCount').textContent = stats.active_tickets || 0;
+        document.getElementById('resolvedCount').textContent = stats.resolved_tickets || 0;
+        
+        // Format average time
+        const avgTime = stats.avg_resolution_hours 
+            ? (stats.avg_resolution_hours < 24 
+                ? `${Math.round(stats.avg_resolution_hours)}h`
+                : `${Math.round(stats.avg_resolution_hours / 24)}d`)
+            : '-';
         document.getElementById('avgTime').textContent = avgTime;
+        
+        // Format satisfaction
+        const satisfaction = stats.satisfaction_percent !== null && stats.rated_tickets_count > 0
+            ? `${stats.satisfaction_percent.toFixed(0)}%`
+            : '-';
         document.getElementById('satisfaction').textContent = satisfaction;
         
     } catch (error) {
         console.error('Error loading dashboard stats:', error);
+        // Set fallback values
+        document.getElementById('activeTicketsCount').textContent = '-';
+        document.getElementById('resolvedCount').textContent = '-';
+        document.getElementById('avgTime').textContent = '-';
+        document.getElementById('satisfaction').textContent = '-';
     }
-}
-
-function calculateAverageTime(tickets) {
-    const resolvedTickets = tickets.filter(t => t.resolved_at);
-    if (resolvedTickets.length === 0) return '-';
-    
-    const totalHours = resolvedTickets.reduce((sum, ticket) => {
-        const created = new Date(ticket.created_at);
-        const resolved = new Date(ticket.resolved_at);
-        const hours = (resolved - created) / (1000 * 60 * 60);
-        return sum + hours;
-    }, 0);
-    
-    const avgHours = totalHours / resolvedTickets.length;
-    
-    if (avgHours < 24) {
-        return `${Math.round(avgHours)}h`;
-    } else {
-        return `${Math.round(avgHours / 24)}d`;
-    }
-}
-
-function calculateSatisfaction(tickets) {
-    const ratedTickets = tickets.filter(t => t.rating !== null && t.rating !== undefined);
-    if (ratedTickets.length === 0) return '-';
-    
-    const avgRating = ratedTickets.reduce((sum, t) => sum + t.rating, 0) / ratedTickets.length;
-    return `${avgRating.toFixed(1)}⭐`;
 }
 
 // ==================== DEPARTMENT TICKETS ====================

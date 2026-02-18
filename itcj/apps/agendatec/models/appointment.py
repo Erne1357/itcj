@@ -24,7 +24,7 @@ class Appointment(db.Model):
     student = db.relationship("User", back_populates="appointments")
     coordinator = db.relationship("Coordinator", back_populates="appointments")
     program = db.relationship("Program", back_populates="appointments")
-    slot = db.relationship("TimeSlot", back_populates="appointments")
+    slot = db.relationship("itcj.apps.agendatec.models.time_slot.TimeSlot", back_populates="appointments")
 
     def __repr__(self) -> str:
         return f"<Appointment {self.id} student={self.student_id} slot={self.slot_id} status={self.status}>"

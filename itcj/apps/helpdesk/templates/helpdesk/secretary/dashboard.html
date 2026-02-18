@@ -11,59 +11,59 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h1 class="h2 mb-0">Dashboard: <span class="text-primary">{{ department_name }}</span></h1>
-    <div>
+    <h1 class="h4 h2-md mb-0">Dashboard: <span class="text-primary d-block d-sm-inline">{{ department_name }}</span></h1>
+    <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-sm btn-outline-secondary" onclick="refreshDashboard()">
-            <i class="fas fa-redo me-1"></i> Actualizar
+            <i class="fas fa-redo me-1"></i><span class="d-none d-sm-inline"> Actualizar</span>
         </button>
         <button class="btn btn-sm btn-primary" onclick="createTicket()">
-            <i class="fas fa-plus me-1"></i> Crear Ticket
+            <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline"> Crear Ticket</span>
         </button>
     </div>
 </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-lg-3 col-md-6">
+<div class="row g-2 g-md-3 mb-4">
+    <div class="col-6 col-lg-3 col-md-6">
         <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h5 class="card-title text-muted small">Tickets Activos</h5>
-                <div class="h2 fw-bold" id="activeTicketsCount">
+            <div class="card-body py-2 py-md-3">
+                <h5 class="card-title text-muted small mb-1" style="font-size: 0.7rem;">Tickets Activos</h5>
+                <div class="h4 h2-md fw-bold mb-1" id="activeTicketsCount">
                     <span class="spinner-border spinner-border-sm"></span>
                 </div>
-                <small class="text-muted">Pendientes, Asignados o En Progreso</small>
+                <small class="text-muted d-none d-sm-block" style="font-size: 0.65rem;">Pendientes, Asignados o En Progreso</small>
             </div>
         </div>
     </div>
-    <div class="col-lg-3 col-md-6">
+    <div class="col-6 col-lg-3 col-md-6">
         <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h5 class="card-title text-muted small">Resueltos (Histórico)</h5>
-                <div class="h2 fw-bold" id="resolvedCount">
+            <div class="card-body py-2 py-md-3">
+                <h5 class="card-title text-muted small mb-1" style="font-size: 0.7rem;">Resueltos</h5>
+                <div class="h4 h2-md fw-bold mb-1" id="resolvedCount">
                     <span class="spinner-border spinner-border-sm"></span>
                 </div>
-                <small class="text-muted">Total de tickets completados</small>
+                <small class="text-muted d-none d-sm-block" style="font-size: 0.65rem;">Total de tickets completados</small>
             </div>
         </div>
     </div>
-    <div class="col-lg-3 col-md-6">
+    <div class="col-6 col-lg-3 col-md-6">
         <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h5 class="card-title text-muted small">Tiempo Prom. Resolución</h5>
-                <div class="h2 fw-bold" id="avgTime">
+            <div class="card-body py-2 py-md-3">
+                <h5 class="card-title text-muted small mb-1" style="font-size: 0.7rem;">Tiempo Prom.</h5>
+                <div class="h4 h2-md fw-bold mb-1" id="avgTime">
                     <span class="spinner-border spinner-border-sm"></span>
                 </div>
-                <small class="text-muted">Desde creación a resolución</small>
+                <small class="text-muted d-none d-sm-block" style="font-size: 0.65rem;">Desde creación a resolución</small>
             </div>
         </div>
     </div>
-    <div class="col-lg-3 col-md-6">
+    <div class="col-6 col-lg-3 col-md-6">
         <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <h5 class="card-title text-muted small">Satisfacción (Promedio)</h5>
-                <div class="h2 fw-bold" id="satisfaction">
+            <div class="card-body py-2 py-md-3">
+                <h5 class="card-title text-muted small mb-1" style="font-size: 0.7rem;">Satisfacción</h5>
+                <div class="h4 h2-md fw-bold mb-1" id="satisfaction">
                     <span class="spinner-border spinner-border-sm"></span>
                 </div>
-                <small class="text-muted">Basado en calificaciones</small>
+                <small class="text-muted d-none d-sm-block" style="font-size: 0.65rem;">Basado en calificaciones</small>
             </div>
         </div>
     </div>
@@ -71,27 +71,31 @@
 
 <div class="card shadow-sm">
     <div class="card-header p-0 border-bottom">
-        <ul class="nav nav-tabs nav-fill" id="dashboardTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="tickets-tab" data-bs-toggle="tab" data-bs-target="#tickets-panel" type="button" role="tab" aria-controls="tickets-panel" aria-selected="true">
-                    <i class="fas fa-ticket-alt me-1"></i>
-                    Tickets del Depto.
-                    <span class="badge rounded-pill bg-primary ms-1" id="ticketsBadge">...</span>
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="inventory-tab" data-bs-toggle="tab" data-bs-target="#inventory-panel" type="button" role="tab" aria-controls="inventory-panel" aria-selected="false">
-                    <i class="fas fa-boxes me-1"></i>
-                    Inventario (Lectura)
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary-panel" type="button" role="tab" aria-controls="summary-panel" aria-selected="false">
-                    <i class="fas fa-chart-pie me-1"></i>
-                    Resumen
-                </button>
-            </li>
-        </ul>
+        <div class="nav-tabs-wrapper overflow-auto">
+            <ul class="nav nav-tabs nav-fill flex-nowrap" id="dashboardTabs" role="tablist" style="min-width: max-content;">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active px-2 px-md-3" id="tickets-tab" data-bs-toggle="tab" data-bs-target="#tickets-panel" type="button" role="tab" aria-controls="tickets-panel" aria-selected="true">
+                        <i class="fas fa-ticket-alt me-1"></i>
+                        <span class="d-none d-sm-inline">Tickets del Depto.</span>
+                        <span class="d-sm-none">Tickets</span>
+                        <span class="badge rounded-pill bg-primary ms-1" id="ticketsBadge">...</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link px-2 px-md-3" id="inventory-tab" data-bs-toggle="tab" data-bs-target="#inventory-panel" type="button" role="tab" aria-controls="inventory-panel" aria-selected="false">
+                        <i class="fas fa-boxes me-1"></i>
+                        <span class="d-none d-sm-inline">Inventario (Lectura)</span>
+                        <span class="d-sm-none">Inventario</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link px-2 px-md-3" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary-panel" type="button" role="tab" aria-controls="summary-panel" aria-selected="false">
+                        <i class="fas fa-chart-pie me-1"></i>
+                        Resumen
+                    </button>
+                </li>
+            </ul>
+        </div>
     </div>
     
     <div class="card-body p-0">

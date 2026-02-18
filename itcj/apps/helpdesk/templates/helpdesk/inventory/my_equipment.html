@@ -121,21 +121,21 @@
 {% block content %}
 <div class="container-fluid">
     <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 mb-md-4 flex-wrap gap-2">
         <div>
-            <h1 class="h3 mb-0 text-gray-800">
-                <i class="fas fa-laptop-house fa-fw"></i> Mi Equipo Asignado
+            <h1 class="h4 h3-md mb-0 text-gray-800">
+                <i class="fas fa-laptop-house fa-fw"></i> <span class="d-none d-sm-inline">Mi Equipo</span><span class="d-sm-none">Equipos</span>
             </h1>
-            <p class="text-muted mb-0">Equipos de cómputo asignados a tu nombre</p>
+            <p class="text-muted mb-0 small d-none d-sm-block">Equipos de cómputo asignados a tu nombre</p>
         </div>
-        <button class="btn btn-outline-primary" onclick="refreshEquipment()">
-            <i class="fas fa-sync-alt"></i> Actualizar
+        <button class="btn btn-outline-primary btn-sm" onclick="refreshEquipment()">
+            <i class="fas fa-sync-alt"></i><span class="d-none d-sm-inline"> Actualizar</span>
         </button>
     </div>
 
     <!-- Loading State -->
     <div id="loading-state" class="text-center py-5">
-        <i class="fas fa-spinner fa-spin fa-3x text-primary mb-3"></i>
+        <i class="fas fa-spinner fa-spin fa-2x fa-md-3x text-primary mb-2 mb-md-3"></i>
         <p class="text-muted">Cargando información de tus equipos...</p>
     </div>
 

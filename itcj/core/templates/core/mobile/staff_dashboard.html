@@ -1,0 +1,123 @@
+{% extends "core/mobile/base_mobile.html" %}
+{% from "core/mobile/components/app_card.html" import render_app_card %}
+
+{% block title %}ITCJ - Dashboard Staff{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='core/css/mobile/dashboard.css') }}?v={{ sv('core', 'css/mobile/dashboard.css') }}">
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='core/css/must_change.css') }}?v={{ sv('core', 'css/must_change.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Saludo -->
+<div class="mobile-greeting">
+    <h2 class="mobile-greeting-text">Hola, {{ user.first_name }}!</h2>
+    <p class="mobile-greeting-sub">Dashboard ITCJ</p>
+</div>
+
+<!-- Tarjeta de info del staff -->
+<div class="mobile-user-card">
+    <div class="mobile-user-avatar staff">
+        {{ user.first_name[:1]|upper }}{{ user.last_name[:1]|upper }}
+    </div>
+    <div class="mobile-user-info">
+        <div class="mobile-user-name">{{ user.full_name }}</div>
+        {% if user.get_position_title() %}
+        <div class="mobile-user-detail">
+            <i class="bi bi-briefcase"></i> {{ user.get_position_title() }}
+        </div>
+        {% endif %}
+        {% set dept = user.get_current_department() %}
+        {% if dept %}
+        <div class="mobile-user-detail">
+            <i class="bi bi-building"></i> {{ dept.name }}
+        </div>
+        {% endif %}
+        {% if user.email %}
+        <div class="mobile-user-detail">
+            <i class="bi bi-envelope"></i> {{ user.email }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Accesos rapidos -->
+{% if quick_actions %}
+<div class="mobile-section-title">
+    <i class="bi bi-lightning"></i> Accesos Rapidos
+</div>
+<div class="mobile-quick-actions">
+    {% for action in quick_actions %}
+    <a href="{{ action.url }}" class="mobile-quick-action-btn">
+        <i class="bi {{ action.icon }}"></i>
+        <span>{{ action.label }}</span>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Grid de aplicaciones -->
+<div class="mobile-section-title">
+    <i class="bi bi-grid-3x3-gap"></i> Aplicaciones
+</div>
+
+<div class="mobile-app-grid">
+    {% for app in apps %}
+    {{ render_app_card(app) }}
+    {% else %}
+    <div class="mobile-empty-state">
+        <i class="bi bi-inbox"></i>
+        <p>No tienes aplicaciones asignadas</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal de cambio de contraseña para Staff -->
+<div class="modal fade" id="forcePwModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static"
+    data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="bi bi-shield-exclamation me-2"></i>Alerta de Seguridad
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size: 3rem;"></i>
+                </div>
+                <p class="text-center mb-3">
+                    <strong>¡Contraseña por defecto detectada!</strong>
+                </p>
+                <p class="text-muted text-center mb-4">
+                    Para continuar usando el sistema, debe actualizar su contraseña por motivos de seguridad.
+                </p>
+                <div class="mb-3">
+                    <label class="form-label">Nueva contraseña</label>
+                    <input type="password" class="form-control" id="newPw" minlength="8" 
+                        placeholder="Mínimo 8 caracteres">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Confirmar contraseña</label>
+                    <input type="password" class="form-control" id="confirmPw" minlength="8" 
+                        placeholder="Repite tu nueva contraseña">
+                </div>
+                <div id="pwErr" class="alert alert-danger py-2 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btnSavePw" class="btn btn-primary w-100">
+                    <i class="bi bi-check-lg me-2"></i>Actualizar Contraseña
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/must_change.js') }}?v={{ sv('core', 'js/must_change.js') }}"></script>
+{% endblock %}

@@ -7,8 +7,21 @@
 
 class ValentineHearts {
     constructor(options = {}) {
+        // Ajustar cantidad de corazones según el tamaño de pantalla
+        const screenWidth = window.innerWidth;
+        let defaultHeartCount;
+        if (screenWidth <= 480) {
+            defaultHeartCount = 8;  // Móvil pequeño
+        } else if (screenWidth <= 768) {
+            defaultHeartCount = 12; // Móvil/Tablet
+        } else if (screenWidth <= 1024) {
+            defaultHeartCount = 16; // Tablet grande
+        } else {
+            defaultHeartCount = 20; // Desktop
+        }
+
         this.config = {
-            heartCount: options.heartCount || 20,
+            heartCount: options.heartCount || defaultHeartCount,
             minSize: options.minSize || 10,
             maxSize: options.maxSize || 22,
             minSpeed: options.minSpeed || 0.5,
@@ -60,7 +73,19 @@ class ValentineHearts {
         const garland = document.createElement('div');
         garland.className = 'valentine-garland';
 
-        const heartCount = 25;
+        // Ajustar cantidad de corazones según el ancho de pantalla
+        const screenWidth = window.innerWidth;
+        let heartCount;
+        if (screenWidth <= 480) {
+            heartCount = 8;  // Móvil pequeño
+        } else if (screenWidth <= 768) {
+            heartCount = 12; // Móvil/Tablet
+        } else if (screenWidth <= 1024) {
+            heartCount = 18; // Tablet grande
+        } else {
+            heartCount = 25; // Desktop
+        }
+        
         const heartSymbols = ['♥', '♡', '❤', '♥', '❣'];
 
         for (let i = 0; i < heartCount; i++) {

@@ -37,7 +37,7 @@ class Request(db.Model):
     program = db.relationship("Program", back_populates="requests")
     period = db.relationship("AcademicPeriod", back_populates="requests")
     # 1:1 with Appointment (appointments.request_id is UNIQUE)
-    appointment = db.relationship("Appointment", back_populates="request", uselist=False, cascade="all, delete", passive_deletes=True)
+    appointment = db.relationship("itcj.apps.agendatec.models.appointment.Appointment", back_populates="request", uselist=False, cascade="all, delete", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Request {self.id} student={self.student_id} type={self.type} status={self.status}>"

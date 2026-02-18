@@ -78,7 +78,11 @@ class AppsManager {
         const data = {
             key: formData.get('key'),
             name: formData.get('name'),
-            is_active: formData.has('is_active')
+            is_active: formData.has('is_active'),
+            mobile_enabled: formData.has('mobile_enabled'),
+            visible_to_students: formData.has('visible_to_students'),
+            mobile_url: formData.get('mobile_url') || null,
+            mobile_icon: formData.get('mobile_icon') || null
         };
 
         try {
@@ -95,8 +99,8 @@ class AppsManager {
             if (response.ok) {
                 this.showSuccess('Aplicación creada correctamente');
                 this.createModal.hide();
-                this.addAppToTable(result.data);
-                e.target.reset();
+                // Reload page to show new app with all data
+                location.reload();
             } else {
                 this.showError(result.error || 'Error al crear la aplicación');
             }
@@ -110,10 +114,18 @@ class AppsManager {
         const appKey = btn.dataset.appKey;
         const appName = btn.dataset.appName;
         const appActive = btn.dataset.appActive === 'true';
+        const appMobileEnabled = btn.dataset.appMobileEnabled === 'true';
+        const appVisibleStudents = btn.dataset.appVisibleStudents === 'true';
+        const appMobileUrl = btn.dataset.appMobileUrl || '';
+        const appMobileIcon = btn.dataset.appMobileIcon || '';
 
         document.getElementById('editAppKey').value = appKey;
         document.getElementById('editAppName').value = appName;
         document.getElementById('editAppActive').checked = appActive;
+        document.getElementById('editAppMobileEnabled').checked = appMobileEnabled;
+        document.getElementById('editAppVisibleStudents').checked = appVisibleStudents;
+        document.getElementById('editAppMobileUrl').value = appMobileUrl;
+        document.getElementById('editAppMobileIcon').value = appMobileIcon;
 
         this.editModal.show();
     }
@@ -125,7 +137,11 @@ class AppsManager {
         const appKey = formData.get('key');
         const data = {
             name: formData.get('name'),
-            is_active: formData.has('is_active')
+            is_active: formData.has('is_active'),
+            mobile_enabled: formData.has('mobile_enabled'),
+            visible_to_students: formData.has('visible_to_students'),
+            mobile_url: formData.get('mobile_url') || null,
+            mobile_icon: formData.get('mobile_icon') || null
         };
 
         try {
@@ -142,7 +158,8 @@ class AppsManager {
             if (response.ok) {
                 this.showSuccess('Aplicación actualizada correctamente');
                 this.editModal.hide();
-                this.updateAppInTable(appKey, result.data);
+                // Reload page to show updated data
+                location.reload();
             } else {
                 this.showError(result.error || 'Error al actualizar la aplicación');
             }

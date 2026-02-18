@@ -120,6 +120,15 @@ class HelpdeskAPI {
     async getAttachments(ticketId) {
         return this.request(`/attachments/ticket/${ticketId}`);
     }
+
+    // Statistics
+    async getDepartmentStats(departmentId) {
+        return this.request(`/stats/department/${departmentId}`);
+    }
+
+    async getTechnicianStats() {
+        return this.request('/stats/technician');
+    }
 }
 
 // Instancia global

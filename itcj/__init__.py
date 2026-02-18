@@ -38,9 +38,11 @@ def create_app():
     #Registrar comandos
     from itcj.apps.helpdesk.commands import register_helpdesk_commands
     from itcj.apps.agendatec.commands import register_agendatec_commands
+    from itcj.apps.vistetec.commands import register_vistetec_commands
     from itcj.core.commands import register_commands
     register_helpdesk_commands(app)
     register_agendatec_commands(app)
+    register_vistetec_commands(app)
     register_commands(app)
 
 
@@ -97,10 +99,18 @@ def create_app():
             # Obtener roles en todas las apps
             roles_itcj = set(user_roles_in_app(user_id, 'itcj'))
             roles_agendatec = set(user_roles_in_app(user_id, 'agendatec'))
-            # Si solo tiene rol student en agendatec, redirigir directo
-            if (not roles_itcj or roles_itcj == {"student"}) and "student" in roles_agendatec:
-                return redirect("/agendatec/student/home")
-            # Si tiene roles en itcj, usar la lógica normal
+
+            # Estudiantes SIEMPRE van al dashboard responsive
+            from itcj.core.services.mobile_service import is_student, is_mobile_user_agent
+            if is_student(user_id):
+                return redirect("/itcj/m/")
+
+            # Staff en movil: redirigir a mobile (salvo preferencia desktop)
+            prefer_desktop = request.cookies.get('prefer_desktop')
+            if not prefer_desktop and is_mobile_user_agent(request.headers.get('User-Agent', '')):
+                return redirect("/itcj/m/")
+
+            # Si tiene roles en itcj, usar la lógica normal (desktop)
             return redirect(role_home(roles_itcj or roles_agendatec))
         return redirect(url_for("pages_core.pages_auth.login_page"))
     
@@ -193,14 +203,17 @@ def register_blueprints(app):
     # Apps específicas
     from itcj.apps.agendatec import agendatec_api_bp, agendatec_pages_bp
     from itcj.apps.helpdesk import helpdesk_api_bp, helpdesk_pages_bp
-    
+    from itcj.apps.vistetec import vistetec_api_bp, vistetec_pages_bp
+
     # APIs de apps
     app.register_blueprint(agendatec_api_bp, url_prefix="/api/agendatec/v1")
     app.register_blueprint(helpdesk_api_bp, url_prefix="/api/help-desk/v1")
-    
+    app.register_blueprint(vistetec_api_bp, url_prefix="/api/vistetec/v1")
+
     # Páginas de apps
     app.register_blueprint(agendatec_pages_bp, url_prefix="/agendatec")
     app.register_blueprint(helpdesk_pages_bp, url_prefix="/help-desk")
+    app.register_blueprint(vistetec_pages_bp, url_prefix="/vistetec")
 
 def register_error_handlers(app):
     """Manejo centralizado de errores"""

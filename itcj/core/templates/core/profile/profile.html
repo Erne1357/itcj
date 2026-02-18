@@ -9,9 +9,158 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link rel="stylesheet"
         href="{{ url_for('static', filename='core/css/profile/profile.css') }}?v={{ sv('core', 'css/profile/profile.css') }}">
+    <link href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}" rel="stylesheet">
+    
+    <style>
+        :root {
+            --app-primary: #667eea;
+            --app-primary-dark: #5a67d8;
+            --app-primary-light: #e0e7ff;
+        }
+        
+        /* Header móvil con flecha de regreso (solo visible en iframe) */
+        .profile-mobile-header {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            z-index: 1050;
+            align-items: center;
+            padding: 0 16px;
+            gap: 12px;
+        }
+        
+        body.in-mobile-iframe .profile-mobile-header {
+            display: flex;
+        }
+        
+        body.in-mobile-iframe {
+            padding-top: 56px;
+        }
+        
+        .profile-mobile-header .profile-mobile-title {
+            color: white;
+            font-weight: 600;
+            font-size: 18px;
+            flex: 1;
+        }
+        
+        /* Ocultar tab de notificaciones en móvil cuando está en iframe */
+        body.in-mobile-iframe #notifications-tab-wrapper {
+            display: none !important;
+        }
+        
+        /* En desktop siempre visible */
+        @media (min-width: 992px) {
+            body.in-mobile-iframe #notifications-tab-wrapper {
+                display: block !important;
+            }
+        }
+        
+        /* Ajustes responsivos mejorados */
+        @media (max-width: 768px) {
+            .container-fluid {
+                padding: 0.75rem;
+            }
+            
+            .profile-header-card .card-body {
+                padding: 1rem !important;
+            }
+            
+            .nav-tabs {
+                padding: 0.25rem;
+            }
+            
+            .nav-tabs .nav-link {
+                padding: 0.5rem 0.5rem;
+                font-size: 0.8rem;
+            }
+            
+            .profile-avatar {
+                width: 56px;
+                height: 56px;
+                font-size: 1.75rem;
+            }
+            
+            .profile-header-card h3 {
+                font-size: 1.1rem;
+            }
+            
+            .card-header h5 {
+                font-size: 0.95rem;
+            }
+        }
+        
+        /* Estilos para información de estudiante */
+        .student-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+        
+        @media (max-width: 576px) {
+            .student-stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .student-stat-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            transition: transform 0.2s ease;
+        }
+        
+        .student-stat-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .student-stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 0.75rem;
+            font-size: 1.25rem;
+            color: white;
+        }
+        
+        .student-stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #212529;
+        }
+        
+        .student-stat-label {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+        
+        .last-login-info {
+            background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+            border-radius: 10px;
+            padding: 1rem;
+            border-left: 4px solid #0d6efd;
+        }
+    </style>
 </head>
 
 <body class="bg-light">
+    <!-- Header móvil con flecha de regreso (solo visible en iframe) -->
+    <div class="profile-mobile-header">
+        <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+            <i class="bi bi-arrow-left"></i>
+        </button>
+        <span class="profile-mobile-title">Mi Perfil</span>
+    </div>
+
     <div class="container-fluid py-4">
         <div class="row justify-content-center">
             <div class="col-12 col-xl-10">
@@ -81,31 +230,31 @@
                     <li class="nav-item" role="presentation">
                         <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info"
                             type="button" role="tab">
-                            <i class="bi bi-info-circle me-2"></i>
-                            <span class="d-none d-sm-inline">Información General</span>
+                            <i class="bi bi-info-circle me-1 me-sm-2"></i>
+                            <span class="d-none d-sm-inline">Información</span>
                             <span class="d-inline d-sm-none">Info</span>
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="permissions-tab" data-bs-toggle="tab" data-bs-target="#permissions"
                             type="button" role="tab">
-                            <i class="bi bi-shield-check me-2"></i>
-                            <span class="d-none d-sm-inline">Permisos y Accesos</span>
+                            <i class="bi bi-shield-check me-1 me-sm-2"></i>
+                            <span class="d-none d-sm-inline">Permisos</span>
                             <span class="d-inline d-sm-none">Permisos</span>
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity"
                             type="button" role="tab">
-                            <i class="bi bi-clock-history me-2"></i>
-                            <span class="d-none d-sm-inline">Actividad Reciente</span>
+                            <i class="bi bi-clock-history me-1 me-sm-2"></i>
+                            <span class="d-none d-sm-inline">Actividad</span>
                             <span class="d-inline d-sm-none">Actividad</span>
                         </button>
                     </li>
-                    <li class="nav-item" role="presentation">
+                    <li class="nav-item" role="presentation" id="notifications-tab-wrapper">
                         <button class="nav-link position-relative" id="notifications-tab" data-bs-toggle="tab"
                             data-bs-target="#notifications" type="button" role="tab">
-                            <i class="bi bi-bell me-2"></i>
+                            <i class="bi bi-bell me-1 me-sm-2"></i>
                             <span class="d-none d-sm-inline">Notificaciones</span>
                             <span class="d-inline d-sm-none">Notif.</span>
                             <span
@@ -122,6 +271,23 @@
                     <!-- Información General Tab -->
                     <div class="tab-pane fade show active" id="info" role="tabpanel">
                         <div class="row g-4">
+                            <!-- Último inicio de sesión (visible para todos) -->
+                            {% if profile.last_login_at %}
+                            <div class="col-12">
+                                <div class="last-login-info">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <i class="bi bi-clock-history fs-4 text-primary"></i>
+                                        <div>
+                                            <div class="fw-semibold text-dark">Último inicio de sesión</div>
+                                            <div class="text-muted small">
+                                                {{ profile.last_login_at.strftime('%d de %B, %Y a las %H:%M') if profile.last_login_at else 'No disponible' }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
                             <div class="col-md-6">
                                 <div class="card shadow-sm h-100">
                                     <div class="card-header bg-white">
@@ -145,14 +311,16 @@
                                         {% if profile.control_number %}
                                         <div class="info-item">
                                             <label>Número de Control</label>
-                                            <p>{{ profile.control_number }}</p>
+                                            <p class="fw-bold text-primary fs-5">{{ profile.control_number }}</p>
                                         </div>
                                         {% endif %}
                                         <div class="info-item">
                                             <label>Rol del Sistema</label>
-                                            {% for role in profile.roles %}
-                                            <p><span class="badge bg-primary">{{ role }}</span></p>
-                                            {% endfor %}
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for role in profile.roles %}
+                                                <span class="badge bg-primary">{{ role }}</span>
+                                                {% endfor %}
+                                            </div>
                                         </div>
                                         <div class="info-item mb-0">
                                             <label>Fecha de Registro</label>
@@ -162,6 +330,9 @@
                                     </div>
                                 </div>
                             </div>
+                            
+                            {% if profile.positions %}
+                            <!-- Staff: Información Organizacional -->
                             <div class="col-md-6">
                                 <div class="card shadow-sm h-100">
                                     <div class="card-header bg-white">
@@ -169,7 +340,6 @@
                                         </h5>
                                     </div>
                                     <div class="card-body">
-                                        {% if profile.positions %}
                                         {% for position in profile.positions %}
                                         <div class="info-item {{ 'mb-0' if loop.last else '' }}">
                                             <label>Puesto {{ loop.index }}</label>
@@ -190,15 +360,75 @@
                                         <hr class="my-3">
                                         {% endif %}
                                         {% endfor %}
-                                        {% else %}
-                                        <div class="text-center py-4">
-                                            <i class="bi bi-briefcase display-4 text-muted"></i>
-                                            <p class="text-muted mt-2">Sin puestos asignados</p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% else %}
+                            <!-- Alumno: Estadísticas y Actividad -->
+                            <div class="col-md-6">
+                                <div class="card shadow-sm h-100">
+                                    <div class="card-header bg-white">
+                                        <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Mi Actividad</h5>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="student-stats-grid">
+                                            {% if profile.agendatec_requests is defined %}
+                                            <div class="student-stat-card">
+                                                <div class="student-stat-icon" style="background: linear-gradient(135deg, #5dade2, #3498db);">
+                                                    <i class="bi bi-calendar-check"></i>
+                                                </div>
+                                                <div class="student-stat-value">{{ profile.agendatec_requests or 0 }}</div>
+                                                <div class="student-stat-label">Solicitudes AgendaTec</div>
+                                            </div>
+                                            {% endif %}
+                                            
+                                            {% if profile.vistetec_donations is defined %}
+                                            <div class="student-stat-card">
+                                                <div class="student-stat-icon" style="background: linear-gradient(135deg, #a93226, #7b241c);">
+                                                    <i class="bi bi-heart"></i>
+                                                </div>
+                                                <div class="student-stat-value">{{ profile.vistetec_donations or 0 }}</div>
+                                                <div class="student-stat-label">Prendas Donadas</div>
+                                            </div>
+                                            {% endif %}
+                                            
+                                            {% if profile.vistetec_received is defined %}
+                                            <div class="student-stat-card">
+                                                <div class="student-stat-icon" style="background: linear-gradient(135deg, #52c41a, #389e0d);">
+                                                    <i class="bi bi-box-seam"></i>
+                                                </div>
+                                                <div class="student-stat-value">{{ profile.vistetec_received or 0 }}</div>
+                                                <div class="student-stat-label">Prendas Recibidas</div>
+                                            </div>
+                                            {% endif %}
+                                            
+                                            <div class="student-stat-card">
+                                                <div class="student-stat-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                                                    <i class="bi bi-person-check"></i>
+                                                </div>
+                                                <div class="student-stat-value">
+                                                    {% if profile.is_active %}
+                                                    <i class="bi bi-check-circle text-success"></i>
+                                                    {% else %}
+                                                    <i class="bi bi-x-circle text-danger"></i>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="student-stat-label">Estado de Cuenta</div>
+                                            </div>
+                                        </div>
+                                        
+                                        {% if not (profile.agendatec_requests is defined or profile.vistetec_donations is defined) %}
+                                        <div class="text-center py-3 mt-3">
+                                            <i class="bi bi-graph-up display-6 text-muted"></i>
+                                            <p class="text-muted mt-2 mb-0 small">
+                                                Aquí aparecerán tus estadísticas de uso
+                                            </p>
                                         </div>
                                         {% endif %}
                                     </div>
                                 </div>
                             </div>
+                            {% endif %}
                         </div>
                     </div>
 
@@ -433,6 +663,42 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='core/js/profile/profile.js') }}?v={{ sv('core', 'js/profile/profile.js') }}"></script>
+    <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
+    <!-- Bridge para detectar logout/session expired en iframes -->
+    <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
+    
+    <script>
+        // Detectar si estamos en un iframe móvil
+        const inIframe = window.self !== window.top;
+        if (inIframe) {
+            document.body.classList.add('in-mobile-iframe');
+        }
+        
+        // Función para volver al dashboard
+        function goToDashboard() {
+            if (inIframe) {
+                try {
+                    window.parent.postMessage({
+                        type: 'CLOSE_APP',
+                        source: 'profile'
+                    }, window.location.origin);
+                } catch (e) {
+                    console.warn('No se pudo notificar al parent:', e);
+                    window.location.href = '/itcj/m/';
+                }
+            } else {
+                window.location.href = '/itcj/m/';
+            }
+        }
+        
+        // Bind del botón de regreso
+        document.addEventListener('DOMContentLoaded', () => {
+            const backBtn = document.getElementById('mobileBackToDashboard');
+            if (backBtn) {
+                backBtn.addEventListener('click', goToDashboard);
+            }
+        });
+    </script>
 
     <!-- WebSocket for Real-time Notifications -->
     <script>

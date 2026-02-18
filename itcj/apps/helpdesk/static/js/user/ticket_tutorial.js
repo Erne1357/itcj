@@ -189,6 +189,51 @@ const TUTORIAL_DATA = {
     office_folio: 'TUT-2025-001'
 };
 
+// ==================== UTILIDADES DE POSICIONAMIENTO RESPONSIVO ====================
+const TutorialPositioning = {
+    /**
+     * Determina si está en pantalla móvil
+     */
+    isMobile() {
+        return window.innerWidth <= 768;
+    },
+
+    /**
+     * Determina si está en pantalla tablet
+     */
+    isTablet() {
+        return window.innerWidth > 768 && window.innerWidth <= 1024;
+    },
+
+    /**
+     * Obtiene la posición óptima para el tooltip
+     * En móvil: prefiere bottom/top
+     * En desktop: usa la posición original
+     * @param {string} desktopPosition - Posición preferida para desktop
+     * @param {string} mobilePosition - Posición para móvil (default: 'bottom')
+     */
+    getPosition(desktopPosition, mobilePosition = 'bottom') {
+        if (this.isMobile()) {
+            return mobilePosition;
+        }
+        return desktopPosition;
+    },
+
+    /**
+     * Obtiene posición horizontal responsiva
+     * En móvil convierte left/right a bottom
+     */
+    getHorizontalPosition(desktopPosition) {
+        if (this.isMobile()) {
+            return 'bottom';
+        }
+        if (this.isTablet() && (desktopPosition === 'left' || desktopPosition === 'right')) {
+            return 'bottom';
+        }
+        return desktopPosition;
+    }
+};
+
 // ==================== CLASE PRINCIPAL DEL TUTORIAL ====================
 class HelpdeskTutorial {
     constructor() {
@@ -630,7 +675,7 @@ class HelpdeskTutorial {
                 text: 'Para este tutorial, vamos a crear un ticket de <strong>Soporte Técnico</strong>. Haz click en esta tarjeta para seleccionarla.',
                 attachTo: {
                     element: '[data-area="SOPORTE"]',
-                    on: 'right'
+                    on: TutorialPositioning.getHorizontalPosition('right')
                 },
                 when: {
                     show: () => {
@@ -661,7 +706,7 @@ class HelpdeskTutorial {
                 `,
                 attachTo: {
                     element: '[data-area="DESARROLLO"]',
-                    on: 'left'
+                    on: TutorialPositioning.getHorizontalPosition('left')
                 },
                 when: {
                     show: () => {
@@ -748,7 +793,7 @@ class HelpdeskTutorial {
                 `,
                 attachTo: {
                     element: '#equipment-section',
-                    on: 'right'
+                    on: TutorialPositioning.getHorizontalPosition('right')
                 },
                 when: {
                     show: () => {
@@ -1198,7 +1243,7 @@ class HelpdeskTutorial {
                 text: 'Haz click en el botón "Abrir" para ver todos los detalles del ticket y continuar con el tutorial.',
                 attachTo: {
                     element: '.ticket-card .btn-primary',
-                    on: 'left'
+                    on: TutorialPositioning.getHorizontalPosition('left')
                 },
                 when: {
                     show: () => {
@@ -1307,7 +1352,7 @@ class HelpdeskTutorial {
                 `,
                 attachTo: {
                     element: '#statusTimeline',
-                    on: 'left'
+                    on: TutorialPositioning.getHorizontalPosition('left')
                 },
                 when: {
                     show: () => {

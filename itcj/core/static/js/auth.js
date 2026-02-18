@@ -46,7 +46,7 @@
         return;
       }
       const { user } = await res.json();
-      if (user?.role === "student") window.location.href = "/agendatec/student/home";
+      if (user?.role === "student") window.location.href = "/itcj/m/";
       else if (user?.role === "coordinator") window.location.href = "/itcj/dashboard";
       else if (user?.role === "social_service") window.location.href = "/itcj/dashboard";
       else window.location.href = "/itcj/dashboard";

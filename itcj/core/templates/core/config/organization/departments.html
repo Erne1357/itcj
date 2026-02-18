@@ -13,19 +13,24 @@
 {% block page_subtitle %}<span id="pageSubtitle">Direccion y Delegacion Sindical del instituto</span>{% endblock %}
 
 {% block page_actions %}
-<div class="d-flex gap-2">
+<div class="d-flex gap-2 flex-wrap">
     <!-- Boton para regresar (oculto inicialmente) -->
-    <button class="btn btn-outline-secondary back-btn" id="backBtn" style="display: none;">
-        <i class="bi bi-arrow-left me-2"></i>Volver
+    <button class="btn btn-outline-secondary back-btn btn-sm" id="backBtn" style="display: none;">
+        <i class="bi bi-arrow-left me-1 me-sm-2"></i><span class="d-none d-sm-inline">Volver</span>
     </button>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
-        <i class="bi bi-plus-lg me-1"></i>Nuevo Departamento
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
+        <i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nuevo Departamento</span><span class="d-sm-none">Nuevo</span>
     </button>
 </div>
 {% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/organization/departments.css') }}?v={{ sv('core', 'css/config/organization/departments.css') }}">
+<style>
+    @media (min-width: 576px) {
+        .btn-sm { font-size: 1rem; padding: 0.375rem 0.75rem; }
+    }
+</style>
 {% endblock %}
 
 {% block content %}

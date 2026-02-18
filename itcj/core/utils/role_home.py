@@ -21,10 +21,10 @@ def role_home(roles) -> str:
     # Mapeo de roles a rutas home
     ROLE_ROUTES = {
         "admin": "/itcj/dashboard",
-        "staff": "/itcj/dashboard", 
+        "staff": "/itcj/dashboard",
         "coordinator": "/itcj/dashboard",
         "social_service": "/itcj/dashboard",
-        "student": "/agendatec/student/home"
+        "student": "/itcj/m/"
     }
     
     # Convertir a set si es string individual
@@ -42,9 +42,9 @@ def role_home(roles) -> str:
         if role in user_roles:
             return ROLE_ROUTES.get(role, "/")
     
-    # Si solo tiene rol de student, ir a AgendaTec
+    # Si solo tiene rol de student, ir al dashboard responsive
     if user_roles == {"student"}:
-        return "/agendatec/student/home"
+        return "/itcj/m/"
     
     # Si tiene otros roles no reconocidos o combinación con student, ir a dashboard ITCJ
     return "/itcj/dashboard"
