@@ -26,6 +26,7 @@ from itcj.apps.helpdesk.routes.api import (
     categories_api_bp,
     inventory_api_bp,
     stats_api_bp,
+    documents_api_bp,
 )
 
 helpdesk_api_bp.register_blueprint(tickets_api_bp, url_prefix='/tickets')
@@ -35,6 +36,7 @@ helpdesk_api_bp.register_blueprint(attachments_api_bp, url_prefix='/attachments'
 helpdesk_api_bp.register_blueprint(categories_api_bp, url_prefix='/categories')
 helpdesk_api_bp.register_blueprint(inventory_api_bp, url_prefix='/inventory')
 helpdesk_api_bp.register_blueprint(stats_api_bp, url_prefix='/stats')
+helpdesk_api_bp.register_blueprint(documents_api_bp, url_prefix='/documents')
 # Registro de blueprints de pages
 from itcj.apps.helpdesk.routes.pages import (
     user_pages_bp,

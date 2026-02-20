@@ -11,12 +11,17 @@ class Config:
     COOKIE_SAMESITE = "Lax"
     JWT_EXPIRES_HOURS = 12
     JWT_REFRESH_THRESHOLD_SECONDS = 2 * 3600  # 2 horas para refresh JWT
-    STATIC_VERSION = "1.0.11114775"
+    STATIC_VERSION = "1.0.11114786"
 
     INSTANCE_PATH = os.path.abspath('instance')
     HELPDESK_UPLOAD_PATH = os.path.join(INSTANCE_PATH, 'apps', 'helpdesk')
-    HELPDESK_MAX_FILE_SIZE = 3 * 1024 * 1024  # 3MB
+    HELPDESK_MAX_FILE_SIZE = 3 * 1024 * 1024  # 3MB (imágenes)
     HELPDESK_ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
+    HELPDESK_MAX_DOCUMENT_SIZE = 25 * 1024 * 1024    # 25MB (documentos: xlsx, pdf, doc, etc.)
+    HELPDESK_ALLOWED_DOC_EXTENSIONS = {'xlsx', 'xls', 'csv', 'pdf', 'doc', 'docx'}
+    HELPDESK_MAX_RESOLUTION_FILES = 10
+    HELPDESK_MAX_COMMENT_FILES = 3
+    HELPDESK_AUTO_DELETE_DAYS = 2
 
     VISTETEC_UPLOAD_PATH = os.path.join(INSTANCE_PATH, 'apps', 'vistetec', 'garments')
     VISTETEC_MAX_IMAGE_SIZE = 3 * 1024 * 1024  # 10MB (cliente comprime, servidor re-comprime)

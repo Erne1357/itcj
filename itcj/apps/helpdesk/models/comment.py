@@ -26,6 +26,7 @@ class Comment(db.Model):
     # Relaciones
     ticket = db.relationship('Ticket', back_populates='comments')
     author = db.relationship('User', foreign_keys=[author_id])
+    attachments = db.relationship('Attachment', back_populates='comment', lazy='select')
     
     # Índice
     __table_args__ = (
@@ -47,5 +48,6 @@ class Comment(db.Model):
                 'id': self.author.id,
                 'name': self.author.full_name,
                 'username': self.author.username
-            } if self.author else None
+            } if self.author else None,
+            'attachments': [att.to_dict() for att in self.attachments] if self.attachments else []
         }

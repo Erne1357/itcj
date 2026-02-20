@@ -515,21 +515,27 @@ def resolve_ticket(
     resolved_by_id: int,
     success: bool,
     resolution_notes: str,
-    time_invested_minutes: int = None
+    time_invested_minutes: int,
+    maintenance_type: str,
+    service_origin: str,
+    observations: str = None
 ) -> Ticket:
     """
     Marca un ticket como resuelto.
-    
+
     Args:
         ticket_id: ID del ticket
         resolved_by_id: ID del técnico que resuelve
         success: True si fue exitoso, False si no se pudo resolver
         resolution_notes: Notas de la resolución
-        time_invested_minutes: Tiempo invertido por el técnico (opcional)
-    
+        time_invested_minutes: Tiempo invertido en minutos (requerido)
+        maintenance_type: 'PREVENTIVO' o 'CORRECTIVO' (requerido)
+        service_origin: 'INTERNO' o 'EXTERNO' (requerido)
+        observations: Observaciones adicionales (opcional)
+
     Returns:
         Ticket resuelto
-    
+
     Raises:
         404: Si el ticket no existe
         400: Si el ticket no puede ser resuelto
@@ -537,15 +543,27 @@ def resolve_ticket(
     ticket = Ticket.query.get(ticket_id)
     if not ticket:
         abort(404, description='Ticket no encontrado')
-    
+
     # Validar que esté en un estado resolvible
     if ticket.status not in ['ASSIGNED', 'IN_PROGRESS']:
         abort(400, description='El ticket no puede ser resuelto en su estado actual')
-    
+
     # Validar notas de resolución
     if not resolution_notes or len(resolution_notes.strip()) < 10:
         abort(400, description='Las notas de resolución deben tener al menos 10 caracteres')
-    
+
+    # Validar tiempo invertido (requerido)
+    if time_invested_minutes is None or time_invested_minutes <= 0:
+        abort(400, description='El tiempo invertido es requerido y debe ser mayor a 0')
+
+    # Validar tipo de mantenimiento (requerido)
+    if not maintenance_type or maintenance_type not in ['PREVENTIVO', 'CORRECTIVO']:
+        abort(400, description='El tipo de mantenimiento es requerido (PREVENTIVO o CORRECTIVO)')
+
+    # Validar origen del servicio (requerido)
+    if not service_origin or service_origin not in ['INTERNO', 'EXTERNO']:
+        abort(400, description='El origen del servicio es requerido (INTERNO o EXTERNO)')
+
     # Actualizar ticket
     new_status = 'RESOLVED_SUCCESS' if success else 'RESOLVED_FAILED'
     ticket.status = new_status
@@ -554,12 +572,10 @@ def resolve_ticket(
     ticket.resolved_by_id = resolved_by_id
     ticket.updated_at = now_local()
     ticket.updated_by_id = resolved_by_id
-    
-    # Guardar tiempo invertido si se proporcionó
-    if time_invested_minutes is not None:
-        if time_invested_minutes < 0:
-            abort(400, description='El tiempo invertido no puede ser negativo')
-        ticket.time_invested_minutes = time_invested_minutes
+    ticket.time_invested_minutes = time_invested_minutes
+    ticket.maintenance_type = maintenance_type
+    ticket.service_origin = service_origin
+    ticket.observations = observations.strip() if observations else None
     
     # Registrar en log
     status_log = StatusLog(
@@ -575,7 +591,7 @@ def resolve_ticket(
     try:
         for attachment in ticket.attachments:
             if not attachment.auto_delete_at:
-                attachment.set_auto_delete(days=7)
+                attachment.set_auto_delete(days=2)
     except Exception as e:
         logger.warning(f"Error al marcar attachments para eliminación: {e}")
     

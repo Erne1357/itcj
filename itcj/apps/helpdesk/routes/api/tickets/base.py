@@ -424,14 +424,17 @@ def start_ticket(ticket_id):
 def resolve_ticket(ticket_id):
     """
     Técnico resuelve el ticket.
-    
+
     Body:
         {
-            "success": bool,  # true si fue exitoso, false si no se pudo resolver
-            "resolution_notes": str,  # Notas de resolución (mínimo 10 caracteres)
-            "time_invested_minutes": int (opcional)  # Tiempo invertido en minutos
+            "success": bool,
+            "resolution_notes": str,  (mínimo 10 caracteres)
+            "time_invested_minutes": int,  (requerido, minutos)
+            "maintenance_type": str,  ("PREVENTIVO" o "CORRECTIVO")
+            "service_origin": str,  ("INTERNO" o "EXTERNO")
+            "observations": str  (opcional)
         }
-    
+
     Returns:
         200: Ticket resuelto
         400: Datos inválidos
@@ -439,21 +442,26 @@ def resolve_ticket(ticket_id):
     """
     data = request.get_json()
     user_id = int(g.current_user['sub'])
-    
+
     # Validar campos requeridos
-    if 'success' not in data or 'resolution_notes' not in data:
+    required_fields = ['success', 'resolution_notes', 'time_invested_minutes', 'maintenance_type', 'service_origin']
+    missing = [f for f in required_fields if f not in data or data[f] is None]
+    if missing:
         return jsonify({
             'error': 'missing_fields',
-            'message': 'Faltan campos requeridos: success, resolution_notes'
+            'message': f'Faltan campos requeridos: {", ".join(missing)}'
         }), 400
-    
+
     try:
         ticket = ticket_service.resolve_ticket(
             ticket_id=ticket_id,
             resolved_by_id=user_id,
             success=data['success'],
             resolution_notes=data['resolution_notes'],
-            time_invested_minutes=data.get('time_invested_minutes')
+            time_invested_minutes=data['time_invested_minutes'],
+            maintenance_type=data['maintenance_type'],
+            service_origin=data['service_origin'],
+            observations=data.get('observations')
         )
         
         logger.info(f"Ticket {ticket.ticket_number} resuelto por técnico {user_id}")

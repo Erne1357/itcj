@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupRatingModal();
     setupCancelModal();
     setupWebSocketListeners();
+    setupCommentFileInput();
 });
 
 // ==================== LOAD TICKET DETAIL ====================
@@ -411,22 +412,43 @@ function renderComments(comments) {
         return;
     }
 
-    container.innerHTML = comments.map(comment => `
-        <div class="comment-bubble ${comment.author.id === currentTicket.requester.id ? 'own' : ''}">
-            <div class="d-flex justify-content-between align-items-start">
-                <div class="comment-author">
-                    <i class="fas fa-user-circle me-1"></i>${comment.author.name}
+    container.innerHTML = comments.map(comment => {
+        let attachmentsHtml = '';
+        if (comment.attachments && comment.attachments.length > 0) {
+            const items = comment.attachments.map(att => {
+                const isImage = att.mime_type && att.mime_type.startsWith('image/');
+                const downloadUrl = `/api/help-desk/v1/attachments/${att.id}/download`;
+                if (isImage) {
+                    return `<img src="${downloadUrl}" alt="${att.original_filename}" class="comment-attachment-thumb rounded"
+                        style="max-width:80px;max-height:80px;cursor:pointer;object-fit:cover;"
+                        onclick="viewAttachmentImage('${downloadUrl}', '${att.original_filename}')">`;
+                }
+                return `<a href="${downloadUrl}" class="btn btn-sm btn-outline-secondary" download="${att.original_filename}">
+                    <i class="fas fa-file me-1"></i>${att.original_filename}
+                </a>`;
+            }).join('');
+            attachmentsHtml = `<div class="mt-2 d-flex flex-wrap gap-2">${items}</div>`;
+        }
+        return `
+            <div class="comment-bubble ${comment.author.id === currentTicket.requester.id ? 'own' : ''}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="comment-author">
+                        <i class="fas fa-user-circle me-1"></i>${comment.author.name}
+                    </div>
+                    <div class="comment-time">
+                        ${HelpdeskUtils.formatTimeAgo(comment.created_at)}
+                    </div>
                 </div>
-                <div class="comment-time">
-                    ${HelpdeskUtils.formatTimeAgo(comment.created_at)}
-                </div>
+                <div class="comment-text">${comment.content}</div>
+                ${attachmentsHtml}
             </div>
-            <div class="comment-text">${comment.content}</div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // ==================== ADD COMMENT ====================
+let commentPendingFiles = [];
+
 async function addComment() {
     const textarea = document.getElementById('newCommentText');
     const content = textarea.value.trim();
@@ -441,10 +463,16 @@ async function addComment() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
     try {
-        await HelpdeskUtils.api.addComment(ticketId, content);
+        if (commentPendingFiles.length > 0) {
+            await HelpdeskUtils.api.addCommentWithFiles(ticketId, content, commentPendingFiles);
+        } else {
+            await HelpdeskUtils.api.addComment(ticketId, content);
+        }
 
         HelpdeskUtils.showToast('Comentario agregado', 'success');
         textarea.value = '';
+        commentPendingFiles = [];
+        renderCommentFilesPreview();
 
         // Reload comments
         const commentsResponse = await HelpdeskUtils.api.getComments(ticketId);
@@ -675,6 +703,9 @@ function openResolveModal() {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Resolver Ticket';
 
+    // Reset resolution files count
+    updateResolutionFilesCount(0);
+
     // Cargar técnicos disponibles
     loadAvailableTechnicians(currentTicket);
 
@@ -781,11 +812,22 @@ async function confirmResolve() {
 
     const resolutionType = document.querySelector('input[name="resolutionType"]:checked')?.value;
     const notesField = document.getElementById('resolutionNotes');
-    console.log('Tipo de notas seleccionado:', notesField);
-    console.log('Notas ingresadas:', notesField.value);
     const notes = notesField ? notesField.value.trim() : '';
+    const maintenanceType = document.querySelector('input[name="maintenanceType"]:checked')?.value;
+    const serviceOrigin = document.querySelector('input[name="serviceOrigin"]:checked')?.value;
+    const observations = document.getElementById('observations')?.value.trim() || null;
 
-    console.log('🔍 Validando notas:', { notes, length: notes.length });
+    // Validar tipo de mantenimiento
+    if (!maintenanceType) {
+        HelpdeskUtils.showToast('Debe seleccionar el tipo de mantenimiento', 'warning');
+        return;
+    }
+
+    // Validar origen del servicio
+    if (!serviceOrigin) {
+        HelpdeskUtils.showToast('Debe seleccionar el origen del equipo', 'warning');
+        return;
+    }
 
     // Validar notas primero
     if (!notes || notes.length < 10) {
@@ -794,15 +836,11 @@ async function confirmResolve() {
             notesField.focus();
             notesField.classList.add('is-invalid');
             notesField.classList.remove('is-valid');
-            
-            // Actualizar contador
             updateNotesCounter();
         }
         return;
     }
-    
-    console.log('✅ Validación exitosa, continuando con resolución...');
-    
+
     // Remover clase de error si había
     if (notesField) {
         notesField.classList.remove('is-invalid');
@@ -831,6 +869,13 @@ async function confirmResolve() {
         }
     }
 
+    // Validar tiempo invertido (requerido)
+    if (!timeInvested || timeInvested <= 0) {
+        HelpdeskUtils.showToast('El tiempo invertido es requerido', 'warning');
+        document.getElementById('timeInvested').focus();
+        return;
+    }
+
     const btn = document.getElementById('btnConfirmResolve');
     const originalText = btn.innerHTML;
 
@@ -842,7 +887,10 @@ async function confirmResolve() {
         await HelpdeskUtils.api.resolveTicket(currentTicket.id, {
             success: resolutionType === 'success',
             resolution_notes: notes,
-            time_invested_minutes: timeInvested
+            time_invested_minutes: timeInvested,
+            maintenance_type: maintenanceType,
+            service_origin: serviceOrigin,
+            observations: observations
         });
 
         // 2. Capturar colaboradores seleccionados
@@ -1340,25 +1388,66 @@ function getEquipmentStatusBadge(status) {
 // ==================== LOAD AND RENDER PHOTO ====================
 async function loadPhotoAttachment(ticketId) {
     try {
-        const response = await HelpdeskUtils.api.getAttachments(ticketId);
+        const response = await HelpdeskUtils.api.getAttachmentsByType(ticketId, 'ticket');
         const attachments = response.attachments || [];
 
         if (attachments.length === 0) {
-            return; // No hay foto
+            return;
         }
 
-        // Tomar el primer attachment (asumiendo que es la única foto)
         const photo = attachments[0];
-
-        // Mostrar container
         document.getElementById('photoContainer').style.display = 'block';
-
-        // Renderizar thumbnail
         renderPhotoThumbnail(photo);
 
     } catch (error) {
         console.error('Error loading photo:', error);
-        // No mostrar error al usuario, simplemente no mostrar la foto
+    }
+
+    // También cargar archivos de resolución si el ticket fue resuelto
+    if (currentTicket && currentTicket.resolution_notes) {
+        await loadResolutionAttachments(ticketId);
+    }
+}
+
+async function loadResolutionAttachments(ticketId) {
+    try {
+        const response = await HelpdeskUtils.api.getAttachmentsByType(ticketId, 'resolution');
+        const attachments = response.attachments || [];
+
+        const container = document.getElementById('resolutionAttachmentsDisplay');
+        const list = document.getElementById('resolutionAttachmentsList');
+
+        if (attachments.length === 0) {
+            container.classList.add('d-none');
+            return;
+        }
+
+        container.classList.remove('d-none');
+        list.innerHTML = attachments.map(att => {
+            const isImage = att.mime_type && att.mime_type.startsWith('image/');
+            const downloadUrl = `/api/help-desk/v1/attachments/${att.id}/download`;
+
+            if (isImage) {
+                return `
+                    <div class="border rounded p-2 text-center" style="width:100px;">
+                        <img src="${downloadUrl}" alt="${att.original_filename}" class="rounded"
+                            style="max-width:80px;max-height:80px;cursor:pointer;object-fit:cover;"
+                            onclick="viewAttachmentImage('${downloadUrl}', '${att.original_filename}')">
+                        <small class="d-block text-truncate mt-1" title="${att.original_filename}">${att.original_filename}</small>
+                    </div>`;
+            }
+
+            const icon = getFileIcon(att.original_filename);
+            return `
+                <a href="${downloadUrl}" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2" download="${att.original_filename}">
+                    <i class="${icon}"></i>
+                    <span class="text-truncate" style="max-width:200px;">${att.original_filename}</span>
+                    <small class="text-muted">(${formatFileSize(att.file_size)})</small>
+                </a>`;
+        }).join('');
+
+    } catch (error) {
+        console.error('Error loading resolution attachments:', error);
     }
 }
 
@@ -1532,6 +1621,253 @@ window.addEventListener('beforeunload', () => {
         window.__hdLeaveTicket(ticketId);
     }
 });
+
+// ==================== FILE HELPERS ====================
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        pdf: 'fas fa-file-pdf text-danger',
+        xlsx: 'fas fa-file-excel text-success',
+        xls: 'fas fa-file-excel text-success',
+        csv: 'fas fa-file-csv text-success',
+        doc: 'fas fa-file-word text-primary',
+        docx: 'fas fa-file-word text-primary',
+    };
+    return icons[ext] || 'fas fa-file text-secondary';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// ==================== COMMENT FILES ====================
+function setupCommentFileInput() {
+    const input = document.getElementById('commentFileInput');
+    if (!input) return;
+    input.addEventListener('change', function () {
+        const maxFiles = 3;
+        const newFiles = Array.from(this.files);
+        const remaining = maxFiles - commentPendingFiles.length;
+
+        if (newFiles.length > remaining) {
+            HelpdeskUtils.showToast(`Solo puedes adjuntar ${maxFiles} archivos por comentario`, 'warning');
+        }
+
+        for (let i = 0; i < Math.min(newFiles.length, remaining); i++) {
+            commentPendingFiles.push(newFiles[i]);
+        }
+
+        renderCommentFilesPreview();
+        this.value = '';
+    });
+}
+
+function renderCommentFilesPreview() {
+    const container = document.getElementById('commentFilesPreview');
+    if (!container) return;
+
+    if (commentPendingFiles.length === 0) {
+        container.classList.add('d-none');
+        container.innerHTML = '';
+        return;
+    }
+
+    container.classList.remove('d-none');
+    container.innerHTML = commentPendingFiles.map((file, idx) => {
+        const icon = file.type.startsWith('image/') ? 'fas fa-image' : getFileIcon(file.name);
+        return `
+            <span class="badge bg-light text-dark border d-flex align-items-center gap-1 py-1 px-2">
+                <i class="${icon} me-1"></i>
+                <span class="text-truncate" style="max-width:120px;">${file.name}</span>
+                <button type="button" class="btn-close btn-close-sm ms-1" style="font-size:0.6em;"
+                    onclick="removeCommentFile(${idx})"></button>
+            </span>`;
+    }).join('');
+}
+
+function removeCommentFile(index) {
+    commentPendingFiles.splice(index, 1);
+    renderCommentFilesPreview();
+}
+window.removeCommentFile = removeCommentFile;
+
+// ==================== RESOLUTION FILES MODAL ====================
+function openResolutionFilesModal() {
+    if (!currentTicket) return;
+
+    const modal = new bootstrap.Modal(document.getElementById('resolutionFilesModal'));
+    loadResolutionFiles();
+    setupResolutionDropzone();
+    modal.show();
+}
+window.openResolutionFilesModal = openResolutionFilesModal;
+
+let resDropzoneSetup = false;
+
+function setupResolutionDropzone() {
+    if (resDropzoneSetup) return;
+    resDropzoneSetup = true;
+
+    const dropzone = document.getElementById('resolutionDropzone');
+    const input = document.getElementById('resolutionFileInput');
+
+    dropzone.addEventListener('click', () => input.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#0d6efd';
+        dropzone.style.backgroundColor = '#f0f7ff';
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.style.borderColor = '#dee2e6';
+        dropzone.style.backgroundColor = '';
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#dee2e6';
+        dropzone.style.backgroundColor = '';
+        const files = Array.from(e.dataTransfer.files);
+        uploadResolutionFiles(files);
+    });
+
+    input.addEventListener('change', function () {
+        uploadResolutionFiles(Array.from(this.files));
+        this.value = '';
+    });
+}
+
+async function loadResolutionFiles() {
+    if (!currentTicket) return;
+
+    try {
+        const response = await HelpdeskUtils.api.getAttachmentsByType(currentTicket.id, 'resolution');
+        const attachments = response.attachments || [];
+        renderResolutionFilesList(attachments);
+        updateResolutionFilesCount(attachments.length);
+    } catch (error) {
+        console.error('Error loading resolution files:', error);
+    }
+}
+
+function renderResolutionFilesList(attachments) {
+    const container = document.getElementById('resolutionFilesList');
+
+    if (attachments.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-muted py-3">
+                <i class="fas fa-folder-open fa-2x mb-2"></i>
+                <p class="mb-0">Sin archivos adjuntos</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = attachments.map(att => {
+        const isImage = att.mime_type && att.mime_type.startsWith('image/');
+        const downloadUrl = `/api/help-desk/v1/attachments/${att.id}/download`;
+        const icon = isImage ? 'fas fa-image text-info' : getFileIcon(att.original_filename);
+
+        return `
+            <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                <div class="d-flex align-items-center gap-2 flex-grow-1 min-width-0">
+                    ${isImage ? `<img src="${downloadUrl}" class="rounded" style="width:40px;height:40px;object-fit:cover;cursor:pointer;"
+                        onclick="viewAttachmentImage('${downloadUrl}', '${att.original_filename}')">` :
+                `<i class="${icon} fa-lg"></i>`}
+                    <div class="min-width-0">
+                        <div class="text-truncate fw-semibold" style="max-width:300px;" title="${att.original_filename}">${att.original_filename}</div>
+                        <small class="text-muted">${formatFileSize(att.file_size)} - ${HelpdeskUtils.formatTimeAgo(att.uploaded_at)}</small>
+                    </div>
+                </div>
+                <div class="d-flex gap-1 flex-shrink-0">
+                    <a href="${downloadUrl}" class="btn btn-sm btn-outline-primary" download="${att.original_filename}" title="Descargar">
+                        <i class="fas fa-download"></i>
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteResolutionFile(${att.id})" title="Eliminar">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function updateResolutionFilesCount(count) {
+    const badge = document.getElementById('resolutionFilesCount');
+    if (badge) badge.textContent = count;
+
+    const modalCount = document.getElementById('resFilesModalCount');
+    if (modalCount) modalCount.textContent = `${count} / 10`;
+}
+
+async function uploadResolutionFiles(files) {
+    if (!currentTicket || !files.length) return;
+
+    const progressContainer = document.getElementById('resUploadProgress');
+    const progressBar = document.getElementById('resUploadBar');
+    const progressText = document.getElementById('resUploadText');
+
+    progressContainer.classList.remove('d-none');
+    let uploaded = 0;
+
+    for (const file of files) {
+        progressText.textContent = `Subiendo ${file.name}...`;
+        progressBar.style.width = `${(uploaded / files.length) * 100}%`;
+
+        try {
+            await HelpdeskUtils.api.uploadFile(currentTicket.id, file, 'resolution');
+            uploaded++;
+        } catch (error) {
+            HelpdeskUtils.showToast(`Error al subir ${file.name}: ${error.message}`, 'error');
+        }
+    }
+
+    progressBar.style.width = '100%';
+    progressText.textContent = `${uploaded} de ${files.length} archivos subidos`;
+
+    setTimeout(() => {
+        progressContainer.classList.add('d-none');
+        progressBar.style.width = '0%';
+    }, 1500);
+
+    if (uploaded > 0) {
+        HelpdeskUtils.showToast(`${uploaded} archivo(s) subido(s)`, 'success');
+    }
+
+    loadResolutionFiles();
+}
+
+async function deleteResolutionFile(attachmentId) {
+    const confirmed = await HelpdeskUtils.confirmDialog(
+        'Eliminar archivo',
+        '¿Estás seguro de eliminar este archivo?',
+        'Eliminar',
+        'Cancelar'
+    );
+
+    if (!confirmed) return;
+
+    try {
+        await HelpdeskUtils.api.deleteAttachment(attachmentId);
+        HelpdeskUtils.showToast('Archivo eliminado', 'success');
+        loadResolutionFiles();
+    } catch (error) {
+        HelpdeskUtils.showToast(`Error al eliminar: ${error.message}`, 'error');
+    }
+}
+window.deleteResolutionFile = deleteResolutionFile;
+
+// ==================== ATTACHMENT IMAGE VIEWER ====================
+function viewAttachmentImage(url, title) {
+    const modal = new bootstrap.Modal(document.getElementById('attachmentImageModal'));
+    document.getElementById('attachmentImageModalImg').src = url;
+    document.getElementById('attachmentImageTitle').innerHTML = `<i class="fas fa-image me-2"></i>${title || 'Imagen'}`;
+    modal.show();
+}
+window.viewAttachmentImage = viewAttachmentImage;
 
 // ==================== EXPORT GLOBAL FUNCTIONS ====================
 // Exportar funciones para que el tutorial pueda acceder a ellas

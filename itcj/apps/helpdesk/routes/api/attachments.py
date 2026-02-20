@@ -2,71 +2,58 @@ from flask import current_app, request, jsonify, g, send_file
 from werkzeug.utils import secure_filename
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services import ticket_service
+from itcj.apps.helpdesk.services import file_validation_service as fvs
 from itcj.apps.helpdesk.models import Attachment
 from itcj.core.extensions import db
-from datetime import datetime, timedelta
+from itcj.config import Config
 from ...utils.timezone_utils import now_local
 from . import attachments_api_bp
 import os
 import uuid
 import logging
-from PIL import Image
-import io
 
 logger = logging.getLogger(__name__)
 
-# Configuración
-UPLOAD_FOLDER = os.getenv('HELPDESK_UPLOAD_PATH', 'uploads/helpdesk')
-MAX_FILE_SIZE = 3 * 1024 * 1024  # 3MB
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'}
-ALLOWED_MIME_TYPES = {
-    'image/png', 'image/jpeg', 'image/gif', 'image/webp',
-    'application/pdf'
-}
+UPLOAD_FOLDER = os.getenv('HELPDESK_UPLOAD_PATH', Config.HELPDESK_UPLOAD_PATH)
 
 
-def allowed_file(filename):
-    """Verifica si la extensión del archivo es permitida"""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-def compress_image(image_file, max_size=(1920, 1080), quality=85):
+def _get_storage_path(ticket, attachment_type, filename_for_doc=None):
     """
-    Comprime una imagen si es muy grande.
-    
-    Args:
-        image_file: Archivo de imagen
-        max_size: Tamaño máximo (ancho, alto)
-        quality: Calidad de compresión (1-100)
-    
-    Returns:
-        BytesIO con la imagen comprimida
+    Retorna (folder_path, filename) según el tipo de adjunto.
+
+    - ticket:     uploads/helpdesk/{ticket_id}/{unique}.ext
+    - resolution: uploads/helpdesk/resolutions/{ticket_number}/{original_name}
+    - comment:    uploads/helpdesk/comments/{ticket_number}/{original_name o consecutive}
     """
-    try:
-        img = Image.open(image_file)
-        
-        # Convertir a RGB si es necesario
-        if img.mode in ('RGBA', 'LA', 'P'):
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'P':
-                img = img.convert('RGBA')
-            if img.mode in ('RGBA', 'LA'):
-                background.paste(img, mask=img.split()[-1])
-            img = background
-        
-        # Redimensionar si es muy grande
-        if img.width > max_size[0] or img.height > max_size[1]:
-            img.thumbnail(max_size, Image.Resampling.LANCZOS)
-        
-        # Guardar en buffer
-        output = io.BytesIO()
-        img.save(output, format='JPEG', quality=quality, optimize=True)
-        output.seek(0)
-        
-        return output
-    except Exception as e:
-        logger.error(f"Error al comprimir imagen: {e}")
-        raise
+    if attachment_type == 'resolution':
+        folder = os.path.join(UPLOAD_FOLDER, 'resolutions', ticket.ticket_number)
+        return folder, filename_for_doc  # nombre original
+
+    if attachment_type == 'comment':
+        folder = os.path.join(UPLOAD_FOLDER, 'comments', ticket.ticket_number)
+        return folder, filename_for_doc
+
+    # Default: ticket
+    folder = os.path.join(UPLOAD_FOLDER, str(ticket.id))
+    unique = f"{ticket.id}_{now_local().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    return folder, unique
+
+
+def _build_comment_image_filename(ticket, ticket_id):
+    """Genera nombre consecutivo para imagen de comentario: TK-2025-0001_3.jpg"""
+    seq = fvs.get_next_comment_image_number(ticket_id)
+    return f"{ticket.ticket_number}_{seq}.jpg"
+
+
+def _ensure_unique_filename(folder, filename):
+    """Si el archivo ya existe en la carpeta, agrega sufijo numérico."""
+    base, ext = os.path.splitext(filename)
+    candidate = filename
+    counter = 1
+    while os.path.exists(os.path.join(folder, candidate)):
+        candidate = f"{base}_{counter}{ext}"
+        counter += 1
+    return candidate
 
 
 # ==================== SUBIR ARCHIVO ====================
@@ -75,10 +62,12 @@ def compress_image(image_file, max_size=(1920, 1080), quality=85):
 def upload_attachment(ticket_id):
     """
     Sube un archivo adjunto a un ticket.
-    
+
     Form data:
-        file: Archivo a subir (imagen o PDF, máx 5MB)
-    
+        file: Archivo a subir
+        attachment_type: 'ticket' | 'resolution' | 'comment' (default: 'ticket')
+        comment_id: ID del comentario (requerido si attachment_type='comment')
+
     Returns:
         201: Archivo subido exitosamente
         400: Archivo inválido
@@ -87,97 +76,122 @@ def upload_attachment(ticket_id):
         413: Archivo muy grande
     """
     user_id = int(g.current_user['sub'])
-    
-    # Verificar que haya archivo
+    attachment_type = request.form.get('attachment_type', 'ticket')
+    comment_id = request.form.get('comment_id', type=int)
+
+    if attachment_type not in ('ticket', 'resolution', 'comment'):
+        return jsonify({'error': 'invalid_type', 'message': 'attachment_type debe ser ticket, resolution o comment'}), 400
+
+    if attachment_type == 'comment' and not comment_id:
+        return jsonify({'error': 'missing_comment_id', 'message': 'comment_id es requerido para adjuntos de comentario'}), 400
+
     if 'file' not in request.files:
-        return jsonify({
-            'error': 'no_file',
-            'message': 'No se proporcionó ningún archivo'
-        }), 400
-    
+        return jsonify({'error': 'no_file', 'message': 'No se proporcionó ningún archivo'}), 400
+
     file = request.files['file']
-    
-    # Verificar que tenga nombre
     if file.filename == '':
-        return jsonify({
-            'error': 'empty_filename',
-            'message': 'El archivo no tiene nombre'
-        }), 400
-    
-    # Verificar extensión
-    if not allowed_file(file.filename):
-        return jsonify({
-            'error': 'invalid_extension',
-            'message': f'Solo se permiten archivos: {", ".join(ALLOWED_EXTENSIONS)}'
-        }), 400
-    
+        return jsonify({'error': 'empty_filename', 'message': 'El archivo no tiene nombre'}), 400
+
+    # Determinar extensiones y tamaño permitido según tipo
+    if attachment_type == 'ticket':
+        allowed_ext = Config.HELPDESK_ALLOWED_EXTENSIONS
+    else:
+        allowed_ext = Config.HELPDESK_ALLOWED_EXTENSIONS | Config.HELPDESK_ALLOWED_DOC_EXTENSIONS
+
+    is_valid, result = fvs.validate_and_get_file_info(file, allowed_extensions=allowed_ext)
+    if not is_valid:
+        return jsonify({'error': 'invalid_file', 'message': result}), 400
+
+    filepath = None
     try:
-        # Verificar que pueda acceder al ticket
         ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
-        
-        # Verificar tamaño
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-        
-        if file_size > MAX_FILE_SIZE:
-            return jsonify({
-                'error': 'file_too_large',
-                'message': f'El archivo no debe exceder {MAX_FILE_SIZE // (1024*1024)}MB'
-            }), 413
-        
-        # Generar nombre único
+
+        # Verificar límites por tipo
+        if attachment_type == 'resolution':
+            existing_count = Attachment.query.filter_by(ticket_id=ticket_id, attachment_type='resolution').count()
+            if existing_count >= Config.HELPDESK_MAX_RESOLUTION_FILES:
+                return jsonify({
+                    'error': 'limit_reached',
+                    'message': f'Máximo {Config.HELPDESK_MAX_RESOLUTION_FILES} archivos de resolución por ticket'
+                }), 400
+
+        elif attachment_type == 'comment' and comment_id:
+            existing_count = Attachment.query.filter_by(comment_id=comment_id, attachment_type='comment').count()
+            if existing_count >= Config.HELPDESK_MAX_COMMENT_FILES:
+                return jsonify({
+                    'error': 'limit_reached',
+                    'message': f'Máximo {Config.HELPDESK_MAX_COMMENT_FILES} archivos por comentario'
+                }), 400
+
+        # Determinar nombre y ruta de almacenamiento
         original_filename = secure_filename(file.filename)
-        file_ext = original_filename.rsplit('.', 1)[1].lower()
-        unique_filename = f"{ticket_id}_{now_local().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}.{file_ext}"
-        
-        # Crear directorio si no existe
-        ticket_folder = os.path.join(UPLOAD_FOLDER, str(ticket_id))
-        os.makedirs(ticket_folder, exist_ok=True)
-        
-        filepath = os.path.join(ticket_folder, unique_filename)
-        
-        # Si es imagen, comprimir
+        extension = result['extension']
+        is_img = result['is_image']
+
+        if attachment_type == 'comment' and is_img:
+            # Imágenes de comentario: nombre consecutivo
+            store_filename = _build_comment_image_filename(ticket, ticket_id)
+        elif attachment_type in ('resolution', 'comment'):
+            # Documentos o imágenes de resolución: nombre original
+            store_filename = original_filename
+        else:
+            store_filename = None  # Se genera en _get_storage_path
+
+        folder, fname = _get_storage_path(ticket, attachment_type, store_filename)
+
+        if attachment_type == 'ticket':
+            # Para ticket se genera nombre único
+            final_filename = f"{fname}.{extension}"
+        else:
+            final_filename = _ensure_unique_filename(folder, fname)
+
+        os.makedirs(folder, exist_ok=True)
+        filepath = os.path.join(folder, final_filename)
+
+        # Guardar archivo
         mime_type = file.content_type
-        if mime_type and mime_type.startswith('image/'):
+        file_size = result['size']
+
+        if is_img:
             try:
-                compressed_image = compress_image(file)
+                compressed, compressed_size = fvs.compress_image_for_helpdesk(file)
                 with open(filepath, 'wb') as f:
-                    f.write(compressed_image.read())
-                file_size = os.path.getsize(filepath)
-                logger.info(f"Imagen comprimida guardada: {filepath}")
+                    f.write(compressed.read())
+                file_size = compressed_size
+                mime_type = 'image/jpeg'
             except Exception as e:
                 logger.warning(f"No se pudo comprimir imagen, guardando original: {e}")
                 file.seek(0)
                 file.save(filepath)
         else:
-            # Guardar PDF directamente
             file.save(filepath)
-        
+
         # Crear registro en DB
         attachment = Attachment(
             ticket_id=ticket_id,
             uploaded_by_id=user_id,
-            filename=unique_filename,
+            attachment_type=attachment_type,
+            comment_id=comment_id if attachment_type == 'comment' else None,
+            filename=final_filename,
             original_filename=original_filename,
             filepath=filepath,
             mime_type=mime_type,
             file_size=file_size
         )
-        
+
         db.session.add(attachment)
         db.session.commit()
-        
-        logger.info(f"Archivo {original_filename} subido al ticket {ticket_id} por usuario {user_id}")
-        
+
+        logger.info(f"Archivo {original_filename} ({attachment_type}) subido al ticket {ticket_id}")
+
         return jsonify({
             'message': 'Archivo subido exitosamente',
             'attachment': attachment.to_dict()
         }), 201
-        
+
     except Exception as e:
         logger.error(f"Error al subir archivo al ticket {ticket_id}: {e}")
-        if os.path.exists(filepath):
+        if filepath and os.path.exists(filepath):
             os.remove(filepath)
         raise
 
@@ -188,27 +202,32 @@ def upload_attachment(ticket_id):
 def list_attachments(ticket_id):
     """
     Lista los archivos adjuntos de un ticket.
-    
+
+    Query params:
+        type: Filtrar por tipo ('ticket', 'resolution', 'comment'). Sin filtro = todos.
+
     Returns:
         200: Lista de archivos
-        403: Sin permiso
-        404: Ticket no encontrado
     """
     user_id = int(g.current_user['sub'])
-    current_app.logger.error(f"Listando archivos para ticket {ticket_id} solicitado por usuario {user_id}")
-    
+
     try:
-        # Verificar que pueda acceder al ticket
         ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
-        
-        attachments = Attachment.query.filter_by(ticket_id=ticket_id).order_by(Attachment.uploaded_at.desc()).all()
-        
+
+        query = Attachment.query.filter_by(ticket_id=ticket_id)
+
+        att_type = request.args.get('type')
+        if att_type and att_type in ('ticket', 'resolution', 'comment'):
+            query = query.filter_by(attachment_type=att_type)
+
+        attachments = query.order_by(Attachment.uploaded_at.desc()).all()
+
         return jsonify({
             'ticket_id': ticket_id,
             'count': len(attachments),
             'attachments': [att.to_dict() for att in attachments]
         }), 200
-        
+
     except Exception as e:
         logger.error(f"Error al listar archivos del ticket {ticket_id}: {e}")
         raise
@@ -220,40 +239,31 @@ def list_attachments(ticket_id):
 def download_attachment(attachment_id):
     """
     Descarga un archivo adjunto.
-    
+
     Returns:
         200: Archivo descargado
-        403: Sin permiso
         404: Archivo no encontrado
     """
     user_id = int(g.current_user['sub'])
-    
+
     try:
         attachment = Attachment.query.get(attachment_id)
         if not attachment:
-            return jsonify({
-                'error': 'not_found',
-                'message': 'Archivo no encontrado'
-            }), 404
-        
-        # Verificar que pueda acceder al ticket del archivo
+            return jsonify({'error': 'not_found', 'message': 'Archivo no encontrado'}), 404
+
         ticket = ticket_service.get_ticket_by_id(attachment.ticket_id, user_id, check_permissions=True)
-        
-        # Verificar que el archivo existe en el filesystem
+
         if not os.path.exists(attachment.filepath):
             logger.error(f"Archivo físico no encontrado: {attachment.filepath}")
-            return jsonify({
-                'error': 'file_not_found',
-                'message': 'El archivo no existe en el servidor'
-            }), 404
-        
+            return jsonify({'error': 'file_not_found', 'message': 'El archivo no existe en el servidor'}), 404
+
         return send_file(
             attachment.filepath,
             mimetype=attachment.mime_type,
             as_attachment=True,
             download_name=attachment.original_filename
         )
-        
+
     except Exception as e:
         logger.error(f"Error al descargar archivo {attachment_id}: {e}")
         raise
@@ -279,40 +289,25 @@ def delete_attachment(attachment_id):
     try:
         attachment = Attachment.query.get(attachment_id)
         if not attachment:
-            return jsonify({
-                'error': 'not_found',
-                'message': 'Archivo no encontrado'
-            }), 404
+            return jsonify({'error': 'not_found', 'message': 'Archivo no encontrado'}), 404
 
-        # Verificar permiso: admin o el que subió el archivo
         if not is_admin and attachment.uploaded_by_id != user_id:
-            return jsonify({
-                'error': 'forbidden',
-                'message': 'Solo el uploader o admin pueden eliminar el archivo'
-            }), 403
+            return jsonify({'error': 'forbidden', 'message': 'Solo el uploader o admin pueden eliminar el archivo'}), 403
 
-        # Eliminar archivo físico
         if os.path.exists(attachment.filepath):
             os.remove(attachment.filepath)
             logger.info(f"Archivo físico eliminado: {attachment.filepath}")
 
-        # Eliminar registro de DB
         db.session.delete(attachment)
         db.session.commit()
 
         logger.info(f"Attachment {attachment_id} eliminado por usuario {user_id}")
-
-        return jsonify({
-            'message': 'Archivo eliminado exitosamente'
-        }), 200
+        return jsonify({'message': 'Archivo eliminado exitosamente'}), 200
 
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error al eliminar archivo {attachment_id}: {e}")
-        return jsonify({
-            'error': 'delete_failed',
-            'message': str(e)
-        }), 500
+        return jsonify({'error': 'delete_failed', 'message': str(e)}), 500
 
 
 # ==================== DESCARGAR ARCHIVO DE CUSTOM FIELD ====================
@@ -321,75 +316,43 @@ def delete_attachment(attachment_id):
 def download_custom_field_file(ticket_id, field_key):
     """
     Descarga un archivo de campo personalizado de un ticket.
-
-    Args:
-        ticket_id: ID del ticket
-        field_key: Clave del campo personalizado (ej: 'photo')
-
-    Returns:
-        200: Archivo descargado
-        403: Sin permiso
-        404: Archivo no encontrado
     """
     user_id = int(g.current_user['sub'])
 
     try:
-        # Verificar que pueda acceder al ticket
         ticket = ticket_service.get_ticket_by_id(ticket_id, user_id, check_permissions=True)
 
-        # Verificar que el ticket tenga custom_fields
         if not ticket.custom_fields or field_key not in ticket.custom_fields:
-            return jsonify({
-                'error': 'field_not_found',
-                'message': f'El campo personalizado "{field_key}" no existe en este ticket'
-            }), 404
+            return jsonify({'error': 'field_not_found', 'message': f'El campo "{field_key}" no existe'}), 404
 
-        # Obtener la ruta del archivo desde custom_fields
         file_value = ticket.custom_fields[field_key]
 
-        # Si el valor no es una ruta, retornar error
         if not isinstance(file_value, str) or not file_value.startswith('/instance/'):
-            return jsonify({
-                'error': 'invalid_file_path',
-                'message': 'El campo no contiene una ruta de archivo válida'
-            }), 404
+            return jsonify({'error': 'invalid_file_path', 'message': 'El campo no contiene una ruta de archivo válida'}), 404
 
-        # Construir la ruta completa del archivo
-        # file_value es algo como: /instance/apps/helpdesk/custom_fields/TK-42_photo.jpg
-        # Necesitamos convertirlo a ruta absoluta
         relative_path = file_value.lstrip('/')
         filepath = os.path.join(os.getcwd(), relative_path)
 
-        # Verificar que el archivo existe
         if not os.path.exists(filepath):
-            logger.error(f"Archivo de custom field no encontrado: {filepath}")
             return jsonify({
                 'error': 'file_not_found',
-                'message': 'El archivo ya no está disponible en el servidor. Es posible que haya sido eliminado después de finalizar el ticket.'
+                'message': 'El archivo ya no está disponible en el servidor.'
             }), 404
 
-        # Obtener el nombre original del archivo
         filename = os.path.basename(filepath)
-
-        # Determinar el MIME type basado en la extensión
         ext = filename.rsplit('.', 1)[-1].lower()
         mime_types = {
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'png': 'image/png',
-            'gif': 'image/gif',
-            'webp': 'image/webp',
-            'pdf': 'application/pdf'
+            'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+            'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf'
         }
-        mime_type = mime_types.get(ext, 'application/octet-stream')
 
         return send_file(
             filepath,
-            mimetype=mime_type,
+            mimetype=mime_types.get(ext, 'application/octet-stream'),
             as_attachment=True,
             download_name=filename
         )
 
     except Exception as e:
-        logger.error(f"Error al descargar archivo de custom field {field_key} del ticket {ticket_id}: {e}")
+        logger.error(f"Error al descargar custom field {field_key} del ticket {ticket_id}: {e}")
         raise

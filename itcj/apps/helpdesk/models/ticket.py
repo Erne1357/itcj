@@ -104,8 +104,13 @@ class Ticket(db.Model):
     # (Ya definido arriba en TIMESTAMPS)
     resolved_at = db.Column(db.DateTime, nullable=True)
     
-    # MANUAL: Para productividad del técnico (opcional pero recomendado)
+    # MANUAL: Para productividad del técnico
     time_invested_minutes = db.Column(db.Integer, nullable=True)  # Minutos invertidos por el técnico
+
+    # ==================== CAMPOS DE MANTENIMIENTO ====================
+    maintenance_type = db.Column(db.String(20), nullable=True)  # 'PREVENTIVO' | 'CORRECTIVO'
+    service_origin = db.Column(db.String(20), nullable=True)    # 'INTERNO' | 'EXTERNO'
+    observations = db.Column(db.Text, nullable=True)            # Observaciones adicionales (opcional)
 
     # ==================== ÍNDICES COMPUESTOS ====================
     __table_args__ = (
@@ -202,6 +207,9 @@ class Ticket(db.Model):
             'resolution_notes': self.resolution_notes,
             'resolved_by': self.resolved_by.to_dict() if self.resolved_by else None,
             'time_invested_minutes': self.time_invested_minutes,
+            'maintenance_type': self.maintenance_type,
+            'service_origin': self.service_origin,
+            'observations': self.observations,
         }
         
         if include_relations:

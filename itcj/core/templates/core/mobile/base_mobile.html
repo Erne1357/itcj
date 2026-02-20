@@ -49,9 +49,16 @@
     <!-- Notifications View (se carga dinámicamente) -->
     <div id="mobileNotificationsView" class="mobile-view" style="display:none;">
         <div class="mobile-view-header">
-            <h5 class="mobile-view-title">
-                <i class="bi bi-bell me-2"></i>Notificaciones
-            </h5>
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mobile-view-title mb-0">
+                    <i class="bi bi-bell me-2"></i>Notificaciones
+                </h5>
+                <button type="button" id="markAllReadBtn"
+                        class="btn btn-sm btn-light fw-semibold"
+                        style="font-size:12px;">
+                    <i class="bi bi-check-all me-1"></i>Leer todo
+                </button>
+            </div>
         </div>
         <div id="mobileNotificationsList" class="mobile-notifications-list">
             <div class="mobile-loading">

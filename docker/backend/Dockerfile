@@ -1,9 +1,15 @@
 FROM python:3.12-slim
 
-# Sistema
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Sistema + LibreOffice para conversión DOCX→PDF + Fuentes Microsoft
+RUN sed -i 's/Components: main/Components: main contrib/' /etc/apt/sources.list.d/debian.sources \
+ && echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections \
+ && apt-get update && apt-get install -y --no-install-recommends \
     build-essential ca-certificates tzdata curl \
- && rm -rf /var/lib/apt/lists/*
+    libreoffice-writer \
+    fonts-liberation fonts-dejavu-core \
+    ttf-mscorefonts-installer \
+ && fc-cache -f \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Zona horaria (Cd. Juárez)
 RUN ln -snf /usr/share/zoneinfo/America/Chihuahua /etc/localtime && \

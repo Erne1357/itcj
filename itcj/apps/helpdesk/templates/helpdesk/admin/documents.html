@@ -1,0 +1,195 @@
+<!-- itcj/apps/helpdesk/templates/admin/documents.html -->
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Generación de Documentos{% endblock %}
+
+{% block header_title %}Generación de Documentos{% endblock %}
+{% block header_subtitle %}Generar formatos PDF y DOCX de tickets{% endblock %}
+
+{% block content %}
+
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="mb-3">
+            <i class="fas fa-file-pdf me-2"></i>Generación de Documentos
+        </h2>
+        <p class="text-muted">Genera formatos oficiales de solicitud y orden de trabajo a partir de tickets</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Panel izquierdo: Filtros y Opciones -->
+    <div class="col-lg-4 mb-4">
+        <!-- Filtros -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0">
+                    <i class="fas fa-filter me-2"></i>Filtros de Tickets
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Rango de Fechas</label>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <input type="date" class="form-control form-control-sm" id="filterDateFrom">
+                            <small class="text-muted">Desde</small>
+                        </div>
+                        <div class="col-6">
+                            <input type="date" class="form-control form-control-sm" id="filterDateTo">
+                            <small class="text-muted">Hasta</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Estado</label>
+                    <select class="form-select form-select-sm" id="filterStatus">
+                        <option value="">Todos</option>
+                        <option value="PENDING">Pendiente</option>
+                        <option value="ASSIGNED">Asignado</option>
+                        <option value="IN_PROGRESS">En Progreso</option>
+                        <option value="RESOLVED_SUCCESS">Resuelto Exitosamente</option>
+                        <option value="RESOLVED_FAILED">Atendido pero no Resuelto</option>
+                        <option value="CLOSED">Cerrado</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Área</label>
+                    <select class="form-select form-select-sm" id="filterArea">
+                        <option value="">Todas</option>
+                        <option value="DESARROLLO">Desarrollo</option>
+                        <option value="SOPORTE">Soporte</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Buscar</label>
+                    <input type="text" class="form-control form-control-sm" id="filterSearch"
+                           placeholder="Número, título o descripción...">
+                </div>
+
+                <button class="btn btn-primary btn-sm w-100" onclick="loadTickets()">
+                    <i class="fas fa-search me-2"></i>Buscar Tickets
+                </button>
+            </div>
+        </div>
+
+        <!-- Opciones de documento -->
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0">
+                    <i class="fas fa-file-alt me-2"></i>Opciones de Documento
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Tipo de Documento</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="docType" id="docTypeSolicitud"
+                               value="solicitud" checked>
+                        <label class="form-check-label small" for="docTypeSolicitud">
+                            <i class="fas fa-file-invoice me-1 text-primary"></i>
+                            Solicitud de Mantenimiento
+                        </label>
+                    </div>
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="radio" name="docType" id="docTypeOrden"
+                               value="orden_trabajo">
+                        <label class="form-check-label small" for="docTypeOrden">
+                            <i class="fas fa-clipboard-list me-1 text-success"></i>
+                            Orden de Trabajo
+                        </label>
+                        <small class="text-muted d-block ms-4">Solo tickets resueltos/cerrados</small>
+                    </div>
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="radio" name="docType" id="docTypeCombinado"
+                               value="combinado">
+                        <label class="form-check-label small" for="docTypeCombinado">
+                            <i class="fas fa-file-alt me-1 text-warning"></i>
+                            Combinado (Solicitud + Orden)
+                        </label>
+                        <small class="text-muted d-block ms-4">Ambos formatos en un solo archivo/descarga</small>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Formato de Salida</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="docFormat" id="formatPdf"
+                               value="pdf" checked>
+                        <label class="btn btn-outline-danger btn-sm" for="formatPdf">
+                            <i class="fas fa-file-pdf me-1"></i>PDF
+                        </label>
+                        <input type="radio" class="btn-check" name="docFormat" id="formatDocx"
+                               value="docx">
+                        <label class="btn btn-outline-primary btn-sm" for="formatDocx">
+                            <i class="fas fa-file-word me-1"></i>DOCX
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mb-3" id="outputModeContainer" style="display: none;">
+                    <label class="form-label small fw-bold">Modo de Salida (Múltiples)</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="outputMode"
+                               id="outputZip" value="zip" checked>
+                        <label class="form-check-label small" for="outputZip">
+                            <i class="fas fa-file-archive me-1"></i>
+                            ZIP (un archivo por ticket)
+                        </label>
+                    </div>
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="radio" name="outputMode"
+                               id="outputConcatenated" value="concatenated">
+                        <label class="form-check-label small" for="outputConcatenated">
+                            <i class="fas fa-file-pdf me-1"></i>
+                            PDF único concatenado
+                        </label>
+                        <small class="text-muted d-block ms-4">Solo formato PDF</small>
+                    </div>
+                </div>
+
+                <button class="btn btn-success btn-sm w-100" onclick="generateDocuments()" id="btnGenerate" disabled>
+                    <i class="fas fa-file-download me-2"></i>Generar Documentos
+                </button>
+
+                <div class="mt-2 text-center">
+                    <small class="text-muted" id="selectionCount">Selecciona tickets para generar</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panel derecho: Lista de tickets -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="fas fa-list me-2"></i>Tickets
+                    <span class="badge bg-secondary ms-2" id="ticketsCount">0</span>
+                </h6>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="selectAll">
+                    <label class="form-check-label small" for="selectAll">Seleccionar todos</label>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="ticketsList" style="max-height: 75vh; overflow-y: auto;">
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-search fa-3x mb-3 d-block"></i>
+                        <p>Usa los filtros para buscar tickets</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/admin/documents.js') }}?v={{ sv('helpdesk', 'js/admin/documents.js') }}"></script>
+{% endblock %}

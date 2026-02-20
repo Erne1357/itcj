@@ -395,10 +395,12 @@ function openResolveModal(ticketId) {
     const btn = document.getElementById('btnConfirmResolve');
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Resolver Ticket';
-    
+
+    // Reset resolution files count
+    updateResolutionFilesCount(0);
+
     const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
     modal.show();
-    
 
     loadAvailableTechnicians(ticketToResolve);
 }
@@ -475,6 +477,9 @@ async function confirmResolve() {
 
     const resolutionType = document.querySelector('input[name="resolutionType"]:checked').value;
     const notes = document.getElementById('resolutionNotes').value.trim();
+    const maintenanceType = document.querySelector('input[name="maintenanceType"]:checked')?.value;
+    const serviceOrigin = document.querySelector('input[name="serviceOrigin"]:checked')?.value;
+    const observations = document.getElementById('observations')?.value.trim() || null;
 
     // Obtener tiempo y convertir a minutos segun la unidad seleccionada
     const timeValue = parseFloat(document.getElementById('timeInvested').value) || null;
@@ -498,25 +503,47 @@ async function confirmResolve() {
         }
     }
 
+    // Validar tipo de mantenimiento
+    if (!maintenanceType) {
+        HelpdeskUtils.showToast('Debe seleccionar el tipo de mantenimiento', 'warning');
+        return;
+    }
+
+    // Validar origen del servicio
+    if (!serviceOrigin) {
+        HelpdeskUtils.showToast('Debe seleccionar el origen del equipo', 'warning');
+        return;
+    }
+
     // Validar notas
     if (!notes || notes.length < 10) {
         HelpdeskUtils.showToast('Las notas deben tener al menos 10 caracteres', 'warning');
         document.getElementById('resolutionNotes').focus();
         return;
     }
-    
+
+    // Validar tiempo invertido (requerido)
+    if (!timeInvested || timeInvested <= 0) {
+        HelpdeskUtils.showToast('El tiempo invertido es requerido', 'warning');
+        document.getElementById('timeInvested').focus();
+        return;
+    }
+
     const btn = document.getElementById('btnConfirmResolve');
     const originalText = btn.innerHTML;
-    
+
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Resolviendo...';
-    
+
     try {
         // 1. Resolver el ticket
         await HelpdeskUtils.api.resolveTicket(ticketToResolve.id, {
             success: resolutionType === 'success',
             resolution_notes: notes,
-            time_invested_minutes: timeInvested
+            time_invested_minutes: timeInvested,
+            maintenance_type: maintenanceType,
+            service_origin: serviceOrigin,
+            observations: observations
         });
         
         // 2. Capturar colaboradores seleccionados (NUEVO)
@@ -871,3 +898,188 @@ function showErrorState(container) {
         </div>
     `;
 }
+
+// ==================== RESOLUTION FILES ====================
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        pdf: 'fas fa-file-pdf text-danger',
+        xlsx: 'fas fa-file-excel text-success',
+        xls: 'fas fa-file-excel text-success',
+        csv: 'fas fa-file-csv text-success',
+        doc: 'fas fa-file-word text-primary',
+        docx: 'fas fa-file-word text-primary',
+    };
+    return icons[ext] || 'fas fa-file text-secondary';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function openResolutionFilesModal() {
+    if (!ticketToResolve) return;
+    const modal = new bootstrap.Modal(document.getElementById('resolutionFilesModal'));
+    loadResolutionFiles();
+    setupResolutionDropzone();
+    modal.show();
+}
+window.openResolutionFilesModal = openResolutionFilesModal;
+
+let resDropzoneSetup = false;
+
+function setupResolutionDropzone() {
+    if (resDropzoneSetup) return;
+    resDropzoneSetup = true;
+
+    const dropzone = document.getElementById('resolutionDropzone');
+    const input = document.getElementById('resolutionFileInput');
+
+    dropzone.addEventListener('click', () => input.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#0d6efd';
+        dropzone.style.backgroundColor = '#f0f7ff';
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.style.borderColor = '#dee2e6';
+        dropzone.style.backgroundColor = '';
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#dee2e6';
+        dropzone.style.backgroundColor = '';
+        uploadResolutionFiles(Array.from(e.dataTransfer.files));
+    });
+
+    input.addEventListener('change', function () {
+        uploadResolutionFiles(Array.from(this.files));
+        this.value = '';
+    });
+}
+
+async function loadResolutionFiles() {
+    if (!ticketToResolve) return;
+    try {
+        const response = await HelpdeskUtils.api.getAttachmentsByType(ticketToResolve.id, 'resolution');
+        const attachments = response.attachments || [];
+        renderResolutionFilesList(attachments);
+        updateResolutionFilesCount(attachments.length);
+    } catch (error) {
+        console.error('Error loading resolution files:', error);
+    }
+}
+
+function renderResolutionFilesList(attachments) {
+    const container = document.getElementById('resolutionFilesList');
+    if (attachments.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-muted py-3">
+                <i class="fas fa-folder-open fa-2x mb-2"></i>
+                <p class="mb-0">Sin archivos adjuntos</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = attachments.map(att => {
+        const isImage = att.mime_type && att.mime_type.startsWith('image/');
+        const downloadUrl = `/api/help-desk/v1/attachments/${att.id}/download`;
+        const icon = isImage ? 'fas fa-image text-info' : getFileIcon(att.original_filename);
+
+        return `
+            <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                <div class="d-flex align-items-center gap-2 flex-grow-1 min-width-0">
+                    ${isImage ? `<img src="${downloadUrl}" class="rounded" style="width:40px;height:40px;object-fit:cover;cursor:pointer;"
+                        onclick="viewAttachmentImage('${downloadUrl}', '${att.original_filename}')">` :
+                `<i class="${icon} fa-lg"></i>`}
+                    <div class="min-width-0">
+                        <div class="text-truncate fw-semibold" style="max-width:300px;" title="${att.original_filename}">${att.original_filename}</div>
+                        <small class="text-muted">${formatFileSize(att.file_size)} - ${HelpdeskUtils.formatTimeAgo(att.uploaded_at)}</small>
+                    </div>
+                </div>
+                <div class="d-flex gap-1 flex-shrink-0">
+                    <a href="${downloadUrl}" class="btn btn-sm btn-outline-primary" download="${att.original_filename}" title="Descargar">
+                        <i class="fas fa-download"></i>
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteResolutionFile(${att.id})" title="Eliminar">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function updateResolutionFilesCount(count) {
+    const badge = document.getElementById('resolutionFilesCount');
+    if (badge) badge.textContent = count;
+    const modalCount = document.getElementById('resFilesModalCount');
+    if (modalCount) modalCount.textContent = `${count} / 10`;
+}
+
+async function uploadResolutionFiles(files) {
+    if (!ticketToResolve || !files.length) return;
+
+    const progressContainer = document.getElementById('resUploadProgress');
+    const progressBar = document.getElementById('resUploadBar');
+    const progressText = document.getElementById('resUploadText');
+
+    progressContainer.classList.remove('d-none');
+    let uploaded = 0;
+
+    for (const file of files) {
+        progressText.textContent = `Subiendo ${file.name}...`;
+        progressBar.style.width = `${(uploaded / files.length) * 100}%`;
+        try {
+            await HelpdeskUtils.api.uploadFile(ticketToResolve.id, file, 'resolution');
+            uploaded++;
+        } catch (error) {
+            HelpdeskUtils.showToast(`Error al subir ${file.name}: ${error.message}`, 'error');
+        }
+    }
+
+    progressBar.style.width = '100%';
+    progressText.textContent = `${uploaded} de ${files.length} archivos subidos`;
+    setTimeout(() => {
+        progressContainer.classList.add('d-none');
+        progressBar.style.width = '0%';
+    }, 1500);
+
+    if (uploaded > 0) {
+        HelpdeskUtils.showToast(`${uploaded} archivo(s) subido(s)`, 'success');
+    }
+    loadResolutionFiles();
+}
+
+async function deleteResolutionFile(attachmentId) {
+    const confirmed = await HelpdeskUtils.confirmDialog(
+        'Eliminar archivo',
+        '¿Estás seguro de eliminar este archivo?',
+        'Eliminar',
+        'Cancelar'
+    );
+    if (!confirmed) return;
+
+    try {
+        await HelpdeskUtils.api.deleteAttachment(attachmentId);
+        HelpdeskUtils.showToast('Archivo eliminado', 'success');
+        loadResolutionFiles();
+    } catch (error) {
+        HelpdeskUtils.showToast(`Error al eliminar: ${error.message}`, 'error');
+    }
+}
+window.deleteResolutionFile = deleteResolutionFile;
+
+function viewAttachmentImage(url, title) {
+    const modal = new bootstrap.Modal(document.getElementById('attachmentImageModal'));
+    document.getElementById('attachmentImageModalImg').src = url;
+    document.getElementById('attachmentImageTitle').innerHTML = `<i class="fas fa-image me-2"></i>${title || 'Imagen'}`;
+    modal.show();
+}
+window.viewAttachmentImage = viewAttachmentImage;

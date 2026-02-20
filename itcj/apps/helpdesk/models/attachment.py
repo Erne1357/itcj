@@ -12,25 +12,31 @@ class Attachment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     ticket_id = db.Column(db.Integer, db.ForeignKey('helpdesk_ticket.id'), nullable=False, index=True)
     uploaded_by_id = db.Column(db.BigInteger, db.ForeignKey('core_users.id'), nullable=False)
-    
+
+    # Tipo: 'ticket' (foto inicial), 'resolution', 'comment'
+    attachment_type = db.Column(db.String(20), nullable=False, default='ticket', server_default='ticket')
+    comment_id = db.Column(db.Integer, db.ForeignKey('helpdesk_comment.id'), nullable=True, index=True)
+
     # Información del archivo
     filename = db.Column(db.String(255), nullable=False)  # Nombre generado (único)
     original_filename = db.Column(db.String(255), nullable=False)  # Nombre original del usuario
     filepath = db.Column(db.String(500), nullable=False)  # Ruta relativa desde UPLOAD_FOLDER
     mime_type = db.Column(db.String(100), nullable=True)  # 'image/png', 'image/jpeg', etc.
     file_size = db.Column(db.Integer, nullable=True)  # Tamaño en bytes
-    
+
     # Timestamps y limpieza
     uploaded_at = db.Column(db.DateTime, nullable=False, server_default=db.text("NOW()"))
     auto_delete_at = db.Column(db.DateTime, nullable=True, index=True)  # Se setea cuando el ticket se resuelve
-    
+
     # Relaciones
     ticket = db.relationship('Ticket', back_populates='attachments')
     uploaded_by = db.relationship('User', foreign_keys=[uploaded_by_id])
+    comment = db.relationship('Comment', back_populates='attachments', foreign_keys=[comment_id])
     
-    # Índice para la limpieza automática
+    # Índices
     __table_args__ = (
         db.Index('ix_helpdesk_attachment_auto_delete', 'auto_delete_at'),
+        db.Index('ix_helpdesk_attachment_type', 'attachment_type'),
     )
     
     def __repr__(self):
@@ -49,7 +55,7 @@ class Attachment(db.Model):
             return False
         return datetime.now() >= self.auto_delete_at
     
-    def set_auto_delete(self, days=7):
+    def set_auto_delete(self, days=2):
         """Establece la fecha de auto-eliminación (llamar cuando se resuelve el ticket)"""
         self.auto_delete_at = datetime.now() + timedelta(days=days)
     
@@ -57,6 +63,8 @@ class Attachment(db.Model):
         return {
             'id': self.id,
             'ticket_id': self.ticket_id,
+            'attachment_type': self.attachment_type,
+            'comment_id': self.comment_id,
             'filename': self.filename,
             'original_filename': self.original_filename,
             'mime_type': self.mime_type,

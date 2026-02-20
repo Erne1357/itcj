@@ -10,6 +10,7 @@ attachments_api_bp = Blueprint('attachments_api', __name__)
 categories_api_bp = Blueprint('categories_api', __name__)
 inventory_api_bp = Blueprint('inventory_api', __name__)
 stats_api_bp = Blueprint('stats_api', __name__)
+documents_api_bp = Blueprint('documents_api', __name__)
 
 # Importar rutas para registrarlas (excepto tickets que ya está organizado)
 from . import assignments
@@ -19,6 +20,7 @@ from . import categories
 from . import inventory
 from . import tickets
 from . import stats
+from . import documents
 __all__ = [
     'tickets_api_bp',
     'assignments_api_bp',
@@ -27,4 +29,5 @@ __all__ = [
     'categories_api_bp',
     'inventory_api_bp',
     'stats_api_bp',
+    'documents_api_bp',
 ]
