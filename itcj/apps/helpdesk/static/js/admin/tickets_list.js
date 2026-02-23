@@ -369,36 +369,61 @@ function bindAdminSocketEvents() {
     const socket = window.__helpdeskSocket;
     if (!socket) return;
 
-    // Unirse al room de admin
+    // Unirse al room de admin (recibe todos los eventos de tickets)
     window.__hdJoinAdmin?.();
 
-    const debouncedRefresh = debounce(() => {
+    const silentRefresh = debounce(() => {
         loadSummaryStats();
         loadTickets();
-        HelpdeskUtils.showToast('Lista actualizada', 'info');
     }, 500);
 
     // Remover listeners previos
     socket.off('ticket_created');
     socket.off('ticket_assigned');
+    socket.off('ticket_reassigned');
     socket.off('ticket_status_changed');
+    socket.off('ticket_self_assigned');
 
     // Nuevo ticket creado
     socket.on('ticket_created', (data) => {
         console.log('[Admin List] ticket_created:', data);
-        debouncedRefresh();
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        const area = data?.area || '';
+        HelpdeskUtils.showToast(`Nuevo ticket ${ticketNum} (${area})`, 'info');
+        silentRefresh();
     });
 
     // Ticket asignado
     socket.on('ticket_assigned', (data) => {
         console.log('[Admin List] ticket_assigned:', data);
-        debouncedRefresh();
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} asignado`, 'info');
+        silentRefresh();
+    });
+
+    // Ticket reasignado
+    socket.on('ticket_reassigned', (data) => {
+        console.log('[Admin List] ticket_reassigned:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} reasignado`, 'info');
+        silentRefresh();
     });
 
     // Cambio de estado
     socket.on('ticket_status_changed', (data) => {
         console.log('[Admin List] ticket_status_changed:', data);
-        debouncedRefresh();
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        const newStatus = data?.new_status || '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} → ${newStatus}`, 'info');
+        silentRefresh();
+    });
+
+    // Técnico tomó un ticket del pool
+    socket.on('ticket_self_assigned', (data) => {
+        console.log('[Admin List] ticket_self_assigned:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} auto-asignado`, 'info');
+        silentRefresh();
     });
 
     console.log('[Admin List] WebSocket listeners configurados');

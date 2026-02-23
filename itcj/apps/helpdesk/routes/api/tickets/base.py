@@ -443,8 +443,17 @@ def resolve_ticket(ticket_id):
     data = request.get_json()
     user_id = int(g.current_user['sub'])
 
-    # Validar campos requeridos
-    required_fields = ['success', 'resolution_notes', 'time_invested_minutes', 'maintenance_type', 'service_origin']
+    # Determinar campos requeridos según el área del ticket
+    from itcj.apps.helpdesk.models.ticket import Ticket as TicketModel
+    ticket_check = TicketModel.query.get(ticket_id)
+    if not ticket_check:
+        return jsonify({'error': 'not_found', 'message': 'Ticket no encontrado'}), 404
+
+    required_fields = ['success', 'resolution_notes', 'time_invested_minutes']
+    # maintenance_type, service_origin y observations solo son requeridos para SOPORTE
+    if ticket_check.area == 'SOPORTE':
+        required_fields.extend(['maintenance_type', 'service_origin'])
+
     missing = [f for f in required_fields if f not in data or data[f] is None]
     if missing:
         return jsonify({

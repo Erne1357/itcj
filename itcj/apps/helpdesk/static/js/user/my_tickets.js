@@ -168,7 +168,13 @@ function applyFilters() {
     // Construir objeto de filtros
     currentFilters = {};
     
-    if (statusFilter) currentFilters.status = statusFilter;
+    // Si el filtro es "PENDING_RATING", convertir a los estados correspondientes
+    if (statusFilter === 'PENDING_RATING') {
+        currentFilters.status = 'RESOLVED_SUCCESS,RESOLVED_FAILED';
+    } else if (statusFilter) {
+        currentFilters.status = statusFilter;
+    }
+    
     if (areaFilter) currentFilters.area = areaFilter;
     if (searchText) currentFilters.search = searchText;
 
@@ -274,9 +280,20 @@ function createTicketCard(ticket) {
                     </div>
                     
                     ${ticket.resolution_notes ? `
-                        <div class="alert alert-success mt-2 mb-0 py-2 small">
+                        <div class="alert alert-success mt-2 mb-0 py-2 small position-relative">
                             <i class="fas fa-check-circle me-1"></i>
                             <strong>Solución:</strong> ${truncateText(ticket.resolution_notes, 200)}
+                            ${ticket.solution_attachments && ticket.solution_attachments.length > 0 ? `
+                                <div class="mt-2 pt-2 border-top border-success border-opacity-25">
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-paperclip me-1"></i>
+                                        ${ticket.solution_attachments.length} archivo${ticket.solution_attachments.length > 1 ? 's' : ''} adjunto${ticket.solution_attachments.length > 1 ? 's' : ''}
+                                    </span>
+                                    <small class="text-muted ms-2">
+                                        <i class="fas fa-info-circle me-1"></i>Ver en detalle
+                                    </small>
+                                </div>
+                            ` : ''}
                         </div>
                     ` : ''}
                     

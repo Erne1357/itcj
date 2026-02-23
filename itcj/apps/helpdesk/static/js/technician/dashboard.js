@@ -399,6 +399,13 @@ function openResolveModal(ticketId) {
     // Reset resolution files count
     updateResolutionFilesCount(0);
 
+    // Mostrar/ocultar campos exclusivos de Soporte
+    const isSoporte = ticketToResolve.area === 'SOPORTE';
+    const soporteFields = document.getElementById('soporteOnlyFields');
+    const observationsField = document.getElementById('observationsField');
+    if (soporteFields) soporteFields.style.display = isSoporte ? '' : 'none';
+    if (observationsField) observationsField.style.display = isSoporte ? '' : 'none';
+
     const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
     modal.show();
 
@@ -475,11 +482,12 @@ async function loadAvailableTechnicians(ticket) {
 async function confirmResolve() {
     if (!ticketToResolve) return;
 
+    const isSoporte = ticketToResolve.area === 'SOPORTE';
     const resolutionType = document.querySelector('input[name="resolutionType"]:checked').value;
     const notes = document.getElementById('resolutionNotes').value.trim();
-    const maintenanceType = document.querySelector('input[name="maintenanceType"]:checked')?.value;
-    const serviceOrigin = document.querySelector('input[name="serviceOrigin"]:checked')?.value;
-    const observations = document.getElementById('observations')?.value.trim() || null;
+    const maintenanceType = isSoporte ? document.querySelector('input[name="maintenanceType"]:checked')?.value : null;
+    const serviceOrigin = isSoporte ? document.querySelector('input[name="serviceOrigin"]:checked')?.value : null;
+    const observations = isSoporte ? (document.getElementById('observations')?.value.trim() || null) : null;
 
     // Obtener tiempo y convertir a minutos segun la unidad seleccionada
     const timeValue = parseFloat(document.getElementById('timeInvested').value) || null;
@@ -503,16 +511,16 @@ async function confirmResolve() {
         }
     }
 
-    // Validar tipo de mantenimiento
-    if (!maintenanceType) {
-        HelpdeskUtils.showToast('Debe seleccionar el tipo de mantenimiento', 'warning');
-        return;
-    }
-
-    // Validar origen del servicio
-    if (!serviceOrigin) {
-        HelpdeskUtils.showToast('Debe seleccionar el origen del equipo', 'warning');
-        return;
+    // Validar campos de Soporte
+    if (isSoporte) {
+        if (!maintenanceType) {
+            HelpdeskUtils.showToast('Debe seleccionar el tipo de mantenimiento', 'warning');
+            return;
+        }
+        if (!serviceOrigin) {
+            HelpdeskUtils.showToast('Debe seleccionar el origen del equipo', 'warning');
+            return;
+        }
     }
 
     // Validar notas

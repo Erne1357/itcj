@@ -89,7 +89,7 @@ class HelpdeskNotificationHelper:
                         'priority': ticket.priority,
                         'status': ticket.status,
                         'requester': ticket.requester.full_name if ticket.requester else 'Desconocido',
-                        'department_id': ticket.department_id
+                        'department_id': ticket.requester_department_id
                     })
             except Exception as ws_err:
                 current_app.logger.warning(f"Error en broadcast WS TICKET_CREATED: {ws_err}")
@@ -141,7 +141,7 @@ class HelpdeskNotificationHelper:
                         'assigned_to_name': assigned_user.full_name,
                         'area': ticket.area,
                         'priority': ticket.priority
-                    }, department_id=ticket.department_id)
+                    }, department_id=ticket.requester_department_id)
             except Exception as ws_err:
                 current_app.logger.warning(f"Error en broadcast WS TICKET_ASSIGNED: {ws_err}")
 
@@ -197,15 +197,17 @@ class HelpdeskNotificationHelper:
                 socketio = current_app.extensions.get('socketio')
                 if socketio:
                     prev_id = previous_assigned_user.id if previous_assigned_user else None
-                    broadcast_ticket_reassigned(socketio, ticket.id, new_assigned_user.id, prev_id, {
+                    broadcast_ticket_reassigned(socketio, ticket.id, new_assigned_user.id, prev_id,
+                        ticket.area, {
                         'ticket_id': ticket.id,
                         'ticket_number': ticket.ticket_number,
                         'title': ticket.title,
                         'new_assigned_id': new_assigned_user.id,
                         'new_assigned_name': new_assigned_user.full_name,
                         'prev_assigned_id': prev_id,
-                        'prev_assigned_name': previous_assigned_user.full_name if previous_assigned_user else None
-                    })
+                        'prev_assigned_name': previous_assigned_user.full_name if previous_assigned_user else None,
+                        'area': ticket.area
+                    }, department_id=ticket.requester_department_id)
             except Exception as ws_err:
                 current_app.logger.warning(f"Error en broadcast WS TICKET_REASSIGNED: {ws_err}")
 
@@ -295,7 +297,7 @@ class HelpdeskNotificationHelper:
                         'old_status': 'ASSIGNED',
                         'new_status': 'IN_PROGRESS',
                         'area': ticket.area
-                    }, department_id=ticket.department_id)
+                    }, department_id=ticket.requester_department_id)
             except Exception as ws_err:
                 current_app.logger.warning(f"Error en broadcast WS TICKET_IN_PROGRESS: {ws_err}")
 
@@ -344,7 +346,7 @@ class HelpdeskNotificationHelper:
                         'old_status': 'IN_PROGRESS',
                         'new_status': ticket.status,
                         'area': ticket.area
-                    }, department_id=ticket.department_id)
+                    }, department_id=ticket.requester_department_id)
             except Exception as ws_err:
                 current_app.logger.warning(f"Error en broadcast WS TICKET_RESOLVED: {ws_err}")
 
@@ -429,7 +431,7 @@ class HelpdeskNotificationHelper:
                         'old_status': ticket.status,
                         'new_status': 'CANCELED',
                         'area': ticket.area
-                    }, department_id=ticket.department_id)
+                    }, department_id=ticket.requester_department_id)
             except Exception as ws_err:
                 current_app.logger.warning(f"Error en broadcast WS TICKET_CANCELED: {ws_err}")
 

@@ -492,12 +492,18 @@ async function addComment() {
 function renderStatusTimeline(ticket) {
     const container = document.getElementById('statusTimeline');
 
+    const isFailedResolution = ticket.status === 'RESOLVED_FAILED';
+
     // Define status flow
     const statusFlow = [
         { status: 'PENDING', label: 'Creado', icon: 'fa-plus-circle' },
         { status: 'ASSIGNED', label: 'Asignado', icon: 'fa-user-check' },
         { status: 'IN_PROGRESS', label: 'En Progreso', icon: 'fa-cog' },
-        { status: 'RESOLVED_SUCCESS', label: 'Resuelto', icon: 'fa-check-circle' },
+        {
+            status: isFailedResolution ? 'RESOLVED_FAILED' : 'RESOLVED_SUCCESS',
+            label: isFailedResolution ? 'Atendido' : 'Resuelto',
+            icon: 'fa-check-circle'
+        },
         { status: 'CLOSED', label: 'Cerrado', icon: 'fa-lock' }
     ];
 
@@ -515,7 +521,7 @@ function renderStatusTimeline(ticket) {
                         <div class="timeline-item-content">
                             <i class="fas ${item.icon} me-2"></i>
                             <strong>${item.label}</strong>
-                            ${isCurrent ? '<span class="badge bg-primary ms-2">Actual</span>' : ''}
+                            ${isCurrent ? `<span class="badge bg-primary ms-2">Actual</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -706,6 +712,13 @@ function openResolveModal() {
     // Reset resolution files count
     updateResolutionFilesCount(0);
 
+    // Mostrar/ocultar campos exclusivos de Soporte
+    const isSoporte = currentTicket.area === 'SOPORTE';
+    const soporteFields = document.getElementById('soporteOnlyFields');
+    const observationsField = document.getElementById('observationsField');
+    if (soporteFields) soporteFields.style.display = isSoporte ? '' : 'none';
+    if (observationsField) observationsField.style.display = isSoporte ? '' : 'none';
+
     // Cargar técnicos disponibles
     loadAvailableTechnicians(currentTicket);
 
@@ -810,23 +823,24 @@ async function loadAvailableTechnicians(ticket) {
 async function confirmResolve() {
     if (!currentTicket) return;
 
+    const isSoporte = currentTicket.area === 'SOPORTE';
     const resolutionType = document.querySelector('input[name="resolutionType"]:checked')?.value;
     const notesField = document.getElementById('resolutionNotes');
     const notes = notesField ? notesField.value.trim() : '';
-    const maintenanceType = document.querySelector('input[name="maintenanceType"]:checked')?.value;
-    const serviceOrigin = document.querySelector('input[name="serviceOrigin"]:checked')?.value;
-    const observations = document.getElementById('observations')?.value.trim() || null;
+    const maintenanceType = isSoporte ? document.querySelector('input[name="maintenanceType"]:checked')?.value : null;
+    const serviceOrigin = isSoporte ? document.querySelector('input[name="serviceOrigin"]:checked')?.value : null;
+    const observations = isSoporte ? (document.getElementById('observations')?.value.trim() || null) : null;
 
-    // Validar tipo de mantenimiento
-    if (!maintenanceType) {
-        HelpdeskUtils.showToast('Debe seleccionar el tipo de mantenimiento', 'warning');
-        return;
-    }
-
-    // Validar origen del servicio
-    if (!serviceOrigin) {
-        HelpdeskUtils.showToast('Debe seleccionar el origen del equipo', 'warning');
-        return;
+    // Validar campos de Soporte
+    if (isSoporte) {
+        if (!maintenanceType) {
+            HelpdeskUtils.showToast('Debe seleccionar el tipo de mantenimiento', 'warning');
+            return;
+        }
+        if (!serviceOrigin) {
+            HelpdeskUtils.showToast('Debe seleccionar el origen del equipo', 'warning');
+            return;
+        }
     }
 
     // Validar notas primero
@@ -1391,13 +1405,11 @@ async function loadPhotoAttachment(ticketId) {
         const response = await HelpdeskUtils.api.getAttachmentsByType(ticketId, 'ticket');
         const attachments = response.attachments || [];
 
-        if (attachments.length === 0) {
-            return;
+        if (attachments.length > 0) {
+            const photo = attachments[0];
+            document.getElementById('photoContainer').style.display = 'block';
+            renderPhotoThumbnail(photo);
         }
-
-        const photo = attachments[0];
-        document.getElementById('photoContainer').style.display = 'block';
-        renderPhotoThumbnail(photo);
 
     } catch (error) {
         console.error('Error loading photo:', error);

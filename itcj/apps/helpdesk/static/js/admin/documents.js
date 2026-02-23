@@ -60,11 +60,10 @@
 
         const params = {};
         const status = document.getElementById('filterStatus').value;
-        const area = document.getElementById('filterArea').value;
         const search = document.getElementById('filterSearch').value.trim();
 
         if (status) params.status = status;
-        if (area) params.area = area;
+        params.area = 'SOPORTE'; // Solo tickets de Soporte generan documentos
         if (search) params.search = search;
         params.per_page = 500;
 

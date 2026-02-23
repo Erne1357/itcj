@@ -556,13 +556,18 @@ def resolve_ticket(
     if time_invested_minutes is None or time_invested_minutes <= 0:
         abort(400, description='El tiempo invertido es requerido y debe ser mayor a 0')
 
-    # Validar tipo de mantenimiento (requerido)
-    if not maintenance_type or maintenance_type not in ['PREVENTIVO', 'CORRECTIVO']:
-        abort(400, description='El tipo de mantenimiento es requerido (PREVENTIVO o CORRECTIVO)')
-
-    # Validar origen del servicio (requerido)
-    if not service_origin or service_origin not in ['INTERNO', 'EXTERNO']:
-        abort(400, description='El origen del servicio es requerido (INTERNO o EXTERNO)')
+    # Validar tipo de mantenimiento y origen del servicio (solo requerido para SOPORTE)
+    if ticket.area == 'SOPORTE':
+        if not maintenance_type or maintenance_type not in ['PREVENTIVO', 'CORRECTIVO']:
+            abort(400, description='El tipo de mantenimiento es requerido (PREVENTIVO o CORRECTIVO)')
+        if not service_origin or service_origin not in ['INTERNO', 'EXTERNO']:
+            abort(400, description='El origen del servicio es requerido (INTERNO o EXTERNO)')
+    else:
+        # Para DESARROLLO, limpiar estos campos si vienen vacíos
+        if maintenance_type and maintenance_type not in ['PREVENTIVO', 'CORRECTIVO']:
+            maintenance_type = None
+        if service_origin and service_origin not in ['INTERNO', 'EXTERNO']:
+            service_origin = None
 
     # Actualizar ticket
     new_status = 'RESOLVED_SUCCESS' if success else 'RESOLVED_FAILED'
