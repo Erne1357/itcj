@@ -326,7 +326,7 @@ class MobileApp {
         const id = item.getAttribute('data-id');
         const url = item.getAttribute('data-url');
 
-        // Marcar como leída
+        // Marcar como leída visualmente
         try {
             await fetch(`${this.apiBase}/notifications/${id}/read`, {
                 method: 'POST',
@@ -534,8 +534,44 @@ class MobileApp {
             }
         }
         
-        // Redirigir toda la página al login
-        window.location.href = '/itcj/logout';
+        // Hacer POST al endpoint de logout y luego redirigir al login
+        this.doLogout();
+    }
+
+    /**
+     * Marca todas las notificaciones como leídas y limpia el listado
+     */
+    async markAllAsRead() {
+        const btn = document.getElementById('markAllReadBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Marcando...';
+        }
+
+        try {
+            await fetch(`${this.apiBase}/notifications/mark-all-read`, {
+                method: 'PATCH',
+                credentials: 'include'
+            });
+
+            // Solo quitar la clase 'unread' de todas las cards, sin eliminarlas
+            const list = document.getElementById('mobileNotificationsList');
+            if (list) {
+                list.querySelectorAll('.mobile-notification-item.unread').forEach(item => {
+                    item.classList.remove('unread');
+                });
+            }
+
+            this.updateBadges(0);
+        } catch (e) {
+            console.error('[MobileApp] Error marking all as read:', e);
+            this.showToast('Error al marcar notificaciones', 'danger');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-all me-1"></i>Leer todo';
+            }
+        }
     }
 
     /**
@@ -553,6 +589,11 @@ class MobileApp {
 
         document.getElementById('mobileNavProfile')?.addEventListener('click', () => {
             this.goToProfile();
+        });
+
+        // Marcar todas las notificaciones como leídas
+        document.getElementById('markAllReadBtn')?.addEventListener('click', () => {
+            this.markAllAsRead();
         });
 
         // Logout buttons

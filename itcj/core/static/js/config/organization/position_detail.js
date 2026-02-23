@@ -69,12 +69,12 @@ class PositionDetailManager {
             }
             
             // Asignar rol
-            if (e.target.id === 'assignRoleBtn') {
+            if (e.target.closest('#assignRoleBtn')) {
                 this.assignRole();
             }
             
             // Asignar permiso
-            if (e.target.id === 'assignPermBtn') {
+            if (e.target.closest('#assignPermBtn')) {
                 this.assignPermission();
             }
             
@@ -539,23 +539,23 @@ class PositionDetailManager {
         if (!this.currentAppKey) return;
         
         try {
-            const rolesResponse = await fetch(`${this.apiBase}/positions/${this.positionId}/apps/${this.currentAppKey}/roles`);
-            const rolesResult = rolesResponse.ok ? await rolesResponse.json() : { data: [] };
-            const roles = rolesResult.data || [];
+            // Hacer las 4 peticiones en paralelo
+            const [rolesResponse, permsResponse, effectiveResponse] = await Promise.all([
+                fetch(`${this.apiBase}/positions/${this.positionId}/apps/${this.currentAppKey}/roles`),
+                fetch(`${this.apiBase}/positions/${this.positionId}/apps/${this.currentAppKey}/perms`),
+                fetch(`${this.apiBase}/positions/${this.positionId}/effective-perms/${this.currentAppKey}`)
+            ]);
             
-            const permsResponse = await fetch(`${this.apiBase}/positions/${this.positionId}/apps/${this.currentAppKey}/perms`);
-            const permsResult = permsResponse.ok ? await permsResponse.json() : { data: [] };
-            const perms = permsResult.data || [];
+            const [rolesResult, permsResult, effectiveResult] = await Promise.all([
+                rolesResponse.ok ? rolesResponse.json() : { data: [] },
+                permsResponse.ok ? permsResponse.json() : { data: [] },
+                effectiveResponse.ok ? effectiveResponse.json() : { data: [] }
+            ]);
             
-            const effectiveResponse = await fetch(`${this.apiBase}/positions/${this.positionId}/effective-perms/${this.currentAppKey}`);
-            const effectiveResult = effectiveResponse.ok ? await effectiveResponse.json() : { data: [] };
-            const effectivePerms = effectiveResult.data || [];
+            this.renderRoles(rolesResult.data || []);
+            this.renderPermissions(permsResult.data || []);
+            this.renderEffectivePermissions(effectiveResult.data || []);
             
-            this.renderRoles(roles);
-            this.renderPermissions(perms);
-            this.renderEffectivePermissions(effectivePerms);
-            
-            // ⭐ MODIFICADO: Ya no necesitamos cargar roles (ya están cargados)
             await this.loadAppPermissions();
             
         } catch (error) {
@@ -661,9 +661,11 @@ class PositionDetailManager {
             if (response.ok) {
                 this.showSuccess('Rol asignado correctamente');
                 select.value = '';
-                await this.loadAppAssignments();
-                await this.loadPosition();
-                await this.loadAppsAssignments();
+                // Recargar en paralelo: asignaciones del modal y datos generales
+                await Promise.all([
+                    this.loadAppAssignments(),
+                    this.refreshPositionAndApps()
+                ]);
             } else {
                 const result = await response.json();
                 this.showError(result.error || 'Error al asignar rol');
@@ -693,9 +695,10 @@ class PositionDetailManager {
             if (response.ok) {
                 this.showSuccess('Permiso asignado correctamente');
                 select.value = '';
-                await this.loadAppAssignments();
-                await this.loadPosition();
-                await this.loadAppsAssignments();
+                await Promise.all([
+                    this.loadAppAssignments(),
+                    this.refreshPositionAndApps()
+                ]);
             } else {
                 const result = await response.json();
                 this.showError(result.error || 'Error al asignar permiso');
@@ -714,9 +717,10 @@ class PositionDetailManager {
             
             if (response.ok) {
                 this.showSuccess('Rol removido correctamente');
-                await this.loadAppAssignments();
-                await this.loadPosition();
-                await this.loadAppsAssignments();
+                await Promise.all([
+                    this.loadAppAssignments(),
+                    this.refreshPositionAndApps()
+                ]);
             } else {
                 const result = await response.json();
                 this.showError(result.error || 'Error al remover rol');
@@ -735,9 +739,10 @@ class PositionDetailManager {
             
             if (response.ok) {
                 this.showSuccess('Permiso removido correctamente');
-                await this.loadAppAssignments();
-                await this.loadPosition();
-                await this.loadAppsAssignments();
+                await Promise.all([
+                    this.loadAppAssignments(),
+                    this.refreshPositionAndApps()
+                ]);
             } else {
                 const result = await response.json();
                 this.showError(result.error || 'Error al remover permiso');
@@ -745,6 +750,16 @@ class PositionDetailManager {
         } catch (error) {
             this.showError('Error de conexión');
             console.error('Error removing permission:', error);
+        }
+    }
+
+    // Recarga en background los datos del puesto y la sección de apps
+    async refreshPositionAndApps() {
+        try {
+            await this.loadPosition();
+            this.loadAppsAssignments();
+        } catch (error) {
+            console.error('Error refreshing position data:', error);
         }
     }
 

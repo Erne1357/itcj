@@ -35,10 +35,10 @@ const TutorialUtils = {
     },
 
     /**
-     * Obtiene el storage apropiado (sessionStorage funciona mejor en iframes)
+     * Obtiene el storage apropiado (localStorage persiste entre sesiones e iframes)
      */
     getStorage() {
-        return sessionStorage;
+        return localStorage;
     },
 
     /**

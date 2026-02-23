@@ -246,7 +246,8 @@ def broadcast_ticket_assigned(socketio, ticket_id: int, assigned_to_id: int,
 
 
 def broadcast_ticket_reassigned(socketio, ticket_id: int, new_assigned_id: int,
-                                prev_assigned_id: int, payload: dict):
+                                prev_assigned_id: int, area: str, payload: dict,
+                                department_id: int = None):
     """
     Broadcast cuando se reasigna un ticket.
 
@@ -255,7 +256,9 @@ def broadcast_ticket_reassigned(socketio, ticket_id: int, new_assigned_id: int,
         ticket_id: ID del ticket
         new_assigned_id: ID del nuevo técnico asignado
         prev_assigned_id: ID del técnico anterior
+        area: Área del ticket (desarrollo/soporte)
         payload: Datos adicionales del evento
+        department_id: ID del departamento del ticket (opcional)
     """
     # Notificar al nuevo técnico
     socketio.emit("ticket_reassigned", payload,
@@ -269,6 +272,21 @@ def broadcast_ticket_reassigned(socketio, ticket_id: int, new_assigned_id: int,
     # Notificar al room del ticket
     socketio.emit("ticket_reassigned", payload,
                   to=_ticket_room(ticket_id), namespace=NAMESPACE)
+
+    # Notificar al equipo
+    area_lower = (area or "").lower()
+    if area_lower in ["desarrollo", "soporte"]:
+        socketio.emit("ticket_reassigned", payload,
+                      to=_team_room(area_lower), namespace=NAMESPACE)
+
+    # Notificar al departamento específico (para secretarias)
+    if department_id:
+        socketio.emit("ticket_reassigned", payload,
+                      to=_dept_room(int(department_id)), namespace=NAMESPACE)
+
+    # Notificar a admin
+    socketio.emit("ticket_reassigned", payload,
+                  to=_admin_room(), namespace=NAMESPACE)
 
 
 def broadcast_ticket_status_changed(socketio, ticket_id: int, assignee_id: int,

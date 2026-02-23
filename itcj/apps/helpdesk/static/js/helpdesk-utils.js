@@ -121,6 +121,42 @@ class HelpdeskAPI {
         return this.request(`/attachments/ticket/${ticketId}`);
     }
 
+    async getAttachmentsByType(ticketId, type) {
+        return this.request(`/attachments/ticket/${ticketId}?type=${type}`);
+    }
+
+    async uploadFile(ticketId, file, attachmentType = 'ticket', commentId = null) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('attachment_type', attachmentType);
+        if (commentId) formData.append('comment_id', commentId);
+
+        const url = `${this.baseURL}/attachments/ticket/${ticketId}`;
+        const response = await fetch(url, { method: 'POST', body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async deleteAttachment(attachmentId) {
+        return this.request(`/attachments/${attachmentId}`, { method: 'DELETE' });
+    }
+
+    async addCommentWithFiles(ticketId, content, files, isInternal = false) {
+        const formData = new FormData();
+        formData.append('content', content);
+        formData.append('is_internal', isInternal);
+        for (const file of files) {
+            formData.append('files', file);
+        }
+
+        const url = `${this.baseURL}/tickets/${ticketId}/comments`;
+        const response = await fetch(url, { method: 'POST', body: formData });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+        return data;
+    }
+
     // Statistics
     async getDepartmentStats(departmentId) {
         return this.request(`/stats/department/${departmentId}`);

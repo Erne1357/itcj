@@ -853,13 +853,12 @@ function bindAssignSocketEvents() {
     const socket = window.__helpdeskSocket;
     if (!socket) return;
 
-    // Unirse al room de admin
+    // Unirse al room de admin (recibe todos los eventos de tickets)
     window.__hdJoinAdmin?.();
 
     const debouncedRefreshPending = debounce(() => {
         loadPendingTickets();
         loadDashboardStats();
-        HelpdeskUtils.showToast('Nuevo ticket pendiente', 'info');
     }, 300);
 
     const debouncedRefreshActive = debounce(() => {
@@ -885,30 +884,47 @@ function bindAssignSocketEvents() {
     // Nuevo ticket creado - actualiza cola de pendientes
     socket.on('ticket_created', (data) => {
         console.log('[Assign] ticket_created:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        const area = data?.area || '';
+        const priority = data?.priority || '';
+        const requester = data?.requester || '';
+        HelpdeskUtils.showToast(
+            `🎫 Nuevo ticket ${ticketNum} (${area}) - ${priority}\nSolicitante: ${requester}`,
+            priority === 'URGENTE' ? 'warning' : 'info'
+        );
         debouncedRefreshPending();
     });
 
     // Ticket asignado - sale de pendientes, entra a activos
     socket.on('ticket_assigned', (data) => {
         console.log('[Assign] ticket_assigned:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} asignado`, 'success');
         debouncedRefreshAll();
     });
 
     // Ticket reasignado
     socket.on('ticket_reassigned', (data) => {
         console.log('[Assign] ticket_reassigned:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} reasignado`, 'info');
         debouncedRefreshActive();
     });
 
     // Cambio de estado
     socket.on('ticket_status_changed', (data) => {
         console.log('[Assign] ticket_status_changed:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        const newStatus = data?.new_status || '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} → ${newStatus}`, 'info');
         debouncedRefreshActive();
     });
 
     // Técnico tomó un ticket del pool
     socket.on('ticket_self_assigned', (data) => {
         console.log('[Assign] ticket_self_assigned:', data);
+        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+        HelpdeskUtils.showToast(`Ticket ${ticketNum} auto-asignado por técnico`, 'info');
         debouncedRefreshAll();
     });
 

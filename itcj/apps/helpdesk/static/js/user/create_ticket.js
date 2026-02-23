@@ -1189,14 +1189,12 @@ const FormValidation = {
                 return true;
 
             case 2:
-                // Para DESARROLLO, validar categoría
-                if (AppState.selectedArea === 'DESARROLLO') {
-                    const categoryId = document.getElementById('category_id').value;
-                    if (!categoryId) {
-                        HelpdeskUtils.showToast('Por favor selecciona una categoría', 'warning');
-                        document.getElementById('category_id').focus();
-                        return false;
-                    }
+                // Validar categoría (requerida para SOPORTE y DESARROLLO)
+                const categoryId = document.getElementById('category_id').value;
+                if (!categoryId) {
+                    HelpdeskUtils.showToast('Por favor selecciona una categoría', 'warning');
+                    document.getElementById('category_id').focus();
+                    return false;
                 }
 
                 // Validar título
@@ -1441,11 +1439,7 @@ const Navigation = {
 
     showSummary() {
         const formData = FormValidation.getFormData();
-        let category = null;
-
-        if (AppState.selectedArea === 'DESARROLLO') {
-            category = AppState.categories.find(c => c.id === formData.category_id);
-        }
+        let category = AppState.categories.find(c => c.id === formData.category_id) || null;
 
         let summary = `
             <h5 class="mb-3">

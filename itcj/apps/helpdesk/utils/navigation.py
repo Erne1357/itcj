@@ -64,6 +64,14 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.tickets.page.list_all"
         },
 
+        # ==================== DOCUMENTOS ====================
+        {
+            "label": "Documentos",
+            "endpoint": "helpdesk_pages.admin_pages.documents",
+            "icon": "fa-file-pdf",
+            "permission": "helpdesk.documents.page.list"
+        },
+
         # ==================== INVENTARIO (UNIFICADO) ====================
         {
             "label": "Inventario",

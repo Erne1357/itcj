@@ -84,11 +84,15 @@
                 <p class="sitec-main-subtitle">¿Necesitas ayuda con algún problema técnico o de software?</p>
             </div>
 
-            <!-- Botón Principal -->
-            <div class="row justify-content-center mb-4 mb-md-5">
-                <div class="col-11 col-md-6 col-lg-4">
+            <!-- Botón Principal y Novedades -->
+            <div class="row mb-4 mb-md-5 g-3 g-md-4 align-items-center">
+                <!-- Espaciador izquierdo (solo desktop, mismo ancho que novedades) -->
+                <div class="d-none d-md-block col-md-4"></div>
+
+                <!-- Botón Principal - siempre centrado en desktop -->
+                <div class="col-12 col-md-4">
                     <div class="sitec-help-card">
-                        <div class="card-body text-center p-3 p-md-5">
+                        <div class="card-body text-center p-3 p-md-4">
                             <div class="sitec-help-icon mb-3 mb-md-4">
                                 <i class="fas fa-hands-helping"></i>
                             </div>
@@ -98,6 +102,88 @@
                                 <i class="fas fa-plus me-2"></i>
                                 Pedir Ayuda
                             </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sección de Novedades (lateral derecha en desktop, abajo en mobile) -->
+                <div class="col-12 col-md-4">
+                    <div class="card border-0 shadow-lg h-100" style="background: linear-gradient(135deg, #059669 0%, #047857 100%); border-radius: 16px;">
+                        <div class="card-body p-3 p-md-4 d-flex flex-column">
+                            <div class="d-flex align-items-center mb-3">
+                                <div class="bg-white rounded-circle p-2 me-2" style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                    <span class="fw-bold text-success" style="font-size: 1.1rem;">CC</span>
+                                </div>
+                                <div>
+                                    <h3 class="text-white mb-0" style="font-size: 1.1rem; font-weight: 600;">
+                                        <i class="fas fa-bell me-1"></i>Novedades del Sistema
+                                    </h3>
+                                    <p class="text-white-50 mb-0" style="font-size: 0.75rem;">Nuevas funcionalidades</p>
+                                </div>
+                            </div>
+                            
+                            <div class="flex-grow-1">
+                                <div class="mb-2">
+                                    <div class="bg-white bg-opacity-10 rounded p-2 p-md-3 border border-white border-opacity-25">
+                                        <div class="d-flex align-items-start">
+                                            <div class="bg-white rounded p-2 me-2" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                                <i class="fas fa-mobile-alt text-success" style="font-size: 0.9rem;"></i>
+                                            </div>
+                                            <div>
+                                                <h5 class="text-white mb-1" style="font-size: 0.95rem; font-weight: 600;">
+                                                    Disponible en Celular
+                                                </h5>
+                                                <p class="text-white-50 mb-0" style="font-size: 0.85rem;">
+                                                    Usa Help-Desk desde tu <strong class="text-white">celular</strong> entrando desde cualquier navegador.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-2">
+                                    <div class="bg-white bg-opacity-10 rounded p-2 p-md-3 border border-white border-opacity-25">
+                                        <div class="d-flex align-items-start">
+                                            <div class="bg-white rounded p-2 me-2" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                                <i class="fas fa-file-image text-success" style="font-size: 0.9rem;"></i>
+                                            </div>
+                                            <div>
+                                                <h5 class="text-white mb-1" style="font-size: 0.95rem; font-weight: 600;">
+                                                    Soluciones con Archivos
+                                                </h5>
+                                                <p class="text-white-50 mb-0" style="font-size: 0.85rem;">
+                                                    Las soluciones ahora pueden incluir <strong class="text-white">documentos e imágenes</strong> adjuntos.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <div class="bg-white bg-opacity-10 rounded p-2 p-md-3 border border-white border-opacity-25">
+                                        <div class="d-flex align-items-start">
+                                            <div class="bg-white rounded p-2 me-2" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                                <i class="fas fa-comment-medical text-success" style="font-size: 0.9rem;"></i>
+                                            </div>
+                                            <div>
+                                                <h5 class="text-white mb-1" style="font-size: 0.95rem; font-weight: 600;">
+                                                    Comentarios Mejorados
+                                                </h5>
+                                                <p class="text-white-50 mb-0" style="font-size: 0.85rem;">
+                                                    Los comentarios permiten adjuntar <strong class="text-white">imágenes o documentos</strong> adicionales.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3 text-center">
+                                <small class="text-white-50" style="font-size: 0.75rem;">
+                                    <i class="far fa-calendar-alt me-1"></i>
+                                    Actualizado: Febrero 2026
+                                </small>
+                            </div>
                         </div>
                     </div>
                 </div>

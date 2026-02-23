@@ -158,3 +158,19 @@ def stats():
         user_roles=user_roles,
         active_page='admin_stats'
     )
+
+
+@bp.route('/documents')
+@web_app_required('helpdesk', perms=['helpdesk.documents.page.list'])
+def documents():
+    """
+    Generación de documentos PDF/DOCX a partir de tickets
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+
+    return render_template(
+        'helpdesk/admin/documents.html',
+        user_roles=user_roles,
+        active_page='admin_documents'
+    )
