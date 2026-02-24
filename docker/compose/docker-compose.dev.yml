@@ -34,6 +34,22 @@ services:
     #ports:
     #  - "8000:8000"  # Para desarrollo directo
 
+  backend-fastapi:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env
+    volumes:
+      - ../../:/app
+    depends_on:
+      - postgres
+      - redis
+    # --reload para hot-reload en desarrollo
+    command: uvicorn asgi:app --host 0.0.0.0 --port 8001 --reload --log-level info
+    #ports:
+    #  - "8001:8001"  # Para desarrollo directo sin nginx
+
   nginx:
     restart: always
     image: nginx:alpine
@@ -46,10 +62,9 @@ services:
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
       - ../../itcj/apps/vistetec/static:/www/static/vistetec:ro
-      # Para futuras apps:
-      # - ../../itcj/apps/tickets/static:/www/static/tickets:ro
     depends_on:
       - backend
+      - backend-fastapi
     ports:
       - "8080:80"
 

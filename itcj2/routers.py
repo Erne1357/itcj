@@ -1,0 +1,19 @@
+from fastapi import FastAPI
+
+
+def register_routers(app: FastAPI):
+    """Registro centralizado de todos los routers (equivalente a register_blueprints)."""
+
+    # Core API v2
+    from itcj2.core.router import core_router
+    app.include_router(core_router)
+
+    # Las apps se registran conforme se migran:
+    # from itcj2.apps.helpdesk.router import helpdesk_router
+    # app.include_router(helpdesk_router)
+    #
+    # from itcj2.apps.agendatec.router import agendatec_router
+    # app.include_router(agendatec_router)
+    #
+    # from itcj2.apps.vistetec.router import vistetec_router
+    # app.include_router(vistetec_router)

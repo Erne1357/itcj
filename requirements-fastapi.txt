@@ -1,0 +1,10 @@
+# FastAPI core
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.20
+
+# Settings (Pydantic-based config)
+pydantic-settings>=2.7.0
+
+# Nota: sqlalchemy, pydantic, jinja2, redis, pyjwt, pillow, etc.
+# ya están en requirements.txt (compartidas con Flask)
