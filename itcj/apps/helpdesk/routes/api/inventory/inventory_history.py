@@ -2,10 +2,11 @@
 API para consultar historial de equipos
 """
 from flask import Blueprint, request, jsonify, g
-from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models import InventoryItem
 from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+from itcj.apps.helpdesk.utils.inventory_access import has_full_inventory_access, has_dept_inventory_access
 
 bp = Blueprint('inventory_history', __name__)
 
@@ -28,17 +29,15 @@ def get_item_history(item_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     # Verificar que el equipo existe
     item = InventoryItem.query.get(item_id)
     if not item:
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
-    
+
     # Verificar permisos
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
-        # Jefe de departamento: solo su departamento
-        if 'department_head' in user_roles:
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
@@ -47,7 +46,6 @@ def get_item_history(item_id):
                     'error': 'No tiene permiso para ver el historial de este equipo'
                 }), 403
         else:
-            # Usuario: solo su equipo
             if item.assigned_to_user_id != user_id:
                 return jsonify({
                     'success': False,
@@ -99,25 +97,21 @@ def get_recent_events():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     department_id = request.args.get('department_id', type=int)
     days = request.args.get('days', 7, type=int)
     limit = request.args.get('limit', 50, type=int)
-    
+
     # Verificar permisos
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
-        # Jefe de depto: forzar filtro por su departamento
-        if 'department_head' in user_roles:
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
                 department_id = user_dept.id
             else:
-                # Sin departamento, no ve nada
                 return jsonify({'success': True, 'data': [], 'total': 0}), 200
         else:
-            # Usuario regular: no tiene acceso a eventos recientes
             return jsonify({
                 'success': False,
                 'error': 'No tiene permiso para ver eventos recientes'
@@ -194,16 +188,15 @@ def get_maintenance_history(item_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     # Verificar equipo
     item = InventoryItem.query.get(item_id)
     if not item:
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
-    
+
     # Verificar permisos
-    if 'admin' not in user_roles and user_id not in secretary_comp_center:
-        if 'department_head' in user_roles:
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:

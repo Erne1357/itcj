@@ -62,9 +62,16 @@ class InventoryService:
         # Validaciones
         if not data.get('category_id'):
             raise ValueError("Categoría requerida")
+
+        # Si no se especifica departamento, va al limbo del Centro de Cómputo
         if not data.get('department_id'):
-            raise ValueError("Departamento requerido")
-        
+            from itcj.core.models.department import Department
+            cc_department = Department.query.filter_by(code='comp_center').first()
+            if not cc_department:
+                raise ValueError("Departamento del Centro de Cómputo (comp_center) no encontrado")
+            data['department_id'] = cc_department.id
+            data['status'] = 'PENDING_ASSIGNMENT'
+
         # Generar número de inventario si no viene
         if not data.get('inventory_number'):
             data['inventory_number'] = InventoryService.generate_inventory_number(

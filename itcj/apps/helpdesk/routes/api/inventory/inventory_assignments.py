@@ -4,10 +4,11 @@ API para asignación y liberación de equipos
 from flask import Blueprint, request, jsonify, g
 from itcj.core.extensions import db
 from itcj.core.utils.decorators import api_app_required
-from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.apps.helpdesk.models import InventoryItem
 from itcj.apps.helpdesk.services.inventory_service import InventoryService
 from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
+from itcj.apps.helpdesk.utils.inventory_access import has_full_inventory_access
 
 bp = Blueprint('inventory_assignments', __name__)
 
@@ -33,25 +34,24 @@ def assign_to_user():
     data = request.get_json()
     assigned_by_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(assigned_by_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     # Validaciones básicas
     if not data.get('item_id'):
         return jsonify({'success': False, 'error': 'ID del equipo requerido'}), 400
-    
+
     if not data.get('user_id'):
         return jsonify({'success': False, 'error': 'ID del usuario requerido'}), 400
-    
+
     # Obtener equipo
     item = InventoryItem.query.get(data['item_id'])
     if not item or not item.is_active:
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
-    
-    # Verificar permiso: admin, secretaría o jefe del departamento del equipo
-    if 'admin' not in user_roles and assigned_by_id not in secretary_comp_center:
+
+    # Verificar permiso: acceso completo o jefe del departamento del equipo
+    if not has_full_inventory_access(assigned_by_id, user_roles):
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(assigned_by_id)
-        
+
         if not user_dept or user_dept.id != item.department_id:
             return jsonify({
                 'success': False,
@@ -109,29 +109,28 @@ def unassign_from_user():
     data = request.get_json()
     unassigned_by_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(unassigned_by_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     # Validación
     if not data.get('item_id'):
         return jsonify({'success': False, 'error': 'ID del equipo requerido'}), 400
-    
+
     # Obtener equipo
     item = InventoryItem.query.get(data['item_id'])
     if not item or not item.is_active:
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
-    
+
     # Verificar que esté asignado
     if not item.is_assigned_to_user:
         return jsonify({
             'success': False,
             'error': 'El equipo no está asignado a ningún usuario'
         }), 400
-    
-    # Verificar permiso: admin, secretaría o jefe del departamento del equipo
-    if 'admin' not in user_roles and unassigned_by_id not in secretary_comp_center:
+
+    # Verificar permiso: acceso completo o jefe del departamento del equipo
+    if not has_full_inventory_access(unassigned_by_id, user_roles):
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(unassigned_by_id)
-        
+
         if not user_dept or user_dept.id != item.department_id:
             return jsonify({
                 'success': False,
@@ -356,25 +355,24 @@ def update_location():
     data = request.get_json()
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     # Validaciones
     if not data.get('item_id'):
         return jsonify({'success': False, 'error': 'ID del equipo requerido'}), 400
-    
+
     if not data.get('location'):
         return jsonify({'success': False, 'error': 'Ubicación requerida'}), 400
-    
+
     # Obtener equipo
     item = InventoryItem.query.get(data['item_id'])
     if not item or not item.is_active:
         return jsonify({'success': False, 'error': 'Equipo no encontrado'}), 404
-    
+
     # Verificar permisos
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+    if not has_full_inventory_access(user_id, user_roles):
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
-        
+
         if not user_dept or user_dept.id != item.department_id:
             return jsonify({
                 'success': False,

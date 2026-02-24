@@ -3,8 +3,9 @@ Rutas de vistas para el módulo de inventario
 """
 from flask import Blueprint, render_template, abort, g
 from itcj.core.utils.decorators import app_required as web_app_required
-from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.services.departments_service import get_user_department
+from itcj.apps.helpdesk.utils.inventory_access import has_full_inventory_access
 
 from . import inventory_pages_bp as bp
 
@@ -36,10 +37,10 @@ def items_list():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
+
     # Determinar si puede ver todos o solo su departamento
-    can_view_all = 'admin' in user_roles or 'secretary' in user_roles
-    
+    can_view_all = has_full_inventory_access(user_id, user_roles)
+
     return render_template(
         'helpdesk/inventory/items_list.html',
         user_roles=user_roles,
@@ -73,16 +74,10 @@ def item_detail(item_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
+
     # Verificar si el usuario tiene permisos para editar
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    can_edit = (
-        'admin' in user_roles or 
-        'tech_soporte' in user_roles or 
-        'tech_desarrollo' in user_roles or
-        user_id in secretary_comp_center
-    )
-    
+    can_edit = has_full_inventory_access(user_id, user_roles)
+
     return render_template(
         'helpdesk/inventory/item_detail.html',
         item_id=item_id,
@@ -183,7 +178,7 @@ def groups_list():
     user_roles = user_roles_in_app(user_id, 'helpdesk')
     user_dept = get_user_department(user_id)
     department_id = user_dept.id if user_dept else None
-    can_view_all = 'admin' in user_roles
+    can_view_all = has_full_inventory_access(user_id, user_roles)
 
     return render_template(
         'helpdesk/inventory/groups_list.html',
