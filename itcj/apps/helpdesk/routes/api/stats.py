@@ -6,12 +6,11 @@ from sqlalchemy import func, case
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models.ticket import Ticket
 from itcj.core.services.authz_service import user_roles_in_app
+from . import stats_api_bp as stats_bp
 from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
-
-stats_bp = Blueprint('stats', __name__)
 
 
 @stats_bp.get('/department/<int:department_id>')
