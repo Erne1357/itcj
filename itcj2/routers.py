@@ -8,9 +8,9 @@ def register_routers(app: FastAPI):
     from itcj2.core.router import core_router
     app.include_router(core_router)
 
-    # Las apps se registran conforme se migran:
-    # from itcj2.apps.helpdesk.router import helpdesk_router
-    # app.include_router(helpdesk_router)
+    # Helpdesk API v2
+    from itcj2.apps.helpdesk.router import helpdesk_router
+    app.include_router(helpdesk_router)
     #
     # from itcj2.apps.agendatec.router import agendatec_router
     # app.include_router(agendatec_router)
