@@ -9,17 +9,19 @@ api_auth_bp = Blueprint("api_auth", __name__)
 @api_auth_bp.post("/login")
 def api_login():
     data = request.get_json(silent=True) or {}
-    raw_id = (data.get("control_number","") or "").strip()  # puede ser 8 dígitos o username
+    raw_id = (data.get("control_number","") or "").strip()  # puede ser número de control o username
     nip    = (data.get("nip","") or "").strip()
 
-    is_8_digits = raw_id.isdigit() and len(raw_id) == 8
+    import re
+    # Número de control: 8 dígitos puros, o 9-10 chars alfanuméricos que inician con letra (posgrado/traslado)
+    is_control_number = bool(re.match(r'^(?:\d{8}|[A-Za-z]\d{7,9})$', raw_id))
 
     if not raw_id:
         return jsonify({"error":"invalid_format"}), 400
 
-    # Si son 8 dígitos → alumno por número de control; si no → staff por username
-    if is_8_digits:
-        user = authenticate(raw_id, nip)
+    # Si parece número de control → alumno; si no → staff por username
+    if is_control_number:
+        user = authenticate(raw_id.upper(), nip)
     else:
         user = authenticate_by_username(raw_id, nip)
 

@@ -222,6 +222,14 @@ def create_campaign(data: dict) -> PantryCampaign:
 
     db.session.add(campaign)
     db.session.commit()
+
+    # Notificar lanzamiento de campaña
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_campaign_launched(campaign)
+    except Exception:
+        pass
+
     return campaign
 
 
@@ -259,6 +267,14 @@ def deactivate_campaign(campaign_id: int) -> PantryCampaign:
 
     campaign.is_active = False
     db.session.commit()
+
+    # Notificar fin de campaña
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_campaign_ended(campaign)
+    except Exception:
+        pass
+
     return campaign
 
 

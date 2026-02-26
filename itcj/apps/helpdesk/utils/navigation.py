@@ -123,26 +123,9 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                 },
                 {
                     "label": "Reportes",
-                    "endpoint": "#",
+                    "endpoint": "helpdesk_pages.inventory_pages.reports",
                     "icon": "fa-chart-bar",
-                    "permission": "helpdesk.inventory.page.reports",
-                    "submenu": [
-                        {
-                            "label": "Garantías",
-                            "endpoint": "helpdesk_pages.inventory_pages.warranty_report",
-                            "icon": "fa-shield-alt"
-                        },
-                        {
-                            "label": "Mantenimientos",
-                            "endpoint": "helpdesk_pages.inventory_pages.maintenance_report",
-                            "icon": "fa-tools"
-                        },
-                        {
-                            "label": "Ciclo de Vida",
-                            "endpoint": "helpdesk_pages.inventory_pages.lifecycle_report",
-                            "icon": "fa-history"
-                        }
-                    ]
+                    "permission": "helpdesk.inventory.page.reports"
                 }
             ]
         }

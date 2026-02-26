@@ -148,9 +148,11 @@ def create_user():
 
     # Determina el rol base del sistema
     if user_type == "student":
+        import re
         role_name = "student"
-        control_number = data.get("control_number")
-        if not control_number or len(control_number) != 8:
+        control_number = (data.get("control_number") or "").strip().upper()
+        # 8 dígitos normales, o 9-10 chars que inician con letra (posgrado/traslado: M21111182, B211111820)
+        if not control_number or not re.match(r'^(?:\d{8}|[A-Z]\d{7,9})$', control_number):
             return jsonify({"error": "Valid control number is required for students"}), 400
         # Validar si ya existe
         if User.query.filter_by(control_number=control_number).first():
@@ -388,8 +390,10 @@ def update_user(user_id):
 
         # Numero de control solo para estudiantes
         if 'control_number' in data and user.control_number is not None:
-            val = (data['control_number'] or '').strip()
-            if not val or len(val) != 8 or not val.isdigit():
+            import re
+            val = (data['control_number'] or '').strip().upper()
+            # 8 dígitos normales, o 9-10 chars que inician con letra (posgrado/traslado)
+            if not val or not re.match(r'^(?:\d{8}|[A-Z]\d{7,9})$', val):
                 return _bad("invalid_control_number", 400)
             existing = User.query.filter(User.control_number == val, User.id != user.id).first()
             if existing:

@@ -1,7 +1,7 @@
 """
 Rutas de vistas para el módulo de inventario
 """
-from flask import Blueprint, render_template, abort, g
+from flask import Blueprint, render_template, abort, g, redirect, url_for, request
 from itcj.core.utils.decorators import app_required as web_app_required
 from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.services.departments_service import get_user_department
@@ -119,52 +119,42 @@ def assign_equipment():
     )
 
 
-@bp.route('/reports/warranty')
+@bp.route('/reports')
 @web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
-def warranty_report():
+def reports():
     """
-    Reporte de garantías
+    Página unificada de reportes de inventario.
+    Acepta ?tab=equipos|movimientos|garantias|mantenimiento|ciclo-vida
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
+    active_tab = request.args.get('tab', 'equipos')
+
     return render_template(
-        'helpdesk/inventory/reports/warranty.html',
+        'helpdesk/inventory/reports.html',
         user_roles=user_roles,
-        active_page='inventory_reports'
+        active_page='inventory_reports',
+        active_tab=active_tab
     )
+
+
+# Redirects para compatibilidad con links existentes
+@bp.route('/reports/warranty')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
+def warranty_report():
+    return redirect(url_for('helpdesk_pages.inventory_pages.reports', tab='garantias'))
 
 
 @bp.route('/reports/maintenance')
 @web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def maintenance_report():
-    """
-    Reporte de mantenimientos
-    """
-    user_id = int(g.current_user['sub'])
-    user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
-    return render_template(
-        'helpdesk/inventory/reports/maintenance.html',
-        user_roles=user_roles,
-        active_page='inventory_reports'
-    )
+    return redirect(url_for('helpdesk_pages.inventory_pages.reports', tab='mantenimiento'))
 
 
 @bp.route('/reports/lifecycle')
 @web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def lifecycle_report():
-    """
-    Reporte de ciclo de vida (antigüedad)
-    """
-    user_id = int(g.current_user['sub'])
-    user_roles = user_roles_in_app(user_id, 'helpdesk')
-    
-    return render_template(
-        'helpdesk/inventory/reports/lifecycle.html',
-        user_roles=user_roles,
-        active_page='inventory_reports'
-    )
+    return redirect(url_for('helpdesk_pages.inventory_pages.reports', tab='ciclo-vida'))
 
 @bp.route('/groups')
 @web_app_required('helpdesk', perms=['helpdesk.inventory_groups.page.list'])

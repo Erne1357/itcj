@@ -54,11 +54,15 @@ def register_helpdesk_events(socketio):
         if not user:
             return False
         g.current_user = user
+        from .system import track_connect
+        track_connect(socketio, request.sid, user)
         emit("hello", {"msg": "WS /helpdesk conectado"})
 
     @socketio.on("disconnect", namespace=NAMESPACE)
     def on_disconnect(*args, **kwargs):
         try:
+            from .system import track_disconnect
+            track_disconnect(socketio, request.sid)
             db.session.remove()
         except Exception:
             pass

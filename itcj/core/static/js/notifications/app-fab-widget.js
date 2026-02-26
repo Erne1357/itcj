@@ -13,9 +13,11 @@
  */
 
 class AppNotificationFAB {
-    constructor(appName, apiBase = '/api/core/v1') {
+    constructor(appName, apiBase = '/api/core/v1', options = {}) {
         this.appName = appName;
         this.apiBase = apiBase;
+        this.color = options.color || '#198754';
+        this.colorDark = options.colorDark || '#146c43';
         this.socket = null;
         this.notifications = [];
         this.unreadCount = 0;
@@ -39,7 +41,7 @@ class AppNotificationFAB {
      */
     injectHTML() {
         const fabHTML = `
-            <div id="notifFab-${this.appName}" class="d-flex align-items-center justify-content-center" style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;background:linear-gradient(135deg,#198754 0%,#146c43 100%);border-radius:50%;box-shadow:0 4px 12px rgba(25,135,84,0.4);cursor:pointer;z-index:1000;">
+            <div id="notifFab-${this.appName}" class="d-flex align-items-center justify-content-center" style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;background:linear-gradient(135deg,${this.color} 0%,${this.colorDark} 100%);border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;z-index:1000;">
                 <i class="bi bi-bell-fill fs-4" style="color:white;"></i>
                 <span id="notifBadge-${this.appName}" class="badge rounded-pill text-bg-danger" style="position:absolute;top:-4px;right:-4px;min-width:22px;height:22px;font-size:11px;font-weight:700;" hidden>0</span>
             </div>
@@ -50,7 +52,7 @@ class AppNotificationFAB {
                 <div class="head" style="display:flex;align-items:center;padding:16px;border-bottom:1px solid #e9ecef;">
                     <div class="fw-semibold" style="flex:1;font-size:16px;">Notificaciones</div>
                     <div class="tabs" style="display:flex;gap:8px;margin-left:16px;">
-                        <div class="tab active" data-tab="recent" style="padding:6px 12px;font-size:13px;cursor:pointer;border-radius:6px;background:#198754;color:white;">Recientes</div>
+                        <div class="tab active" data-tab="recent" style="padding:6px 12px;font-size:13px;cursor:pointer;border-radius:6px;background:${this.color};color:white;">Recientes</div>
                         <div class="tab" data-tab="history" style="padding:6px 12px;font-size:13px;cursor:pointer;border-radius:6px;color:#6c757d;">Historial</div>
                     </div>
                     <button id="notifMarkAll-${this.appName}" class="btn bg-primary btn-outline-white btn-icon ms-2" type="button" style="background:#0d6efd;color:white;border:none;padding:6px 10px;border-radius:6px;">
@@ -184,6 +186,14 @@ class AppNotificationFAB {
                 }
             });
 
+            // Evento: notificación leída (sincronización de badges)
+            this.socket.on('notification:read', (data) => {
+                if (data.counts !== undefined) {
+                    const count = data.counts[this.appName] || 0;
+                    this.updateBadge(count);
+                }
+            });
+
             this.socket.on('connect_error', (error) => {
                 console.error(`[FAB-${this.appName}] WebSocket error:`, error);
             });
@@ -268,7 +278,7 @@ class AppNotificationFAB {
         if (panel) {
             panel.querySelectorAll('.tab').forEach(tab => {
                 if (tab.dataset.tab === tabType) {
-                    tab.style.background = '#198754';
+                    tab.style.background = this.color;
                     tab.style.color = 'white';
                     tab.classList.add('active');
                 } else {

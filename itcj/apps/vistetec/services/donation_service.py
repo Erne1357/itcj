@@ -104,6 +104,13 @@ def register_garment_donation(
     db.session.add(donation)
     db.session.commit()
 
+    # Notificar donación de prenda
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_garment_donation(donation)
+    except Exception:
+        pass
+
     return donation
 
 
@@ -148,6 +155,13 @@ def register_new_garment_donation(
 
     db.session.add(donation)
     db.session.commit()
+
+    # Notificar donación de prenda (nueva)
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_garment_donation(donation)
+    except Exception:
+        pass
 
     return donation
 
@@ -197,6 +211,13 @@ def register_pantry_donation(
 
     db.session.add(donation)
     db.session.commit()
+
+    # Notificar donación de despensa
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_pantry_donation(donation)
+    except Exception:
+        pass
 
     return donation
 

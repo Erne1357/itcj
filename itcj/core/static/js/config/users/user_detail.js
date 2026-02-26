@@ -760,7 +760,7 @@ class UserDetailManager {
                     'last_name_required': 'El apellido paterno es obligatorio',
                     'username_required': 'El nombre de usuario es obligatorio',
                     'username_already_exists': 'Ese nombre de usuario ya esta en uso',
-                    'invalid_control_number': 'El numero de control debe ser de 8 digitos',
+                    'invalid_control_number': 'El numero de control debe ser de 8 digitos, o 9-10 caracteres para posgrado/traslado (ej. M21111182)',
                     'control_number_already_exists': 'Ese numero de control ya esta registrado',
                     'duplicate_value': 'Ya existe un registro con ese valor'
                 };

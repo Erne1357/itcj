@@ -107,7 +107,7 @@ class NotificationService:
             # No re-lanzar: la notificación ya está en DB
 
     @staticmethod
-    def mark_read(notification_id: int, user_id: int) -> bool:
+    def mark_read(notification_id: int, user_id: int):
         """
         Marca una notificación como leída.
 
@@ -116,7 +116,7 @@ class NotificationService:
             user_id: ID del usuario (para verificar ownership)
 
         Returns:
-            True si se marcó correctamente, False si no existe o no pertenece al usuario
+            app_name (str) si se marcó correctamente, None si no existe o no pertenece al usuario
         """
         notification = db.session.query(Notification).filter(
             and_(
@@ -127,12 +127,12 @@ class NotificationService:
         ).first()
 
         if not notification:
-            return False
+            return None
 
         notification.is_read = True
         notification.read_at = datetime.now()
 
-        return True
+        return notification.app_name
 
     @staticmethod
     def mark_all_read(user_id: int, app_name: Optional[str] = None) -> int:
@@ -278,6 +278,33 @@ class NotificationService:
             'unread': unread_count,
             'has_more': has_more
         }
+
+    @staticmethod
+    def broadcast_read(user_id: int, app_name: Optional[str] = None):
+        """
+        Difunde evento de lectura vía WebSocket para sincronizar badges entre widgets.
+
+        Args:
+            user_id: ID del usuario
+            app_name: Nombre de la app cuya notificación se leyó (o None para mark-all)
+        """
+        try:
+            from itcj.core.extensions import socketio
+            from itcj.core.sockets.notifications import push_notification_read
+
+            if socketio:
+                counts = NotificationService.get_unread_counts_by_app(user_id)
+                total = sum(counts.values())
+                push_notification_read(socketio, user_id, {
+                    'app_name': app_name,
+                    'counts': counts,
+                    'total': total
+                })
+        except Exception as e:
+            current_app.logger.error(
+                f"Error broadcasting read event to user {user_id}: {e}",
+                exc_info=True
+            )
 
     @staticmethod
     def delete_notification(notification_id: int, user_id: int) -> bool:
