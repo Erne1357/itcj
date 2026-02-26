@@ -26,12 +26,15 @@ def register_request_events(socketio):
         if not user:
             return False
         g.current_user = user
+        from .system import track_connect
+        track_connect(socketio, request.sid, user)
         emit("hello", {"msg": "WS /requests conectado"})
 
     @socketio.on("disconnect", namespace=NAMESPACE)
     def on_disconnect(*args, **kwargs):
         try:
-            # ... tu limpieza, por ejemplo:
+            from .system import track_disconnect
+            track_disconnect(socketio, request.sid)
             db.session.remove()
         except Exception:
             pass

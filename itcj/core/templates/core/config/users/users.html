@@ -224,8 +224,9 @@
                     </div>
                     <div id="studentFields">
                         <div class="mb-3">
-                            <label for="controlNumber" class="form-label">Numero de Control (8 digitos) <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="controlNumber" maxlength="8" required>
+                            <label for="controlNumber" class="form-label">Numero de Control <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="controlNumber" maxlength="10" pattern="(\d{8}|[A-Za-z]\d{7,9})" required>
+                            <div class="form-text">8 digitos normales o 9-10 caracteres para posgrado/traslado (ej. M21111182)</div>
                         </div>
                     </div>
                     <div id="staffFields" style="display: none;">

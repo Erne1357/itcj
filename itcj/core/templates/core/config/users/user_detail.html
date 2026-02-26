@@ -349,8 +349,8 @@
                         <div class="col-12">
                             <label for="editControlNumber" class="form-label">Numero de Control</label>
                             <input type="text" class="form-control" id="editControlNumber"
-                                   value="{{ user.control_number }}" maxlength="8" pattern="\d{8}">
-                            <div class="form-text">8 digitos numericos</div>
+                                   value="{{ user.control_number }}" maxlength="10" pattern="(\d{8}|[A-Za-z]\d{7,9})">
+                            <div class="form-text">8 digitos o 9-10 caracteres para posgrado/traslado (ej. M21111182)</div>
                         </div>
                         {% else %}
                         <div class="col-12">

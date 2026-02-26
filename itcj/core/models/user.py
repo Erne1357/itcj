@@ -9,7 +9,7 @@ class User(db.Model):
     role_id = db.Column(db.Integer, db.ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="RESTRICT"), nullable=True)
 
     username = db.Column(db.Text, unique=True)  # nullable for students
-    control_number = db.Column(db.CHAR(8), unique=True)  # nullable for staff
+    control_number = db.Column(db.String(10), unique=True)  # nullable for staff — 8 dígitos normales, 9-10 para posgrado/traslado (ej. M21111182)
     password_hash = db.Column(db.Text)
     
     # Nombre dividido en partes (nuevo estándar)

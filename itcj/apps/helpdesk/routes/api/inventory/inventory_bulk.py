@@ -99,17 +99,20 @@ def bulk_create_items():
         
         if len(data['items']) == 0:
             return jsonify({'success': False, 'error': 'Debe incluir al menos un equipo'}), 400
-        
-        # Validar números de serie únicos
-        serial_numbers = [item['serial_number'] for item in data['items']]
-        validation = InventoryBulkService.validate_serial_numbers(serial_numbers)
-        
-        if not validation['valid']:
-            return jsonify({
-                'success': False,
-                'error': 'Números de serie duplicados',
-                'validation': validation
-            }), 400
+
+        # Validar números de serie únicos (solo si hay seriales no vacíos)
+        serial_numbers = [item.get('serial_number') for item in data['items']]
+        non_empty_serials = [sn for sn in serial_numbers if sn]
+
+        if non_empty_serials:
+            validation = InventoryBulkService.validate_serial_numbers(serial_numbers)
+
+            if not validation['valid']:
+                return jsonify({
+                    'success': False,
+                    'error': 'Números de serie duplicados',
+                    'validation': validation
+                }), 400
         
         # Crear equipos
         created_items = InventoryBulkService.bulk_create_items(data, user_id)

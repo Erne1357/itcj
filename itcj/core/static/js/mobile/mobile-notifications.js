@@ -16,6 +16,7 @@ class MobileNotifications {
     init() {
         this.loadNotifications();
         this.bindEvents();
+        this.connectWebSocket();
     }
 
     bindEvents() {
@@ -23,6 +24,47 @@ class MobileNotifications {
         if (markAllBtn) {
             markAllBtn.addEventListener('click', () => this.markAllAsRead());
         }
+    }
+
+    /**
+     * Conecta al WebSocket para recibir notificaciones en tiempo real
+     */
+    connectWebSocket() {
+        if (!window.io) return;
+
+        const socket = window.__notifySocket || io('/notify', {
+            withCredentials: true,
+            reconnection: true,
+            timeout: 20000,
+            transports: ['websocket', 'polling']
+        });
+        window.__notifySocket = socket;
+
+        // Nueva notificación: agregar al inicio de la lista
+        socket.on('notify', (notification) => {
+            const listEl = document.getElementById('notification-list');
+            const emptyEl = document.getElementById('notification-empty');
+            if (listEl) {
+                emptyEl.style.display = 'none';
+                listEl.style.display = 'block';
+                listEl.insertAdjacentHTML('afterbegin', this.renderNotification(notification));
+                // Bind click en el nuevo item
+                const newItem = listEl.querySelector('.mobile-notification-item:first-child');
+                if (newItem) {
+                    newItem.addEventListener('click', () => this.handleNotificationClick(newItem));
+                }
+            }
+            if (window.mobileApp) {
+                window.mobileApp.loadNotificationCounts();
+            }
+        });
+
+        // Notificación leída desde otro widget: actualizar badges
+        socket.on('notification:read', () => {
+            if (window.mobileApp) {
+                window.mobileApp.loadNotificationCounts();
+            }
+        });
     }
 
     /**
@@ -190,6 +232,7 @@ class MobileNotifications {
         const icons = {
             'agendatec': 'bi-calendar-check',
             'helpdesk': 'bi-ticket-detailed',
+            'vistetec': 'bi-bag-heart',
             'itcj': 'bi-bell',
         };
         return icons[appKey] || 'bi-bell';

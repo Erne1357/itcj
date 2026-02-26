@@ -11,7 +11,7 @@
     const filterStatus = document.getElementById('filterStatus');
 
     const statusLabels = {
-        scheduled: 'Programada',
+        scheduled: 'Apartada',
         attended: 'En proceso',
         completed: 'Completada',
         cancelled: 'Cancelada',

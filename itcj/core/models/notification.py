@@ -92,6 +92,7 @@ class Notification(db.Model):
             'agendatec': 'bi-calendar-check',
             'helpdesk': 'bi-headset',
             'inventory': 'bi-box-seam',
+            'vistetec': 'bi-bag-heart',
             'core': 'bi-gear',
         }
         return icons.get(self.app_name, 'bi-bell')
@@ -102,6 +103,7 @@ class Notification(db.Model):
             'agendatec': 'primary',
             'helpdesk': 'success',
             'inventory': 'warning',
+            'vistetec': 'danger',
             'core': 'secondary',
         }
         return colors.get(self.app_name, 'info')

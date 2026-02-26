@@ -157,6 +157,13 @@ def create_appointment(
     db.session.add(appointment)
     db.session.commit()
 
+    # Notificar a voluntarios del slot
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_appointment_scheduled(appointment)
+    except Exception:
+        pass
+
     return appointment
 
 
@@ -192,6 +199,13 @@ def cancel_appointment(
 
     db.session.commit()
 
+    # Notificar cancelación
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_appointment_cancelled(appointment, cancelled_by_volunteer=is_volunteer)
+    except Exception:
+        pass
+
     return appointment
 
 
@@ -220,6 +234,13 @@ def mark_attendance(
         appointment.garment.status = 'available'
 
     db.session.commit()
+
+    # Notificar al estudiante
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_attendance_marked(appointment, attended)
+    except Exception:
+        pass
 
     return appointment
 
@@ -260,6 +281,13 @@ def complete_appointment(
         appointment.garment.status = 'available'
 
     db.session.commit()
+
+    # Notificar al estudiante el resultado
+    try:
+        from itcj.apps.vistetec.services.notification_helper import VisteTecNotificationHelper
+        VisteTecNotificationHelper.notify_appointment_completed(appointment)
+    except Exception:
+        pass
 
     return appointment
 

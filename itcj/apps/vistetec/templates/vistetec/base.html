@@ -160,17 +160,34 @@
     <!-- iframe bridge for logout detection -->
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
 
+    <!-- WebSocket - Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ sv('core', 'js/socket-base.js') }}"></script>
+
     <!-- VisteTec utilities (must load before page-specific scripts) -->
     <script src="{{ url_for('static', filename='vistetec/js/shared/vistetec-utils.js') }}?v={{ sv('vistetec', 'js/shared/vistetec-utils.js') }}"></script>
     <script src="{{ url_for('static', filename='vistetec/js/shared/base.js') }}?v={{ sv('vistetec', 'js/shared/base.js') }}"></script>
 
+    <!-- Notification System (WebSocket-based) -->
+    <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ sv('core', 'js/notifications/app-fab-widget.js') }}"></script>
+
     <!-- Mobile App Shell (sidebar & back button) -->
     <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
-    
+
     <script>
         // Sidebar logout handler
         document.getElementById('sidebarLogout')?.addEventListener('click', function() {
             document.getElementById('btnLogout')?.click();
+        });
+
+        // Initialize VisteTec Notification FAB Widget
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.AppNotificationFAB) {
+                new AppNotificationFAB('vistetec', '/api/core/v1', {
+                    color: '#8B1538',
+                    colorDark: '#5C0E24'
+                });
+            }
         });
     </script>
 

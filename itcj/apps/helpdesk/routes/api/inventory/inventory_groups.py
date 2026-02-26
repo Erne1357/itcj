@@ -2,10 +2,11 @@
 API para gestión de grupos de inventario (salones, laboratorios, etc.)
 """
 from flask import Blueprint, request, jsonify, g
-from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 from itcj.apps.helpdesk.models import InventoryGroup, InventoryCategory
+from itcj.apps.helpdesk.utils.inventory_access import has_full_inventory_access
 from itcj.core.models.department import Department
 import logging
 
@@ -21,10 +22,9 @@ def get_all_groups():
     try:
         user_id = int(g.current_user['sub'])
         user_roles = user_roles_in_app(user_id, 'helpdesk')
-        secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-        
-        # Solo admin, secretaría o técnicos pueden ver todos los grupos sin restricción
-        if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+
+        # Solo usuarios con acceso completo pueden ver todos los grupos
+        if not has_full_inventory_access(user_id, user_roles):
             return jsonify({
                 'success': False,
                 'error': 'No tiene permisos para ver todos los grupos'
@@ -60,17 +60,15 @@ def get_groups_by_department(department_id):
     try:
         user_id = int(g.current_user['sub'])
         user_roles = user_roles_in_app(user_id, 'helpdesk')
-        secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-        
-        # Validar acceso: solo puede ver su departamento a menos que sea admin, secretaría o técnico
-        if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
-            # Si no es admin ni técnico, validar que sea su departamento
+
+        # Validar acceso: solo puede ver su departamento a menos que tenga acceso completo
+        if not has_full_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
-            
+
             if not user_dept or user_dept.id != department_id:
                 return jsonify({
-                    'success': False, 
+                    'success': False,
                     'error': 'No tiene permisos para ver grupos de este departamento'
                 }), 403
         

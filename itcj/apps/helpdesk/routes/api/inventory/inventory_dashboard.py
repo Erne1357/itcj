@@ -2,10 +2,11 @@
 API para widgets del dashboard de inventario
 """
 from flask import Blueprint, request, jsonify, g
-from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 from itcj.apps.helpdesk.models import InventoryItem
+from itcj.apps.helpdesk.utils.inventory_access import has_full_inventory_access, has_dept_inventory_access
 from itcj.core.extensions import db
 from sqlalchemy import func
 from datetime import date, timedelta
@@ -24,12 +25,11 @@ def get_quick_stats():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
-    # Si es admin o secretaría: stats globales
-    if 'admin' in user_roles or user_id in secretary_comp_center:
+
+    # Acceso completo: stats globales
+    if has_full_inventory_access(user_id, user_roles):
         stats = InventoryStatsService.get_overview_stats()
-        
+
         return jsonify({
             'success': True,
             'data': {
@@ -42,9 +42,9 @@ def get_quick_stats():
                 'needs_maintenance': stats['needs_maintenance']
             }
         }), 200
-    
-    # Jefe de departamento: stats de su departamento
-    elif 'department_head' in user_roles:
+
+    # Acceso departamental: stats de su departamento
+    elif has_dept_inventory_access(user_id, user_roles):
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         
@@ -227,13 +227,12 @@ def get_recent_activity():
     
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     department_id = None
-    
-    # Si es jefe de depto, filtrar por su departamento
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
-        if 'department_head' in user_roles:
+
+    # Si no tiene acceso completo, filtrar por su departamento
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
@@ -283,13 +282,12 @@ def get_category_chart():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
-    # Admin/Secretaría: todas las categorías
-    if 'admin' in user_roles or user_id in secretary_comp_center:
+
+    # Acceso completo: todas las categorías
+    if has_full_inventory_access(user_id, user_roles):
         stats = InventoryStatsService.get_by_category()
     else:
-        # Jefe de depto: solo su departamento
+        # Acceso limitado: solo su departamento
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         
@@ -351,12 +349,11 @@ def get_status_chart():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     query = InventoryItem.query.filter(InventoryItem.is_active == True)
-    
-    # Filtrar por departamento si no es admin ni técnico
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+
+    # Filtrar por departamento si no tiene acceso completo
+    if not has_full_inventory_access(user_id, user_roles):
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if user_dept:
