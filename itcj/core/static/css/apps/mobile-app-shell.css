@@ -301,13 +301,10 @@ body.sidebar-open {
     .mobile-back-to-dashboard {
         display: none !important;
     }
-    
-    .app-sidebar,
-    .app-sidebar-overlay {
-        display: none !important;
-    }
-    
-    .sidebar-trigger {
+
+    /* Topbar mode: hide sidebar elements on desktop since the top navbar handles navigation */
+    body.nav-topbar-mode .app-sidebar,
+    body.nav-topbar-mode .app-sidebar-overlay {
         display: none !important;
     }
 }

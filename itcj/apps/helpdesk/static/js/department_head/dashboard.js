@@ -2,9 +2,7 @@
 
 /**
  * Department Head Dashboard - Sistema de Tickets ITCJ
- * Gestión de tickets y         container.innerHTML = tickets.map(ticket => `
-        <div class="ticket-dept-card border-bottom p-3" 
-             onclick="HelpdeskUtils.goToTicketDetailNewTab(${ticket.id}, 'department')"arios del departamento
+ * Gestión de tickets y usuarios del departamento
  */
 
 // ==================== GLOBAL STATE ====================
@@ -28,9 +26,11 @@ async function initializeDashboard() {
         await Promise.all([
             loadDepartmentStats(),
             loadDepartmentTickets(),
-            loadDepartmentUsers(),
-            loadRecentActivity()
+            loadDepartmentUsers()
         ]);
+
+        // loadRecentActivity depends on departmentTickets being populated
+        await loadRecentActivity();
         
         // Load stats tab lazy
         document.getElementById('stats-tab').addEventListener('shown.bs.tab', loadStatistics);
@@ -53,7 +53,8 @@ window.refreshDashboard = refreshDashboard;
 async function loadDepartmentStats() {
     try {
         // Use dedicated stats endpoint instead of loading all tickets
-        const stats = await HelpdeskUtils.api.getDepartmentStats(DEPARTMENT_ID);
+        const response = await HelpdeskUtils.api.getDepartmentStats(DEPARTMENT_ID);
+        const stats = response.data;
         
         // Update UI
         document.getElementById('activeTicketsCount').textContent = stats.active_tickets || 0;
@@ -126,7 +127,7 @@ function renderTickets(tickets) {
     
     container.innerHTML = tickets.map(ticket => `
         <div class="ticket-dept-card border-bottom p-3" 
-             onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'department')"
+             onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'department')">
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="d-flex align-items-center gap-2 mb-2">
@@ -366,74 +367,7 @@ function openCreateUserModal() {
 }
 window.openCreateUserModal = openCreateUserModal;
 
-// Función deshabilitada - en desarrollo
-async function submitUser_DISABLED() {
-    const name = document.getElementById('userName').value.trim();
-    const username = document.getElementById('userUsername').value.trim();
-    const email = document.getElementById('userEmail').value.trim();
-    const nip = document.getElementById('userNIP').value.trim();
-    
-    // Validation
-    if (!name || name.length < 3) {
-        HelpdeskUtils.showToast('Ingresa un nombre válido', 'warning');
-        return;
-    }
-    
-    if (!username || username.length < 3) {
-        HelpdeskUtils.showToast('Ingresa un username válido', 'warning');
-        return;
-    }
-    
-    if (!/^[a-z0-9._-]+$/.test(username)) {
-        HelpdeskUtils.showToast('El username solo puede contener letras minúsculas, números, puntos, guiones', 'warning');
-        return;
-    }
-    
-    if (!email || !email.includes('@')) {
-        HelpdeskUtils.showToast('Ingresa un email válido', 'warning');
-        return;
-    }
-    
-    if (!/^\d{4}$/.test(nip)) {
-        HelpdeskUtils.showToast('El NIP debe ser de 4 dígitos', 'warning');
-        return;
-    }
-    
-    const btn = document.getElementById('btnSubmitUser');
-    const originalText = btn.innerHTML;
-    
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Creando...';
-    
-    try {
-        await HelpdeskUtils.api.request(`/department/${DEPARTMENT_ID}/users`, {
-            method: 'POST',
-            body: JSON.stringify({
-                name,
-                username,
-                email,
-                nip,
-                department_id: DEPARTMENT_ID
-            })
-        });
-        
-        HelpdeskUtils.showToast('Usuario creado exitosamente', 'success');
-        
-        const modal = bootstrap.Modal.getInstance(document.getElementById('createUserModal'));
-        modal.hide();
-        
-        // Refresh
-        await loadDepartmentUsers();
-        
-    } catch (error) {
-        console.error('Error creating user:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        HelpdeskUtils.showToast(`Error al crear usuario: ${errorMessage}`, 'error');
-        
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-    }
-}
+
 
 // ==================== STATISTICS ====================
 async function loadStatistics() {

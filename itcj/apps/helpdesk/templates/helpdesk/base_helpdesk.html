@@ -26,12 +26,15 @@
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="bg-light">
+{% set nav_count = helpdesk_nav_items|length if helpdesk_nav_items else 0 %}
+{% set use_topbar = nav_count < 7 %}
+
+<body class="bg-light{% if use_topbar %} nav-topbar-mode{% endif %}">
 
     <!-- Header con Navegación -->
     <header class="sitec-header-nav sticky-top shadow-sm mb-2 mb-md-4">
         <div class="container-fluid px-2 px-md-3">
-            <nav class="navbar navbar-expand-lg navbar-dark py-1 py-md-2">
+            <nav class="navbar {% if use_topbar %}navbar-expand-lg {% endif %}navbar-dark py-1 py-md-2">
                 <div class="container-fluid px-0">
                     <!-- Botón de regreso al dashboard (solo visible en iframe móvil) -->
                     <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
@@ -49,86 +52,70 @@
                         </div>
                     </a>
 
-                    <!-- Header Actions (visible on mobile too) -->
+                    <!-- Header Actions (visible on all sizes) -->
                     <div class="d-flex align-items-center gap-1 gap-md-2">
                         {% block header_back %} {% endblock %}
                         {% block header_actions %} {% endblock %}
                     </div>
 
-                    <!-- Hamburger button que abre sidebar en móvil -->
-                    <button class="navbar-toggler border-0 ms-2 sidebar-trigger d-lg-none" type="button" id="sidebarTrigger">
+                    {% if use_topbar %}
+                    <!-- Topbar mode: Standard Bootstrap toggler (mobile only) -->
+                    <button class="navbar-toggler border-0 ms-2" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#navbarContent"
+                            aria-controls="navbarContent" aria-expanded="false">
                         <span class="navbar-toggler-icon"></span>
                     </button>
-                    
-                    <!-- Navegación Desktop -->
-                    <div class="collapse navbar-collapse d-none d-lg-flex" id="helpdeskNav">
-                        <ul class="navbar-nav ms-auto align-items-lg-center">
-                            
+                    {% else %}
+                    <!-- Sidebar mode: Hamburger que abre sidebar -->
+                    <button class="navbar-toggler border-0 ms-2 sidebar-trigger" type="button" id="sidebarTrigger">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    {% endif %}
+
+                    {% if use_topbar %}
+                    <!-- Desktop horizontal nav (collapses vertically on mobile) -->
+                    <div class="collapse navbar-collapse" id="navbarContent">
+                        <ul class="navbar-nav ms-auto">
                             {% if helpdesk_nav_items %}
                                 {% for item in helpdesk_nav_items %}
                                     {% if item.dropdown %}
-                                        <!-- Dropdown Menu -->
-                                        <li class="nav-item dropdown{% if item.mobile_only %} d-lg-none{% endif %}">
-                                            <a class="nav-link dropdown-toggle" href="#" role="button" 
-                                               data-bs-toggle="dropdown" aria-expanded="false">
-                                                <i class="fas {{ item.icon }} me-1"></i>
-                                                {{ item.label }}
-                                            </a>
-                                            <ul class="dropdown-menu dropdown-menu-end">
-                                                {% for sub_item in item.dropdown %}
-                                                    <li>
-                                                        <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" 
-                                                           href="{{sub_item.url}}">
-                                                            <i class="fas {{ sub_item.icon }} me-2"></i>
-                                                            {{ sub_item.label }}
-                                                        </a>
-                                                    </li>
-                                                {% endfor %}
-                                            </ul>
-                                        </li>
+                                    <li class="nav-item dropdown">
+                                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                            <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
+                                        </a>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            {% for sub_item in item.dropdown %}
+                                            <li>
+                                                <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" href="{{ sub_item.url }}">
+                                                    <i class="fas {{ sub_item.icon }} me-1"></i>{{ sub_item.label }}
+                                                </a>
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </li>
                                     {% else %}
-                                        <!-- Regular Link -->
-                                        <li class="nav-item{% if item.mobile_only %} d-lg-none{% endif %}">
-                                            <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" 
-                                               href="{{ item.url }}">
-                                                <i class="fas {{ item.icon }} me-1"></i>
-                                                {{ item.label }}
-                                            </a>
-                                        </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" href="{{ item.url }}">
+                                            <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
+                                        </a>
+                                    </li>
                                     {% endif %}
                                 {% endfor %}
                             {% endif %}
-
-                            <!-- User Dropdown -->
-                            <li class="nav-item dropdown ms-lg-3">
-                                <a class="nav-link dropdown-toggle" href="#" role="button" 
-                                   data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="fas fa-user-circle me-1"></i>
-                                    <span class="d-lg-none">{{ current_user.name if current_user else 'Usuario' }}</span>
+                            <li class="nav-item">
+                                <a class="nav-link" role="button" style="cursor: pointer;" onclick="performLogout()">
+                                    <i class="fas fa-sign-out-alt me-1"></i>Salir
                                 </a>
-                                <ul class="dropdown-menu dropdown-menu-end">
-                                    <li>
-                                        <span class="dropdown-item-text">
-                                            <small class="text-muted">Sesión iniciada como:</small><br>
-                                            <strong>{{ current_user.name if current_user else 'Usuario' }}</strong>
-                                        </span>
-                                    </li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li>
-                                        <button class="dropdown-item text-danger" id="btnLogout">
-                                            <i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión
-                                        </button>
-                                    </li>
-                                </ul>
                             </li>
                         </ul>
                     </div>
+                    {% endif %}
                 </div>
             </nav>
         </div>
     </header>
 
-    <!-- Sidebar móvil -->
+    <!-- Sidebar de navegaci?n -->
     <div class="app-sidebar-overlay" id="appSidebarOverlay"></div>
     <aside class="app-sidebar" id="appSidebar">
         <div class="app-sidebar-header">
@@ -227,8 +214,8 @@
     <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
 
     <script>
-        // Logout handler
-        document.getElementById('btnLogout')?.addEventListener('click', async () => {
+        // Logout handler function
+        async function performLogout() {
             try {
                 const res = await fetch('/api/core/v1/auth/logout', { 
                     method: 'POST',
@@ -255,12 +242,10 @@
             } catch (error) {
                 console.error('Error logging out:', error);
             }
-        });
+        }
 
         // Sidebar logout handler
-        document.getElementById('sidebarLogout')?.addEventListener('click', function() {
-            document.getElementById('btnLogout')?.click();
-        });
+        document.getElementById('sidebarLogout')?.addEventListener('click', performLogout);
 
         // Initialize Helpdesk Notification FAB Widget
         document.addEventListener('DOMContentLoaded', () => {

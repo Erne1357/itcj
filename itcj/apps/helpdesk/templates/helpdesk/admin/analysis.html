@@ -1,0 +1,323 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Análisis de Datos{% endblock %}
+{% block header_title %}Análisis{% endblock %}
+{% block header_subtitle %}Centro de Cómputo{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/admin/stats.css') }}?v={{ sv('helpdesk', 'css/admin/stats.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+  <!-- Encabezado -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold"><i class="fas fa-brain me-2 text-primary"></i>Análisis de Datos</h4>
+      <small class="text-muted">Outliers, clustering, distribuciones y tendencias</small>
+    </div>
+    <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" class="btn btn-outline-success btn-sm">
+      <i class="fas fa-chart-pie me-1"></i>Ver Estadísticas
+    </a>
+  </div>
+
+  <!-- ======================================================
+       BARRA DE FILTROS (igual que stats)
+       ====================================================== -->
+  <div class="stats-filter-bar shadow-sm mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-3">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Período</label>
+        <select id="filterPeriod" class="form-select form-select-sm">
+          <option value="">— Todo el historial —</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Rango rápido</label>
+        <div class="d-flex flex-wrap gap-1">
+          <button class="btn-preset" data-preset="today">Hoy</button>
+          <button class="btn-preset" data-preset="week">Semana</button>
+          <button class="btn-preset" data-preset="month">Mes</button>
+          <button class="btn-preset" data-preset="year">Año</button>
+          <button class="btn-preset" data-preset="prev_year">Año ant.</button>
+          <button class="btn-preset active" data-preset="">Todo</button>
+        </div>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Desde</label>
+        <input type="date" id="filterStart" class="form-control form-control-sm">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Hasta</label>
+        <input type="date" id="filterEnd" class="form-control form-control-sm">
+      </div>
+      <div class="col-12 col-md-1">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Área</label>
+        <select id="filterArea" class="form-select form-select-sm">
+          <option value="">Ambas</option>
+          <option value="DESARROLLO">Desarrollo</option>
+          <option value="SOPORTE">Soporte</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================
+       TABS
+       ====================================================== -->
+  <ul class="nav nav-tabs mb-3" id="analysisTabs" role="tablist">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-outliers">
+      <i class="fas fa-exclamation-triangle me-1 text-danger"></i><span class="d-none d-sm-inline">Outliers</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-clustering">
+      <i class="fas fa-project-diagram me-1 text-primary"></i><span class="d-none d-sm-inline">Clustering K-means</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dist">
+      <i class="fas fa-chart-bar me-1 text-success"></i><span class="d-none d-sm-inline">Distribuciones</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-trends">
+      <i class="fas fa-chart-line me-1 text-info"></i><span class="d-none d-sm-inline">Tendencias</span></a></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ====================================================
+         TAB 1: OUTLIERS
+         ==================================================== -->
+    <div class="tab-pane fade show active" id="tab-outliers">
+
+      <div class="row g-3 mb-3">
+        <!-- Card explicativa -->
+        <div class="col-12">
+          <div class="alert alert-info alert-sm d-flex align-items-start gap-2 py-2 mb-0">
+            <i class="fas fa-info-circle mt-1"></i>
+            <div class="small"><strong>Detección por IQR:</strong> Se identifican tickets con valores atípicos usando el método de rango intercuartílico (Q3 + 1.5×IQR). Los outliers representan casos que se desvían significativamente del comportamiento normal.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cards de resumen de outliers -->
+      <div class="row g-3 mb-3">
+        <div class="col-6 col-md-4"><div class="card shadow-sm p-3 border-danger border-opacity-25">
+          <div class="d-flex align-items-center gap-2">
+            <i class="fas fa-clock text-danger fa-lg"></i>
+            <div>
+              <div class="stats-kpi-value text-danger" id="outResCount">—</div>
+              <div class="stats-kpi-label">Outliers tiempo resolución</div>
+            </div>
+          </div>
+          <div class="text-muted small mt-1" id="outResThreshold"></div>
+        </div></div>
+        <div class="col-6 col-md-4"><div class="card shadow-sm p-3 border-warning border-opacity-25">
+          <div class="d-flex align-items-center gap-2">
+            <i class="fas fa-star-half-alt text-warning fa-lg"></i>
+            <div>
+              <div class="stats-kpi-value text-warning" id="outRatCount">—</div>
+              <div class="stats-kpi-label">Outliers calificación baja</div>
+            </div>
+          </div>
+          <div class="text-muted small mt-1" id="outRatThreshold"></div>
+        </div></div>
+        <div class="col-6 col-md-4"><div class="card shadow-sm p-3 border-info border-opacity-25">
+          <div class="d-flex align-items-center gap-2">
+            <i class="fas fa-tools text-info fa-lg"></i>
+            <div>
+              <div class="stats-kpi-value text-info" id="outInvCount">—</div>
+              <div class="stats-kpi-label">Outliers tiempo invertido</div>
+            </div>
+          </div>
+          <div class="text-muted small mt-1" id="outInvThreshold"></div>
+        </div></div>
+      </div>
+
+      <!-- Selector de tipo de outlier -->
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <button class="btn btn-sm btn-danger" id="outlierBtnRes" onclick="window.showOutlierType('resolution')">
+          <i class="fas fa-clock me-1"></i>Tiempo de resolución
+        </button>
+        <button class="btn btn-sm btn-outline-warning" id="outlierBtnRat" onclick="window.showOutlierType('rating')">
+          <i class="fas fa-star me-1"></i>Calificación baja
+        </button>
+        <button class="btn btn-sm btn-outline-info" id="outlierBtnInv" onclick="window.showOutlierType('time_invested')">
+          <i class="fas fa-tools me-1"></i>Tiempo invertido
+        </button>
+      </div>
+
+      <div class="card shadow-sm p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="stats-section-title mb-0" id="outlierTableTitle">Tickets con tiempo de resolución atípico</div>
+          <span class="badge bg-danger" id="outlierCountBadge">0</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm stats-table align-middle" id="outlierTable">
+            <thead><tr>
+              <th>Ticket</th>
+              <th class="d-none d-sm-table-cell">Título</th>
+              <th class="text-center">Prioridad</th>
+              <th class="text-center">Área</th>
+              <th class="text-center" id="outlierMetricHeader">Tiempo Res.</th>
+              <th class="text-center d-none d-md-table-cell">Calificación</th>
+              <th class="text-center d-none d-lg-table-cell">Creado</th>
+            </tr></thead>
+            <tbody id="outlierTableBody">
+              <tr><td colspan="7" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Cargando outliers...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-outliers -->
+
+    <!-- ====================================================
+         TAB 2: CLUSTERING K-MEANS
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-clustering">
+
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          <div class="alert alert-primary alert-sm d-flex align-items-start gap-2 py-2 mb-0">
+            <i class="fas fa-info-circle mt-1"></i>
+            <div class="small"><strong>Clustering K-means:</strong> Agrupa automáticamente los tickets resueltos y calificados según dos dimensiones: tiempo de resolución y calificación de atención. Ayuda a identificar patrones de desempeño.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <div class="d-flex align-items-center gap-2">
+          <label class="fw-semibold small">Número de clústeres (k):</label>
+          <select id="kSelect" class="form-select form-select-sm" style="width:auto">
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" id="runKmeans">
+          <i class="fas fa-play me-1"></i>Ejecutar clustering
+        </button>
+        <div id="kmeansStatus" class="text-muted small"></div>
+      </div>
+
+      <!-- Tarjetas de clústeres -->
+      <div class="row g-3 mb-3" id="clusterCards">
+        <div class="col-12 text-center text-muted py-4">
+          <i class="fas fa-project-diagram fa-2x mb-2 d-block opacity-25"></i>
+          Ejecuta el clustering para ver los resultados
+        </div>
+      </div>
+
+      <!-- Scatter chart -->
+      <div class="card shadow-sm p-3 mb-3">
+        <div class="stats-section-title">Mapa de dispersión (Tiempo vs Calificación)</div>
+        <div class="chart-container-lg" id="scatterContainer">
+          <div id="scatterChart"></div>
+        </div>
+      </div>
+
+      <!-- Tabla detalle por clúster -->
+      <div class="card shadow-sm p-3" id="clusterDetailCard" style="display:none">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="stats-section-title mb-0">Tickets del clúster seleccionado</div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('clusterDetailCard').style.display='none'">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div id="clusterDetailTitle" class="mb-2 fw-semibold small text-muted"></div>
+        <div class="table-responsive">
+          <table class="table table-sm stats-table">
+            <thead><tr><th>Ticket</th><th class="d-none d-sm-table-cell">Título</th><th>Prioridad</th><th class="text-center">Tiempo Res. (h)</th><th class="text-center">Calificación</th></tr></thead>
+            <tbody id="clusterDetailBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-clustering -->
+
+    <!-- ====================================================
+         TAB 3: DISTRIBUCIONES
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-dist">
+
+      <div class="row g-3 mb-3">
+        <!-- Tiempo resolución histograma -->
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Distribución tiempo de resolución</div>
+            <div class="chart-container-md"><div id="chartDistResolution"></div></div>
+          </div>
+        </div>
+        <!-- Tiempo invertido histograma -->
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Distribución tiempo invertido (técnico)</div>
+            <div class="chart-container-md"><div id="chartDistInvested"></div></div>
+          </div>
+        </div>
+        <!-- Por día de semana -->
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Tickets creados por día de semana</div>
+            <div class="chart-container-sm"><canvas id="chartByWeekday"></canvas></div>
+          </div>
+        </div>
+        <!-- Por hora del día -->
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Tickets creados por hora del día</div>
+            <div class="chart-container-sm"><canvas id="chartByHour"></canvas></div>
+          </div>
+        </div>
+        <!-- Por categoría -->
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Top categorías</div>
+            <div class="chart-container-sm"><canvas id="chartByCategory"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-dist -->
+
+    <!-- ====================================================
+         TAB 4: TENDENCIAS
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-trends">
+
+      <div class="row g-3 mb-3">
+        <!-- Tendencia 24 meses -->
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Tendencia mensual (24 meses) — Creados vs Resueltos</div>
+            <div class="chart-container-lg"><div id="chartTrend24"></div></div>
+          </div>
+        </div>
+        <!-- YoY -->
+        <div class="col-12 col-lg-7">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Comparativo año actual vs año anterior</div>
+            <div class="chart-container-md"><canvas id="chartYoY"></canvas></div>
+          </div>
+        </div>
+        <!-- SLA trend -->
+        <div class="col-12 col-lg-5">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Tendencia cumplimiento SLA (%)</div>
+            <div class="chart-container-md"><canvas id="chartSLATrend"></canvas></div>
+          </div>
+        </div>
+        <!-- Heatmap semana x hora -->
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Mapa de calor — Actividad por día y hora (últimos 90 días)</div>
+            <div style="height:260px"><div id="chartHeatmap"></div></div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-trends -->
+
+  </div><!-- /tab-content -->
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js para gráficas básicas -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- ApexCharts para scatter, heatmap, sparklines -->
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/admin/analysis.js') }}?v={{ sv('helpdesk', 'js/admin/analysis.js') }}"></script>
+{% endblock %}

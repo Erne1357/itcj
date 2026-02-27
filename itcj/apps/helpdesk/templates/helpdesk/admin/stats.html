@@ -1,0 +1,461 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Estadísticas{% endblock %}
+{% block header_title %}Estadísticas{% endblock %}
+{% block header_subtitle %}Centro de Cómputo{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/admin/stats.css') }}?v={{ sv('helpdesk', 'css/admin/stats.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+  <!-- Encabezado -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold"><i class="fas fa-chart-pie me-2 text-success"></i>Estadísticas del Sistema</h4>
+      <small class="text-muted">Métricas globales, por departamento y por técnico</small>
+    </div>
+    <a href="{{ url_for('helpdesk_pages.admin_pages.analysis') }}" class="btn btn-outline-primary btn-sm">
+      <i class="fas fa-brain me-1"></i>Análisis Avanzado
+    </a>
+  </div>
+
+  <!-- ======================================================
+       BARRA DE FILTROS
+       ====================================================== -->
+  <div class="stats-filter-bar shadow-sm mb-3">
+    <div class="row g-2 align-items-end">
+      <!-- Período académico -->
+      <div class="col-12 col-md-3">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Período</label>
+        <select id="filterPeriod" class="form-select form-select-sm">
+          <option value="">— Todo el historial —</option>
+        </select>
+      </div>
+
+      <!-- Presets rápidos -->
+      <div class="col-12 col-md-4">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Rango rápido</label>
+        <div class="d-flex flex-wrap gap-1">
+          <button class="btn-preset" data-preset="today">Hoy</button>
+          <button class="btn-preset" data-preset="week">Semana</button>
+          <button class="btn-preset" data-preset="month">Mes</button>
+          <button class="btn-preset" data-preset="year">Año</button>
+          <button class="btn-preset" data-preset="prev_year">Año ant.</button>
+          <button class="btn-preset active" data-preset="">Todo</button>
+        </div>
+      </div>
+
+      <!-- Rango personalizado -->
+      <div class="col-6 col-md-2">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Desde</label>
+        <input type="date" id="filterStart" class="form-control form-control-sm">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Hasta</label>
+        <input type="date" id="filterEnd" class="form-control form-control-sm">
+      </div>
+
+      <!-- Área -->
+      <div class="col-12 col-md-1">
+        <label class="form-label form-label-sm mb-1 fw-semibold">Área</label>
+        <select id="filterArea" class="form-select form-select-sm">
+          <option value="">Ambas</option>
+          <option value="DESARROLLO">Desarrollo</option>
+          <option value="SOPORTE">Soporte</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================
+       TABS
+       ====================================================== -->
+  <ul class="nav nav-tabs mb-3" id="statsTabs" role="tablist">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-resumen" id="tab-resumen-link">
+      <i class="fas fa-home me-1"></i><span class="d-none d-sm-inline">Resumen</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-dept" id="tab-dept-link">
+      <i class="fas fa-building me-1"></i><span class="d-none d-sm-inline">Por Departamento</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-tech" id="tab-tech-link">
+      <i class="fas fa-user-cog me-1"></i><span class="d-none d-sm-inline">Por Técnico</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-time" id="tab-time-link">
+      <i class="fas fa-clock me-1"></i><span class="d-none d-sm-inline">Tiempos</span></a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-rating" id="tab-rating-link">
+      <i class="fas fa-star me-1"></i><span class="d-none d-sm-inline">Calificaciones</span></a></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ====================================================
+         TAB 1: RESUMEN GENERAL
+         ==================================================== -->
+    <div class="tab-pane fade show active" id="tab-resumen">
+
+      <!-- KPI Cards row 1 -->
+      <div class="row g-3 mb-3" id="kpiRow1">
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-primary bg-opacity-10"><i class="fas fa-ticket-alt text-primary"></i></div>
+            <div><div class="stats-kpi-value" id="kpiTotal">—</div><div class="stats-kpi-label">Total Tickets</div></div>
+          </div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-warning bg-opacity-10"><i class="fas fa-hourglass-half text-warning"></i></div>
+            <div><div class="stats-kpi-value" id="kpiActive">—</div><div class="stats-kpi-label">En Proceso</div></div>
+          </div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-success bg-opacity-10"><i class="fas fa-check-circle text-success"></i></div>
+            <div><div class="stats-kpi-value" id="kpiResolved">—</div><div class="stats-kpi-label">Resueltos</div></div>
+          </div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-info bg-opacity-10"><i class="fas fa-star text-info"></i></div>
+            <div><div class="stats-kpi-value" id="kpiRating">—</div><div class="stats-kpi-label">Calif. Promedio</div><div class="stats-kpi-sub" id="kpiRatingCount"></div></div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- KPI Cards row 2 -->
+      <div class="row g-3 mb-3" id="kpiRow2">
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-success bg-opacity-10"><i class="fas fa-percentage text-success"></i></div>
+            <div><div class="stats-kpi-value" id="kpiResRate">—</div><div class="stats-kpi-label">Tasa Resolución</div></div>
+          </div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-danger bg-opacity-10"><i class="fas fa-tachometer-alt text-danger"></i></div>
+            <div><div class="stats-kpi-value" id="kpiSLA">—</div><div class="stats-kpi-label">Cumplimiento SLA</div></div>
+          </div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-secondary bg-opacity-10"><i class="fas fa-stopwatch text-secondary"></i></div>
+            <div><div class="stats-kpi-value" id="kpiAvgTime">—</div><div class="stats-kpi-label">Tiempo Prom. Resolución</div></div>
+          </div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm h-100 p-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="stats-kpi-icon bg-warning bg-opacity-10"><i class="fas fa-user-clock text-warning"></i></div>
+            <div><div class="stats-kpi-value" id="kpiAssignTime">—</div><div class="stats-kpi-label">Tiempo Prom. Asignación</div></div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- Gráficas -->
+      <div class="row g-3">
+        <!-- Trend mensual -->
+        <div class="col-12 col-lg-7">
+          <div class="card shadow-sm h-100 p-3">
+            <div class="stats-section-title">Tendencia mensual (últimos 12 meses)</div>
+            <div class="chart-container-md"><canvas id="chartMonthly"></canvas></div>
+          </div>
+        </div>
+        <!-- Distribución por status -->
+        <div class="col-12 col-lg-5">
+          <div class="row g-3 h-100">
+            <div class="col-12 col-sm-6 col-lg-12">
+              <div class="card shadow-sm p-3">
+                <div class="stats-section-title">Por estado</div>
+                <div class="chart-container-sm"><canvas id="chartStatus"></canvas></div>
+              </div>
+            </div>
+            <div class="col-12 col-sm-6 col-lg-12">
+              <div class="card shadow-sm p-3">
+                <div class="stats-section-title">Por área</div>
+                <div class="chart-container-sm"><canvas id="chartArea"></canvas></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Por prioridad -->
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Distribución por prioridad</div>
+            <div class="chart-container-sm"><canvas id="chartPriority"></canvas></div>
+          </div>
+        </div>
+        <!-- Eficiencia general -->
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Indicadores generales</div>
+            <div id="generalIndicators" class="py-2">
+              <div class="text-center text-muted py-4"><span class="stats-skeleton w-75 d-inline-block"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-resumen -->
+
+    <!-- ====================================================
+         TAB 2: POR DEPARTAMENTO
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-dept">
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Tickets por departamento</div>
+            <div class="chart-container-md"><canvas id="chartDeptBar"></canvas></div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Calificación promedio por departamento</div>
+            <div class="chart-container-md"><canvas id="chartDeptRating"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="stats-section-title mb-0">Ranking por departamento</div>
+          <div class="input-group input-group-sm" style="max-width:200px">
+            <input type="text" id="deptSearch" class="form-control" placeholder="Buscar...">
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm stats-table align-middle" id="deptTable">
+            <thead><tr>
+              <th>#</th>
+              <th>Departamento</th>
+              <th class="text-center">Total</th>
+              <th class="text-center">Activos</th>
+              <th class="text-center">Resueltos</th>
+              <th class="text-center d-none d-md-table-cell">Tiempo Prom.</th>
+              <th class="text-center d-none d-md-table-cell">SLA%</th>
+              <th class="text-center">Calif.</th>
+              <th class="d-none d-lg-table-cell">Top Cat.</th>
+            </tr></thead>
+            <tbody id="deptTableBody">
+              <tr><td colspan="9" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-dept -->
+
+    <!-- ====================================================
+         TAB 3: POR TÉCNICO
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-tech">
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Tickets resueltos por técnico</div>
+            <div class="chart-container-md"><canvas id="chartTechBar"></canvas></div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Calificación por técnico</div>
+            <div class="chart-container-md"><canvas id="chartTechRating"></canvas></div>
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="stats-section-title mb-0">Rendimiento por técnico</div>
+          <div class="input-group input-group-sm" style="max-width:200px">
+            <input type="text" id="techSearch" class="form-control" placeholder="Buscar...">
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm stats-table align-middle" id="techTable">
+            <thead><tr>
+              <th>#</th>
+              <th>Técnico</th>
+              <th class="text-center">Resueltos</th>
+              <th class="text-center d-none d-sm-table-cell">En Proceso</th>
+              <th class="text-center d-none d-md-table-cell">Tiempo Prom.</th>
+              <th class="text-center d-none d-md-table-cell">Invertido Prom.</th>
+              <th class="text-center d-none d-md-table-cell">SLA%</th>
+              <th class="text-center">Calif.</th>
+              <th class="text-center d-none d-lg-table-cell">Eficiencia%</th>
+              <th class="d-none d-lg-table-cell">Como Líder / Colaborador</th>
+            </tr></thead>
+            <tbody id="techTableBody">
+              <tr><td colspan="10" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-tech -->
+
+    <!-- ====================================================
+         TAB 4: TIEMPOS
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-time">
+      <!-- Resumen de tiempos -->
+      <div class="row g-3 mb-3" id="timeKpiRow">
+        <div class="col-6 col-md-4"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Tiempo prom. a asignar</div>
+          <div class="stats-kpi-value text-warning" id="timeAssign">—</div>
+          <div class="stats-kpi-sub">desde creación → asignación</div>
+        </div></div>
+        <div class="col-6 col-md-4"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Tiempo prom. de resolución</div>
+          <div class="stats-kpi-value text-primary" id="timeResolve">—</div>
+          <div class="stats-kpi-sub">tiempo natural del ticket</div>
+        </div></div>
+        <div class="col-6 col-md-4"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Tiempo prom. invertido</div>
+          <div class="stats-kpi-value text-success" id="timeInvested">—</div>
+          <div class="stats-kpi-sub">reportado por el técnico</div>
+        </div></div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <!-- Histograma -->
+        <div class="col-12 col-lg-7">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Distribución tiempo de resolución</div>
+            <div class="chart-container-md"><canvas id="chartTimeHist"></canvas></div>
+          </div>
+        </div>
+        <!-- Por prioridad -->
+        <div class="col-12 col-lg-5">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Por prioridad</div>
+            <div class="table-responsive">
+              <table class="table table-sm stats-table align-middle" id="timePriorityTable">
+                <thead><tr>
+                  <th>Prioridad</th>
+                  <th class="text-center">Tickets</th>
+                  <th class="text-center">Prom. Horas</th>
+                  <th class="text-center">SLA %</th>
+                  <th>Barra</th>
+                </tr></thead>
+                <tbody id="timePriorityBody">
+                  <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-spinner fa-spin"></i></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Por área -->
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Comparativo por área</div>
+            <div class="chart-container-sm"><canvas id="chartAreaTime"></canvas></div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Descripción de parámetros de tiempo</div>
+            <div class="small text-muted">
+              <div class="mb-2 p-2 border rounded"><strong class="text-warning"><i class="fas fa-clock me-1"></i>Tiempo a asignar:</strong><br>
+                Desde que el usuario crea el ticket hasta que se asigna a un técnico. Refleja la rapidez de respuesta inicial.</div>
+              <div class="mb-2 p-2 border rounded"><strong class="text-primary"><i class="fas fa-calendar me-1"></i>Tiempo de resolución (natural):</strong><br>
+                Desde la creación hasta la resolución. Incluye fines de semana y noches. Es el tiempo real que espera el usuario.</div>
+              <div class="p-2 border rounded"><strong class="text-success"><i class="fas fa-tools me-1"></i>Tiempo invertido (técnico):</strong><br>
+                Lo que el técnico declara haber trabajado en el ticket. Puede ser menor al tiempo natural (trabajo intermitente).</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-time -->
+
+    <!-- ====================================================
+         TAB 5: CALIFICACIONES
+         ==================================================== -->
+    <div class="tab-pane fade" id="tab-rating">
+
+      <!-- KPIs de calificación -->
+      <div class="row g-3 mb-3">
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Calificación Atención</div>
+          <div class="stats-kpi-value" id="ratingAvgAtt">—</div>
+          <div class="stats-stars" id="ratingStarsAtt"></div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Calificación Velocidad</div>
+          <div class="stats-kpi-value" id="ratingAvgSpd">—</div>
+          <div class="stats-stars" id="ratingStarsSpd"></div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Eficiencia Percibida</div>
+          <div class="stats-kpi-value text-success" id="ratingEfficiency">—</div>
+          <div class="stats-kpi-sub">tickets marcados eficientes</div>
+        </div></div>
+        <div class="col-6 col-md-3"><div class="card stats-kpi-card shadow-sm p-3">
+          <div class="stats-kpi-label mb-1">Tickets Calificados</div>
+          <div class="stats-kpi-value text-info" id="ratingCount">—</div>
+          <div class="stats-kpi-sub" id="ratingUnrated"></div>
+        </div></div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <!-- Distribución atención -->
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Distribución calificación de atención</div>
+            <div class="chart-container-sm"><canvas id="chartDistAtt"></canvas></div>
+          </div>
+        </div>
+        <!-- Distribución velocidad -->
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Distribución calificación de velocidad</div>
+            <div class="chart-container-sm"><canvas id="chartDistSpd"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3 mb-3">
+        <!-- Por técnico -->
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Calificación por técnico</div>
+            <div class="table-responsive">
+              <table class="table table-sm stats-table align-middle">
+                <thead><tr><th>#</th><th>Técnico</th><th class="text-center">Atención</th><th class="text-center">Velocidad</th><th class="text-center">Tickets</th></tr></thead>
+                <tbody id="ratingByTechBody">
+                  <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-spinner fa-spin"></i></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <!-- Por departamento -->
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm p-3">
+            <div class="stats-section-title">Calificación por departamento</div>
+            <div class="table-responsive">
+              <table class="table table-sm stats-table align-middle">
+                <thead><tr><th>#</th><th>Departamento</th><th class="text-center">Atención</th><th class="text-center">Velocidad</th><th class="text-center">Tickets</th></tr></thead>
+                <tbody id="ratingByDeptBody">
+                  <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-spinner fa-spin"></i></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comentarios recientes -->
+      <div class="card shadow-sm p-3">
+        <div class="stats-section-title">Comentarios recientes de usuarios</div>
+        <div id="recentComments">
+          <div class="text-center text-muted py-3"><i class="fas fa-spinner fa-spin me-2"></i>Cargando...</div>
+        </div>
+      </div>
+    </div><!-- /tab-rating -->
+
+  </div><!-- /tab-content -->
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/admin/stats.js') }}?v={{ sv('helpdesk', 'js/admin/stats.js') }}"></script>
+{% endblock %}
