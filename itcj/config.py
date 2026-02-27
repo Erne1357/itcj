@@ -28,7 +28,7 @@ class Config:
     COOKIE_SAMESITE = "Lax"
     JWT_EXPIRES_HOURS = 12
     JWT_REFRESH_THRESHOLD_SECONDS = 2 * 3600  # 2 horas para refresh JWT
-    STATIC_VERSION = "1.0.11114823"
+    STATIC_VERSION = "1.0.11114825"
 
     INSTANCE_PATH = os.path.abspath('instance')
     HELPDESK_UPLOAD_PATH = os.path.join(INSTANCE_PATH, 'apps', 'helpdesk')

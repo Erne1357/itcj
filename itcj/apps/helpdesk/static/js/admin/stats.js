@@ -81,19 +81,45 @@
     }
 
     function buildFilters() {
-        const params = new URLSearchParams();
+        const params  = new URLSearchParams();
         const period  = document.getElementById('filterPeriod')?.value;
         const preset  = document.querySelector('.btn-preset.active')?.dataset?.preset || '';
         const start   = document.getElementById('filterStart')?.value;
         const end     = document.getElementById('filterEnd')?.value;
         const area    = document.getElementById('filterArea')?.value;
+        const isClean = document.getElementById('statsModeClean')?.classList.contains('active');
 
-        if (period) params.set('period_id', period);
-        if (preset) params.set('preset', preset);
+        if (period)  params.set('period_id', period);
+        if (preset)  params.set('preset', preset);
         if (start && !preset && !period) params.set('start_date', start);
         if (end   && !preset && !period) params.set('end_date', end);
-        if (area)   params.set('area', area);
+        if (area)    params.set('area', area);
+        if (isClean) params.set('exclude_outliers', '1');
         return params.toString() ? '?' + params.toString() : '';
+    }
+
+    function showExclusionBanner(exclusionInfo) {
+        const banner = document.getElementById('statsExclusionBanner');
+        const text   = document.getElementById('statsExclusionBannerText');
+        if (!banner) return;
+
+        const isClean = document.getElementById('statsModeClean')?.classList.contains('active');
+        if (!isClean || !exclusionInfo) {
+            banner.style.setProperty('display', 'none', 'important');
+            return;
+        }
+
+        banner.style.removeProperty('display');
+        if (text) {
+            const exc  = exclusionInfo.excluded_count;
+            const orig = exclusionInfo.original_count;
+            const filt = exclusionInfo.filtered_count;
+            const pct  = exclusionInfo.pct_excluded;
+            text.innerHTML =
+                `<strong><i class="fas fa-filter me-1"></i>Modo sin outliers activo</strong>` +
+                ` &mdash; Se excluyeron <strong>${exc}</strong> de ${orig} tickets (${pct}%)` +
+                ` por tiempos atípicos. Estadísticas calculadas sobre <strong>${filt} tickets</strong>.`;
+        }
     }
 
     async function fetchJSON(url) {
@@ -198,6 +224,7 @@
 
             // Indicadores generales
             renderGeneralIndicators(d);
+            showExclusionBanner(d.exclusion_info || null);
 
         } catch (err) {
             console.error('[Stats] Error cargando resumen:', err);
@@ -253,6 +280,7 @@
             // Tabla
             renderDeptTable(data);
             setupTableSearch('deptSearch', 'deptTableBody', 'tr');
+            showExclusionBanner(json.exclusion_info || null);
         } catch (err) {
             console.error('[Stats] Error dept:', err);
         }
@@ -306,6 +334,7 @@
 
             renderTechTable(data);
             setupTableSearch('techSearch', 'techTableBody', 'tr');
+            showExclusionBanner(json.exclusion_info || null);
         } catch (err) {
             console.error('[Stats] Error tech:', err);
         }
@@ -364,6 +393,7 @@
                     { label: 'Prom. Invertido (h)', data: d.by_area.map(a => a.avg_time_invested_hours), backgroundColor: 'rgba(5,150,105,.7)', borderRadius: 4 },
                 ],
             }, { plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true } } });
+            showExclusionBanner(d.exclusion_info || null);
         } catch (err) {
             console.error('[Stats] Error time:', err);
         }
@@ -426,6 +456,7 @@
 
             // Comentarios
             renderComments(d.recent_comments || []);
+            showExclusionBanner(d.exclusion_info || null);
         } catch (err) {
             console.error('[Stats] Error ratings:', err);
         }
@@ -571,6 +602,20 @@
 
         // Área
         document.getElementById('filterArea')?.addEventListener('change', reloadAll);
+
+        // Toggle modo análisis
+        document.querySelectorAll('#statsModeBtns .btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.classList.contains('active')) return;
+                document.querySelectorAll('#statsModeBtns .btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (btn.id === 'statsModeAll') {
+                    const banner = document.getElementById('statsExclusionBanner');
+                    if (banner) banner.style.setProperty('display', 'none', 'important');
+                }
+                reloadAll();
+            });
+        });
 
         // Carga inicial
         loadCurrentTab();

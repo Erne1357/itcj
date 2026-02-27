@@ -231,6 +231,45 @@
 }
 
 /* ============================================================
+   Modo análisis — toggle
+   ============================================================ */
+#modeAll.active {
+    background: #6b7280;
+    color: #fff;
+    border-color: #6b7280;
+}
+
+#modeClean.active {
+    background: #f59e0b;
+    color: #1a1a1a;
+    border-color: #f59e0b;
+}
+
+/* Pill flotante que indica el modo activo */
+.analysis-mode-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 20px;
+    vertical-align: middle;
+}
+
+.analysis-mode-pill.mode-clean {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+}
+
+.analysis-mode-pill.mode-all {
+    background: #f3f4f6;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+/* ============================================================
    Responsive
    ============================================================ */
 @media (max-width: 576px) {

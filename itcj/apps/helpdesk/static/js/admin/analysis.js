@@ -31,20 +31,47 @@
     const CLUSTER_COLORS = ['#3b82f6','#059669','#f59e0b','#ec4899','#8b5cf6','#ef4444'];
 
     // ── Helpers ───────────────────────────────────────────────────
-    function buildFilters() {
-        const params = new URLSearchParams();
+    function buildFilters({ excludeMode = true } = {}) {
+        const params  = new URLSearchParams();
         const period  = document.getElementById('filterPeriod')?.value;
         const preset  = document.querySelector('.btn-preset.active')?.dataset?.preset || '';
         const start   = document.getElementById('filterStart')?.value;
         const end     = document.getElementById('filterEnd')?.value;
         const area    = document.getElementById('filterArea')?.value;
+        const isClean = document.getElementById('modeClean')?.classList.contains('active');
 
-        if (period) params.set('period_id', period);
-        if (preset) params.set('preset', preset);
+        if (period)  params.set('period_id', period);
+        if (preset)  params.set('preset', preset);
         if (start && !preset && !period) params.set('start_date', start);
         if (end   && !preset && !period) params.set('end_date', end);
-        if (area)   params.set('area', area);
-        return params.toString() ? '?' + params.toString() : '?';
+        if (area)    params.set('area', area);
+        if (excludeMode && isClean) params.set('exclude_outliers', '1');
+        return params.toString() ? '?' + params.toString() : '';
+    }
+
+    function showExclusionBanner(exclusionInfo) {
+        const banner = document.getElementById('exclusionBanner');
+        const text   = document.getElementById('exclusionBannerText');
+        if (!banner) return;
+
+        const isClean = document.getElementById('modeClean')?.classList.contains('active');
+        if (!isClean || !exclusionInfo) {
+            banner.style.setProperty('display', 'none', 'important');
+            return;
+        }
+
+        banner.style.removeProperty('display');
+        if (text) {
+            const exc  = exclusionInfo.excluded_count;
+            const orig = exclusionInfo.original_count;
+            const filt = exclusionInfo.filtered_count;
+            const pct  = exclusionInfo.pct_excluded;
+            text.innerHTML =
+                `<strong><i class="fas fa-filter me-1"></i>Modo sin outliers activo</strong>` +
+                ` &mdash; Se excluyeron <strong>${exc}</strong> de ${orig} tickets (${pct}%)` +
+                ` por ser atípicos en tiempo o calificación.` +
+                ` El análisis se ejecutó sobre <strong>${filt} tickets</strong>.`;
+        }
     }
 
     async function fetchJSON(url) {
@@ -101,7 +128,7 @@
     // ================================================================
     async function loadOutliers() {
         try {
-            const qs   = buildFilters();
+            const qs   = buildFilters({ excludeMode: false });
             const json = await fetchJSON(API + '/analysis/outliers' + qs);
             outlierData = json.data;
             if (!outlierData) return;
@@ -209,18 +236,22 @@
         if (status) status.textContent = '';
 
         try {
-            const qs   = buildFilters();
-            const json = await fetchJSON(`${API}/analysis/kmeans${qs}&k=${k}`.replace('?', '?').replace('&&', '&'));
+            const baseQs   = buildFilters();
+            const kParams  = new URLSearchParams(baseQs ? baseQs.slice(1) : '');
+            kParams.set('k', k);
+            const json = await fetchJSON(`${API}/analysis/kmeans?${kParams.toString()}`);
             kmeansData = json.data;
 
             if (!kmeansData || !kmeansData.clusters.length) {
                 if (status) status.textContent = kmeansData?.message || 'Sin datos suficientes';
+                showExclusionBanner(null);
                 return;
             }
 
             if (status) status.textContent = `${kmeansData.total_tickets} tickets agrupados en ${k} clústeres`;
             renderClusterCards(kmeansData.clusters);
             renderScatterChart(kmeansData);
+            showExclusionBanner(kmeansData.exclusion_info || null);
         } catch (err) {
             console.error('[Analysis] Error kmeans:', err);
             if (status) status.textContent = 'Error al calcular clustering';
@@ -329,6 +360,7 @@
 
             renderApexBar('chartDistResolution', d.resolution_histogram, 'Rango', 'Tickets', '#3b82f6', 'range', 'count');
             renderApexBar('chartDistInvested',   d.time_invested_histogram, 'Rango', 'Tickets', '#059669', 'range', 'count');
+            showExclusionBanner(d.exclusion_info || null);
 
             // Weekday Chart.js
             chartByWeekday = destroyCjs(chartByWeekday);
@@ -459,6 +491,7 @@
 
             // Heatmap — ApexCharts
             renderHeatmap(d.heatmap);
+            showExclusionBanner(d.exclusion_info || null);
         } catch (err) {
             console.error('[Analysis] Error trends:', err);
         }
@@ -558,6 +591,30 @@
         });
 
         document.getElementById('filterArea')?.addEventListener('change', reloadAll);
+
+        // Toggle modo análisis
+        document.querySelectorAll('#analysisModeBtns .btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.classList.contains('active')) return;
+                document.querySelectorAll('#analysisModeBtns .btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                // Ocultar banner al cambiar a modo "todo"
+                if (btn.id === 'modeAll') {
+                    const banner = document.getElementById('exclusionBanner');
+                    if (banner) banner.style.setProperty('display', 'none', 'important');
+                }
+
+                // Resetear tabs que dependen del modo (clustering, dist, tendencias)
+                ['clustering', 'dist', 'trends'].forEach(t => loadedTabs.delete(t));
+                kmeansData = null;
+
+                // Si la pestaña activa no es outliers, recargar
+                if (activeTab !== 'outliers') {
+                    loadCurrentTab(true);
+                }
+            });
+        });
 
         // Carga inicial
         loadCurrentTab();

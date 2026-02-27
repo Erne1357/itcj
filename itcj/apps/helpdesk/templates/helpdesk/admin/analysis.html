@@ -60,7 +60,31 @@
           <option value="SOPORTE">Soporte</option>
         </select>
       </div>
+
+      <!-- Toggle: Modo análisis -->
+      <div class="col-12 col-md-auto ms-md-auto">
+        <label class="form-label form-label-sm mb-1 fw-semibold d-block">Modo análisis</label>
+        <div class="btn-group btn-group-sm" role="group" id="analysisModeBtns">
+          <button type="button" class="btn btn-outline-secondary active" id="modeAll" data-mode="0"
+                  title="Incluye todos los tickets en el análisis">
+            <i class="fas fa-globe me-1"></i>Análisis puro
+          </button>
+          <button type="button" class="btn btn-outline-warning" id="modeClean" data-mode="1"
+                  title="Excluye tickets atípicos (IQR) antes de analizar">
+            <i class="fas fa-filter me-1"></i>Sin outliers
+          </button>
+        </div>
+      </div>
     </div>
+  </div>
+
+  <!-- Banner de exclusión (visible solo cuando está activo el modo "Sin outliers") -->
+  <div id="exclusionBanner" class="alert alert-warning alert-sm d-flex align-items-start gap-2 py-2 mb-3" style="display:none!important">
+    <i class="fas fa-filter mt-1 flex-shrink-0"></i>
+    <div class="small flex-grow-1" id="exclusionBannerText">
+      Cargando información de exclusión...
+    </div>
+    <button type="button" class="btn-close btn-sm" onclick="document.getElementById('exclusionBanner').style.setProperty('display','none','important')"></button>
   </div>
 
   <!-- ======================================================

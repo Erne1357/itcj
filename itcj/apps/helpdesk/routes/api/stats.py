@@ -147,6 +147,73 @@ def _iqr_bounds(values):
     }
 
 
+def _exclude_outlier_tickets(tickets):
+    """
+    Excluye tickets con valores atípicos (método IQR) en tres dimensiones:
+      1. Tiempo de resolución calendario (resolved_at - created_at)
+      2. Tiempo invertido reportado por el técnico (time_invested_minutes)
+      3. Tiempo desde creación hasta primera asignación
+
+    Un ticket se excluye si es outlier en CUALQUIERA de las dimensiones
+    con datos suficientes (mínimo 4 valores para IQR).
+
+    Returns:
+        (filtered_tickets, exclusion_info_dict)
+    """
+    excluded_ids = set()
+    bounds_info  = {}
+
+    # 1. Tiempo de resolución (solo tickets resueltos)
+    res_pairs = [(t, _resolution_hours(t)) for t in tickets if _resolution_hours(t) is not None]
+    if len(res_pairs) >= 4:
+        res_values  = [h for _, h in res_pairs]
+        bounds_res  = _iqr_bounds(res_values)
+        bounds_info['resolution'] = bounds_res
+        if bounds_res:
+            excluded_ids.update(t.id for t, h in res_pairs if h > bounds_res['upper_fence'])
+    else:
+        bounds_info['resolution'] = None
+
+    # 2. Tiempo invertido (solo tickets con valor reportado)
+    inv_pairs = [(t, t.time_invested_minutes / 60) for t in tickets
+                 if t.time_invested_minutes and t.time_invested_minutes > 0]
+    if len(inv_pairs) >= 4:
+        inv_values  = [h for _, h in inv_pairs]
+        bounds_inv  = _iqr_bounds(inv_values)
+        bounds_info['time_invested'] = bounds_inv
+        if bounds_inv:
+            excluded_ids.update(t.id for t, h in inv_pairs if h > bounds_inv['upper_fence'])
+    else:
+        bounds_info['time_invested'] = None
+
+    # 3. Tiempo a asignar (created_at → primera asignación)
+    assign_pairs = []
+    for t in tickets:
+        fa = Assignment.query.filter_by(ticket_id=t.id).order_by(Assignment.assigned_at).first()
+        if fa and fa.assigned_at and t.created_at:
+            h = (fa.assigned_at - t.created_at).total_seconds() / 3600
+            if 0 <= h <= 720:
+                assign_pairs.append((t, h))
+    if len(assign_pairs) >= 4:
+        assign_values  = [h for _, h in assign_pairs]
+        bounds_assign  = _iqr_bounds(assign_values)
+        bounds_info['time_to_assign'] = bounds_assign
+        if bounds_assign:
+            excluded_ids.update(t.id for t, h in assign_pairs if h > bounds_assign['upper_fence'])
+    else:
+        bounds_info['time_to_assign'] = None
+
+    filtered = [t for t in tickets if t.id not in excluded_ids]
+
+    return filtered, {
+        'excluded_count':  len(excluded_ids),
+        'original_count':  len(tickets),
+        'filtered_count':  len(filtered),
+        'pct_excluded':    round(len(excluded_ids) / len(tickets) * 100, 1) if tickets else 0,
+        'bounds': bounds_info,
+    }
+
+
 def _kmeans_2d(points, k=3, max_iter=100, seed=42):
     """
     K-means 2D en Python puro (sin scikit-learn).
@@ -350,6 +417,12 @@ def get_global_stats():
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclude_outliers_param = request.args.get('exclude_outliers', '0') == '1'
+        exclusion_info = None
+        if exclude_outliers_param and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
+
         total = len(tickets)
 
         # Conteos por status
@@ -437,6 +510,7 @@ def get_global_stats():
             'rated_count': len(rated),
             'monthly_trend': monthly_trend,
             'periods': _get_periods_list(),
+            'exclusion_info': exclusion_info,
         }}), 200
     except Exception as e:
         logger.error(f"Error stats globales: {e}", exc_info=True)
@@ -456,6 +530,11 @@ def get_stats_by_department():
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclude_outliers_param = request.args.get('exclude_outliers', '0') == '1'
+        exclusion_info = None
+        if exclude_outliers_param and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
 
         # Agrupar por departamento
         dept_map = {}
@@ -523,7 +602,7 @@ def get_stats_by_department():
             })
 
         results.sort(key=lambda x: x['total'], reverse=True)
-        return jsonify({'success': True, 'data': results}), 200
+        return jsonify({'success': True, 'data': results, 'exclusion_info': exclusion_info}), 200
     except Exception as e:
         logger.error(f"Error stats por departamento: {e}", exc_info=True)
         return jsonify({'error': 'server_error', 'message': 'Error al obtener estadísticas por departamento'}), 500
@@ -552,6 +631,11 @@ def get_stats_by_technician():
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclude_outliers_param = request.args.get('exclude_outliers', '0') == '1'
+        exclusion_info = None
+        if exclude_outliers_param and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
 
         # Recopilar IDs de técnicos relevantes
         if is_admin_or_sec:
@@ -619,7 +703,8 @@ def get_stats_by_technician():
             })
 
         results.sort(key=lambda x: x['resolved'], reverse=True)
-        return jsonify({'success': True, 'data': results, 'is_admin': is_admin_or_sec}), 200
+        return jsonify({'success': True, 'data': results, 'is_admin': is_admin_or_sec,
+                        'exclusion_info': exclusion_info}), 200
     except Exception as e:
         logger.error(f"Error stats por técnico: {e}", exc_info=True)
         return jsonify({'error': 'server_error', 'message': 'Error al obtener estadísticas por técnico'}), 500
@@ -638,6 +723,12 @@ def get_time_breakdown():
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclude_outliers_param = request.args.get('exclude_outliers', '0') == '1'
+        exclusion_info = None
+        if exclude_outliers_param and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
+
         resolved_tickets = [t for t in tickets if t.resolved_at]
 
         # Tiempo a asignar
@@ -698,8 +789,9 @@ def get_time_breakdown():
             'by_priority': by_priority,
             'by_area': by_area,
             'resolution_histogram': resolution_histogram,
-            'assign_hours_raw': assign_h[:200],   # max 200 para scatter
+            'assign_hours_raw': assign_h[:200],
             'resolution_hours_raw': res_h[:200],
+            'exclusion_info': exclusion_info,
         }}), 200
     except Exception as e:
         logger.error(f"Error time-breakdown: {e}", exc_info=True)
@@ -719,6 +811,11 @@ def get_ratings_detail():
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclude_outliers_param = request.args.get('exclude_outliers', '0') == '1'
+        exclusion_info = None
+        if exclude_outliers_param and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
 
         rated = [t for t in tickets if t.rating_attention is not None]
         unrated_count = len(tickets) - len(rated)
@@ -803,6 +900,7 @@ def get_ratings_detail():
             'by_technician': by_technician,
             'by_department': by_department,
             'recent_comments': recent_comments,
+            'exclusion_info': exclusion_info,
         }}), 200
     except Exception as e:
         logger.error(f"Error ratings-detail: {e}", exc_info=True)
@@ -899,15 +997,21 @@ def get_kmeans():
     period_id, preset, start_raw, end_raw, area = _parse_filters()
     k = request.args.get('k', 3, type=int)
     k = max(2, min(k, 6))  # entre 2 y 6
+    exclude_outliers = request.args.get('exclude_outliers', '0') == '1'
 
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.filter(Ticket.resolved_at.isnot(None),
                            Ticket.rating_attention.isnot(None)).all()
 
+        exclusion_info = None
+        if exclude_outliers and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
+
         if len(tickets) < k:
             return jsonify({'success': True, 'data': {
                 'k': k, 'clusters': [],
+                'exclusion_info': exclusion_info,
                 'message': f'Datos insuficientes. Se necesitan al menos {k} tickets calificados y resueltos.'
             }}), 200
 
@@ -967,6 +1071,7 @@ def get_kmeans():
             'k': k,
             'total_tickets': len(valid_tickets),
             'clusters': clusters,
+            'exclusion_info': exclusion_info,
             'axes': {
                 'x_label': 'Tiempo de resolución (horas)',
                 'y_label': 'Calificación de atención (1-5)',
@@ -988,10 +1093,16 @@ def get_kmeans():
 def get_distribution():
     """Histogramas y distribuciones de tickets."""
     period_id, preset, start_raw, end_raw, area = _parse_filters()
+    exclude_outliers = request.args.get('exclude_outliers', '0') == '1'
 
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclusion_info = None
+        if exclude_outliers and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
+
         resolved = [t for t in tickets if t.resolved_at]
 
         # Histograma tiempo de resolución
@@ -1052,6 +1163,7 @@ def get_distribution():
             'by_weekday': by_weekday,
             'by_hour': by_hour,
             'by_category': by_category,
+            'exclusion_info': exclusion_info,
         }}), 200
     except Exception as e:
         logger.error(f"Error distribution: {e}", exc_info=True)
@@ -1067,10 +1179,15 @@ def get_distribution():
 def get_trends():
     """Tendencias temporales: mensual, comparativo anual, SLA trend, heatmap."""
     period_id, preset, start_raw, end_raw, area = _parse_filters()
+    exclude_outliers = request.args.get('exclude_outliers', '0') == '1'
 
     try:
         q = _base_query(period_id, preset, start_raw, end_raw, area)
         tickets = q.all()
+
+        exclusion_info = None
+        if exclude_outliers and tickets:
+            tickets, exclusion_info = _exclude_outlier_tickets(tickets)
 
         now = datetime.utcnow()
 
@@ -1133,6 +1250,7 @@ def get_trends():
             'monthly': monthly,
             'yoy': yoy,
             'heatmap': heatmap,
+            'exclusion_info': exclusion_info,
         }}), 200
     except Exception as e:
         logger.error(f"Error trends: {e}", exc_info=True)

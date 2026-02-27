@@ -67,7 +67,30 @@
           <option value="SOPORTE">Soporte</option>
         </select>
       </div>
+
+      <!-- Modo de análisis -->
+      <div class="col-12 mt-1 pt-2 border-top d-flex align-items-center gap-3 flex-wrap">
+        <span class="small fw-semibold text-muted">Modo:</span>
+        <div class="btn-group btn-group-sm" role="group" id="statsModeBtns">
+          <button type="button" class="btn btn-outline-secondary active" id="statsModeAll">
+            <i class="fas fa-globe me-1"></i>Completo
+          </button>
+          <button type="button" class="btn btn-outline-warning" id="statsModeClean">
+            <i class="fas fa-filter me-1"></i>Sin outliers
+          </button>
+        </div>
+        <small class="text-muted fst-italic d-none d-sm-inline">
+          <i class="fas fa-info-circle me-1"></i>"Sin outliers" excluye tickets con tiempos atípicos para que los promedios sean más representativos.
+        </small>
+      </div>
     </div>
+  </div>
+
+  <!-- Banner de exclusión (oculto por defecto) -->
+  <div id="statsExclusionBanner" class="alert alert-warning d-flex align-items-center gap-3 py-2 px-3 mb-3 shadow-sm"
+       style="display:none!important" role="alert">
+    <i class="fas fa-filter text-warning fs-5 flex-shrink-0"></i>
+    <div class="small flex-grow-1" id="statsExclusionBannerText"></div>
   </div>
 
   <!-- ======================================================
