@@ -41,6 +41,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  pgbouncer:
+    build:
+      context: ../backend/pgbouncer
+      dockerfile: Dockerfile
+    restart: always
+    env_file: ../../.env.prod
+    volumes:
+      - ../../docker/backend/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ============================================
   # BACKEND BLUE - Profile "blue"
   # ============================================
@@ -61,7 +84,7 @@ services:
       - ../../database:/app/database:ro
       - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
-      postgres:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -103,7 +126,7 @@ services:
       - ../../database:/app/database:ro
       - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
-      postgres:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
