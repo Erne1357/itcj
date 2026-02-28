@@ -6,5 +6,9 @@ python-multipart>=0.0.20
 # Settings (Pydantic-based config)
 pydantic-settings>=2.7.0
 
+# Socket.IO ASGI (Fase 3)
+# python-socketio[asyncio] incluye aiohttp y el AsyncServer/AsyncRedisManager
+python-socketio[asyncio]>=5.13.0
+
 # Nota: sqlalchemy, pydantic, jinja2, redis, pyjwt, pillow, etc.
 # ya están en requirements.txt (compartidas con Flask)

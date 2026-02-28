@@ -170,6 +170,21 @@ async def create_ticket(
         except Exception as notif_error:
             logger.error(f"Error al enviar notificación de ticket creado: {notif_error}")
 
+        try:
+            from itcj2.sockets.helpdesk import broadcast_ticket_created
+            await broadcast_ticket_created({
+                "id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "title": ticket.title,
+                "area": ticket.area,
+                "priority": ticket.priority,
+                "status": ticket.status,
+                "requester": ticket.requester.full_name if ticket.requester else "Desconocido",
+                "department_id": ticket.requester_department_id,
+            })
+        except Exception as ws_err:
+            logger.warning(f"WS broadcast ticket_created error: {ws_err}")
+
         return {"message": "Ticket creado exitosamente", "ticket": ticket.to_dict(include_relations=True)}
 
     except Exception as e:
@@ -257,7 +272,7 @@ def get_ticket(
 
 # ==================== INICIAR TRABAJO EN TICKET ====================
 @router.post("/{ticket_id}/start")
-def start_ticket(
+async def start_ticket(
     ticket_id: int,
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
@@ -291,12 +306,29 @@ def start_ticket(
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket iniciado: {notif_error}")
 
+    try:
+        from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
+        assignee_id = ticket.assigned_to_user_id if hasattr(ticket, "assigned_to_user_id") else None
+        await broadcast_ticket_status_changed(
+            ticket.id, assignee_id, ticket.area,
+            {
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "old_status": "ASSIGNED",
+                "new_status": "IN_PROGRESS",
+                "area": ticket.area,
+            },
+            department_id=ticket.requester_department_id,
+        )
+    except Exception as ws_err:
+        logger.warning(f"WS broadcast ticket_status_changed (start) error: {ws_err}")
+
     return {"message": "Ticket iniciado exitosamente", "ticket": ticket.to_dict()}
 
 
 # ==================== RESOLVER TICKET ====================
 @router.post("/{ticket_id}/resolve")
-def resolve_ticket(
+async def resolve_ticket(
     ticket_id: int,
     body: ResolveTicketRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
@@ -345,6 +377,23 @@ def resolve_ticket(
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket resuelto: {notif_error}")
 
+    try:
+        from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
+        assignee_id = ticket.assigned_to_user_id if hasattr(ticket, "assigned_to_user_id") else None
+        await broadcast_ticket_status_changed(
+            ticket.id, assignee_id, ticket.area,
+            {
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "old_status": "IN_PROGRESS",
+                "new_status": ticket.status,
+                "area": ticket.area,
+            },
+            department_id=ticket.requester_department_id,
+        )
+    except Exception as ws_err:
+        logger.warning(f"WS broadcast ticket_status_changed (resolve) error: {ws_err}")
+
     return {"message": "Ticket resuelto exitosamente", "ticket": ticket.to_dict()}
 
 
@@ -385,7 +434,7 @@ def rate_ticket(
 
 # ==================== CANCELAR TICKET ====================
 @router.post("/{ticket_id}/cancel")
-def cancel_ticket(
+async def cancel_ticket(
     ticket_id: int,
     body: CancelTicketRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
@@ -411,6 +460,23 @@ def cancel_ticket(
         flask_db.session.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket cancelado: {notif_error}")
+
+    try:
+        from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
+        assignee_id = ticket.assigned_to_user_id if hasattr(ticket, "assigned_to_user_id") else None
+        await broadcast_ticket_status_changed(
+            ticket.id, assignee_id, ticket.area,
+            {
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "old_status": ticket.status,
+                "new_status": "CANCELED",
+                "area": ticket.area,
+            },
+            department_id=ticket.requester_department_id,
+        )
+    except Exception as ws_err:
+        logger.warning(f"WS broadcast ticket_status_changed (cancel) error: {ws_err}")
 
     return {"message": "Ticket cancelado exitosamente", "ticket": ticket.to_dict()}
 

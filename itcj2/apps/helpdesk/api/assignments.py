@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("", status_code=201)
-def assign_ticket(
+async def assign_ticket(
     body: AssignTicketRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.assignments.api.assign"]),
     db: DbSession = None,
@@ -43,22 +43,41 @@ def assign_ticket(
 
     logger.info(f"Ticket {body.ticket_id} asignado por usuario {user_id}")
 
-    if assignment.ticket.assigned_to_user_id:
+    ticket = assignment.ticket
+    if ticket.assigned_to_user_id:
         from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
         from itcj.core.extensions import db as flask_db
         try:
-            HelpdeskNotificationHelper.notify_ticket_assigned(
-                assignment.ticket, assignment.ticket.assigned_to
-            )
+            HelpdeskNotificationHelper.notify_ticket_assigned(ticket, ticket.assigned_to)
             flask_db.session.commit()
         except Exception as notif_error:
             logger.error(f"Error al enviar notificación de asignación: {notif_error}")
+
+        try:
+            from itcj2.sockets.helpdesk import broadcast_ticket_assigned
+            await broadcast_ticket_assigned(
+                ticket.id,
+                ticket.assigned_to_user_id,
+                ticket.area,
+                {
+                    "ticket_id": ticket.id,
+                    "ticket_number": ticket.ticket_number,
+                    "title": ticket.title,
+                    "assigned_to_id": ticket.assigned_to_user_id,
+                    "assigned_to_name": ticket.assigned_to.full_name if ticket.assigned_to else None,
+                    "area": ticket.area,
+                    "priority": ticket.priority,
+                },
+                department_id=ticket.requester_department_id,
+            )
+        except Exception as ws_err:
+            logger.warning(f"WS broadcast ticket_assigned error: {ws_err}")
 
     return {"message": "Ticket asignado exitosamente", "assignment": assignment.to_dict()}
 
 
 @router.post("/{ticket_id}/reassign")
-def reassign_ticket(
+async def reassign_ticket(
     ticket_id: int,
     body: ReassignTicketRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.assignments.api.reassign"]),
@@ -88,24 +107,48 @@ def reassign_ticket(
     from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     from itcj.core.extensions import db as flask_db
     from itcj.core.models.user import User
+
+    ticket = assignment.ticket
+    previous_user = None
     try:
-        previous_user = None
-        prev_assignments = assignment.ticket.assignments.filter_by(is_active=False).order_by(flask_db.desc("created_at")).first()
+        prev_assignments = ticket.assignments.filter_by(is_active=False).order_by(flask_db.desc("created_at")).first()
         if prev_assignments and prev_assignments.assigned_to_user_id:
             previous_user = User.query.get(prev_assignments.assigned_to_user_id)
-        if assignment.ticket.assigned_to_user_id:
-            HelpdeskNotificationHelper.notify_ticket_reassigned(
-                assignment.ticket, assignment.ticket.assigned_to, previous_user
-            )
+        if ticket.assigned_to_user_id:
+            HelpdeskNotificationHelper.notify_ticket_reassigned(ticket, ticket.assigned_to, previous_user)
         flask_db.session.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de reasignación: {notif_error}")
+
+    if ticket.assigned_to_user_id:
+        try:
+            from itcj2.sockets.helpdesk import broadcast_ticket_reassigned
+            prev_id = previous_user.id if previous_user else None
+            await broadcast_ticket_reassigned(
+                ticket.id,
+                ticket.assigned_to_user_id,
+                prev_id,
+                ticket.area,
+                {
+                    "ticket_id": ticket.id,
+                    "ticket_number": ticket.ticket_number,
+                    "title": ticket.title,
+                    "new_assigned_id": ticket.assigned_to_user_id,
+                    "new_assigned_name": ticket.assigned_to.full_name if ticket.assigned_to else None,
+                    "prev_assigned_id": prev_id,
+                    "prev_assigned_name": previous_user.full_name if previous_user else None,
+                    "area": ticket.area,
+                },
+                department_id=ticket.requester_department_id,
+            )
+        except Exception as ws_err:
+            logger.warning(f"WS broadcast ticket_reassigned error: {ws_err}")
 
     return {"message": "Ticket reasignado exitosamente", "assignment": assignment.to_dict()}
 
 
 @router.post("/{ticket_id}/self-assign")
-def self_assign_ticket(
+async def self_assign_ticket(
     ticket_id: int,
     user: dict = require_roles("helpdesk", ["tech_desarrollo", "tech_soporte", "admin"]),
     db: DbSession = None,
@@ -125,13 +168,33 @@ def self_assign_ticket(
     from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     from itcj.core.extensions import db as flask_db
     from itcj.core.models.user import User
+
+    ticket = assignment.ticket
+    technician = None
     try:
         technician = User.query.get(user_id)
         if technician:
-            HelpdeskNotificationHelper.notify_ticket_self_assigned(assignment.ticket, technician)
+            HelpdeskNotificationHelper.notify_ticket_self_assigned(ticket, technician)
         flask_db.session.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de auto-asignación: {notif_error}")
+
+    try:
+        from itcj2.sockets.helpdesk import broadcast_ticket_self_assigned
+        await broadcast_ticket_self_assigned(
+            ticket.id,
+            ticket.area,
+            {
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "title": ticket.title,
+                "technician_id": user_id,
+                "technician_name": technician.full_name if technician else None,
+                "area": ticket.area,
+            },
+        )
+    except Exception as ws_err:
+        logger.warning(f"WS broadcast ticket_self_assigned error: {ws_err}")
 
     return {"message": "Te has asignado el ticket exitosamente", "assignment": assignment.to_dict()}
 

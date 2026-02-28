@@ -165,6 +165,7 @@ async def add_comment(
 
     from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     from itcj.core.models.user import User
+    author = None
     try:
         author = User.query.get(user_id)
         if author and ticket:
@@ -172,5 +173,23 @@ async def add_comment(
         flask_db.session.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación: {notif_error}")
+
+    try:
+        from itcj2.sockets.helpdesk import broadcast_ticket_comment_added
+        preview = comment.content[:100] + "..." if len(comment.content) > 100 else comment.content
+        await broadcast_ticket_comment_added(
+            ticket_id,
+            {
+                "ticket_id": ticket_id,
+                "ticket_number": ticket.ticket_number if ticket else None,
+                "comment_id": comment.id,
+                "author_id": user_id,
+                "author_name": author.full_name if author else None,
+                "is_internal": is_internal,
+                "preview": preview,
+            },
+        )
+    except Exception as ws_err:
+        logger.warning(f"WS broadcast ticket_comment_added error: {ws_err}")
 
     return {"message": "Comentario agregado exitosamente", "comment": comment.to_dict()}
