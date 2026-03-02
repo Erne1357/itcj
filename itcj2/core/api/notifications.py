@@ -25,7 +25,7 @@ def list_notifications(
     before_id: int | None = None,
 ):
     """Lista notificaciones del usuario con filtros y paginación."""
-    from itcj.core.services.notification_service import NotificationService
+    from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
     result = NotificationService.get_notifications(
@@ -42,7 +42,7 @@ def list_notifications(
 @router.get("/unread-counts")
 def unread_counts(user: CurrentUser, db: DbSession):
     """Conteos de notificaciones no leídas agrupadas por app."""
-    from itcj.core.services.notification_service import NotificationService
+    from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
     counts = NotificationService.get_unread_counts_by_app(user_id)
@@ -55,7 +55,7 @@ def unread_counts(user: CurrentUser, db: DbSession):
 @router.patch("/{notification_id}/read")
 def mark_read(notification_id: int, user: CurrentUser, db: DbSession):
     """Marca una notificación como leída."""
-    from itcj.core.services.notification_service import NotificationService
+    from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
     success = NotificationService.mark_read(notification_id, user_id)
@@ -69,7 +69,7 @@ def mark_read(notification_id: int, user: CurrentUser, db: DbSession):
 @router.patch("/mark-all-read")
 def mark_all_read(user: CurrentUser, db: DbSession, app: str | None = None):
     """Marca todas las notificaciones como leídas (opcionalmente filtradas por app)."""
-    from itcj.core.services.notification_service import NotificationService
+    from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
     count = NotificationService.mark_all_read(user_id, app)
@@ -80,7 +80,7 @@ def mark_all_read(user: CurrentUser, db: DbSession, app: str | None = None):
 @router.delete("/{notification_id}")
 def delete_notification(notification_id: int, user: CurrentUser, db: DbSession):
     """Elimina una notificación."""
-    from itcj.core.services.notification_service import NotificationService
+    from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
     success = NotificationService.delete_notification(notification_id, user_id)

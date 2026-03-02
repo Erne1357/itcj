@@ -39,7 +39,7 @@ def get_direction(
     db: DbSession = None,
 ):
     """Obtiene la dirección (departamento raíz sin padre)."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     direction = svc.get_direction()
     return {
@@ -54,7 +54,7 @@ def get_union_delegation(
     db: DbSession = None,
 ):
     """Obtiene la delegación sindical."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     union_delegation = svc.get_union_delegation()
     return {
@@ -69,7 +69,7 @@ def list_subdirections(
     db: DbSession = None,
 ):
     """Lista solo las subdirecciones (departamentos de segundo nivel)."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     subdirs = svc.list_subdirections()
     return {"status": "ok", "data": [d.to_dict(include_children=True) for d in subdirs]}
@@ -81,7 +81,7 @@ def list_parent_options(
     db: DbSession = None,
 ):
     """Lista departamentos disponibles como padres (dirección y subdirecciones)."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     options = svc.list_parent_options()
     return {"status": "ok", "data": [d.to_dict() for d in options]}
@@ -94,7 +94,7 @@ def list_by_parent(
     db: DbSession = None,
 ):
     """Lista departamentos filtrados por parent_id."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     depts = svc.list_departments_by_parent(parent_id)
     return {"status": "ok", "data": [d.to_dict() for d in depts]}
@@ -108,7 +108,7 @@ def list_departments(
     db: DbSession = None,
 ):
     """Lista todos los departamentos."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     depts = svc.list_departments()
     return {"status": "ok", "data": [d.to_dict() for d in depts]}
@@ -121,8 +121,8 @@ def get_department(
     db: DbSession = None,
 ):
     """Obtiene detalle completo de un departamento con posiciones y usuario actual."""
-    from itcj.core.services import departments_service as dept_svc
-    from itcj.core.services import positions_service as pos_svc
+    from itcj2.core.services import departments_service as dept_svc
+    from itcj2.core.services import positions_service as pos_svc
 
     dept = dept_svc.get_department(dept_id)
     if not dept:
@@ -160,7 +160,7 @@ def create_department(
     db: DbSession = None,
 ):
     """Crea un nuevo departamento."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     code = body.code.strip()
     name = body.name.strip()
@@ -189,7 +189,7 @@ def update_department(
     db: DbSession = None,
 ):
     """Actualiza un departamento."""
-    from itcj.core.services import departments_service as svc
+    from itcj2.core.services import departments_service as svc
 
     updates = body.model_dump(exclude_none=True)
     try:
@@ -209,17 +209,16 @@ def get_department_users(
     db: DbSession = None,
 ):
     """Obtiene usuarios asignados a un departamento con estadísticas."""
-    from itcj.core.services import departments_service as dept_svc
-    from itcj.core.models.position import Position, UserPosition
-    from itcj.core.models.user import User
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services import departments_service as dept_svc
+    from itcj2.core.models.position import Position, UserPosition
+    from itcj2.core.models.user import User
 
     dept = dept_svc.get_department(dept_id)
     if not dept:
         raise HTTPException(404, detail={"status": "error", "error": "Department not found"})
 
     users_data = (
-        flask_db.session.query(User, Position, UserPosition)
+        db.query(User, Position, UserPosition)
         .join(UserPosition, User.id == UserPosition.user_id)
         .join(Position, UserPosition.position_id == Position.id)
         .filter(
@@ -242,7 +241,7 @@ def get_department_users(
 
         ticket_count = 0
         try:
-            from itcj.apps.helpdesk.models.ticket import Ticket
+            from itcj2.apps.helpdesk.models.ticket import Ticket
             ticket_count = Ticket.query.filter_by(
                 requester_id=u.id, requester_department_id=dept_id
             ).count()

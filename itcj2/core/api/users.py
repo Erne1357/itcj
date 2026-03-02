@@ -26,7 +26,7 @@ DEFAULT_PASSWORD = "tecno#2K"
 
 def _get_user(user_data: dict, db):
     """Helper: obtiene el modelo User desde la sesión FastAPI."""
-    from itcj.core.models.user import User
+    from itcj2.core.models.user import User
 
     return db.query(User).get(int(user_data["sub"]))
 
@@ -34,8 +34,8 @@ def _get_user(user_data: dict, db):
 @router.get("/password-state", response_model=PasswordStateResponse)
 def password_state(user: CurrentUser, db: DbSession):
     """Verifica si el usuario debe cambiar su contraseña (solo staff)."""
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.core.utils.security import verify_nip
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.core.utils.security import verify_nip
 
     u = _get_user(user, db)
     if not u:
@@ -51,8 +51,8 @@ def password_state(user: CurrentUser, db: DbSession):
 @router.post("/change-password")
 def change_password(body: ChangePasswordRequest, user: CurrentUser, db: DbSession):
     """Cambia la contraseña del usuario (solo staff)."""
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.core.utils.security import hash_nip
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.core.utils.security import hash_nip
 
     u = _get_user(user, db)
     if not u or "student" in user_roles_in_app(u.id, "itcj"):
@@ -71,9 +71,9 @@ def change_password(body: ChangePasswordRequest, user: CurrentUser, db: DbSessio
 @router.get("/me", response_model=UserProfileResponse)
 def get_current_user_info(user: CurrentUser, db: DbSession):
     """Información detallada del usuario actual con roles y posiciones."""
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.core.models.app import App
-    from itcj.core.models.position import UserPosition
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.core.models.app import App
+    from itcj2.core.models.position import UserPosition
 
     u = _get_user(user, db)
     if not u:
@@ -121,7 +121,7 @@ def get_current_user_info(user: CurrentUser, db: DbSession):
 @router.get("/me/profile", response_model=FullProfileResponse)
 def get_full_profile(user: CurrentUser):
     """Perfil completo con desglose de permisos."""
-    from itcj.core.services.profile_service import get_user_profile_data
+    from itcj2.core.services.profile_service import get_user_profile_data
 
     user_id = int(user["sub"])
     profile = get_user_profile_data(user_id)
@@ -134,7 +134,7 @@ def get_full_profile(user: CurrentUser):
 @router.get("/me/activity")
 def get_activity(user: CurrentUser, limit: int = Query(10, ge=1, le=50)):
     """Actividad reciente del usuario."""
-    from itcj.core.services.profile_service import get_user_activity
+    from itcj2.core.services.profile_service import get_user_activity
 
     user_id = int(user["sub"])
     return {"status": "ok", "data": get_user_activity(user_id, limit=limit)}
@@ -147,7 +147,7 @@ def get_notifications(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Notificaciones del usuario (acceso rápido desde perfil)."""
-    from itcj.core.services.profile_service import get_user_notifications
+    from itcj2.core.services.profile_service import get_user_notifications
 
     user_id = int(user["sub"])
     return {"status": "ok", "data": get_user_notifications(user_id, unread_only, limit)}
@@ -156,7 +156,7 @@ def get_notifications(
 @router.patch("/me/profile")
 def update_profile(body: UpdateProfileRequest, user: CurrentUser, db: DbSession):
     """Actualiza campos no críticos del perfil (email)."""
-    from itcj.core.models.user import User
+    from itcj2.core.models.user import User
 
     u = db.query(User).get(int(user["sub"]))
     if not u:

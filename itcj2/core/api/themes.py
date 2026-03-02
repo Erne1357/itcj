@@ -37,7 +37,7 @@ class ThemeEnableBody(BaseModel):
 @router.get("/active")
 def get_active_theme():
     """Tema actualmente activo (público, sin autenticación)."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     theme = svc.get_active_theme()
     if not theme:
@@ -53,7 +53,7 @@ def get_themes_stats(
     db: DbSession = None,
 ):
     """Estadísticas de temas (total y activos)."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     return {
         "status": "ok",
@@ -67,7 +67,7 @@ def list_themes(
     db: DbSession = None,
 ):
     """Lista todas las temáticas."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     themes = svc.list_themes()
     return {"status": "ok", "data": [t.to_dict() for t in themes]}
@@ -80,7 +80,7 @@ def get_theme(
     db: DbSession = None,
 ):
     """Detalle de una temática."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     theme = svc.get_theme(theme_id)
     if not theme:
@@ -95,7 +95,7 @@ async def create_theme(
     db: DbSession = None,
 ):
     """Crea una nueva temática."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     payload = body.model_dump()
     name = (payload.get("name") or "").strip()
@@ -119,7 +119,7 @@ async def update_theme(
     db: DbSession = None,
 ):
     """Actualiza una temática existente."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     payload = body.model_dump()
     try:
@@ -140,7 +140,7 @@ def toggle_theme(
     db: DbSession = None,
 ):
     """Activa o desactiva manualmente una temática."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     try:
         theme = svc.toggle_theme_manual(theme_id, body.active)
@@ -157,7 +157,7 @@ def toggle_theme_enabled(
     db: DbSession = None,
 ):
     """Habilita o deshabilita una temática."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     try:
         theme = svc.toggle_theme_enabled(theme_id, body.enabled)
@@ -173,7 +173,7 @@ def delete_theme(
     db: DbSession = None,
 ):
     """Elimina una temática."""
-    from itcj.core.services import themes_service as svc
+    from itcj2.core.services import themes_service as svc
 
     try:
         svc.delete_theme(theme_id)

@@ -26,7 +26,7 @@ def login(body: LoginRequest, response: Response, db: DbSession):
     if not raw_id:
         raise HTTPException(400, detail="invalid_format")
 
-    from itcj.core.services.auth_service import authenticate, authenticate_by_username
+    from itcj2.core.services.auth_service import authenticate, authenticate_by_username
 
     is_student = raw_id.isdigit() and len(raw_id) == 8
     user = authenticate(raw_id, nip) if is_student else authenticate_by_username(raw_id, nip)

@@ -65,10 +65,9 @@ def list_apps(
     db: DbSession = None,
 ):
     """Lista todas las aplicaciones registradas."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.app import App
+    from itcj2.core.models.app import App
 
-    rows = flask_db.session.query(App).order_by(App.key.asc()).all()
+    rows = db.query(App).order_by(App.key.asc()).all()
     return {
         "status": "ok",
         "data": [
@@ -89,15 +88,14 @@ def create_app(
     db: DbSession = None,
 ):
     """Crea una nueva aplicación."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.app import App
+    from itcj2.core.models.app import App
 
     key = body.key.strip()
     name = body.name.strip()
     if not key or not name:
         raise HTTPException(400, detail={"status": "error", "error": "key_and_name_required"})
 
-    if flask_db.session.query(App).filter_by(key=key).first():
+    if db.query(App).filter_by(key=key).first():
         raise HTTPException(409, detail={"status": "error", "error": "app_key_exists"})
 
     a = App(
@@ -105,8 +103,8 @@ def create_app(
         mobile_enabled=body.mobile_enabled, visible_to_students=body.visible_to_students,
         mobile_url=body.mobile_url or None, mobile_icon=body.mobile_icon or None,
     )
-    flask_db.session.add(a)
-    flask_db.session.commit()
+    db.add(a)
+    db.commit()
     logger.info(f"App '{key}' creada por usuario {int(user['sub'])}")
     return {
         "status": "ok",
@@ -126,10 +124,9 @@ def update_app(
     db: DbSession = None,
 ):
     """Actualiza una aplicación."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.app import App
+    from itcj2.core.models.app import App
 
-    a = flask_db.session.query(App).filter_by(key=app_key).first()
+    a = db.query(App).filter_by(key=app_key).first()
     if not a:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
@@ -146,7 +143,7 @@ def update_app(
     if body.mobile_icon is not None:
         a.mobile_icon = body.mobile_icon.strip() or None
 
-    flask_db.session.commit()
+    db.commit()
     logger.info(f"App '{app_key}' actualizada por usuario {int(user['sub'])}")
     return {
         "status": "ok",
@@ -165,15 +162,14 @@ def delete_app(
     db: DbSession = None,
 ):
     """Elimina una aplicación."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.app import App
+    from itcj2.core.models.app import App
 
-    a = flask_db.session.query(App).filter_by(key=app_key).first()
+    a = db.query(App).filter_by(key=app_key).first()
     if not a:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
-    flask_db.session.delete(a)
-    flask_db.session.commit()
+    db.delete(a)
+    db.commit()
     logger.info(f"App '{app_key}' eliminada por usuario {int(user['sub'])}")
 
 
@@ -185,14 +181,13 @@ def list_roles(
     db: DbSession = None,
 ):
     """Lista todos los roles globales."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
+    from itcj2.core.models.role import Role
 
     return {
         "status": "ok",
         "data": [
             {"name": r.name}
-            for r in flask_db.session.query(Role).order_by(Role.name.asc()).all()
+            for r in db.query(Role).order_by(Role.name.asc()).all()
         ],
     }
 
@@ -204,18 +199,17 @@ def create_role(
     db: DbSession = None,
 ):
     """Crea un nuevo rol global."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
+    from itcj2.core.models.role import Role
 
     name = body.name.strip()
     if not name:
         raise HTTPException(400, detail={"status": "error", "error": "name_required"})
-    if flask_db.session.query(Role).filter_by(name=name).first():
+    if db.query(Role).filter_by(name=name).first():
         raise HTTPException(409, detail={"status": "error", "error": "role_exists"})
 
     r = Role(name=name)
-    flask_db.session.add(r)
-    flask_db.session.commit()
+    db.add(r)
+    db.commit()
     logger.info(f"Rol '{name}' creado por usuario {int(user['sub'])}")
     return {"status": "ok", "data": {"name": r.name}}
 
@@ -227,15 +221,14 @@ def delete_role(
     db: DbSession = None,
 ):
     """Elimina un rol global."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
+    from itcj2.core.models.role import Role
 
-    r = flask_db.session.query(Role).filter_by(name=role_name).first()
+    r = db.query(Role).filter_by(name=role_name).first()
     if not r:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
-    flask_db.session.delete(r)
-    flask_db.session.commit()
+    db.delete(r)
+    db.commit()
     logger.info(f"Rol '{role_name}' eliminado por usuario {int(user['sub'])}")
 
 
@@ -248,7 +241,7 @@ def list_perms(
     db: DbSession = None,
 ):
     """Lista permisos de una aplicación."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     return {"status": "ok", "data": svc.list_perms(app_key)}
 
@@ -261,9 +254,8 @@ def create_perm(
     db: DbSession = None,
 ):
     """Crea un permiso en una aplicación."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.permission import Permission
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.services import authz_service as svc
 
     app = svc.get_or_404_app(app_key)
     code = body.code.strip()
@@ -271,12 +263,12 @@ def create_perm(
     if not code or not name:
         raise HTTPException(400, detail={"status": "error", "error": "code_and_name_required"})
 
-    if flask_db.session.query(Permission).filter_by(app_id=app.id, code=code).first():
+    if db.query(Permission).filter_by(app_id=app.id, code=code).first():
         raise HTTPException(409, detail={"status": "error", "error": "permission_exists"})
 
     perm = Permission(app_id=app.id, code=code, name=name, description=body.description or None)
-    flask_db.session.add(perm)
-    flask_db.session.commit()
+    db.add(perm)
+    db.commit()
     return {"status": "ok", "data": {"code": perm.code, "name": perm.name, "description": perm.description}}
 
 
@@ -288,17 +280,16 @@ def delete_perm(
     db: DbSession = None,
 ):
     """Elimina un permiso de una aplicación."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.permission import Permission
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.services import authz_service as svc
 
     app = svc.get_or_404_app(app_key)
-    perm = flask_db.session.query(Permission).filter_by(app_id=app.id, code=code).first()
+    perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
-    flask_db.session.delete(perm)
-    flask_db.session.commit()
+    db.delete(perm)
+    db.commit()
 
 
 # ── Role ⇄ Permission (por App) ───────────────────────────────────────────────
@@ -311,19 +302,18 @@ def get_role_perms(
     db: DbSession = None,
 ):
     """Permisos asignados a un rol en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
-    from itcj.core.models.permission import Permission
-    from itcj.core.models.role_permission import RolePermission
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+    from itcj2.core.services import authz_service as svc
 
     app = svc.get_or_404_app(app_key)
-    role = flask_db.session.query(Role).filter_by(name=role_name).first()
+    role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
 
     rows = (
-        flask_db.session.query(Permission.code)
+        db.query(Permission.code)
         .join(RolePermission, RolePermission.perm_id == Permission.id)
         .filter(RolePermission.role_id == role.id, Permission.app_id == app.id)
         .order_by(Permission.code.asc())
@@ -341,39 +331,38 @@ def replace_role_perms(
     db: DbSession = None,
 ):
     """Reemplaza todos los permisos de un rol en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
-    from itcj.core.models.permission import Permission
-    from itcj.core.models.role_permission import RolePermission
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+    from itcj2.core.services import authz_service as svc
 
     app = svc.get_or_404_app(app_key)
-    role = flask_db.session.query(Role).filter_by(name=role_name).first()
+    role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
 
     # Eliminar permisos actuales de esta app para el rol
     perm_ids_to_delete = (
-        flask_db.session.query(RolePermission.perm_id)
+        db.query(RolePermission.perm_id)
         .join(Permission, Permission.id == RolePermission.perm_id)
         .filter(RolePermission.role_id == role.id, Permission.app_id == app.id)
         .scalar_subquery()
     )
-    flask_db.session.query(RolePermission).filter(
+    db.query(RolePermission).filter(
         RolePermission.role_id == role.id,
         RolePermission.perm_id.in_(perm_ids_to_delete),
     ).delete(synchronize_session=False)
 
     # Insertar los nuevos
     if body.codes:
-        perms = flask_db.session.query(Permission).filter(
+        perms = db.query(Permission).filter(
             Permission.app_id == app.id, Permission.code.in_(body.codes)
         ).all()
-        flask_db.session.bulk_save_objects(
+        db.bulk_save_objects(
             [RolePermission(role_id=role.id, perm_id=p.id) for p in perms]
         )
 
-    flask_db.session.commit()
+    db.commit()
     return {"status": "ok", "data": None}
 
 
@@ -386,23 +375,22 @@ def add_role_perm(
     db: DbSession = None,
 ):
     """Agrega un permiso a un rol en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
-    from itcj.core.models.permission import Permission
-    from itcj.core.models.role_permission import RolePermission
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+    from itcj2.core.services import authz_service as svc
 
     app = svc.get_or_404_app(app_key)
-    role = flask_db.session.query(Role).filter_by(name=role_name).first()
+    role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
-    perm = flask_db.session.query(Permission).filter_by(app_id=app.id, code=code).first()
+    perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
         raise HTTPException(404, detail={"status": "error", "error": "perm_not_found"})
 
-    if not flask_db.session.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first():
-        flask_db.session.add(RolePermission(role_id=role.id, perm_id=perm.id))
-        flask_db.session.commit()
+    if not db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first():
+        db.add(RolePermission(role_id=role.id, perm_id=perm.id))
+        db.commit()
     return {"status": "ok", "data": None}
 
 
@@ -415,22 +403,21 @@ def remove_role_perm(
     db: DbSession = None,
 ):
     """Remueve un permiso de un rol en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
-    from itcj.core.models.permission import Permission
-    from itcj.core.models.role_permission import RolePermission
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+    from itcj2.core.services import authz_service as svc
 
     app = svc.get_or_404_app(app_key)
-    role = flask_db.session.query(Role).filter_by(name=role_name).first()
+    role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
-    perm = flask_db.session.query(Permission).filter_by(app_id=app.id, code=code).first()
+    perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
         raise HTTPException(404, detail={"status": "error", "error": "perm_not_found"})
 
-    flask_db.session.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).delete()
-    flask_db.session.commit()
+    db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).delete()
+    db.commit()
 
 
 # ── Usuario ⇄ Rol / Permiso por App ──────────────────────────────────────────
@@ -443,7 +430,7 @@ def get_user_roles(
     db: DbSession = None,
 ):
     """Roles de un usuario en una app."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     return {"status": "ok", "data": sorted(list(svc.user_roles_in_app(user_id, app_key)))}
 
@@ -457,7 +444,7 @@ def add_user_role(
     db: DbSession = None,
 ):
     """Asigna un rol a un usuario en una app."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     role_name = body.role_name.strip()
     if not role_name:
@@ -476,7 +463,7 @@ def remove_user_role(
     db: DbSession = None,
 ):
     """Revoca un rol de un usuario en una app."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     svc.revoke_role(user_id, app_key, role_name)
 
@@ -489,7 +476,7 @@ def get_user_perms(
     db: DbSession = None,
 ):
     """Permisos directos de un usuario en una app."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     return {"status": "ok", "data": sorted(list(svc.user_direct_perms_in_app(user_id, app_key)))}
 
@@ -503,7 +490,7 @@ def add_user_perm(
     db: DbSession = None,
 ):
     """Asigna un permiso directo a un usuario en una app."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     code = body.code.strip()
     if not code:
@@ -522,7 +509,7 @@ def remove_user_perm(
     db: DbSession = None,
 ):
     """Revoca un permiso directo de un usuario en una app."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     svc.revoke_perm(user_id, app_key, code)
 
@@ -535,6 +522,6 @@ def get_user_effective_perms(
     db: DbSession = None,
 ):
     """Permisos efectivos de un usuario en una app (roles + directos + puestos)."""
-    from itcj.core.services import authz_service as svc
+    from itcj2.core.services import authz_service as svc
 
     return {"status": "ok", "data": svc.effective_perms(user_id, app_key)}

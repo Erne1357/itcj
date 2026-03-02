@@ -70,7 +70,7 @@ def list_positions(
     db: DbSession = None,
 ):
     """Lista todos los puestos organizacionales."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     positions = svc.list_positions(department)
     return {
@@ -99,7 +99,7 @@ def get_user_positions(
     db: DbSession = None,
 ):
     """Puestos activos de un usuario."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     return {"status": "ok", "data": svc.get_user_active_positions(user_id)}
 
@@ -112,7 +112,7 @@ def get_user_position_permissions(
     db: DbSession = None,
 ):
     """Permisos efectivos de un usuario vía sus puestos en una app."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     try:
         perms = svc.get_position_effective_permissions(user_id, app_key)
@@ -128,7 +128,7 @@ def get_position(
     db: DbSession = None,
 ):
     """Detalle completo de un puesto con usuarios y asignaciones de apps."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     position = svc.get_position_by_id(position_id)
     if not position:
@@ -158,7 +158,7 @@ def create_position(
     db: DbSession = None,
 ):
     """Crea un nuevo puesto organizacional."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     code = body.code.strip()
     title = body.title.strip()
@@ -197,7 +197,7 @@ def update_position(
     db: DbSession = None,
 ):
     """Actualiza un puesto organizacional."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     updates = body.model_dump(exclude_none=True)
     try:
@@ -228,8 +228,8 @@ def delete_position(
     db: DbSession = None,
 ):
     """Elimina un puesto (solo si no tiene usuarios activos)."""
-    from itcj.core.models.position import UserPosition
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.models.position import UserPosition
+    from itcj2.core.services import positions_service as svc
 
     active = UserPosition.query.filter_by(position_id=position_id, is_active=True).count()
     if active > 0:
@@ -252,7 +252,7 @@ def get_position_current_user(
     db: DbSession = None,
 ):
     """Usuario actualmente asignado al puesto."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     return {"status": "ok", "data": svc.get_position_current_user(position_id)}
 
@@ -264,7 +264,7 @@ def get_position_all_users(
     db: DbSession = None,
 ):
     """Todos los usuarios asignados al puesto."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     return {"status": "ok", "data": svc.get_position_current_users(position_id)}
 
@@ -277,7 +277,7 @@ def assign_user_to_position(
     db: DbSession = None,
 ):
     """Asigna un usuario a un puesto."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     start_date = None
     if body.start_date:
@@ -310,7 +310,7 @@ def transfer_position(
     db: DbSession = None,
 ):
     """Transfiere un puesto de un usuario a otro."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     transfer_date = None
     if body.transfer_date:
@@ -341,7 +341,7 @@ def remove_user_from_position(
     db: DbSession = None,
 ):
     """Remueve un usuario de un puesto."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     end_date = None
     if body.end_date:
@@ -372,7 +372,7 @@ def get_position_assignments(
     db: DbSession = None,
 ):
     """Asignaciones de apps (roles y permisos) del puesto."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     try:
         return {"status": "ok", "data": svc.get_position_assignments(position_id)}
@@ -388,14 +388,13 @@ def get_position_app_roles(
     db: DbSession = None,
 ):
     """Roles asignados a un puesto en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.role import Role
-    from itcj.core.models.position import PositionAppRole
-    from itcj.core.services.authz_service import get_or_404_app
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.position import PositionAppRole
+    from itcj2.core.services.authz_service import get_or_404_app
 
     app = get_or_404_app(app_key)
     roles = (
-        flask_db.session.query(Role.name)
+        db.query(Role.name)
         .join(PositionAppRole, PositionAppRole.role_id == Role.id)
         .filter(PositionAppRole.position_id == position_id, PositionAppRole.app_id == app.id)
         .all()
@@ -412,7 +411,7 @@ def assign_role_to_position(
     db: DbSession = None,
 ):
     """Asigna un rol a un puesto en una app."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     role_name = body.role_name.strip()
     if not role_name:
@@ -434,7 +433,7 @@ def remove_role_from_position(
     db: DbSession = None,
 ):
     """Remueve un rol de un puesto en una app."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     svc.remove_role_from_position(position_id, app_key, role_name)
 
@@ -447,14 +446,13 @@ def get_position_app_perms(
     db: DbSession = None,
 ):
     """Permisos directos asignados a un puesto en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.permission import Permission
-    from itcj.core.models.position import PositionAppPerm
-    from itcj.core.services.authz_service import get_or_404_app
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.position import PositionAppPerm
+    from itcj2.core.services.authz_service import get_or_404_app
 
     app = get_or_404_app(app_key)
     perms = (
-        flask_db.session.query(Permission.code)
+        db.query(Permission.code)
         .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
         .filter(
             PositionAppPerm.position_id == position_id,
@@ -475,7 +473,7 @@ def assign_perm_to_position(
     db: DbSession = None,
 ):
     """Asigna un permiso directo a un puesto en una app."""
-    from itcj.core.services import positions_service as svc
+    from itcj2.core.services import positions_service as svc
 
     perm_code = body.code.strip()
     if not perm_code:
@@ -497,19 +495,18 @@ def remove_perm_from_position(
     db: DbSession = None,
 ):
     """Remueve un permiso de un puesto en una app."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.position import PositionAppPerm
-    from itcj.core.services.authz_service import get_or_404_app, get_perm
+    from itcj2.core.models.position import PositionAppPerm
+    from itcj2.core.services.authz_service import get_or_404_app, get_perm
 
     app = get_or_404_app(app_key)
     perm = get_perm(app.id, perm_code)
     if not perm:
         raise HTTPException(404, detail={"status": "error", "error": "permission_not_found"})
 
-    flask_db.session.query(PositionAppPerm).filter_by(
+    db.query(PositionAppPerm).filter_by(
         position_id=position_id, app_id=app.id, perm_id=perm.id
     ).delete()
-    flask_db.session.commit()
+    db.commit()
 
 
 @router.get("/{position_id}/effective-perms/{app_key}")
@@ -520,16 +517,15 @@ def get_position_effective_perms(
     db: DbSession = None,
 ):
     """Permisos efectivos de un puesto en una app (roles + permisos directos)."""
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.permission import Permission
-    from itcj.core.models.role_permission import RolePermission
-    from itcj.core.models.position import PositionAppRole, PositionAppPerm
-    from itcj.core.services.authz_service import get_or_404_app
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+    from itcj2.core.models.position import PositionAppRole, PositionAppPerm
+    from itcj2.core.services.authz_service import get_or_404_app
 
     app = get_or_404_app(app_key)
 
     perms_via_roles = (
-        flask_db.session.query(Permission.code)
+        db.query(Permission.code)
         .join(RolePermission, RolePermission.perm_id == Permission.id)
         .join(PositionAppRole, PositionAppRole.role_id == RolePermission.role_id)
         .filter(
@@ -541,7 +537,7 @@ def get_position_effective_perms(
     )
 
     direct_perms = (
-        flask_db.session.query(Permission.code)
+        db.query(Permission.code)
         .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
         .filter(
             PositionAppPerm.position_id == position_id,

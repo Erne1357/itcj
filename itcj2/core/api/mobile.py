@@ -17,7 +17,7 @@ def get_mobile_apps(
     db: DbSession = None,
 ):
     """Apps habilitadas para móvil según permisos del usuario."""
-    from itcj.core.services import mobile_service as svc
+    from itcj2.core.services import mobile_service as svc
 
     user_id = int(user["sub"])
     apps = svc.get_mobile_apps_for_user(user_id)
@@ -31,6 +31,6 @@ def get_user_type(
     db: DbSession = None,
 ):
     """Tipo de usuario: 'student' o 'staff'."""
-    from itcj.core.services import mobile_service as svc
+    from itcj2.core.services import mobile_service as svc
 
     return {"status": "ok", "data": {"user_type": svc.get_user_type(int(user["sub"]))}}
