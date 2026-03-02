@@ -19,3 +19,21 @@ def register_routers(app: FastAPI):
     # VisteTec API v2
     from itcj2.apps.vistetec.router import vistetec_router
     app.include_router(vistetec_router)
+
+    # ── Fase 4: Page routers ─────────────────────────────────────────────────
+    # Core pages (prefix /itcj): login, dashboard, perfil, config, móvil
+    from itcj2.core.pages.router import core_pages_router
+    app.include_router(core_pages_router)
+
+    # Help-Desk pages (prefix /help-desk): landing, user, secretary, technician,
+    # department, inventory, admin
+    from itcj2.apps.helpdesk.pages.router import helpdesk_pages_router
+    app.include_router(helpdesk_pages_router)
+
+    # AgendaTec pages (prefix /agendatec): landing, student, coord, admin, social, surveys
+    from itcj2.apps.agendatec.pages.router import agendatec_pages_router
+    app.include_router(agendatec_pages_router)
+
+    # VisteTec pages (prefix /vistetec): landing, student, volunteer, admin
+    from itcj2.apps.vistetec.pages.router import vistetec_pages_router
+    app.include_router(vistetec_pages_router)

@@ -12,47 +12,12 @@ async def lifespan(app: FastAPI):
     """Startup y shutdown de la aplicación."""
     logger.info("FastAPI ITCJ v2 iniciando...")
 
-    # Inicializar Flask-SQLAlchemy para que los servicios compartidos
-    # de itcj/ (auth_service, notification_service, etc.) funcionen.
-    # Ellos usan db.session de Flask-SQLAlchemy internamente.
-    _init_flask_db()
-
     yield
 
-    # Shutdown: cerrar pool de conexiones de FastAPI
+    # Shutdown: cerrar pool de conexiones
     from itcj2.database import engine
     engine.dispose()
     logger.info("FastAPI ITCJ v2 detenido.")
-
-
-def _init_flask_db():
-    """Crea una mini-app Flask headless para que db.session funcione.
-
-    Los servicios en itcj/core/services/ usan ``db.session`` de
-    Flask-SQLAlchemy. Para que funcionen sin levantar Flask completo
-    creamos una app mínima que solo inicializa la extensión de DB.
-    """
-    from flask import Flask
-    from itcj.core.extensions import db, migrate
-    from itcj2.config import get_settings
-
-    settings = get_settings()
-
-    flask_app = Flask(__name__)
-    flask_app.config["SQLALCHEMY_DATABASE_URI"] = settings.DATABASE_URL
-    flask_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    flask_app.config["SECRET_KEY"] = settings.SECRET_KEY
-    flask_app.config["JWT_EXPIRES_HOURS"] = settings.JWT_EXPIRES_HOURS
-    flask_app.config["COOKIE_SAMESITE"] = settings.COOKIE_SAMESITE
-    flask_app.config["COOKIE_SECURE"] = settings.COOKIE_SECURE
-
-    db.init_app(flask_app)
-
-    # Pushear el contexto para que db.session esté disponible globalmente
-    ctx = flask_app.app_context()
-    ctx.push()
-
-    logger.info("Flask-SQLAlchemy inicializado para servicios compartidos.")
 
 
 def create_app() -> FastAPI:
@@ -88,6 +53,21 @@ def create_app() -> FastAPI:
 def _register_error_handlers(app: FastAPI):
     """Manejo centralizado de errores (equivalente a register_error_handlers de Flask)."""
 
+    # ── Páginas: redirecciones en lugar de JSON ──────────────────────────────
+    from fastapi.responses import RedirectResponse
+    from .exceptions import PageForbidden, PageLoginRequired
+
+    @app.exception_handler(PageLoginRequired)
+    async def page_login_required_handler(request: Request, exc: PageLoginRequired):
+        """Redirige a login cuando una página requiere autenticación."""
+        return RedirectResponse("/itcj/auth/login", status_code=302)
+
+    @app.exception_handler(PageForbidden)
+    async def page_forbidden_handler(request: Request, exc: PageForbidden):
+        """Redirige al dashboard cuando el usuario no tiene permisos de página."""
+        return RedirectResponse("/itcj/dashboard", status_code=302)
+
+    # ── Errores HTTP generales ────────────────────────────────────────────────
     ERROR_MESSAGES = {
         400: {"title": "Solicitud Incorrecta", "message": "La solicitud no pudo ser procesada."},
         401: {"title": "No Autorizado", "message": "Necesitas autenticarte para acceder a este recurso."},
