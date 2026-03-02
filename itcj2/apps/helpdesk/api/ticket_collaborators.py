@@ -6,7 +6,6 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.utils import flask_service_call
 from itcj2.apps.helpdesk.schemas.tickets import (
     AddCollaboratorRequest,
     AddCollaboratorsBatchRequest,
@@ -24,15 +23,15 @@ def add_collaborator(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     user_id = int(user["sub"])
 
     if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para gestionar colaboradores de este ticket"})
 
-    collaborator = flask_service_call(
-        collaborator_service.add_collaborator,
+    collaborator = collaborator_service.add_collaborator(
+        db,
         ticket_id=ticket_id,
         user_id=body.user_id,
         collaboration_role=body.collaboration_role,
@@ -52,7 +51,7 @@ def add_multiple_collaborators(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     user_id = int(user["sub"])
 
@@ -63,8 +62,8 @@ def add_multiple_collaborators(
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para gestionar colaboradores de este ticket"})
 
     collaborators_data = [c.model_dump() for c in body.collaborators]
-    collaborators = flask_service_call(
-        collaborator_service.add_multiple_collaborators,
+    collaborators = collaborator_service.add_multiple_collaborators(
+        db,
         ticket_id=ticket_id,
         collaborators_data=collaborators_data,
         added_by_id=user_id,
@@ -84,11 +83,11 @@ def get_collaborators(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
-    from itcj.apps.helpdesk.services.ticket_service import get_ticket_by_id
+    from itcj2.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services.ticket_service import get_ticket_by_id
 
     user_id = int(user["sub"])
-    flask_service_call(get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     collaborators = collaborator_service.get_ticket_collaborators(ticket_id)
     return {
@@ -106,7 +105,7 @@ def update_collaborator(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     user_id = int(user["sub"])
 
@@ -116,8 +115,8 @@ def update_collaborator(
     if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar colaboradores de este ticket"})
 
-    collaborator = flask_service_call(
-        collaborator_service.update_collaborator,
+    collaborator = collaborator_service.update_collaborator(
+        db,
         ticket_id=ticket_id,
         user_id=collab_user_id,
         time_invested_minutes=body.time_invested_minutes,
@@ -135,14 +134,14 @@ def remove_collaborator(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     user_id = int(user["sub"])
 
     if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para remover colaboradores de este ticket"})
 
-    flask_service_call(collaborator_service.remove_collaborator, ticket_id=ticket_id, user_id=collab_user_id)
+    collaborator_service.remove_collaborator(db, ticket_id=ticket_id, user_id=collab_user_id)
 
     logger.info(f"Colaborador {collab_user_id} removido del ticket {ticket_id}")
     return {"message": "Colaborador removido exitosamente"}
@@ -155,7 +154,7 @@ def suggest_role(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     suggested_role = collaborator_service.suggest_collaboration_role(
         user_id=collab_user_id, ticket_id=ticket_id
@@ -169,7 +168,7 @@ def my_collaborations(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     user_id = int(user["sub"])
     params = request.query_params
@@ -188,7 +187,7 @@ def my_collaboration_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import collaborator_service
+    from itcj2.apps.helpdesk.services import collaborator_service
 
     user_id = int(user["sub"])
     days = min(int(request.query_params.get("days", "30")), 365)

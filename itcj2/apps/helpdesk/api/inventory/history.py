@@ -16,9 +16,9 @@ def get_item_history(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -30,7 +30,7 @@ def get_item_history(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver el historial de este equipo"})
@@ -56,8 +56,8 @@ def get_recent_events(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -66,7 +66,7 @@ def get_recent_events(
     dept_filter = department_id
     if "admin" not in user_roles and user_id not in secretary_comp_center:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
                 dept_filter = user_dept.id
@@ -92,8 +92,8 @@ def get_user_assignment_history(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.all"]),
     db: DbSession = None,
 ):
-    from itcj.core.models.user import User
-    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.core.models.user import User
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     target = User.query.get(target_user_id)
     if not target:
@@ -118,9 +118,9 @@ def get_maintenance_history(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -132,7 +132,7 @@ def get_maintenance_history(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
                 raise HTTPException(403, detail={"success": False, "error": "Sin permiso"})
@@ -155,7 +155,7 @@ def get_transfers(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.all"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     transfers = InventoryHistoryService.get_transfers_between_departments(days)
     transfers_data = [t.to_dict(include_relations=True) for t in transfers]

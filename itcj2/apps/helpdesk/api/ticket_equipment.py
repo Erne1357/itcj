@@ -6,7 +6,6 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.utils import flask_service_call
 from itcj2.apps.helpdesk.schemas.tickets import AddEquipmentRequest, ReplaceEquipmentRequest
 
 router = APIRouter(tags=["helpdesk-equipment"])
@@ -20,17 +19,17 @@ def add_equipment_to_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     user_roles = user_roles_in_app(user_id, "helpdesk")
     if ticket.requester_id != user_id and ticket.assigned_to_user_id != user_id and "admin" not in user_roles:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar los equipos de este ticket"})
 
-    from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+    from itcj2.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
     try:
         added = TicketInventoryService.add_items_to_ticket(ticket_id, body.item_ids)
     except ValueError as e:
@@ -47,17 +46,17 @@ def remove_equipment_from_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     user_roles = user_roles_in_app(user_id, "helpdesk")
     if ticket.requester_id != user_id and ticket.assigned_to_user_id != user_id and "admin" not in user_roles:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar los equipos de este ticket"})
 
-    from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+    from itcj2.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
     try:
         TicketInventoryService.remove_item_from_ticket(ticket_id, item_id)
     except ValueError as e:
@@ -74,17 +73,17 @@ def replace_ticket_equipment(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     user_roles = user_roles_in_app(user_id, "helpdesk")
     if ticket.requester_id != user_id and ticket.assigned_to_user_id != user_id and "admin" not in user_roles:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar los equipos de este ticket"})
 
-    from itcj.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
+    from itcj2.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
     try:
         replaced = TicketInventoryService.replace_ticket_items(ticket_id, body.item_ids)
     except ValueError as e:
@@ -100,10 +99,10 @@ def get_ticket_equipment(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     equipment = [item.to_dict(include_relations=True) for item in ticket.inventory_items]
     return {"ticket_id": ticket_id, "equipment": equipment, "count": len(equipment)}
@@ -116,9 +115,8 @@ def get_tickets_by_equipment(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
     from sqlalchemy import or_
 
     user_id = int(user["sub"])
@@ -132,7 +130,7 @@ def get_tickets_by_equipment(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center:
         if item.assigned_to_user_id != user_id:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or user_dept.id != item.department_id:
                 if "technician" not in user_roles and "department_head" not in user_roles:
@@ -142,7 +140,7 @@ def get_tickets_by_equipment(
     include_closed = params.get("include_closed", "false").lower() == "true"
     limit = int(params.get("limit", "50"))
 
-    query = flask_db.session.query(Ticket).join(
+    query = db.query(Ticket).join(
         TicketInventoryItem, TicketInventoryItem.ticket_id == Ticket.id
     ).filter(TicketInventoryItem.inventory_item_id == item_id)
 
@@ -155,7 +153,7 @@ def get_tickets_by_equipment(
             Ticket.assigned_to_user_id == user_id,
         ]
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
                 conditions.append(Ticket.requester_department_id == user_dept.id)

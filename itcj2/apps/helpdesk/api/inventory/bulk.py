@@ -17,7 +17,7 @@ def validate_serial_numbers(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.bulk.create"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
+    from itcj2.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
 
     if not body.get("serial_numbers") or not isinstance(body["serial_numbers"], list):
         raise HTTPException(400, detail={"success": False, "error": "serial_numbers (array) requerido"})
@@ -33,7 +33,7 @@ def get_next_inventory_number(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.bulk.create"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
+    from itcj2.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
 
     try:
         inventory_number = InventoryBulkService.get_next_inventory_number(category_id, year)
@@ -51,7 +51,7 @@ def bulk_create_items(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.bulk.create"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
+    from itcj2.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
 
     user_id = int(user["sub"])
 

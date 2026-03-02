@@ -15,11 +15,10 @@ def assign_to_user(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.assign"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
-    from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
     assigned_by_id = int(user["sub"])
     user_roles = user_roles_in_app(assigned_by_id, "helpdesk")
@@ -35,7 +34,7 @@ def assign_to_user(
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if "admin" not in user_roles and assigned_by_id not in secretary_comp_center:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(assigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para asignar equipos de este departamento"})
@@ -54,7 +53,7 @@ def assign_to_user(
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error: {str(e)}"})
 
 
@@ -65,10 +64,9 @@ def unassign_from_user(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.unassign"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     unassigned_by_id = int(user["sub"])
     user_roles = user_roles_in_app(unassigned_by_id, "helpdesk")
@@ -85,7 +83,7 @@ def unassign_from_user(
         raise HTTPException(400, detail={"success": False, "error": "El equipo no está asignado a ningún usuario"})
 
     if "admin" not in user_roles and unassigned_by_id not in secretary_comp_center:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(unassigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para liberar equipos de este departamento"})
@@ -100,7 +98,7 @@ def unassign_from_user(
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error: {str(e)}"})
 
 
@@ -111,10 +109,9 @@ def transfer_between_departments(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.transfer"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
-    from itcj.apps.helpdesk.services import InventoryHistoryService
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
+    from itcj2.apps.helpdesk.services import InventoryHistoryService
 
     user_id = int(user["sub"])
 
@@ -157,11 +154,11 @@ def transfer_between_departments(
             notes=body["notes"],
             ip_address=request.client.host if request.client else None,
         )
-        flask_db.session.commit()
+        db.commit()
 
         return {"success": True, "message": f"Equipo transferido a {new_dept.name}", "data": item.to_dict(include_relations=True)}
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error: {str(e)}"})
 
 
@@ -172,8 +169,8 @@ def bulk_assign(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.assign"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     assigned_by_id = int(user["sub"])
 
@@ -215,10 +212,9 @@ def update_location(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.update.location"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services import InventoryHistoryService
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services import InventoryHistoryService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -234,7 +230,7 @@ def update_location(
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != item.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para actualizar equipos de este departamento"})
@@ -250,9 +246,9 @@ def update_location(
             notes=body.get("notes", "Ubicación actualizada"),
             ip_address=request.client.host if request.client else None,
         )
-        flask_db.session.commit()
+        db.commit()
 
         return {"success": True, "message": "Ubicación actualizada", "data": item.to_dict(include_relations=True)}
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error: {str(e)}"})

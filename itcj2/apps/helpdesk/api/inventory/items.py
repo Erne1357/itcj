@@ -18,8 +18,8 @@ def get_items(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import or_
 
     user_id = int(user["sub"])
@@ -32,7 +32,7 @@ def get_items(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
                 query = query.filter(InventoryItem.department_id == user_dept.id)
@@ -97,7 +97,7 @@ def get_my_equipment(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
     items = InventoryService.get_items_for_user(user_id, category_id)
@@ -111,8 +111,8 @@ def get_user_equipment(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     current_user_id = int(user["sub"])
     user_roles = user_roles_in_app(current_user_id, "helpdesk")
@@ -132,15 +132,15 @@ def get_department_equipment(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.own_dept"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
@@ -155,8 +155,8 @@ def get_item(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -168,7 +168,7 @@ def get_item(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este equipo"})
@@ -186,9 +186,8 @@ def get_item_tickets(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -200,7 +199,7 @@ def get_item_tickets(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso"})
@@ -213,7 +212,7 @@ def get_item_tickets(
     page = int(params.get("page", "1"))
     per_page = min(int(params.get("per_page", "20")), 100)
 
-    query = flask_db.session.query(Ticket).join(
+    query = db.query(Ticket).join(
         TicketInventoryItem, TicketInventoryItem.ticket_id == Ticket.id
     ).filter(TicketInventoryItem.inventory_item_id == item_id).order_by(Ticket.created_at.desc())
 
@@ -240,9 +239,8 @@ def create_item(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
-    from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
     user_id = int(user["sub"])
     data = dict(body)
@@ -287,7 +285,7 @@ def create_item(
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error al crear equipo: {str(e)}"})
 
 
@@ -299,9 +297,8 @@ def update_item(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
     item = InventoryItem.query.get(item_id)
@@ -324,7 +321,7 @@ def update_item(
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error al actualizar: {str(e)}"})
 
 
@@ -336,10 +333,9 @@ def change_item_status(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
-    from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
+    from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
     user_id = int(user["sub"])
     if not body.get("status"):
@@ -363,7 +359,7 @@ def change_item_status(
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error: {str(e)}"})
 
 
@@ -375,8 +371,7 @@ def deactivate_item(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.delete"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_service import InventoryService
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
     if not body.get("reason") or len(body["reason"].strip()) < 10:
@@ -391,5 +386,5 @@ def deactivate_item(
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
     except Exception as e:
-        flask_db.session.rollback()
+        db.rollback()
         raise HTTPException(500, detail={"success": False, "error": f"Error: {str(e)}"})

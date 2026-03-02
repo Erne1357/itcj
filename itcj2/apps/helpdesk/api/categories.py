@@ -27,7 +27,7 @@ def list_categories(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.read"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category
+    from itcj2.apps.helpdesk.models import Category
 
     query = Category.query
 
@@ -59,14 +59,13 @@ def get_categories_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.read"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category, Ticket
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category, Ticket
     from sqlalchemy import func
 
-    stats = flask_db.session.query(
+    stats = db.query(
         Category.id, Category.name, Category.area, Category.is_active,
         func.count(Ticket.id).label("tickets_count"),
-        func.count(flask_db.case((Ticket.status.notin_(["CLOSED", "CANCELED"]), Ticket.id))).label("active_tickets_count"),
+        func.count(db.case((Ticket.status.notin_(["CLOSED", "CANCELED"]), Ticket.id))).label("active_tickets_count"),
     ).outerjoin(Ticket, Ticket.category_id == Category.id).group_by(
         Category.id, Category.name, Category.area, Category.is_active
     ).order_by(Category.area, Category.display_order).all()
@@ -90,7 +89,7 @@ def get_category(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.read"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category, Ticket
+    from itcj2.apps.helpdesk.models import Category, Ticket
 
     category = Category.query.get(category_id)
     if not category:
@@ -109,8 +108,8 @@ def create_category(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category
+    from sqlalchemy import func
 
     user_id = int(user["sub"])
 
@@ -122,7 +121,7 @@ def create_category(
         raise HTTPException(409, detail={"error": "code_exists", "message": f'Ya existe una categoría con el código "{body.code}"'})
 
     if body.display_order is None:
-        max_order = flask_db.session.query(flask_db.func.max(Category.display_order)).filter_by(area=body.area).scalar()
+        max_order = db.query(func.max(Category.display_order)).filter_by(area=body.area).scalar()
         display_order = (max_order or 0) + 1
     else:
         display_order = body.display_order
@@ -136,8 +135,8 @@ def create_category(
         is_active=True,
     )
 
-    flask_db.session.add(category)
-    flask_db.session.commit()
+    db.add(category)
+    db.commit()
 
     logger.info(f"Categoría '{category.name}' creada por usuario {user_id}")
     return {"message": "Categoría creada exitosamente", "category": category.to_dict()}
@@ -150,8 +149,7 @@ def update_category(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category
 
     user_id = int(user["sub"])
     category = Category.query.get(category_id)
@@ -172,7 +170,7 @@ def update_category(
             raise HTTPException(400, detail={"error": "invalid_display_order", "message": "El display_order debe ser un número entero positivo"})
         category.display_order = body.display_order
 
-    flask_db.session.commit()
+    db.commit()
     logger.info(f"Categoría {category_id} actualizada por usuario {user_id}")
     return {"message": "Categoría actualizada exitosamente", "category": category.to_dict()}
 
@@ -184,8 +182,7 @@ def toggle_category(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category, Ticket
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category, Ticket
 
     user_id = int(user["sub"])
     category = Category.query.get(category_id)
@@ -205,7 +202,7 @@ def toggle_category(
             })
 
     category.is_active = body.is_active
-    flask_db.session.commit()
+    db.commit()
 
     action = "activada" if body.is_active else "desactivada"
     logger.info(f"Categoría {category_id} {action} por usuario {user_id}")
@@ -218,8 +215,7 @@ def reorder_categories(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category
 
     user_id = int(user["sub"])
 
@@ -236,7 +232,7 @@ def reorder_categories(
             raise HTTPException(400, detail={"error": "area_mismatch", "message": f"La categoría {category.name} no pertenece al área {body.area}"})
         category.display_order = item["display_order"]
 
-    flask_db.session.commit()
+    db.commit()
     logger.info(f"Categorías del área {body.area} reordenadas por usuario {user_id}")
 
     categories = Category.query.filter_by(area=body.area).order_by(Category.display_order).all()
@@ -249,8 +245,7 @@ def delete_category(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category, Ticket
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category, Ticket
 
     user_id = int(user["sub"])
     category = Category.query.get(category_id)
@@ -266,7 +261,7 @@ def delete_category(
         })
 
     category.is_active = False
-    flask_db.session.commit()
+    db.commit()
 
     logger.info(f"Categoría {category_id} eliminada (soft delete) por usuario {user_id}")
     return {"message": "Categoría eliminada exitosamente"}
@@ -278,7 +273,7 @@ def get_category_field_template(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.read"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category
+    from itcj2.apps.helpdesk.models import Category
 
     category = Category.query.get(category_id)
     if not category:
@@ -295,8 +290,7 @@ def update_category_field_template(
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Category
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Category
 
     user_id = int(user["sub"])
     category = Category.query.get(category_id)
@@ -305,7 +299,7 @@ def update_category_field_template(
 
     category.field_template = body.model_dump()
     category.updated_at = datetime.now()
-    flask_db.session.commit()
+    db.commit()
 
     logger.info(f"Field template para categoría {category_id} actualizado por usuario {user_id}")
     return {"message": "Plantilla de campos actualizada exitosamente", "field_template": category.field_template}

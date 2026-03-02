@@ -13,7 +13,7 @@ def get_overview(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     stats = InventoryStatsService.get_overview_stats()
     return {"success": True, "data": stats}
 
@@ -23,7 +23,7 @@ def get_by_category(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     stats = InventoryStatsService.get_by_category()
     return {"success": True, "data": stats, "total": len(stats)}
 
@@ -33,7 +33,7 @@ def get_by_department(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     stats = InventoryStatsService.get_by_department()
     return {"success": True, "data": stats, "total": len(stats)}
 
@@ -45,7 +45,7 @@ def get_problematic_items(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 
     problematic = InventoryStatsService.get_problematic_items(min_tickets=min_tickets, days=days)
 
@@ -66,7 +66,7 @@ def get_warranty_report(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     report = InventoryStatsService.get_warranty_report()
     return {"success": True, "data": report}
 
@@ -76,7 +76,7 @@ def get_maintenance_report(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     report = InventoryStatsService.get_maintenance_report()
     return {"success": True, "data": report}
 
@@ -86,7 +86,7 @@ def get_lifecycle_report(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     report = InventoryStatsService.get_lifecycle_report()
     return {"success": True, "data": report}
 
@@ -97,9 +97,8 @@ def get_department_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.own_dept"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem, InventoryCategory
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem, InventoryCategory
     from sqlalchemy import func
 
     user_id = int(user["sub"])
@@ -107,14 +106,14 @@ def get_department_stats(
     secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
     total = InventoryItem.query.filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).count()
 
-    by_status = flask_db.session.query(
+    by_status = db.query(
         InventoryItem.status, func.count(InventoryItem.id)
     ).filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).group_by(InventoryItem.status).all()
     status_counts = {status: count for status, count in by_status}
@@ -126,7 +125,7 @@ def get_department_stats(
         InventoryItem.department_id == department_id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.is_(None),
     ).count()
 
-    by_category = flask_db.session.query(
+    by_category = db.query(
         InventoryItem.category_id, func.count(InventoryItem.id)
     ).filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).group_by(InventoryItem.category_id).all()
 

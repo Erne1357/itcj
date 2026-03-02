@@ -26,7 +26,7 @@ def _stream(buffer, mimetype, filename):
 
 
 def _generate_single(ticket, doc_type, doc_format):
-    from itcj.apps.helpdesk.services import document_service
+    from itcj2.apps.helpdesk.services import document_service
 
     if doc_type == "combinado":
         if doc_format == "pdf":
@@ -56,8 +56,8 @@ def generate_documents(
     user: dict = require_perms("helpdesk", ["helpdesk.documents.api.generate"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models.ticket import Ticket
-    from itcj.apps.helpdesk.services import document_service
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.services import document_service
 
     if body.doc_type not in ("solicitud", "orden_trabajo", "combinado"):
         raise HTTPException(400, detail={"error": "invalid_doc_type", "message": "doc_type debe ser solicitud, orden_trabajo o combinado"})
@@ -103,8 +103,8 @@ def preview_document(
     user: dict = require_perms("helpdesk", ["helpdesk.documents.api.generate"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models.ticket import Ticket
-    from itcj.apps.helpdesk.services import document_service
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.services import document_service
 
     ticket = Ticket.query.get(ticket_id)
     if not ticket:

@@ -17,7 +17,7 @@ def get_pending_items(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.pending"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
+    from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
 
     items = InventoryPendingService.get_pending_items(category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items]}
@@ -28,7 +28,7 @@ def get_pending_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.pending"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
+    from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
 
     stats = InventoryPendingService.get_pending_stats()
     return {"success": True, "stats": stats}
@@ -40,7 +40,7 @@ def assign_to_department(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.assign.pending"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
+    from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
 
     user_id = int(user["sub"])
 

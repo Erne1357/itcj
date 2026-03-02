@@ -7,7 +7,6 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.utils import flask_service_call
 
 router = APIRouter(tags=["helpdesk-ticket-comments"])
 logger = logging.getLogger(__name__)
@@ -19,14 +18,14 @@ def get_comments(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.models import Comment
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.models import Comment
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
 
-    flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     can_see_internal = any(r in user_roles for r in ["admin", "secretary", "tech_desarrollo", "tech_soporte"])
 
@@ -50,12 +49,11 @@ async def add_comment(
     user: dict = require_perms("helpdesk", ["helpdesk.comments.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.services import file_validation_service as fvs
-    from itcj.apps.helpdesk.models import Attachment
-    from itcj.core.extensions import db as flask_db
-    from itcj.config import Config
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import file_validation_service as fvs
+    from itcj2.apps.helpdesk.models import Attachment
+    from itcj2.config import Config
     from werkzeug.utils import secure_filename
 
     user_id = int(user["sub"])
@@ -104,15 +102,15 @@ async def add_comment(
             raise HTTPException(400, detail={"error": "invalid_file", "message": f"{f.filename}: {result}"})
         validated_files.append((f, result))
 
-    comment = flask_service_call(
-        ticket_service.add_comment,
+    comment = ticket_service.add_comment(
+        db,
         ticket_id=ticket_id,
         author_id=user_id,
         content=content,
         is_internal=is_internal,
     )
 
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=False)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=False)
     saved_files = []
 
     for f, info in validated_files:
@@ -153,24 +151,24 @@ async def add_comment(
                 mime_type=mime_type,
                 file_size=file_size,
             )
-            flask_db.session.add(att)
+            db.add(att)
             saved_files.append(att)
         except Exception as file_err:
             logger.error(f"Error guardando archivo {f.filename}: {file_err}")
 
     if saved_files:
-        flask_db.session.commit()
+        db.commit()
 
     logger.info(f"Comentario agregado al ticket {ticket_id} ({len(saved_files)} archivos)")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.models.user import User
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+    from itcj2.core.models.user import User
     author = None
     try:
         author = User.query.get(user_id)
         if author and ticket:
-            HelpdeskNotificationHelper.notify_comment_added(ticket, comment, author)
-        flask_db.session.commit()
+            HelpdeskNotificationHelper.notify_comment_added(db, ticket, comment, author)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación: {notif_error}")
 

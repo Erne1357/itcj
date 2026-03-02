@@ -7,7 +7,6 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.utils import flask_service_call
 from itcj2.apps.helpdesk.schemas.tickets import (
     ResolveTicketRequest,
     RateTicketRequest,
@@ -26,8 +25,8 @@ async def create_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -99,7 +98,7 @@ async def create_ticket(
         if not isinstance(inventory_item_ids, list):
             raise HTTPException(400, detail={"error": "invalid_equipment_format", "message": "inventory_item_ids debe ser un array"})
 
-        from itcj.apps.helpdesk.models import InventoryItem
+        from itcj2.apps.helpdesk.models import InventoryItem
         for item_id in inventory_item_ids:
             item = InventoryItem.query.get(item_id)
             if not item or not item.is_active:
@@ -112,7 +111,7 @@ async def create_ticket(
         if "admin" in user_roles:
             can_create_for_other = True
         else:
-            from itcj.core.models.position import UserPosition
+            from itcj2.core.models.position import UserPosition
             user_positions = UserPosition.query.filter_by(user_id=user_id, is_active=True).all()
             for up in user_positions:
                 if up.position and up.position.department and up.position.department.code == "comp_center":
@@ -122,7 +121,7 @@ async def create_ticket(
         if not can_create_for_other:
             raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para crear tickets para otros usuarios"})
 
-        from itcj.core.models.user import User
+        from itcj2.core.models.user import User
         requester = User.query.get(requester_id)
         if not requester or not requester.is_active:
             raise HTTPException(400, detail={"error": "invalid_requester", "message": "El usuario solicitante no es válido"})
@@ -130,7 +129,7 @@ async def create_ticket(
         requester_id = user_id
 
     # Check tickets sin evaluar
-    from itcj.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.models.ticket import Ticket
     MAX_UNRATED_TICKETS = 3
     unrated_count = Ticket.query.filter(
         Ticket.requester_id == requester_id,
@@ -162,11 +161,10 @@ async def create_ticket(
 
         logger.info(f"Ticket {ticket.ticket_number} creado por usuario {user_id}")
 
-        from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-        from itcj.core.extensions import db
+        from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
         try:
-            HelpdeskNotificationHelper.notify_ticket_created(ticket)
-            db.session.commit()
+            HelpdeskNotificationHelper.notify_ticket_created(db, ticket)
+            db.commit()
         except Exception as notif_error:
             logger.error(f"Error al enviar notificación de ticket creado: {notif_error}")
 
@@ -199,8 +197,8 @@ def list_tickets(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -258,11 +256,11 @@ def get_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
-    ticket = flask_service_call(
-        ticket_service.get_ticket_by_id,
+    ticket = ticket_service.get_ticket_by_id(
+        db,
         ticket_id=ticket_id,
         user_id=user_id,
         check_permissions=True,
@@ -277,19 +275,17 @@ async def start_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
 
-    ticket = flask_service_call(
-        ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True
-    )
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     if ticket.assigned_to_user_id != user_id:
         raise HTTPException(403, detail={"error": "not_assigned", "message": "El ticket no está asignado a ti"})
 
-    ticket = flask_service_call(
-        ticket_service.change_status,
+    ticket = ticket_service.change_status(
+        db,
         ticket_id=ticket_id,
         new_status="IN_PROGRESS",
         changed_by_id=user_id,
@@ -298,11 +294,10 @@ async def start_ticket(
 
     logger.info(f"Ticket {ticket.ticket_number} iniciado por técnico {user_id}")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     try:
-        HelpdeskNotificationHelper.notify_ticket_in_progress(ticket)
-        flask_db.session.commit()
+        HelpdeskNotificationHelper.notify_ticket_in_progress(db, ticket)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket iniciado: {notif_error}")
 
@@ -334,8 +329,8 @@ async def resolve_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.models.ticket import Ticket as TicketModel
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.models.ticket import Ticket as TicketModel
 
     user_id = int(user["sub"])
     data = body.model_dump()
@@ -355,8 +350,8 @@ async def resolve_ticket(
             "message": f'Faltan campos requeridos: {", ".join(missing)}',
         })
 
-    ticket = flask_service_call(
-        ticket_service.resolve_ticket,
+    ticket = ticket_service.resolve_ticket(
+        db,
         ticket_id=ticket_id,
         resolved_by_id=user_id,
         success=data["success"],
@@ -369,11 +364,10 @@ async def resolve_ticket(
 
     logger.info(f"Ticket {ticket.ticket_number} resuelto por técnico {user_id}")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     try:
-        HelpdeskNotificationHelper.notify_ticket_resolved(ticket)
-        flask_db.session.commit()
+        HelpdeskNotificationHelper.notify_ticket_resolved(db, ticket)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket resuelto: {notif_error}")
 
@@ -405,12 +399,12 @@ def rate_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
 
-    ticket = flask_service_call(
-        ticket_service.rate_ticket,
+    ticket = ticket_service.rate_ticket(
+        db,
         ticket_id=ticket_id,
         requester_id=user_id,
         rating_attention=body.rating_attention,
@@ -421,11 +415,10 @@ def rate_ticket(
 
     logger.info(f"Ticket {ticket.ticket_number} calificado")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     try:
-        HelpdeskNotificationHelper.notify_ticket_rated(ticket)
-        flask_db.session.commit()
+        HelpdeskNotificationHelper.notify_ticket_rated(db, ticket)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket calificado: {notif_error}")
 
@@ -440,12 +433,12 @@ async def cancel_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
 
-    ticket = flask_service_call(
-        ticket_service.cancel_ticket,
+    ticket = ticket_service.cancel_ticket(
+        db,
         ticket_id=ticket_id,
         user_id=user_id,
         reason=body.reason,
@@ -453,11 +446,10 @@ async def cancel_ticket(
 
     logger.info(f"Ticket {ticket.ticket_number} cancelado por usuario {user_id}")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     try:
-        HelpdeskNotificationHelper.notify_ticket_canceled(ticket)
-        flask_db.session.commit()
+        HelpdeskNotificationHelper.notify_ticket_canceled(db, ticket)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket cancelado: {notif_error}")
 
@@ -489,8 +481,8 @@ def update_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -499,8 +491,8 @@ def update_ticket(
     if "admin" not in user_roles and user_id not in secretary_comp_center:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para editar tickets"})
 
-    ticket = flask_service_call(
-        ticket_service.update_pending_ticket,
+    ticket = ticket_service.update_pending_ticket(
+        db,
         ticket_id=ticket_id,
         updated_by_id=user_id,
         area=body.area,

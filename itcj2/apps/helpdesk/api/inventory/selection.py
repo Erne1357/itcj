@@ -32,7 +32,7 @@ def get_items_for_ticket(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import and_, or_
 
     user_id = int(user["sub"])
@@ -42,7 +42,7 @@ def get_items_for_ticket(
     if department_id:
         department_id = int(department_id)
     else:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if user_dept:
             department_id = user_dept.id
@@ -112,8 +112,8 @@ def get_items_by_group(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem, InventoryGroup
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem, InventoryGroup
 
     user_id = int(user["sub"])
 
@@ -124,7 +124,7 @@ def get_items_by_group(
     user_roles = user_roles_in_app(user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != group.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este grupo"})
@@ -166,13 +166,13 @@ def get_groups_with_items(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem, InventoryGroup
+    from itcj2.apps.helpdesk.models import InventoryItem, InventoryGroup
 
     user_id = int(user["sub"])
 
     dept_id = department_id
     if not dept_id:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if user_dept:
             dept_id = user_dept.id
@@ -207,7 +207,7 @@ def validate_items_for_ticket(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.models import InventoryItem
 
     if not body.get("item_ids") or not isinstance(body["item_ids"], list):
         raise HTTPException(400, detail={"success": False, "error": "item_ids (array) requerido"})

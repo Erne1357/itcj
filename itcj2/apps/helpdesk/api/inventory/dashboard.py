@@ -15,15 +15,15 @@ def get_quick_stats(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
 
     if "admin" in user_roles or user_id in secretary_comp_center:
-        from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+        from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         stats = InventoryStatsService.get_overview_stats()
         return {
             "success": True,
@@ -39,7 +39,7 @@ def get_quick_stats(
         }
 
     if "department_head" in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept:
             return {"success": True, "data": {"total_items": 0, "active": 0, "assigned_to_users": 0, "global": 0}}
@@ -63,8 +63,7 @@ def get_alerts(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.stats"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
     from sqlalchemy import func
 
     alerts = []
@@ -102,7 +101,7 @@ def get_alerts(
         })
 
     six_months_ago = date.today() - timedelta(days=180)
-    problematic = flask_db.session.query(InventoryItem.id).join(
+    problematic = db.query(InventoryItem.id).join(
         TicketInventoryItem, TicketInventoryItem.inventory_item_id == InventoryItem.id
     ).join(
         Ticket, Ticket.id == TicketInventoryItem.ticket_id
@@ -129,8 +128,8 @@ def get_recent_activity(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -139,7 +138,7 @@ def get_recent_activity(
     department_id = None
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         if "department_head" in user_roles:
-            from itcj.core.services.departments_service import get_user_department
+            from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
                 department_id = user_dept.id
@@ -170,10 +169,9 @@ def get_category_chart(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    from itcj.apps.helpdesk.models import InventoryItem, InventoryCategory
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
+    from itcj2.apps.helpdesk.models import InventoryItem, InventoryCategory
     from sqlalchemy import func
 
     user_id = int(user["sub"])
@@ -183,16 +181,16 @@ def get_category_chart(
     if "admin" in user_roles or user_id in secretary_comp_center:
         stats = InventoryStatsService.get_by_category()
     else:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept:
             return {"success": True, "data": {"labels": [], "datasets": []}}
 
-        results = flask_db.session.query(
+        results = db.query(
             InventoryCategory.name, func.count(InventoryItem.id)
         ).outerjoin(
             InventoryItem,
-            flask_db.and_(
+            db.and_(
                 InventoryItem.category_id == InventoryCategory.id,
                 InventoryItem.department_id == user_dept.id,
                 InventoryItem.is_active == True,
@@ -222,9 +220,8 @@ def get_status_chart(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryItem
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import func
 
     user_id = int(user["sub"])
@@ -234,12 +231,12 @@ def get_status_chart(
     query = InventoryItem.query.filter(InventoryItem.is_active == True)
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if user_dept:
             query = query.filter(InventoryItem.department_id == user_dept.id)
 
-    results = flask_db.session.query(
+    results = db.query(
         InventoryItem.status, func.count(InventoryItem.id)
     ).filter(InventoryItem.is_active == True).group_by(InventoryItem.status).all()
 

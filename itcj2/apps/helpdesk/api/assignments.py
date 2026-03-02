@@ -6,7 +6,6 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms, require_roles
-from itcj2.utils import flask_service_call
 from itcj2.apps.helpdesk.schemas.assignments import (
     AssignTicketRequest,
     ReassignTicketRequest,
@@ -22,7 +21,7 @@ async def assign_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.assignments.api.assign"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import assignment_service
 
     user_id = int(user["sub"])
 
@@ -32,8 +31,8 @@ async def assign_ticket(
             "message": "Debe proporcionar assigned_to_user_id o assigned_to_team",
         })
 
-    assignment = flask_service_call(
-        assignment_service.assign_ticket,
+    assignment = assignment_service.assign_ticket(
+        db,
         ticket_id=body.ticket_id,
         assigned_by_id=user_id,
         assigned_to_user_id=body.assigned_to_user_id,
@@ -45,11 +44,10 @@ async def assign_ticket(
 
     ticket = assignment.ticket
     if ticket.assigned_to_user_id:
-        from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-        from itcj.core.extensions import db as flask_db
+        from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
         try:
-            HelpdeskNotificationHelper.notify_ticket_assigned(ticket, ticket.assigned_to)
-            flask_db.session.commit()
+            HelpdeskNotificationHelper.notify_ticket_assigned(db, ticket, ticket.assigned_to)
+            db.commit()
         except Exception as notif_error:
             logger.error(f"Error al enviar notificación de asignación: {notif_error}")
 
@@ -83,7 +81,7 @@ async def reassign_ticket(
     user: dict = require_perms("helpdesk", ["helpdesk.assignments.api.reassign"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import assignment_service
 
     user_id = int(user["sub"])
 
@@ -93,8 +91,8 @@ async def reassign_ticket(
             "message": "Debe proporcionar assigned_to_user_id o assigned_to_team",
         })
 
-    assignment = flask_service_call(
-        assignment_service.reassign_ticket,
+    assignment = assignment_service.reassign_ticket(
+        db,
         ticket_id=ticket_id,
         reassigned_by_id=user_id,
         assigned_to_user_id=body.assigned_to_user_id,
@@ -104,19 +102,18 @@ async def reassign_ticket(
 
     logger.info(f"Ticket {ticket_id} reasignado por usuario {user_id}")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.user import User
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+    from itcj2.core.models.user import User
 
     ticket = assignment.ticket
     previous_user = None
     try:
-        prev_assignments = ticket.assignments.filter_by(is_active=False).order_by(flask_db.desc("created_at")).first()
+        prev_assignments = ticket.assignments.filter_by(is_active=False).order_by(db.desc("created_at")).first()
         if prev_assignments and prev_assignments.assigned_to_user_id:
             previous_user = User.query.get(prev_assignments.assigned_to_user_id)
         if ticket.assigned_to_user_id:
-            HelpdeskNotificationHelper.notify_ticket_reassigned(ticket, ticket.assigned_to, previous_user)
-        flask_db.session.commit()
+            HelpdeskNotificationHelper.notify_ticket_reassigned(db, ticket, ticket.assigned_to, previous_user)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de reasignación: {notif_error}")
 
@@ -153,29 +150,28 @@ async def self_assign_ticket(
     user: dict = require_roles("helpdesk", ["tech_desarrollo", "tech_soporte", "admin"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import assignment_service
 
     user_id = int(user["sub"])
 
-    assignment = flask_service_call(
-        assignment_service.self_assign_ticket,
+    assignment = assignment_service.self_assign_ticket(
+        db,
         ticket_id=ticket_id,
         technician_id=user_id,
     )
 
     logger.info(f"Técnico {user_id} se auto-asignó el ticket {ticket_id}")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.extensions import db as flask_db
-    from itcj.core.models.user import User
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+    from itcj2.core.models.user import User
 
     ticket = assignment.ticket
     technician = None
     try:
         technician = User.query.get(user_id)
         if technician:
-            HelpdeskNotificationHelper.notify_ticket_self_assigned(ticket, technician)
-        flask_db.session.commit()
+            HelpdeskNotificationHelper.notify_ticket_self_assigned(db, ticket, technician)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de auto-asignación: {notif_error}")
 
@@ -205,9 +201,9 @@ def get_assignment_history(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.all"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import assignment_service
 
-    history = flask_service_call(assignment_service.get_assignment_history, ticket_id)
+    history = assignment_service.get_assignment_history(db, ticket_id)
     return {"ticket_id": ticket_id, "history": history}
 
 
@@ -218,13 +214,13 @@ def get_team_tickets(
     user: dict = require_roles("helpdesk", ["tech_desarrollo", "tech_soporte", "admin"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import assignment_service
 
     user_id = int(user["sub"])
     include_details = request.query_params.get("include_details", "false").lower() == "true"
 
-    tickets = flask_service_call(
-        assignment_service.get_team_tickets,
+    tickets = assignment_service.get_team_tickets(
+        db,
         team_name=team_name,
         technician_id=user_id,
     )
@@ -257,14 +253,14 @@ def get_available_technicians(
     user: dict = require_perms("helpdesk", ["helpdesk.assignments.api.assign"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import assignment_service
 
     if area not in ("DESARROLLO", "SOPORTE"):
         raise HTTPException(400, detail={"error": "invalid_area", "message": "El área debe ser DESARROLLO o SOPORTE"})
 
-    technicians = flask_service_call(assignment_service.get_technicians_by_area, area)
+    technicians = assignment_service.get_technicians_by_area(db, area)
 
-    from itcj.apps.helpdesk.models import Ticket
+    from itcj2.apps.helpdesk.models import Ticket
     technicians_data = []
     for tech in technicians:
         active_tickets_count = Ticket.query.filter(
@@ -287,8 +283,7 @@ def get_assignment_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.all"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Ticket
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import Ticket
 
     unassigned = Ticket.query.filter_by(status="PENDING").count()
     team_assigned = Ticket.query.filter(

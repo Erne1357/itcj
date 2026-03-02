@@ -18,8 +18,8 @@ def get_department_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models.ticket import Ticket
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models.ticket import Ticket
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -29,7 +29,7 @@ def get_department_stats(
     if "admin" in user_roles or user_id in secretary_comp_center:
         can_view = True
     elif "department_head" in user_roles:
-        from itcj.core.models.position import UserPosition
+        from itcj2.core.models.position import UserPosition
         user_position = UserPosition.query.filter_by(user_id=user_id, is_active=True).first()
         if user_position and user_position.position:
             can_view = user_position.position.department_id == department_id
@@ -75,7 +75,7 @@ def get_technician_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.resolve"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.models.ticket import Ticket
 
     user_id = int(user["sub"])
 

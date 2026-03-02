@@ -7,7 +7,6 @@ from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.utils import flask_service_call
 from itcj2.apps.helpdesk.schemas.comments import CreateCommentRequest, UpdateCommentRequest
 
 router = APIRouter(tags=["helpdesk-comments"])
@@ -20,14 +19,14 @@ def get_ticket_comments(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.models import Comment
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.models import Comment
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
 
-    flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     is_staff = any(r in user_roles for r in ["admin", "secretary", "tech_desarrollo", "tech_soporte"])
 
@@ -51,9 +50,8 @@ def create_comment(
     user: dict = require_perms("helpdesk", ["helpdesk.comments.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -63,13 +61,13 @@ def create_comment(
         if not is_staff:
             raise HTTPException(403, detail={"error": "forbidden_internal", "message": "No tienes permiso para crear comentarios internos"})
 
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     if ticket.status in ("CLOSED", "CANCELED"):
         raise HTTPException(400, detail={"error": "ticket_closed", "message": "No se pueden agregar comentarios a tickets cerrados o cancelados"})
 
-    comment = flask_service_call(
-        ticket_service.add_comment,
+    comment = ticket_service.add_comment(
+        db,
         ticket_id=ticket_id,
         author_id=user_id,
         content=body.content.strip(),
@@ -78,13 +76,13 @@ def create_comment(
 
     logger.info(f"Comentario {'interno' if body.is_internal else 'público'} agregado al ticket {ticket_id}")
 
-    from itcj.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
-    from itcj.core.models.user import User
+    from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
+    from itcj2.core.models.user import User
     try:
         author = User.query.get(user_id)
         if author:
-            HelpdeskNotificationHelper.notify_comment_added(ticket, comment, author)
-        flask_db.session.commit()
+            HelpdeskNotificationHelper.notify_comment_added(db, ticket, comment, author)
+        db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de comentario: {notif_error}")
 
@@ -98,9 +96,8 @@ def update_comment(
     user: dict = require_perms("helpdesk", ["helpdesk.comments.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import Comment
-    from itcj.core.extensions import db as flask_db
-    from itcj.apps.helpdesk.utils.timezone_utils import now_local
+    from itcj2.apps.helpdesk.models import Comment
+    from itcj2.apps.helpdesk.utils.timezone_utils import now_local
 
     user_id = int(user["sub"])
 
@@ -116,7 +113,7 @@ def update_comment(
 
     comment.content = body.content.strip()
     comment.updated_at = now_local()
-    flask_db.session.commit()
+    db.commit()
 
     logger.info(f"Comentario {comment_id} editado por usuario {user_id}")
     return {"message": "Comentario actualizado", "comment": comment.to_dict()}
@@ -128,10 +125,9 @@ def delete_comment(
     user: dict = require_perms("helpdesk", ["helpdesk.comments.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.models import Comment
-    from itcj.core.extensions import db as flask_db
-    from itcj.apps.helpdesk.utils.timezone_utils import now_local
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.models import Comment
+    from itcj2.apps.helpdesk.utils.timezone_utils import now_local
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -147,8 +143,8 @@ def delete_comment(
         if now_local() - comment.created_at > timedelta(minutes=5):
             raise HTTPException(400, detail={"error": "time_expired", "message": "Solo puedes eliminar comentarios dentro de los primeros 5 minutos"})
 
-    flask_db.session.delete(comment)
-    flask_db.session.commit()
+    db.delete(comment)
+    db.commit()
 
     logger.info(f"Comentario {comment_id} eliminado por usuario {user_id}")
     return {"message": "Comentario eliminado exitosamente"}

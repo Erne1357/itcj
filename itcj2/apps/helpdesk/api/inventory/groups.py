@@ -18,8 +18,8 @@ def get_all_groups(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.all"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.models import InventoryGroup
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.models import InventoryGroup
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -44,15 +44,15 @@ def get_groups_by_department(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
-        from itcj.core.services.departments_service import get_user_department
+        from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver grupos de este departamento"})
@@ -68,7 +68,7 @@ def get_group_detail(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryGroup
+    from itcj2.apps.helpdesk.models import InventoryGroup
 
     group = InventoryGroup.query.get(group_id)
     if not group:
@@ -84,7 +84,7 @@ def get_group_items(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     items = InventoryGroupService.get_group_items(group_id, category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items]}
@@ -96,7 +96,7 @@ def create_group(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.create"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     user_id = int(user["sub"])
 
@@ -122,7 +122,7 @@ def update_group(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     try:
         group = InventoryGroupService.update_group(group_id, body)
@@ -141,7 +141,7 @@ def update_capacities(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.update.capacity"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     if "capacities" not in body:
         raise HTTPException(400, detail={"success": False, "error": "Capacidades requeridas"})
@@ -162,7 +162,7 @@ def delete_group(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.delete"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     try:
         InventoryGroupService.delete_group(group_id)
@@ -181,7 +181,7 @@ def assign_item_to_group(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.assign.items"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     user_id = int(user["sub"])
     if not body.get("item_id"):
@@ -203,7 +203,7 @@ def unassign_item_from_group(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.assign.items"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     user_id = int(user["sub"])
 
@@ -224,7 +224,7 @@ def bulk_assign_items_to_group(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.assign.items"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     user_id = int(user["sub"])
 

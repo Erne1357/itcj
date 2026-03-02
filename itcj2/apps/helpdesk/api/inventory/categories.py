@@ -15,8 +15,7 @@ def get_categories(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.read"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryCategory, InventoryItem
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryCategory, InventoryItem
     from sqlalchemy import func
 
     query = InventoryCategory.query
@@ -30,7 +29,7 @@ def get_categories(
     for category in categories:
         data = category.to_dict()
         if with_count.lower() == "true":
-            count = flask_db.session.query(func.count(InventoryItem.id)).filter(
+            count = db.query(func.count(InventoryItem.id)).filter(
                 InventoryItem.category_id == category.id, InventoryItem.is_active == True
             ).scalar()
             data["items_count"] = count
@@ -45,7 +44,7 @@ def get_category(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.read"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryCategory
+    from itcj2.apps.helpdesk.models import InventoryCategory
 
     category = InventoryCategory.query.get(category_id)
     if not category:
@@ -60,8 +59,7 @@ def create_category(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryCategory
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryCategory
 
     if not body.get("code"):
         raise HTTPException(400, detail={"success": False, "error": "El código es requerido"})
@@ -88,8 +86,8 @@ def create_category(
         display_order=body.get("display_order", 0),
         inventory_prefix=prefix,
     )
-    flask_db.session.add(category)
-    flask_db.session.commit()
+    db.add(category)
+    db.commit()
 
     return {"success": True, "message": "Categoría creada exitosamente", "data": category.to_dict()}
 
@@ -101,8 +99,7 @@ def update_category(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryCategory
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryCategory
 
     category = InventoryCategory.query.get(category_id)
     if not category:
@@ -112,7 +109,7 @@ def update_category(
         if field in body:
             setattr(category, field, body[field])
 
-    flask_db.session.commit()
+    db.commit()
     return {"success": True, "message": "Categoría actualizada exitosamente", "data": category.to_dict()}
 
 
@@ -122,15 +119,14 @@ def toggle_category(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryCategory
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryCategory
 
     category = InventoryCategory.query.get(category_id)
     if not category:
         raise HTTPException(404, detail={"success": False, "error": "Categoría no encontrada"})
 
     category.is_active = not category.is_active
-    flask_db.session.commit()
+    db.commit()
 
     status_text = "activada" if category.is_active else "desactivada"
     return {"success": True, "message": f"Categoría {status_text} exitosamente", "data": {"id": category.id, "is_active": category.is_active}}
@@ -142,8 +138,7 @@ def reorder_categories(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.models import InventoryCategory
-    from itcj.core.extensions import db as flask_db
+    from itcj2.apps.helpdesk.models import InventoryCategory
 
     if not body.get("categories"):
         raise HTTPException(400, detail={"success": False, "error": "Se requiere el array de categorías"})
@@ -153,5 +148,5 @@ def reorder_categories(
         if category:
             category.display_order = item["display_order"]
 
-    flask_db.session.commit()
+    db.commit()
     return {"success": True, "message": "Orden actualizado exitosamente"}

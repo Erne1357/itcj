@@ -9,14 +9,13 @@ import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.utils import flask_service_call
 
 router = APIRouter(tags=["helpdesk-attachments"])
 logger = logging.getLogger(__name__)
 
 
 def _get_upload_folder():
-    from itcj.config import Config
+    from itcj2.config import Config
     return os.getenv("HELPDESK_UPLOAD_PATH", Config.HELPDESK_UPLOAD_PATH)
 
 
@@ -29,12 +28,11 @@ def upload_attachment(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.services import file_validation_service as fvs
-    from itcj.apps.helpdesk.models import Attachment
-    from itcj.core.extensions import db as flask_db
-    from itcj.config import Config
-    from itcj.apps.helpdesk.utils.timezone_utils import now_local
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import file_validation_service as fvs
+    from itcj2.apps.helpdesk.models import Attachment
+    from itcj2.config import Config
+    from itcj2.apps.helpdesk.utils.timezone_utils import now_local
     from werkzeug.utils import secure_filename
 
     user_id = int(user["sub"])
@@ -57,7 +55,7 @@ def upload_attachment(
 
     filepath = None
     try:
-        ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+        ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
         if attachment_type == "resolution":
             existing_count = Attachment.query.filter_by(ticket_id=ticket_id, attachment_type="resolution").count()
@@ -134,8 +132,8 @@ def upload_attachment(
             file_size=file_size,
         )
 
-        flask_db.session.add(attachment)
-        flask_db.session.commit()
+        db.add(attachment)
+        db.commit()
 
         logger.info(f"Archivo {original_filename} ({attachment_type}) subido al ticket {ticket_id}")
         return {"message": "Archivo subido exitosamente", "attachment": attachment.to_dict()}
@@ -156,11 +154,11 @@ def list_attachments(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.models import Attachment
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.models import Attachment
 
     user_id = int(user["sub"])
-    flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     query = Attachment.query.filter_by(ticket_id=ticket_id)
     if type and type in ("ticket", "resolution", "comment"):
@@ -176,15 +174,15 @@ def download_attachment(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
-    from itcj.apps.helpdesk.models import Attachment
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.models import Attachment
 
     user_id = int(user["sub"])
     attachment = Attachment.query.get(attachment_id)
     if not attachment:
         raise HTTPException(404, detail={"error": "not_found", "message": "Archivo no encontrado"})
 
-    flask_service_call(ticket_service.get_ticket_by_id, attachment.ticket_id, user_id, check_permissions=True)
+    ticket_service.get_ticket_by_id(db, attachment.ticket_id, user_id, check_permissions=True)
 
     if not os.path.exists(attachment.filepath):
         raise HTTPException(404, detail={"error": "file_not_found", "message": "El archivo no existe en el servidor"})
@@ -202,9 +200,8 @@ def delete_attachment(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.core.services.authz_service import user_roles_in_app
-    from itcj.apps.helpdesk.models import Attachment
-    from itcj.core.extensions import db as flask_db
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.helpdesk.models import Attachment
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "helpdesk")
@@ -220,8 +217,8 @@ def delete_attachment(
     if os.path.exists(attachment.filepath):
         os.remove(attachment.filepath)
 
-    flask_db.session.delete(attachment)
-    flask_db.session.commit()
+    db.delete(attachment)
+    db.commit()
 
     logger.info(f"Attachment {attachment_id} eliminado por usuario {user_id}")
     return {"message": "Archivo eliminado exitosamente"}
@@ -234,10 +231,10 @@ def download_custom_field_file(
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
     db: DbSession = None,
 ):
-    from itcj.apps.helpdesk.services import ticket_service
+    from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
-    ticket = flask_service_call(ticket_service.get_ticket_by_id, ticket_id, user_id, check_permissions=True)
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     if not ticket.custom_fields or field_key not in ticket.custom_fields:
         raise HTTPException(404, detail={"error": "field_not_found", "message": f'El campo "{field_key}" no existe'})
