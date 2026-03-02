@@ -28,7 +28,7 @@ def list_my_appointments(
     db: DbSession = None,
 ):
     """Lista mis citas como estudiante."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     appointments = appointment_service.get_student_appointments(
         student_id=user["sub"],
@@ -45,7 +45,7 @@ def create_appointment(
     db: DbSession = None,
 ):
     """Crea una nueva cita."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     try:
         appointment = appointment_service.create_appointment(
@@ -70,7 +70,7 @@ def cancel_my_appointment(
     db: DbSession = None,
 ):
     """Cancela mi cita como estudiante."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     try:
         appointment = appointment_service.cancel_appointment(
@@ -96,7 +96,7 @@ def list_volunteer_appointments(
     db: DbSession = None,
 ):
     """Lista citas de los slots del voluntario."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     date_filter = datetime.fromisoformat(date).date() if date else None
 
@@ -114,7 +114,7 @@ def list_today_appointments(
     db: DbSession = None,
 ):
     """Lista citas de hoy para el voluntario."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     appointments = appointment_service.get_today_appointments_for_volunteer(user["sub"])
     return [a.to_dict(include_relations=True) for a in appointments]
@@ -128,7 +128,7 @@ def mark_attendance(
     db: DbSession = None,
 ):
     """Marca asistencia de una cita."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     try:
         appointment = appointment_service.mark_attendance(
@@ -152,7 +152,7 @@ def complete_appointment(
     db: DbSession = None,
 ):
     """Completa una cita con el resultado."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     try:
         appointment = appointment_service.complete_appointment(
@@ -176,7 +176,7 @@ def volunteer_cancel_appointment(
     db: DbSession = None,
 ):
     """Cancela una cita como voluntario."""
-    from itcj.apps.vistetec.services import appointment_service
+    from itcj2.apps.vistetec.services import appointment_service
 
     try:
         appointment = appointment_service.cancel_appointment(
@@ -200,8 +200,8 @@ def get_appointment_stats(
     db: DbSession = None,
 ):
     """Estadísticas de citas. Voluntarios ven sus propias stats."""
-    from itcj.apps.vistetec.services import appointment_service
-    from itcj.core.services.authz_service import user_roles_in_app
+    from itcj2.apps.vistetec.services import appointment_service
+    from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(user_id, "vistetec")

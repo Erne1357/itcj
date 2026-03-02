@@ -26,7 +26,7 @@ def list_catalog(
     db: DbSession = None,
 ):
     """Lista prendas disponibles con filtros y paginación."""
-    from itcj.apps.vistetec.services import catalog_service
+    from itcj2.apps.vistetec.services import catalog_service
 
     per_page = min(per_page, 50)
 
@@ -49,7 +49,7 @@ def list_categories(
     db: DbSession = None,
 ):
     """Categorías con prendas disponibles."""
-    from itcj.apps.vistetec.services import catalog_service
+    from itcj2.apps.vistetec.services import catalog_service
 
     return catalog_service.get_available_categories()
 
@@ -60,7 +60,7 @@ def list_sizes(
     db: DbSession = None,
 ):
     """Tallas con prendas disponibles."""
-    from itcj.apps.vistetec.services import catalog_service
+    from itcj2.apps.vistetec.services import catalog_service
 
     return catalog_service.get_available_sizes()
 
@@ -71,7 +71,7 @@ def get_catalog_stats(
     db: DbSession = None,
 ):
     """Estadísticas generales del catálogo."""
-    from itcj.apps.vistetec.services import catalog_service
+    from itcj2.apps.vistetec.services import catalog_service
 
     return catalog_service.get_catalog_stats()
 
@@ -83,7 +83,7 @@ def get_garment_detail(
     db: DbSession = None,
 ):
     """Detalle de una prenda del catálogo."""
-    from itcj.apps.vistetec.services import catalog_service
+    from itcj2.apps.vistetec.services import catalog_service
 
     detail = catalog_service.get_garment_detail(garment_id)
     if not detail:

@@ -25,7 +25,7 @@ def list_garments(
     db: DbSession = None,
 ):
     """Lista todas las prendas (todos los estados) para voluntarios/admin."""
-    from itcj.apps.vistetec.services import garment_service
+    from itcj2.apps.vistetec.services import garment_service
 
     per_page = min(per_page, 100)
 
@@ -46,7 +46,7 @@ async def create_garment(
     db: DbSession = None,
 ):
     """Registra una nueva prenda. Soporta FormData (con imagen) o JSON."""
-    from itcj.apps.vistetec.services import garment_service
+    from itcj2.apps.vistetec.services import garment_service
 
     content_type = request.headers.get("content-type", "")
 
@@ -97,7 +97,7 @@ async def update_garment(
     db: DbSession = None,
 ):
     """Actualiza una prenda. Soporta FormData (con imagen) o JSON."""
-    from itcj.apps.vistetec.services import garment_service
+    from itcj2.apps.vistetec.services import garment_service
 
     content_type = request.headers.get("content-type", "")
 
@@ -127,7 +127,7 @@ def delete_garment(
     db: DbSession = None,
 ):
     """Elimina una prenda (admin)."""
-    from itcj.apps.vistetec.services import garment_service
+    from itcj2.apps.vistetec.services import garment_service
 
     if garment_service.delete_garment(garment_id):
         logger.info(f"Prenda {garment_id} eliminada por usuario {int(user['sub'])}")
@@ -142,7 +142,7 @@ def withdraw_garment(
     db: DbSession = None,
 ):
     """Retira una prenda del inventario."""
-    from itcj.apps.vistetec.services import garment_service
+    from itcj2.apps.vistetec.services import garment_service
 
     garment = garment_service.withdraw_garment(garment_id)
     if not garment:

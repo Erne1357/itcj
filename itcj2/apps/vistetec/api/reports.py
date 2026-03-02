@@ -29,7 +29,7 @@ def get_dashboard_summary(
     db: DbSession = None,
 ):
     """Resumen general para el dashboard."""
-    from itcj.apps.vistetec.services import reports_service
+    from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_dashboard_summary()
 
@@ -42,7 +42,7 @@ def get_garment_report(
     db: DbSession = None,
 ):
     """Reporte de prendas con filtro de fechas."""
-    from itcj.apps.vistetec.services import reports_service
+    from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_garment_report(
         date_from=_parse_date(date_from),
@@ -58,7 +58,7 @@ def get_donation_report(
     db: DbSession = None,
 ):
     """Reporte de donaciones con filtro de fechas."""
-    from itcj.apps.vistetec.services import reports_service
+    from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_donation_report(
         date_from=_parse_date(date_from),
@@ -74,7 +74,7 @@ def get_appointment_report(
     db: DbSession = None,
 ):
     """Reporte de citas con filtro de fechas."""
-    from itcj.apps.vistetec.services import reports_service
+    from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_appointment_report(
         date_from=_parse_date(date_from),
@@ -89,6 +89,6 @@ def get_recent_activity(
     db: DbSession = None,
 ):
     """Actividad reciente configurable por límite."""
-    from itcj.apps.vistetec.services import reports_service
+    from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_recent_activity(limit=limit)

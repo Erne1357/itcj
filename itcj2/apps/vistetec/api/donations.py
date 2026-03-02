@@ -21,7 +21,7 @@ def search_donors(
     db: DbSession = None,
 ):
     """Busca estudiantes/usuarios para asignar como donantes."""
-    from itcj.core.models.user import User
+    from itcj2.core.models.user import User
 
     q = q.strip()
     if len(q) < 2:
@@ -59,7 +59,7 @@ def list_donations(
     db: DbSession = None,
 ):
     """Lista todas las donaciones."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     return donation_service.get_donations(
         donation_type=type,
@@ -76,7 +76,7 @@ def list_my_donations(
     db: DbSession = None,
 ):
     """Lista mis donaciones como donante."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     return donation_service.get_my_donations(
         user_id=user["sub"],
@@ -92,7 +92,7 @@ def get_donation_stats(
     db: DbSession = None,
 ):
     """Estadísticas de donaciones. Con mine=true retorna solo las propias."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     donor_id = user["sub"] if mine else None
     return donation_service.get_donation_stats(donor_id=donor_id)
@@ -105,7 +105,7 @@ def get_top_donors(
     db: DbSession = None,
 ):
     """Top donadores."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     return donation_service.get_top_donors(limit=limit)
 
@@ -117,7 +117,7 @@ def get_recent_donations(
     db: DbSession = None,
 ):
     """Donaciones más recientes."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     donations = donation_service.get_recent_donations(limit=limit)
     return [d.to_dict(include_relations=True) for d in donations]
@@ -130,7 +130,7 @@ def register_garment_donation(
     db: DbSession = None,
 ):
     """Registra una donación de prenda (existente o nueva)."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     if not body.garment_id and not body.garment:
         raise HTTPException(
@@ -175,7 +175,7 @@ def register_pantry_donation(
     db: DbSession = None,
 ):
     """Registra una donación de despensa."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     try:
         registered_by_id = user["sub"]
@@ -204,7 +204,7 @@ def get_donation(
     db: DbSession = None,
 ):
     """Obtiene una donación por ID."""
-    from itcj.apps.vistetec.services import donation_service
+    from itcj2.apps.vistetec.services import donation_service
 
     donation = donation_service.get_donation_by_id(donation_id)
     if not donation:

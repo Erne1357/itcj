@@ -30,7 +30,7 @@ def list_items(
     db: DbSession = None,
 ):
     """Lista items de despensa con filtros."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     active_filter = None
     if is_active is not None:
@@ -52,7 +52,7 @@ def create_item(
     db: DbSession = None,
 ):
     """Crea un item de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         item = pantry_service.create_item(body.model_dump())
@@ -69,7 +69,7 @@ def get_item(
     db: DbSession = None,
 ):
     """Obtiene un item de despensa por ID."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     item = pantry_service.get_item_by_id(item_id)
     if not item:
@@ -85,7 +85,7 @@ def update_item(
     db: DbSession = None,
 ):
     """Actualiza un item de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         item = pantry_service.update_item(item_id, body.model_dump(exclude_none=True))
@@ -102,7 +102,7 @@ def delete_item(
     db: DbSession = None,
 ):
     """Desactiva un item de despensa (soft delete)."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         pantry_service.deactivate_item(item_id)
@@ -118,7 +118,7 @@ def list_pantry_categories(
     db: DbSession = None,
 ):
     """Lista categorías de items de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     return pantry_service.get_categories()
 
@@ -131,7 +131,7 @@ def get_stock_summary(
     db: DbSession = None,
 ):
     """Resumen del inventario actual."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     return pantry_service.get_stock_summary()
 
@@ -143,7 +143,7 @@ def stock_in(
     db: DbSession = None,
 ):
     """Registra entrada de stock."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         item = pantry_service.stock_in(
@@ -164,7 +164,7 @@ def stock_out(
     db: DbSession = None,
 ):
     """Registra salida de stock."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         item = pantry_service.stock_out(
@@ -189,7 +189,7 @@ def list_campaigns(
     db: DbSession = None,
 ):
     """Lista campañas de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     active_filter = None
     if is_active is not None:
@@ -208,7 +208,7 @@ def list_active_campaigns(
     db: DbSession = None,
 ):
     """Lista campañas activas."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     return pantry_service.get_active_campaigns()
 
@@ -220,7 +220,7 @@ def create_campaign(
     db: DbSession = None,
 ):
     """Crea una campaña de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         campaign = pantry_service.create_campaign(body.model_dump(exclude_none=True))
@@ -237,7 +237,7 @@ def get_campaign(
     db: DbSession = None,
 ):
     """Obtiene una campaña por ID."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     campaign = pantry_service.get_campaign_by_id(campaign_id)
     if not campaign:
@@ -253,7 +253,7 @@ def update_campaign(
     db: DbSession = None,
 ):
     """Actualiza una campaña de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         campaign = pantry_service.update_campaign(campaign_id, body.model_dump(exclude_none=True))
@@ -270,7 +270,7 @@ def delete_campaign(
     db: DbSession = None,
 ):
     """Desactiva una campaña de despensa."""
-    from itcj.apps.vistetec.services import pantry_service
+    from itcj2.apps.vistetec.services import pantry_service
 
     try:
         pantry_service.deactivate_campaign(campaign_id)

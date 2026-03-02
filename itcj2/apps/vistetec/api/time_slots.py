@@ -25,7 +25,7 @@ def list_available_slots(
     db: DbSession = None,
 ):
     """Lista slots disponibles para estudiantes."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     parsed_from = datetime.fromisoformat(from_date).date() if from_date else None
     parsed_to = datetime.fromisoformat(to_date).date() if to_date else None
@@ -47,7 +47,7 @@ def list_all_slots(
     db: DbSession = None,
 ):
     """Lista todos los slots activos futuros para voluntarios (con estado de inscripción)."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     parsed_from = datetime.fromisoformat(from_date).date() if from_date else None
     parsed_to = datetime.fromisoformat(to_date).date() if to_date else None
@@ -76,7 +76,7 @@ def get_calendar_slots(
     db: DbSession = None,
 ):
     """Slots agrupados por fecha para vista de calendario."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     if not from_date or not to_date:
         raise HTTPException(
@@ -96,7 +96,7 @@ def list_locations(
     db: DbSession = None,
 ):
     """Lista ubicaciones disponibles."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     locations = time_slot_service.get_locations()
     return [loc.to_dict() for loc in locations]
@@ -109,7 +109,7 @@ def list_my_signups(
     db: DbSession = None,
 ):
     """Lista slots donde estoy inscrito como voluntario."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     slots = time_slot_service.get_volunteer_signups(
         volunteer_id=int(user["sub"]),
@@ -127,7 +127,7 @@ def create_schedule(
     db: DbSession = None,
 ):
     """Crea horarios dividiendo un bloque en slots por duración."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     try:
         start_date = datetime.fromisoformat(body.start_date).date()
@@ -161,7 +161,7 @@ def signup_for_slot(
     db: DbSession = None,
 ):
     """Voluntario se inscribe a un slot."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     try:
         sv = time_slot_service.signup_volunteer(
@@ -180,7 +180,7 @@ def unsignup_from_slot(
     db: DbSession = None,
 ):
     """Voluntario cancela su inscripción a un slot."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     try:
         time_slot_service.unsignup_volunteer(
@@ -202,7 +202,7 @@ def update_slot(
     db: DbSession = None,
 ):
     """Actualiza un slot (solo el creador)."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     data = body.model_dump(exclude_none=True)
 
@@ -231,7 +231,7 @@ def cancel_slot(
     db: DbSession = None,
 ):
     """Cancela un slot (solo el creador)."""
-    from itcj.apps.vistetec.services import time_slot_service
+    from itcj2.apps.vistetec.services import time_slot_service
 
     try:
         slot = time_slot_service.cancel_slot(
