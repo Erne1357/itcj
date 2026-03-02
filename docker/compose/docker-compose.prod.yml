@@ -2,7 +2,7 @@ name: itcj
 
 services:
   # ============================================
-  # INFRAESTRUCTURA - Nunca se reinician en deploy
+  # INFRAESTRUCTURA
   # ============================================
   redis:
     restart: always
@@ -42,31 +42,28 @@ services:
         max-file: "3"
 
   # ============================================
-  # BACKEND BLUE - Profile "blue"
+  # BACKEND BLUE — Profile "blue" (FastAPI)
   # ============================================
   backend-blue:
     restart: always
     build:
       context: ../..
-      dockerfile: docker/backend/Dockerfile
+      dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     environment:
       - INSTANCE_COLOR=blue
     volumes:
-      - ../../itcj:/app/itcj:ro
-      - ../../wsgi.py:/app/wsgi.py:ro
-      - ../../requirements.txt:/app/requirements.txt:ro
+      - ../../itcj2:/app/itcj2:ro
+      - ../../asgi.py:/app/asgi.py:ro
       - ../../migrations:/app/migrations:ro
-      - ../../instance:/app/instance  # Sin :ro para permitir escritura de tokens MSAL
       - ../../database:/app/database:ro
-      - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -84,31 +81,28 @@ services:
       - blue
 
   # ============================================
-  # BACKEND GREEN - Profile "green"
+  # BACKEND GREEN — Profile "green" (FastAPI)
   # ============================================
   backend-green:
     restart: always
     build:
       context: ../..
-      dockerfile: docker/backend/Dockerfile
+      dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     environment:
       - INSTANCE_COLOR=green
     volumes:
-      - ../../itcj:/app/itcj:ro
-      - ../../wsgi.py:/app/wsgi.py:ro
-      - ../../requirements.txt:/app/requirements.txt:ro
+      - ../../itcj2:/app/itcj2:ro
+      - ../../asgi.py:/app/asgi.py:ro
       - ../../migrations:/app/migrations:ro
-      - ../../instance:/app/instance  # Sin :ro para permitir escritura de tokens MSAL
       - ../../database:/app/database:ro
-      - ../../static-manifest.json:/app/static-manifest.json:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -126,7 +120,7 @@ services:
       - green
 
   # ============================================
-  # NGINX - Solo reload, nunca restart
+  # NGINX
   # ============================================
   nginx:
     restart: always
@@ -135,7 +129,7 @@ services:
       TZ: America/Chihuahua
     volumes:
       - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      # upstream.conf con :ro - deploy.sh escribe en el HOST y el bind mount sincroniza
+      # upstream.conf generado por deploy.sh en el host
       - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro

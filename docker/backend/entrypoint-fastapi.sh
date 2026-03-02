@@ -9,6 +9,9 @@ fi
 
 cd /app
 
+# Asegurar que /app esté en PYTHONPATH
+export PYTHONPATH="/app:${PYTHONPATH:-}"
+
 # Verificar Redis
 echo "Verificando conexión a Redis..."
 python3 << 'PYEOF'
@@ -22,8 +25,9 @@ except Exception as e:
     sys.exit(1)
 PYEOF
 
-# Nota: Las migraciones las sigue corriendo Flask (entrypoint.sh).
-# FastAPI solo levanta el servidor ASGI.
+# Correr migraciones con Alembic directo (sin Flask)
+echo "Ejecutando migraciones Alembic..."
+alembic -c migrations/alembic.ini upgrade head
 
 echo "Iniciando FastAPI (Uvicorn)..."
 exec uvicorn asgi:app \

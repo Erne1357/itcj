@@ -13,29 +13,14 @@ services:
       dockerfile: docker/backend/Dockerfile.db
     env_file: ../../.env
     volumes:
-      - pgdata:/var/lib/postgresql/data     
+      - pgdata:/var/lib/postgresql/data
       - ../../database/init-itcj.sh:/docker-entrypoint-initdb.d/init-itcj.sh:ro
       - ../../database/agendatec.dump:/docker-entrypoint-initdb.d/agendatec.dump:ro
-
     ports:
       - "5432:5432"
 
   backend:
-    restart: always
-    build:
-      context: ../..
-      dockerfile: docker/backend/Dockerfile
-    env_file: ../../.env
-    volumes:
-      - ../../:/app
-    depends_on:
-      - postgres
-      - redis
-    #ports:
-    #  - "8000:8000"  # Para desarrollo directo
-
-  backend-fastapi:
-    restart: always
+    #restart: always
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -57,14 +42,13 @@ services:
       TZ: America/Chihuahua
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
-      # Monta todos los directorios static de las apps
+      # Archivos estáticos de las apps
       - ../../itcj/core/static:/www/static/core:ro
       - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
       - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
       - ../../itcj/apps/vistetec/static:/www/static/vistetec:ro
     depends_on:
       - backend
-      - backend-fastapi
     ports:
       - "8080:80"
 
