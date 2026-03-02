@@ -2,7 +2,7 @@
 # Alpine 3.19 → pgBouncer 1.21.0
 FROM alpine:3.19
 
-RUN apk add --no-cache pgbouncer su-exec \
+RUN apk add --no-cache pgbouncer su-exec tzdata \
     && adduser -D -H -s /sbin/nologin pgb \
     && mkdir -p /tmp/pgbouncer \
     && chown pgb:pgb /tmp/pgbouncer

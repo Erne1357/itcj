@@ -139,5 +139,6 @@ class InventoryHistory(db.Model):
             'TRANSFERRED': 'Transferido a otro departamento',
             'DEACTIVATED': 'Dado de baja',
             'REACTIVATED': 'Reactivado',
+            'VERIFIED':    'Verificación física',
         }
         return descriptions.get(event_type, event_type)

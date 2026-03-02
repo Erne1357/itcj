@@ -298,6 +298,15 @@ def init_themes_command():
         raise
 
 
+@click.command('flush-ws')
+@with_appcontext
+def flush_ws_command():
+    """Limpia las claves Redis de usuarios activos (ws:sid_map, ws:uid_refcount, ws:uids:*)."""
+    from itcj.core.sockets.system import flush_ws_state
+    flush_ws_state()
+    click.echo('✓ Claves ws:* eliminadas de Redis. El contador de usuarios en línea se reinició a 0.')
+
+
 def register_commands(app):
     """Registra todos los comandos en la aplicación Flask."""
     app.cli.add_command(init_database_command)
@@ -305,3 +314,4 @@ def register_commands(app):
     app.cli.add_command(check_database_command)
     app.cli.add_command(execute_single_sql_command)
     app.cli.add_command(init_themes_command)
+    app.cli.add_command(flush_ws_command)

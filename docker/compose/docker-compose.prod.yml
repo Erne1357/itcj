@@ -47,6 +47,8 @@ services:
       dockerfile: Dockerfile
     restart: always
     env_file: ../../.env.prod
+    environment:
+      - TZ=America/Ciudad_Juarez
     volumes:
       - ../../docker/backend/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
     depends_on:
@@ -155,7 +157,7 @@ services:
     restart: always
     image: nginx:alpine
     environment:
-      TZ: America/Chihuahua
+      TZ: America/Ciudad_Juarez
     volumes:
       - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       # upstream.conf con :ro - deploy.sh escribe en el HOST y el bind mount sincroniza

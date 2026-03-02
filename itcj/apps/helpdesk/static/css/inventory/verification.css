@@ -1,0 +1,71 @@
+/* ═══════════════════════════════════════════════════════════
+   Verificación de Inventario — Estilos
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Header ── */
+.verif-header {
+    background: linear-gradient(135deg, #2c6fad 0%, #1a4a7a 100%);
+    color: #fff;
+    border-radius: .5rem;
+    padding: 1rem 1.25rem;
+}
+
+.verif-header h1 { color: #fff; }
+.verif-header .opacity-75 { opacity: .75; }
+
+/* ── Badges de estado de verificación ── */
+.badge-verif-recent {
+    background-color: #28a745;
+    color: #fff;
+    font-size: .7rem;
+    padding: .25em .55em;
+}
+
+.badge-verif-outdated {
+    background-color: #ffc107;
+    color: #212529;
+    font-size: .7rem;
+    padding: .25em .55em;
+}
+
+.badge-verif-critical {
+    background-color: #dc3545;
+    color: #fff;
+    font-size: .7rem;
+    padding: .25em .55em;
+}
+
+.badge-verif-never {
+    background-color: #6c757d;
+    color: #fff;
+    font-size: .7rem;
+    padding: .25em .55em;
+}
+
+/* ── Highlighting de filas en la tabla ── */
+#verif-tbody tr.row-recent  { border-left: 3px solid #28a745; }
+#verif-tbody tr.row-outdated { border-left: 3px solid #ffc107; }
+#verif-tbody tr.row-critical { border-left: 3px solid #dc3545; }
+#verif-tbody tr.row-never   { border-left: 3px solid #6c757d; }
+
+/* ── Modal — identificación del equipo ── */
+.verif-item-header {
+    background: #f8f9fc;
+    border-radius: .4rem;
+    padding: .6rem .9rem;
+}
+
+/* ── Alert de cambios detectados ── */
+.alert-sm { padding: .4rem .75rem; font-size: .85rem; }
+
+/* ── Spinner de carga ── */
+#loading-state { min-height: 180px; }
+
+/* ── Paginación ── */
+#pagination-controls .btn { min-width: 2rem; }
+
+/* ── Responsive helpers ── */
+@media (max-width: 576px) {
+    .verif-header { padding: .75rem 1rem; }
+    #verif-table th, #verif-table td { font-size: .8rem; padding: .35rem .5rem; }
+}

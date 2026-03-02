@@ -12,8 +12,8 @@ RUN sed -i 's/Components: main/Components: main contrib/' /etc/apt/sources.list.
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Zona horaria (Cd. Juárez)
-RUN ln -snf /usr/share/zoneinfo/America/Chihuahua /etc/localtime && \
-    echo "America/Chihuahua" > /etc/timezone && \
+RUN ln -snf /usr/share/zoneinfo/America/Ciudad_Juarez /etc/localtime && \
+    echo "America/Ciudad_Juarez" > /etc/timezone && \
     dpkg-reconfigure -f noninteractive tzdata
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

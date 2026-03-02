@@ -58,6 +58,12 @@
                 <i class="fas fa-history d-none d-sm-inline"></i> <span class="d-none d-md-inline">Ciclo de </span>Vida
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {% if active_tab == 'verificacion' %}active{% endif %}" id="tab-verificacion"
+                data-bs-toggle="tab" data-bs-target="#panel-verificacion" type="button" role="tab">
+                <i class="fas fa-clipboard-check d-none d-sm-inline"></i> Verificaci&oacute;n
+            </button>
+        </li>
     </ul>
 
     <!-- Tab Panels -->
@@ -198,6 +204,7 @@
                                 <option value="TRANSFERRED">Transferido</option>
                                 <option value="DEACTIVATED">Dado de Baja</option>
                                 <option value="REACTIVATED">Reactivado</option>
+                                <option value="VERIFIED">Verificaci&oacute;n F&iacute;sica</option>
                             </select>
                         </div>
                         <div class="col-md-2 col-6">
@@ -452,6 +459,114 @@
                                 <tr>
                                     <td colspan="5" class="text-center text-muted py-3">
                                         <i class="fas fa-spinner fa-spin"></i> Cargando...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB: VERIFICACIÓN ==================== -->
+        <div class="tab-pane fade {% if active_tab == 'verificacion' %}show active{% endif %}" id="panel-verificacion" role="tabpanel">
+
+            <!-- Filtro de departamento -->
+            <div class="card shadow mb-3">
+                <div class="card-body py-2 py-md-3">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3 col-6">
+                            <label class="form-label small mb-1">Departamento</label>
+                            <select class="form-select form-select-sm" id="vr-department">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 col-6">
+                            <label class="form-label small mb-1">Estado de verificaci&oacute;n</label>
+                            <select class="form-select form-select-sm" id="vr-verif-status" onchange="loadVerificationReport()">
+                                <option value="all">Todos</option>
+                                <option value="recent">Reciente (&lt;30 d&iacute;as)</option>
+                                <option value="outdated">Vencido (30-90 d&iacute;as)</option>
+                                <option value="critical">Cr&iacute;tico (&gt;90 d&iacute;as)</option>
+                                <option value="never">Sin verificar</option>
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-primary btn-sm" onclick="loadVerificationReport()">
+                                <i class="fas fa-search"></i> Buscar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cards de resumen -->
+            <div class="row g-2 mb-3" id="vr-stats">
+                <div class="col-6 col-md-3">
+                    <div class="card border-left-primary shadow h-100 py-1">
+                        <div class="card-body py-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1" style="font-size: 0.65rem;">Total Equipos</div>
+                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-total"><i class="fas fa-spinner fa-spin"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-left-success shadow h-100 py-1">
+                        <div class="card-body py-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size: 0.65rem;">Recientes (&lt;30 d&iacute;as)</div>
+                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-recent"><i class="fas fa-spinner fa-spin"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-left-warning shadow h-100 py-1">
+                        <div class="card-body py-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">Vencidos (30-90 d&iacute;as)</div>
+                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-outdated"><i class="fas fa-spinner fa-spin"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-left-danger shadow h-100 py-1">
+                        <div class="card-body py-2">
+                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1" style="font-size: 0.65rem;">Cr&iacute;ticos / Sin verificar</div>
+                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-critical"><i class="fas fa-spinner fa-spin"></i></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de equipos con estado de verificación -->
+            <div class="card shadow">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary small">
+                        <i class="fas fa-clipboard-check"></i> Estado de verificaci&oacute;n
+                        <span class="badge bg-secondary ms-1" id="vr-total">0</span>
+                    </h6>
+                    <a href="/help-desk/inventory/verification" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-external-link-alt"></i>
+                        <span class="d-none d-sm-inline"> Ir a Verificar</span>
+                    </a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0" id="vr-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>No. Inventario</th>
+                                    <th class="d-none d-md-table-cell">Equipo</th>
+                                    <th class="d-none d-lg-table-cell">Departamento</th>
+                                    <th class="d-none d-md-table-cell">Ubicaci&oacute;n</th>
+                                    <th>&Uacute;ltima verificaci&oacute;n</th>
+                                    <th class="d-none d-sm-table-cell">Verificado por</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vr-tbody">
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted py-4">
+                                        <i class="fas fa-spinner fa-spin fa-2x mb-2 d-block"></i>
+                                        <small>Cargando datos de verificaci&oacute;n&hellip;</small>
                                     </td>
                                 </tr>
                             </tbody>

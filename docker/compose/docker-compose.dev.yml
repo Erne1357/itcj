@@ -30,6 +30,8 @@ services:
       dockerfile: Dockerfile
     restart: always
     env_file: ../../.env    # env_file resuelve relativo al compose file → provee POSTGRES_USER/PASSWORD al contenedor
+    environment:
+      - TZ=America/Ciudad_Juarez
     volumes:
       - ../backend/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
     depends_on:
@@ -60,7 +62,7 @@ services:
     restart: always
     image: nginx:alpine
     environment:
-      TZ: America/Chihuahua
+      TZ: America/Ciudad_Juarez
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
       # Monta todos los directorios static de las apps

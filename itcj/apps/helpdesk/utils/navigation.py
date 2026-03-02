@@ -136,6 +136,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "permission": "helpdesk.inventory.page.pending"
                 },
                 {
+                    "label": "Verificación",
+                    "endpoint": "helpdesk_pages.inventory_pages.verification",
+                    "icon": "fa-clipboard-check",
+                    "permission": "helpdesk.inventory.page.verification"
+                },
+                {
                     "label": "Asignar Equipos",
                     "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
                     "icon": "fa-user-plus",

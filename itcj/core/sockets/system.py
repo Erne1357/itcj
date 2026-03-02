@@ -50,6 +50,23 @@ def _broadcast_counts(socketio):
     socketio.emit("active_users", counts, to=ADMIN_ROOM, namespace=NAMESPACE)
 
 
+def flush_ws_state():
+    """
+    Limpia todas las claves de rastreo de usuarios activos en Redis.
+
+    Debe llamarse al arrancar el servidor porque, tras un reinicio de
+    gunicorn/Docker, los eventos 'disconnect' nunca se disparan y las
+    claves quedan con SIDs/usuarios fantasma indefinidamente.
+    """
+    try:
+        r = get_redis()
+        r.delete(SID_MAP_KEY, UID_REFCOUNT_KEY, STUDENTS_KEY, ADMINS_KEY)
+    except Exception as e:
+        # No lanzar: un fallo aquí no debe impedir que el servidor arranque
+        import logging
+        logging.getLogger(__name__).error(f"flush_ws_state error: {e}")
+
+
 # ---------- Llamados desde connect/disconnect de TODOS los namespaces ----------
 
 def track_connect(socketio, sid, user_data):
