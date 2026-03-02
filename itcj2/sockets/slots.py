@@ -10,7 +10,7 @@ se ejecutan con asyncio.to_thread() para no bloquear el event loop.
 import asyncio
 import logging
 
-from itcj.core.utils.socket_auth import current_user_from_environ
+from itcj2.core.utils.socket_auth import current_user_from_environ
 
 from .server import sio
 
@@ -37,11 +37,12 @@ def _sid_hold_key(sid: str) -> str:
 
 def _get_slot_day(slot_id: int):
     """Obtiene el día de un TimeSlot (sync, corre en thread pool)."""
-    from itcj.apps.agendatec.models import TimeSlot
-    from itcj.core.extensions import db
+    from itcj2.apps.agendatec.models import TimeSlot
+    from itcj2.database import SessionLocal
 
-    s = db.session.query(TimeSlot).get(int(slot_id))
-    return None if not s else str(s.day)
+    with SessionLocal() as s:
+        row = s.get(TimeSlot, int(slot_id))
+        return None if not row else str(row.day)
 
 
 def _slots_snapshot_for_day(day_str: str) -> dict:
@@ -49,16 +50,17 @@ def _slots_snapshot_for_day(day_str: str) -> dict:
     Genera snapshot de estado de slots para un día dado (sync, thread pool).
     Retorna {booked: [...], held: [{slot_id, ttl}, ...]}.
     """
-    from itcj.apps.agendatec.models import TimeSlot
-    from itcj.core.extensions import db
-    from itcj.core.utils.redis_conn import get_redis
+    from itcj2.apps.agendatec.models import TimeSlot
+    from itcj2.core.utils.redis_conn import get_redis
+    from itcj2.database import SessionLocal
 
     r = get_redis()
-    rows = (
-        db.session.query(TimeSlot.id, TimeSlot.is_booked)
-        .filter(TimeSlot.day == day_str)
-        .all()
-    )
+    with SessionLocal() as s:
+        rows = (
+            s.query(TimeSlot.id, TimeSlot.is_booked)
+            .filter(TimeSlot.day == day_str)
+            .all()
+        )
 
     booked = [slot_id for slot_id, is_booked in rows if is_booked]
 
@@ -83,7 +85,7 @@ def _try_hold_slot(slot_id: int, sid: str) -> dict:
         ok=True  → {ok, slot_id, ttl, day, renewed, released_slot, released_day}
         ok=False → {ok, error}
     """
-    from itcj.core.utils.redis_conn import get_redis, get_hold_ttl
+    from itcj2.core.utils.redis_conn import get_redis, get_hold_ttl
 
     r = get_redis()
     day = _get_slot_day(slot_id)
@@ -141,7 +143,7 @@ def _try_hold_slot(slot_id: int, sid: str) -> dict:
 
 def _release_hold(slot_id: int, sid: str) -> dict:
     """Libera un hold en Redis (sync, corre en thread pool)."""
-    from itcj.core.utils.redis_conn import get_redis
+    from itcj2.core.utils.redis_conn import get_redis
 
     r = get_redis()
     day = _get_slot_day(slot_id)
@@ -178,11 +180,7 @@ def register_slot_namespace(sio_server):
 
     @sio_server.on("disconnect", namespace=NAMESPACE)
     async def on_disconnect(sid):
-        try:
-            from itcj.core.extensions import db
-            await asyncio.to_thread(db.session.remove)
-        except Exception:
-            pass
+        pass
 
     @sio_server.on("join_day", namespace=NAMESPACE)
     async def on_join_day(sid, data):

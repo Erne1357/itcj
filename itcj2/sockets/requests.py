@@ -7,7 +7,7 @@ a python-socketio ASGI (async nativo).
 import asyncio
 import logging
 
-from itcj.core.utils.socket_auth import current_user_from_environ
+from itcj2.core.utils.socket_auth import current_user_from_environ
 
 from .server import sio
 
@@ -96,11 +96,7 @@ def register_request_namespace(sio_server):
 
     @sio_server.on("disconnect", namespace=NAMESPACE)
     async def on_disconnect(sid):
-        try:
-            from itcj.core.extensions import db
-            await asyncio.to_thread(db.session.remove)
-        except Exception:
-            pass
+        pass
 
     # -------- Appointments (por día) --------
 
