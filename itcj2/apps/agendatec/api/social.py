@@ -9,11 +9,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.dependencies import DbSession, require_perms
-from itcj.apps.agendatec.models.appointment import Appointment
-from itcj.apps.agendatec.models.request import Request
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.models.program import Program
-from itcj.core.models.user import User
+from itcj2.apps.agendatec.models.appointment import Appointment
+from itcj2.apps.agendatec.models.request import Request
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.models.program import Program
+from itcj2.core.models.user import User
 
 router = APIRouter(tags=["agendatec-social"])
 logger = logging.getLogger(__name__)

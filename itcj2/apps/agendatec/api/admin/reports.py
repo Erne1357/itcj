@@ -16,13 +16,13 @@ from sqlalchemy.orm import joinedload
 
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.helpers import parse_range_from_params
-from itcj.apps.agendatec.models.appointment import Appointment
-from itcj.apps.agendatec.models.request import Request as Req
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program import Program
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.user import User
+from itcj2.apps.agendatec.models.appointment import Appointment
+from itcj2.apps.agendatec.models.request import Request as Req
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program import Program
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.user import User
 
 router = APIRouter(tags=["agendatec-admin-reports"])
 logger = logging.getLogger(__name__)

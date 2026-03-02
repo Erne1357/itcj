@@ -9,14 +9,14 @@ from sqlalchemy import func
 
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.helpers import require_coordinator, get_coord_program_ids
-from itcj.apps.agendatec.models.appointment import Appointment
-from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
-from itcj.apps.agendatec.models.request import Request
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.user import User
-from itcj.core.services import period_service
+from itcj2.apps.agendatec.models.appointment import Appointment
+from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
+from itcj2.apps.agendatec.models.request import Request
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.user import User
+from itcj2.core.services import period_service
 
 router = APIRouter(tags=["agendatec-coord-dashboard"])
 logger = logging.getLogger(__name__)

@@ -11,16 +11,16 @@ from sqlalchemy.orm import joinedload
 
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.schemas.admin import CreateCoordinatorBody, UpdateCoordinatorBody
-from itcj.apps.agendatec.config import DEFAULT_STAFF_PASSWORD
-from itcj.apps.agendatec.models.audit_log import AuditLog
-from itcj.core.models.app import App
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program import Program
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.role import Role
-from itcj.core.models.user import User
-from itcj.core.models.user_app_role import UserAppRole
-from itcj.core.utils.security import hash_nip
+from itcj2.apps.agendatec.config import DEFAULT_STAFF_PASSWORD
+from itcj2.apps.agendatec.models.audit_log import AuditLog
+from itcj2.core.models.app import App
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program import Program
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.role import Role
+from itcj2.core.models.user import User
+from itcj2.core.models.user_app_role import UserAppRole
+from itcj2.core.utils.security import hash_nip
 
 router = APIRouter(tags=["agendatec-admin-users"])
 logger = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ def create_coordinator(
     1. Con usuario existente: enviar user_id.
     2. Creando nuevo usuario: enviar name, email, username.
     """
-    from itcj.core.services import authz_service
+    from itcj2.core.services import authz_service
 
     created_new_user = False
 

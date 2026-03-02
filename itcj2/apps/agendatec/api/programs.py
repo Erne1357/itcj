@@ -8,10 +8,10 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from itcj2.dependencies import DbSession, CurrentUser
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program import Program
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.user import User
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program import Program
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.user import User
 
 router = APIRouter(tags=["agendatec-programs"])
 logger = logging.getLogger(__name__)

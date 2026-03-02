@@ -11,10 +11,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.helpers import parse_range_from_params
-from itcj.apps.agendatec.models.request import Request as Req
-from itcj.core.models.user import User
-from itcj.core.utils.email_tools import student_email
-from itcj.core.utils.msgraph_mail import acquire_token_silent, graph_send_mail
+from itcj2.apps.agendatec.models.request import Request as Req
+from itcj2.core.models.user import User
+from itcj2.core.utils.email_tools import student_email
+from itcj2.core.utils.msgraph_mail import acquire_token_silent, graph_send_mail
 
 router = APIRouter(tags=["agendatec-admin-surveys"])
 logger = logging.getLogger(__name__)

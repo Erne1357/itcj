@@ -12,13 +12,13 @@ from itcj2.apps.agendatec.schemas.availability import CreateWindowBody, Generate
 from itcj2.dependencies import DbSession, require_perms, require_roles
 from itcj2.apps.agendatec.helpers import parse_date_str
 
-from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program import Program
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.user import User
-from itcj.core.services import period_service
+from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program import Program
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.user import User
+from itcj2.core.services import period_service
 
 router = APIRouter(tags=["agendatec-availability"])
 logger = logging.getLogger(__name__)

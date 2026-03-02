@@ -12,14 +12,14 @@ import redis as _redis
 from itcj2.apps.agendatec.schemas.slots import HoldSlotBody, ReleaseSlotBody
 from itcj2.dependencies import DbSession, require_perms, require_roles, CurrentUser
 
-from itcj.apps.agendatec.config.constants import (
+from itcj2.apps.agendatec.config.constants import (
     ENFORCE_SINGLE_HOLD_PER_USER,
     REDIS_SLOT_HOLD_PREFIX,
     REDIS_USER_HOLD_PREFIX,
 )
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.services import period_service
-from itcj.core.utils.redis_conn import get_hold_ttl, get_redis
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.services import period_service
+from itcj2.core.utils.redis_conn import get_hold_ttl, get_redis
 
 router = APIRouter(tags=["agendatec-slots"])
 logger = logging.getLogger(__name__)

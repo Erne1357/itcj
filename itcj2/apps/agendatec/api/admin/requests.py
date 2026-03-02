@@ -14,15 +14,15 @@ from sqlalchemy.orm import joinedload
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.helpers import parse_range_from_params
 from itcj2.apps.agendatec.schemas.admin import ChangeRequestStatusBody, AdminCreateRequestBody
-from itcj.apps.agendatec.models.appointment import Appointment
-from itcj.apps.agendatec.models.request import Request as Req
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program import Program
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.user import User
-from itcj.core.services import period_service
-from itcj.core.utils.notify import create_notification
+from itcj2.apps.agendatec.models.appointment import Appointment
+from itcj2.apps.agendatec.models.request import Request as Req
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program import Program
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.user import User
+from itcj2.core.services import period_service
+from itcj2.core.utils.notify import create_notification
 
 router = APIRouter(tags=["agendatec-admin-requests"])
 logger = logging.getLogger(__name__)
@@ -134,12 +134,11 @@ def admin_change_request_status(
     db: DbSession = None,
 ):
     """Cambia el estado de una solicitud."""
-    from itcj.apps.agendatec.services.request_ops import admin_change_request_status as change_status
-    from itcj2.utils import flask_service_call
+    from itcj2.apps.agendatec.services.request_ops import admin_change_request_status as change_status
 
     actor_id = int(user.get("sub")) if user.get("sub") else None
-    resp, code = flask_service_call(
-        change_status,
+    resp, code = change_status(
+        db,
         actor_user_id=actor_id,
         req_id=req_id,
         new_status=body.status,
@@ -280,7 +279,7 @@ def admin_create_request(
                 .filter_by(program_id=body.program_id)
                 .all()
             ]
-            from itcj.core.sockets.requests import broadcast_drop_created
+            from itcj2.core.sockets.requests import broadcast_drop_created
             for cid in coord_ids:
                 broadcast_drop_created(None, cid, {
                     "request_id": r.id,
@@ -302,7 +301,7 @@ def admin_create_request(
                 program_id=body.program_id,
             )
             db.commit()
-            from itcj.core.sockets.notifications import push_notification
+            from itcj2.core.sockets.notifications import push_notification
             push_notification(None, body.student_id, n.to_dict())
         except Exception:
             logger.exception("Failed to create/push DROP notification")
@@ -368,7 +367,7 @@ def admin_create_request(
         db.commit()
 
         try:
-            from itcj.core.sockets.requests import broadcast_appointment_created
+            from itcj2.core.sockets.requests import broadcast_appointment_created
             day_str = str(slot.day)
             broadcast_appointment_created(None, ap.coordinator_id, day_str, {
                 "request_id": r.id,
@@ -395,7 +394,7 @@ def admin_create_request(
                 program_id=body.program_id,
             )
             db.commit()
-            from itcj.core.sockets.notifications import push_notification
+            from itcj2.core.sockets.notifications import push_notification
             push_notification(None, body.student_id, n.to_dict())
         except Exception:
             logger.exception("Failed to create/push APPOINTMENT notification")

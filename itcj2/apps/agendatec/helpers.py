@@ -14,9 +14,9 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.program_coordinator import ProgramCoordinator
-from itcj.core.models.user import User
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.program_coordinator import ProgramCoordinator
+from itcj2.core.models.user import User
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ def split_or_delete_windows(
     Returns:
         Dict con windows_deleted y windows_created.
     """
-    from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
+    from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
 
     overlapping = (
         db.query(AvailabilityWindow)
@@ -222,7 +222,7 @@ def require_admission_open() -> None:
     Equivale al decorador @api_closed de Flask.
     Lanza HTTPException(503) si está cerrada.
     """
-    from itcj.core.services import period_service
+    from itcj2.core.services import period_service
 
     period = period_service.get_active_period()
     if not period:

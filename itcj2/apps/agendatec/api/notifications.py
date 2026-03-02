@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.dependencies import DbSession, CurrentUser
-from itcj.core.models.notification import Notification
+from itcj2.core.models.notification import Notification
 
 router = APIRouter(tags=["agendatec-notifications"])
 logger = logging.getLogger(__name__)

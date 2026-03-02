@@ -11,12 +11,12 @@ from sqlalchemy import case
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.helpers import require_coordinator, get_coord_program_ids
 from itcj2.apps.agendatec.schemas.coord import UpdateRequestStatusBody
-from itcj.apps.agendatec.models.appointment import Appointment
-from itcj.apps.agendatec.models.request import Request
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.models.user import User
-from itcj.core.services import period_service
-from itcj.core.utils.notify import create_notification
+from itcj2.apps.agendatec.models.appointment import Appointment
+from itcj2.apps.agendatec.models.request import Request
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.models.user import User
+from itcj2.core.services import period_service
+from itcj2.core.utils.notify import create_notification
 
 router = APIRouter(tags=["agendatec-coord-drops"])
 logger = logging.getLogger(__name__)

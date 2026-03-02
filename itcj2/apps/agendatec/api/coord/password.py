@@ -8,10 +8,10 @@ from fastapi import APIRouter, HTTPException
 
 from itcj2.dependencies import DbSession, require_roles
 from itcj2.apps.agendatec.schemas.coord import ChangePasswordBody
-from itcj.apps.agendatec.config import DEFAULT_STAFF_PASSWORD
-from itcj.core.models.coordinator import Coordinator
-from itcj.core.models.user import User
-from itcj.core.utils.security import hash_nip, verify_nip
+from itcj2.apps.agendatec.config import DEFAULT_STAFF_PASSWORD
+from itcj2.core.models.coordinator import Coordinator
+from itcj2.core.models.user import User
+from itcj2.core.utils.security import hash_nip, verify_nip
 
 router = APIRouter(tags=["agendatec-coord-password"])
 logger = logging.getLogger(__name__)

@@ -14,9 +14,9 @@ from itcj2.apps.agendatec.helpers import get_app_tz, parse_date_str, parse_datet
 from itcj2.apps.agendatec.schemas.periods import CreatePeriodBody, UpdatePeriodBody, SetEnabledDaysBody
 from itcj2.dependencies import DbSession, require_perms, require_app, CurrentUser
 
-from itcj.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
-from itcj.core.models.academic_period import AcademicPeriod
-from itcj.core.services import period_service
+from itcj2.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
+from itcj2.core.models.academic_period import AcademicPeriod
+from itcj2.core.services import period_service
 
 router = APIRouter(tags=["agendatec-periods"])
 logger = logging.getLogger(__name__)
@@ -423,7 +423,7 @@ def get_period_stats(
     db: DbSession = None,
 ):
     """Obtiene estadísticas de un período académico."""
-    from itcj.apps.agendatec.models.request import Request
+    from itcj2.apps.agendatec.models.request import Request
 
     period = db.query(AcademicPeriod).filter_by(id=period_id).first()
     if not period:

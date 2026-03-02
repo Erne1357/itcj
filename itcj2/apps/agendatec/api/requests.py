@@ -10,9 +10,9 @@ from itcj2.apps.agendatec.helpers import require_admission_open
 from itcj2.apps.agendatec.schemas.requests import CreateRequestBody
 from itcj2.dependencies import DbSession, require_roles, CurrentUser
 
-from itcj.apps.agendatec.models.request import Request as AgendaRequest
-from itcj.apps.agendatec.services import get_request_service
-from itcj.core.models.user import User
+from itcj2.apps.agendatec.models.request import Request as AgendaRequest
+from itcj2.apps.agendatec.services import get_request_service
+from itcj2.core.models.user import User
 
 router = APIRouter(tags=["agendatec-requests"])
 logger = logging.getLogger(__name__)

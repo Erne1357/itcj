@@ -10,9 +10,9 @@ from fastapi import APIRouter, HTTPException, Query
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.helpers import require_coordinator, split_or_delete_windows, parse_time_str
 from itcj2.apps.agendatec.schemas.coord import SetDayConfigBody, DeleteDayRangeBody
-from itcj.apps.agendatec.models.availability_window import AvailabilityWindow
-from itcj.apps.agendatec.models.time_slot import TimeSlot
-from itcj.core.services import period_service
+from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
+from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.core.services import period_service
 
 router = APIRouter(tags=["agendatec-coord-day-config"])
 logger = logging.getLogger(__name__)
@@ -179,7 +179,7 @@ def set_day_config(
     db.commit()
 
     try:
-        from itcj.core.sockets import get_socketio
+        from itcj2.core.sockets import get_socketio
         sio = get_socketio()
         sio.emit("slots_window_changed", {"day": str(d)}, to=f"day:{str(d)}", namespace="/slots")
     except Exception:
@@ -244,7 +244,7 @@ def delete_day_range(
     db.commit()
 
     try:
-        from itcj.core.sockets import get_socketio
+        from itcj2.core.sockets import get_socketio
         sio = get_socketio()
         sio.emit("slots_window_changed", {"day": str(d)}, to=f"day:{str(d)}", namespace="/slots")
     except Exception:
