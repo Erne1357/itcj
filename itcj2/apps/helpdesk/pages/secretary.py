@@ -25,18 +25,23 @@ async def dashboard(
 ):
     """Dashboard de secretaría: KPIs del departamento, lista de tickets y opción de crear."""
     from itcj2.core.models.user import User
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    db_user = User.query.get(user_id)
-    if not db_user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    _db = SessionLocal()
+    try:
+        db_user = _db.get(User, user_id)
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    department = db_user.get_current_department()
-    if not department:
-        raise HTTPException(status_code=403, detail="Usuario sin departamento asignado")
+        department = db_user.get_current_department()
+        if not department:
+            raise HTTPException(status_code=403, detail="Usuario sin departamento asignado")
 
-    return render_helpdesk(request, "helpdesk/secretary/dashboard.html", {
-        "title": "Secretaría - Dashboard",
-        "department": department,
-        "department_name": department.name,
-    })
+        return render_helpdesk(request, "helpdesk/secretary/dashboard.html", {
+            "title": "Secretaría - Dashboard",
+            "department": department,
+            "department_name": department.name,
+        })
+    finally:
+        _db.close()

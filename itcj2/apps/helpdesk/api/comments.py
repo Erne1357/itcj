@@ -24,13 +24,13 @@ def get_ticket_comments(
     from itcj2.apps.helpdesk.models import Comment
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
 
     ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     is_staff = any(r in user_roles for r in ["admin", "secretary", "tech_desarrollo", "tech_soporte"])
 
-    query = Comment.query.filter_by(ticket_id=ticket_id)
+    query = db.query(Comment).filter_by(ticket_id=ticket_id)
     if not is_staff:
         query = query.filter_by(is_internal=False)
 
@@ -54,7 +54,7 @@ def create_comment(
     from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
 
     if body.is_internal:
         is_staff = any(r in user_roles for r in ["admin", "secretary", "tech_desarrollo", "tech_soporte"])
@@ -79,7 +79,7 @@ def create_comment(
     from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     from itcj2.core.models.user import User
     try:
-        author = User.query.get(user_id)
+        author = db.get(User, user_id)
         if author:
             HelpdeskNotificationHelper.notify_comment_added(db, ticket, comment, author)
         db.commit()
@@ -101,7 +101,7 @@ def update_comment(
 
     user_id = int(user["sub"])
 
-    comment = Comment.query.get(comment_id)
+    comment = db.get(Comment, comment_id)
     if not comment:
         raise HTTPException(404, detail={"error": "not_found", "message": "Comentario no encontrado"})
 
@@ -130,10 +130,10 @@ def delete_comment(
     from itcj2.apps.helpdesk.utils.timezone_utils import now_local
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
     is_admin = "admin" in user_roles
 
-    comment = Comment.query.get(comment_id)
+    comment = db.get(Comment, comment_id)
     if not comment:
         raise HTTPException(404, detail={"error": "not_found", "message": "Comentario no encontrado"})
 

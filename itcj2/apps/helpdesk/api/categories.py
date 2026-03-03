@@ -29,7 +29,7 @@ def list_categories(
 ):
     from itcj2.apps.helpdesk.models import Category
 
-    query = Category.query
+    query = db.query(Category)
 
     if area:
         if area not in ("DESARROLLO", "SOPORTE"):
@@ -91,11 +91,11 @@ def get_category(
 ):
     from itcj2.apps.helpdesk.models import Category, Ticket
 
-    category = Category.query.get(category_id)
+    category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 
-    tickets_count = Ticket.query.filter_by(category_id=category_id).count()
+    tickets_count = db.query(Ticket).filter_by(category_id=category_id).count()
     data = category.to_dict()
     data["tickets_count"] = tickets_count
 
@@ -116,7 +116,7 @@ def create_category(
     if body.area not in ("DESARROLLO", "SOPORTE"):
         raise HTTPException(400, detail={"error": "invalid_area", "message": "El área debe ser DESARROLLO o SOPORTE"})
 
-    existing = Category.query.filter_by(code=body.code).first()
+    existing = db.query(Category).filter_by(code=body.code).first()
     if existing:
         raise HTTPException(409, detail={"error": "code_exists", "message": f'Ya existe una categoría con el código "{body.code}"'})
 
@@ -152,7 +152,7 @@ def update_category(
     from itcj2.apps.helpdesk.models import Category
 
     user_id = int(user["sub"])
-    category = Category.query.get(category_id)
+    category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 
@@ -185,12 +185,12 @@ def toggle_category(
     from itcj2.apps.helpdesk.models import Category, Ticket
 
     user_id = int(user["sub"])
-    category = Category.query.get(category_id)
+    category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 
     if not body.is_active and category.is_active:
-        active_tickets = Ticket.query.filter(
+        active_tickets = db.query(Ticket).filter(
             Ticket.category_id == category_id,
             Ticket.status.notin_(["CLOSED", "CANCELED"]),
         ).count()
@@ -225,7 +225,7 @@ def reorder_categories(
     for item in body.order:
         if "id" not in item or "display_order" not in item:
             raise HTTPException(400, detail={"error": "invalid_order_item", "message": "Cada item debe tener id y display_order"})
-        category = Category.query.get(item["id"])
+        category = db.get(Category, item["id"])
         if not category:
             raise HTTPException(404, detail={"error": "category_not_found", "message": f'Categoría con id {item["id"]} no encontrada'})
         if category.area != body.area:
@@ -235,7 +235,7 @@ def reorder_categories(
     db.commit()
     logger.info(f"Categorías del área {body.area} reordenadas por usuario {user_id}")
 
-    categories = Category.query.filter_by(area=body.area).order_by(Category.display_order).all()
+    categories = db.query(Category).filter_by(area=body.area).order_by(Category.display_order).all()
     return {"message": "Orden actualizado exitosamente", "categories": [cat.to_dict() for cat in categories]}
 
 
@@ -248,11 +248,11 @@ def delete_category(
     from itcj2.apps.helpdesk.models import Category, Ticket
 
     user_id = int(user["sub"])
-    category = Category.query.get(category_id)
+    category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 
-    tickets_count = Ticket.query.filter_by(category_id=category_id).count()
+    tickets_count = db.query(Ticket).filter_by(category_id=category_id).count()
     if tickets_count > 0:
         raise HTTPException(400, detail={
             "error": "has_tickets",
@@ -275,7 +275,7 @@ def get_category_field_template(
 ):
     from itcj2.apps.helpdesk.models import Category
 
-    category = Category.query.get(category_id)
+    category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 
@@ -293,7 +293,7 @@ def update_category_field_template(
     from itcj2.apps.helpdesk.models import Category
 
     user_id = int(user["sub"])
-    category = Category.query.get(category_id)
+    category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 

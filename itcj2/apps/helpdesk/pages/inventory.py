@@ -32,16 +32,25 @@ router = APIRouter(prefix="/inventory", tags=["helpdesk-pages-inventory"])
 _require_helpdesk = require_page_app("helpdesk")
 
 
+def _helpdesk_roles(user_id: int) -> set:
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return user_roles_in_app(_db, user_id, "helpdesk")
+    finally:
+        _db.close()
+
+
 @router.get("/dashboard", name="helpdesk.pages.inventory.dashboard")
 async def dashboard(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.list"])),
 ):
     """Dashboard principal de inventario: estadísticas, alertas y actividad reciente."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/dashboard.html", {
         "user_roles": user_roles,
@@ -55,10 +64,8 @@ async def items_list(
     user: dict = Depends(_require_helpdesk),
 ):
     """Lista de equipos del inventario (admin/secretaría: todos; jefe depto: su depto)."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
     can_view_all = "admin" in user_roles or "secretary" in user_roles
 
     return render_helpdesk(request, "helpdesk/inventory/items_list.html", {
@@ -74,10 +81,8 @@ async def item_create(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.create"])),
 ):
     """Formulario para registrar nuevo equipo."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/item_create.html", {
         "user_roles": user_roles,
@@ -92,12 +97,17 @@ async def item_detail(
     user: dict = Depends(_require_helpdesk),
 ):
     """Detalle completo de un equipo con historial."""
-    from itcj2.core.services.authz_service import _get_users_with_position, user_roles_in_app
+    from itcj2.core.services.authz_service import _get_users_with_position
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    _db = SessionLocal()
+    try:
+        secretary_comp_center = _get_users_with_position(_db, ["secretary_comp_center"])
+    finally:
+        _db.close()
     can_edit = (
         "admin" in user_roles
         or "tech_soporte" in user_roles
@@ -119,10 +129,8 @@ async def my_equipment(
     user: dict = Depends(_require_helpdesk),
 ):
     """Equipos asignados al usuario actual (solo lectura)."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/my_equipment.html", {
         "user_roles": user_roles,
@@ -136,10 +144,8 @@ async def assign_equipment(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.assign"])),
 ):
     """Interfaz para asignar equipos a usuarios."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/assign_equipment.html", {
         "user_roles": user_roles,
@@ -153,10 +159,8 @@ async def warranty_report(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
 ):
     """Reporte de garantías de equipos."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/reports/warranty.html", {
         "user_roles": user_roles,
@@ -170,10 +174,8 @@ async def maintenance_report(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
 ):
     """Reporte de mantenimientos."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/reports/maintenance.html", {
         "user_roles": user_roles,
@@ -187,10 +189,8 @@ async def lifecycle_report(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
 ):
     """Reporte de ciclo de vida (antigüedad) de equipos."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/reports/lifecycle.html", {
         "user_roles": user_roles,
@@ -204,13 +204,17 @@ async def groups_list(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_groups.page.list"])),
 ):
     """Lista de grupos de equipos (salones, laboratorios)."""
-    from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    user_dept = get_user_department(user_id)
-    department_id = user_dept.id if user_dept else None
+    user_roles = _helpdesk_roles(user_id)
+    _db = SessionLocal()
+    try:
+        user_dept = get_user_department(_db, user_id)
+        department_id = user_dept.id if user_dept else None
+    finally:
+        _db.close()
 
     return render_helpdesk(request, "helpdesk/inventory/groups_list.html", {
         "user_roles": user_roles,
@@ -227,13 +231,17 @@ async def group_detail(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_groups.page.list"])),
 ):
     """Detalle de un grupo con sus equipos."""
-    from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    user_dept = get_user_department(user_id)
-    department_id = user_dept.id if user_dept else None
+    user_roles = _helpdesk_roles(user_id)
+    _db = SessionLocal()
+    try:
+        user_dept = get_user_department(_db, user_id)
+        department_id = user_dept.id if user_dept else None
+    finally:
+        _db.close()
 
     return render_helpdesk(request, "helpdesk/inventory/group_detail.html", {
         "group_id": group_id,
@@ -249,10 +257,8 @@ async def pending_items(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.pending"])),
 ):
     """Equipos pendientes de asignación (limbo del Centro de Cómputo)."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/pending_items.html", {
         "user_roles": user_roles,
@@ -266,10 +272,8 @@ async def bulk_register(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.bulk.create"])),
 ):
     """Registro masivo de equipos (mismo template que item_create con bulk_mode=True)."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/inventory/item_create.html", {
         "bulk_mode": True,

@@ -47,8 +47,13 @@ def _build_vistetec_nav(user_id: int) -> tuple[list[dict], set[str]]:
     """
     try:
         from itcj2.core.services.authz_service import user_roles_in_app
+        from itcj2.database import SessionLocal
 
-        user_roles = set(user_roles_in_app(user_id, "vistetec"))
+        _db = SessionLocal()
+        try:
+            user_roles = set(user_roles_in_app(_db, user_id, "vistetec"))
+        finally:
+            _db.close()
         nav_items: list[dict] = []
 
         for role in ("student", "volunteer", "admin"):

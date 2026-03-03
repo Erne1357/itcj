@@ -30,26 +30,31 @@ def _build_agendatec_nav(user_id: int) -> list[dict]:
             get_user_permissions_for_app,
             user_roles_in_app,
         )
+        from itcj2.database import SessionLocal
 
-        agendatec_roles = set(user_roles_in_app(user_id, "agendatec"))
-        student_open = is_student_window_open()
+        _db = SessionLocal()
+        try:
+            agendatec_roles = set(user_roles_in_app(_db, user_id, "agendatec"))
+            student_open = is_student_window_open()
 
-        if "student" in agendatec_roles and student_open:
-            nav_items = [
-                {
-                    "label": "Inicio",
-                    "endpoint": "agendatec_pages.student_pages.student_home",
-                    "icon": "bi-house",
-                },
-                {
-                    "label": "Mis solicitudes",
-                    "endpoint": "agendatec_pages.student_pages.student_requests",
-                    "icon": "bi-journal-text",
-                },
-            ]
-        else:
-            user_perms = get_user_permissions_for_app(user_id, "agendatec")
-            nav_items = _get_agendatec_navigation(user_perms, student_open)
+            if "student" in agendatec_roles and student_open:
+                nav_items = [
+                    {
+                        "label": "Inicio",
+                        "endpoint": "agendatec_pages.student_pages.student_home",
+                        "icon": "bi-house",
+                    },
+                    {
+                        "label": "Mis solicitudes",
+                        "endpoint": "agendatec_pages.student_pages.student_requests",
+                        "icon": "bi-journal-text",
+                    },
+                ]
+            else:
+                user_perms = get_user_permissions_for_app(_db, user_id, "agendatec")
+                nav_items = _get_agendatec_navigation(user_perms, student_open)
+        finally:
+            _db.close()
 
         for item in nav_items:
             if item.get("endpoint"):

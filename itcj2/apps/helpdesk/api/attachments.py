@@ -58,12 +58,12 @@ def upload_attachment(
         ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
         if attachment_type == "resolution":
-            existing_count = Attachment.query.filter_by(ticket_id=ticket_id, attachment_type="resolution").count()
+            existing_count = db.query(Attachment).filter_by(ticket_id=ticket_id, attachment_type="resolution").count()
             if existing_count >= Config.HELPDESK_MAX_RESOLUTION_FILES:
                 raise HTTPException(400, detail={"error": "limit_reached", "message": f"Máximo {Config.HELPDESK_MAX_RESOLUTION_FILES} archivos de resolución"})
 
         elif attachment_type == "comment" and comment_id:
-            existing_count = Attachment.query.filter_by(comment_id=comment_id, attachment_type="comment").count()
+            existing_count = db.query(Attachment).filter_by(comment_id=comment_id, attachment_type="comment").count()
             if existing_count >= Config.HELPDESK_MAX_COMMENT_FILES:
                 raise HTTPException(400, detail={"error": "limit_reached", "message": f"Máximo {Config.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
 
@@ -160,7 +160,7 @@ def list_attachments(
     user_id = int(user["sub"])
     ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
-    query = Attachment.query.filter_by(ticket_id=ticket_id)
+    query = db.query(Attachment).filter_by(ticket_id=ticket_id)
     if type and type in ("ticket", "resolution", "comment"):
         query = query.filter_by(attachment_type=type)
 
@@ -178,7 +178,7 @@ def download_attachment(
     from itcj2.apps.helpdesk.models import Attachment
 
     user_id = int(user["sub"])
-    attachment = Attachment.query.get(attachment_id)
+    attachment = db.get(Attachment, attachment_id)
     if not attachment:
         raise HTTPException(404, detail={"error": "not_found", "message": "Archivo no encontrado"})
 
@@ -204,10 +204,10 @@ def delete_attachment(
     from itcj2.apps.helpdesk.models import Attachment
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
     is_admin = "admin" in user_roles
 
-    attachment = Attachment.query.get(attachment_id)
+    attachment = db.get(Attachment, attachment_id)
     if not attachment:
         raise HTTPException(404, detail={"error": "not_found", "message": "Archivo no encontrado"})
 

@@ -22,13 +22,13 @@ def get_all_groups(
     from itcj2.apps.helpdesk.models import InventoryGroup
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver todos los grupos"})
 
-    query = InventoryGroup.query
+    query = db.query(InventoryGroup)
     if include_inactive.lower() != "true":
         query = query.filter_by(is_active=True)
     if department_id is not None:
@@ -48,12 +48,12 @@ def get_groups_by_department(
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver grupos de este departamento"})
 
@@ -70,7 +70,7 @@ def get_group_detail(
 ):
     from itcj2.apps.helpdesk.models import InventoryGroup
 
-    group = InventoryGroup.query.get(group_id)
+    group = db.get(InventoryGroup, group_id)
     if not group:
         raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado"})
 

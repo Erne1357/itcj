@@ -28,16 +28,25 @@ logger = logging.getLogger("itcj2.apps.helpdesk.pages.admin")
 router = APIRouter(prefix="/admin", tags=["helpdesk-pages-admin"])
 
 
+def _helpdesk_roles(user_id: int) -> set:
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return user_roles_in_app(_db, user_id, "helpdesk")
+    finally:
+        _db.close()
+
+
 @router.get("/home", name="helpdesk.pages.admin.home")
 async def home(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.dashboard.admin"])),
 ):
     """Dashboard principal de administrador de Help-Desk."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/home.html", {
         "user_roles": user_roles,
@@ -51,10 +60,8 @@ async def assign_tickets(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.assignments.page.list"])),
 ):
     """Vista para asignar y gestionar tickets."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/assign_tickets.html", {
         "user_roles": user_roles,
@@ -68,10 +75,8 @@ async def all_tickets(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.list"])),
 ):
     """Vista de todos los tickets del sistema."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/all_tickets.html", {
         "user_roles": user_roles,
@@ -85,10 +90,8 @@ async def tickets_list(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.list_all"])),
 ):
     """Lista completa de todos los tickets ordenada por fecha de creación descendente."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/tickets_list.html", {
         "user_roles": user_roles,
@@ -102,10 +105,8 @@ async def categories(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.categories.page.list"])),
 ):
     """Gestión de categorías de tickets."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/categories.html", {
         "user_roles": user_roles,
@@ -137,10 +138,8 @@ async def inventory_categories(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_categories.page.list"])),
 ):
     """Gestión de categorías de inventario."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/inventory_categories.html", {
         "user_roles": user_roles,
@@ -154,10 +153,8 @@ async def inventory_reports(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.export.all"])),
 ):
     """Reportes de inventario."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/inventory_reports.html", {
         "user_roles": user_roles,
@@ -171,10 +168,8 @@ async def stats(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.stats.page.list"])),
 ):
     """Estadísticas generales del sistema de tickets."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/stats.html", {
         "user_roles": user_roles,
@@ -188,10 +183,8 @@ async def documents(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.documents.page.list"])),
 ):
     """Generación de documentos PDF/DOCX a partir de tickets."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/admin/documents.html", {
         "user_roles": user_roles,

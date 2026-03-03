@@ -67,9 +67,9 @@ def generate_documents(
         raise HTTPException(400, detail={"error": "invalid_output_mode", "message": "output_mode debe ser zip o concatenated"})
 
     if body.ticket_ids == "all":
-        tickets = Ticket.query.order_by(Ticket.created_at.desc()).all()
+        tickets = db.query(Ticket).order_by(Ticket.created_at.desc()).all()
     elif isinstance(body.ticket_ids, list):
-        tickets = Ticket.query.filter(Ticket.id.in_(body.ticket_ids)).order_by(Ticket.created_at.desc()).all()
+        tickets = db.query(Ticket).filter(Ticket.id.in_(body.ticket_ids)).order_by(Ticket.created_at.desc()).all()
     else:
         raise HTTPException(400, detail={"error": "invalid_ticket_ids", "message": 'ticket_ids debe ser un array o "all"'})
 
@@ -106,7 +106,7 @@ def preview_document(
     from itcj2.apps.helpdesk.models.ticket import Ticket
     from itcj2.apps.helpdesk.services import document_service
 
-    ticket = Ticket.query.get(ticket_id)
+    ticket = db.get(Ticket, ticket_id)
     if not ticket:
         raise HTTPException(404, detail={"error": "ticket_not_found"})
 

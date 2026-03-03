@@ -23,17 +23,17 @@ def get_items(
     from sqlalchemy import or_
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
     user_dept = None
     params = request.query_params
 
-    query = InventoryItem.query.filter_by(is_active=True)
+    query = db.query(InventoryItem).filter_by(is_active=True)
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(user_id)
+            user_dept = get_user_department(db, user_id)
             if user_dept:
                 query = query.filter(InventoryItem.department_id == user_dept.id)
             else:
@@ -78,7 +78,8 @@ def get_items(
     page = int(params.get("page", "1"))
     per_page = min(int(params.get("per_page", "50")), 100)
 
-    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    from itcj2.models.base import paginate
+    paginated = paginate(query, page=page, per_page=per_page)
     items = [item.to_dict(include_relations=True) for item in paginated.items]
 
     return {
@@ -115,8 +116,8 @@ def get_user_equipment(
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     current_user_id = int(user["sub"])
-    user_roles = user_roles_in_app(current_user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, current_user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and current_user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para consultar equipos de otros usuarios"})
@@ -136,12 +137,12 @@ def get_department_equipment(
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
@@ -159,17 +160,17 @@ def get_item(
     from itcj2.apps.helpdesk.models import InventoryItem
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
-    item = InventoryItem.query.get(item_id)
+    item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(user_id)
+            user_dept = get_user_department(db, user_id)
             if not user_dept or item.department_id != user_dept.id:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este equipo"})
         else:
@@ -190,17 +191,17 @@ def get_item_tickets(
     from itcj2.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
-    item = InventoryItem.query.get(item_id)
+    item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(user_id)
+            user_dept = get_user_department(db, user_id)
             if not user_dept or item.department_id != user_dept.id:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso"})
         else:
@@ -219,7 +220,8 @@ def get_item_tickets(
     if status:
         query = query.filter(Ticket.status == status)
 
-    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    from itcj2.models.base import paginate
+    paginated = paginate(query, page=page, per_page=per_page)
     tickets = [t.to_dict(include_relations=True) for t in paginated.items]
 
     return {
@@ -301,7 +303,7 @@ def update_item(
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
-    item = InventoryItem.query.get(item_id)
+    item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
@@ -341,7 +343,7 @@ def change_item_status(
     if not body.get("status"):
         raise HTTPException(400, detail={"success": False, "error": "Estado requerido"})
 
-    item = InventoryItem.query.get(item_id)
+    item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 

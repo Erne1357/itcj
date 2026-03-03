@@ -102,26 +102,26 @@ def get_department_stats(
     from sqlalchemy import func
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
-    total = InventoryItem.query.filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).count()
+    total = db.query(InventoryItem).filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).count()
 
     by_status = db.query(
         InventoryItem.status, func.count(InventoryItem.id)
     ).filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).group_by(InventoryItem.status).all()
     status_counts = {status: count for status, count in by_status}
 
-    assigned = InventoryItem.query.filter(
+    assigned = db.query(InventoryItem).filter(
         InventoryItem.department_id == department_id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.isnot(None),
     ).count()
-    global_items = InventoryItem.query.filter(
+    global_items = db.query(InventoryItem).filter(
         InventoryItem.department_id == department_id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.is_(None),
     ).count()
 
@@ -131,7 +131,7 @@ def get_department_stats(
 
     categories_data = []
     for cat_id, count in by_category:
-        category = InventoryCategory.query.get(cat_id)
+        category = db.get(InventoryCategory, cat_id)
         if category:
             categories_data.append({"category_id": cat_id, "category_name": category.name, "count": count})
 

@@ -25,7 +25,7 @@ def add_equipment_to_ticket(
     user_id = int(user["sub"])
     ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
     if ticket.requester_id != user_id and ticket.assigned_to_user_id != user_id and "admin" not in user_roles:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar los equipos de este ticket"})
 
@@ -52,7 +52,7 @@ def remove_equipment_from_ticket(
     user_id = int(user["sub"])
     ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
     if ticket.requester_id != user_id and ticket.assigned_to_user_id != user_id and "admin" not in user_roles:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar los equipos de este ticket"})
 
@@ -79,7 +79,7 @@ def replace_ticket_equipment(
     user_id = int(user["sub"])
     ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
     if ticket.requester_id != user_id and ticket.assigned_to_user_id != user_id and "admin" not in user_roles:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar los equipos de este ticket"})
 
@@ -120,18 +120,18 @@ def get_tickets_by_equipment(
     from sqlalchemy import or_
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
 
-    item = InventoryItem.query.get(item_id)
+    item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"error": "not_found", "message": "Equipo no encontrado"})
 
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center:
         if item.assigned_to_user_id != user_id:
             from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(user_id)
+            user_dept = get_user_department(db, user_id)
             if not user_dept or user_dept.id != item.department_id:
                 if "technician" not in user_roles and "department_head" not in user_roles:
                     raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para ver los tickets de este equipo"})
@@ -154,7 +154,7 @@ def get_tickets_by_equipment(
         ]
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(user_id)
+            user_dept = get_user_department(db, user_id)
             if user_dept:
                 conditions.append(Ticket.requester_department_id == user_dept.id)
         query = query.filter(or_(*conditions))

@@ -29,7 +29,7 @@ async def create_ticket(
     from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
 
     content_type = request.headers.get("content-type", "")
 
@@ -100,7 +100,7 @@ async def create_ticket(
 
         from itcj2.apps.helpdesk.models import InventoryItem
         for item_id in inventory_item_ids:
-            item = InventoryItem.query.get(item_id)
+            item = db.get(InventoryItem, item_id)
             if not item or not item.is_active:
                 raise HTTPException(400, detail={"error": "invalid_equipment", "message": f"El equipo {item_id} no es válido"})
 
@@ -112,7 +112,7 @@ async def create_ticket(
             can_create_for_other = True
         else:
             from itcj2.core.models.position import UserPosition
-            user_positions = UserPosition.query.filter_by(user_id=user_id, is_active=True).all()
+            user_positions = db.query(UserPosition).filter_by(user_id=user_id, is_active=True).all()
             for up in user_positions:
                 if up.position and up.position.department and up.position.department.code == "comp_center":
                     can_create_for_other = True
@@ -122,7 +122,7 @@ async def create_ticket(
             raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para crear tickets para otros usuarios"})
 
         from itcj2.core.models.user import User
-        requester = User.query.get(requester_id)
+        requester = db.get(User, requester_id)
         if not requester or not requester.is_active:
             raise HTTPException(400, detail={"error": "invalid_requester", "message": "El usuario solicitante no es válido"})
     else:
@@ -131,7 +131,7 @@ async def create_ticket(
     # Check tickets sin evaluar
     from itcj2.apps.helpdesk.models.ticket import Ticket
     MAX_UNRATED_TICKETS = 3
-    unrated_count = Ticket.query.filter(
+    unrated_count = db.query(Ticket).filter(
         Ticket.requester_id == requester_id,
         Ticket.status.in_(["RESOLVED_SUCCESS", "RESOLVED_FAILED"]),
         Ticket.rating_attention.is_(None),
@@ -201,7 +201,7 @@ def list_tickets(
     from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
 
     params = request.query_params
     status = params.get("status")
@@ -335,7 +335,7 @@ async def resolve_ticket(
     user_id = int(user["sub"])
     data = body.model_dump()
 
-    ticket_check = TicketModel.query.get(ticket_id)
+    ticket_check = db.get(TicketModel, ticket_id)
     if not ticket_check:
         raise HTTPException(404, detail={"error": "not_found", "message": "Ticket no encontrado"})
 
@@ -485,8 +485,8 @@ def update_ticket(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" not in user_roles and user_id not in secretary_comp_center:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para editar tickets"})

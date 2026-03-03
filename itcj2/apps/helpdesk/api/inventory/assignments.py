@@ -21,21 +21,21 @@ def assign_to_user(
     from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
     assigned_by_id = int(user["sub"])
-    user_roles = user_roles_in_app(assigned_by_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, assigned_by_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
     if not body.get("user_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del usuario requerido"})
 
-    item = InventoryItem.query.get(body["item_id"])
+    item = db.get(InventoryItem, body["item_id"])
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if "admin" not in user_roles and assigned_by_id not in secretary_comp_center:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(assigned_by_id)
+        user_dept = get_user_department(db, assigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para asignar equipos de este departamento"})
 
@@ -69,13 +69,13 @@ def unassign_from_user(
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     unassigned_by_id = int(user["sub"])
-    user_roles = user_roles_in_app(unassigned_by_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, unassigned_by_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
 
-    item = InventoryItem.query.get(body["item_id"])
+    item = db.get(InventoryItem, body["item_id"])
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
@@ -84,7 +84,7 @@ def unassign_from_user(
 
     if "admin" not in user_roles and unassigned_by_id not in secretary_comp_center:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(unassigned_by_id)
+        user_dept = get_user_department(db, unassigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para liberar equipos de este departamento"})
 
@@ -122,7 +122,7 @@ def transfer_between_departments(
     if not body.get("notes") or len(body["notes"].strip()) < 10:
         raise HTTPException(400, detail={"success": False, "error": "Debe especificar la razón de la transferencia (mínimo 10 caracteres)"})
 
-    item = InventoryItem.query.get(body["item_id"])
+    item = db.get(InventoryItem, body["item_id"])
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
@@ -183,7 +183,7 @@ def bulk_assign(
 
     for item_id in body["item_ids"]:
         try:
-            item = InventoryItem.query.get(item_id)
+            item = db.get(InventoryItem, item_id)
             if not item or not item.is_active:
                 results["failed"].append({"item_id": item_id, "error": "Equipo no encontrado"})
                 continue
@@ -217,21 +217,21 @@ def update_location(
     from itcj2.apps.helpdesk.services import InventoryHistoryService
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
     if not body.get("location"):
         raise HTTPException(400, detail={"success": False, "error": "Ubicación requerida"})
 
-    item = InventoryItem.query.get(body["item_id"])
+    item = db.get(InventoryItem, body["item_id"])
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != item.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para actualizar equipos de este departamento"})
 

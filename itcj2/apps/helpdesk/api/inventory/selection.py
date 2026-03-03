@@ -43,7 +43,7 @@ def get_items_for_ticket(
         department_id = int(department_id)
     else:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if user_dept:
             department_id = user_dept.id
 
@@ -58,7 +58,7 @@ def get_items_for_ticket(
     include_dept = params.get("include_department_equipment", "true").lower() == "true"
     include_group = params.get("include_group_equipment", "true").lower() == "true"
 
-    query = InventoryItem.query.filter(
+    query = db.query(InventoryItem).filter(
         InventoryItem.department_id == department_id,
         InventoryItem.status == "ACTIVE",
         InventoryItem.is_active == True,
@@ -117,19 +117,19 @@ def get_items_by_group(
 
     user_id = int(user["sub"])
 
-    group = InventoryGroup.query.get(group_id)
+    group = db.get(InventoryGroup, group_id)
     if not group or not group.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado"})
 
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != group.department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este grupo"})
 
-    query = InventoryItem.query.filter(
+    query = db.query(InventoryItem).filter(
         InventoryItem.group_id == group_id, InventoryItem.status == status, InventoryItem.is_active == True,
     )
     if category_id:
@@ -173,20 +173,20 @@ def get_groups_with_items(
     dept_id = department_id
     if not dept_id:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if user_dept:
             dept_id = user_dept.id
 
     if not dept_id:
         return {"success": True, "data": []}
 
-    groups = InventoryGroup.query.filter(
+    groups = db.query(InventoryGroup).filter(
         InventoryGroup.department_id == dept_id, InventoryGroup.is_active == True,
     ).order_by(InventoryGroup.name).all()
 
     result = []
     for group in groups:
-        item_query = InventoryItem.query.filter(
+        item_query = db.query(InventoryItem).filter(
             InventoryItem.group_id == group.id, InventoryItem.status == "ACTIVE", InventoryItem.is_active == True,
         )
         if category_id:
@@ -217,7 +217,7 @@ def validate_items_for_ticket(
     departments = set()
 
     for item_id in body["item_ids"]:
-        item = InventoryItem.query.get(item_id)
+        item = db.get(InventoryItem, item_id)
         if not item or not item.is_active:
             invalid.append({"item_id": item_id, "reason": "Equipo no encontrado o inactivo"})
             continue

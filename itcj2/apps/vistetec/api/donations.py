@@ -28,7 +28,7 @@ def search_donors(
         return []
 
     users = (
-        User.query.filter(
+        db.query(User).filter(
             User.is_active == True,
             or_(
                 User.control_number.ilike(f"%{q}%"),

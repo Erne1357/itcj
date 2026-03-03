@@ -110,7 +110,7 @@ async def reassign_ticket(
     try:
         prev_assignments = ticket.assignments.filter_by(is_active=False).order_by(db.desc("created_at")).first()
         if prev_assignments and prev_assignments.assigned_to_user_id:
-            previous_user = User.query.get(prev_assignments.assigned_to_user_id)
+            previous_user = db.get(User, prev_assignments.assigned_to_user_id)
         if ticket.assigned_to_user_id:
             HelpdeskNotificationHelper.notify_ticket_reassigned(db, ticket, ticket.assigned_to, previous_user)
         db.commit()
@@ -168,7 +168,7 @@ async def self_assign_ticket(
     ticket = assignment.ticket
     technician = None
     try:
-        technician = User.query.get(user_id)
+        technician = db.get(User, user_id)
         if technician:
             HelpdeskNotificationHelper.notify_ticket_self_assigned(db, ticket, technician)
         db.commit()
@@ -263,7 +263,7 @@ def get_available_technicians(
     from itcj2.apps.helpdesk.models import Ticket
     technicians_data = []
     for tech in technicians:
-        active_tickets_count = Ticket.query.filter(
+        active_tickets_count = db.query(Ticket).filter(
             Ticket.assigned_to_user_id == tech.id,
             Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
         ).count()
@@ -285,21 +285,21 @@ def get_assignment_stats(
 ):
     from itcj2.apps.helpdesk.models import Ticket
 
-    unassigned = Ticket.query.filter_by(status="PENDING").count()
-    team_assigned = Ticket.query.filter(
+    unassigned = db.query(Ticket).filter_by(status="PENDING").count()
+    team_assigned = db.query(Ticket).filter(
         Ticket.assigned_to_team.isnot(None),
         Ticket.assigned_to_user_id.is_(None),
         Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
     ).count()
-    in_progress_desarrollo = Ticket.query.filter(
+    in_progress_desarrollo = db.query(Ticket).filter(
         Ticket.area == "DESARROLLO",
         Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
     ).count()
-    in_progress_soporte = Ticket.query.filter(
+    in_progress_soporte = db.query(Ticket).filter(
         Ticket.area == "SOPORTE",
         Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
     ).count()
-    urgent_unassigned = Ticket.query.filter(
+    urgent_unassigned = db.query(Ticket).filter(
         Ticket.priority == "URGENTE", Ticket.status == "PENDING"
     ).count()
 

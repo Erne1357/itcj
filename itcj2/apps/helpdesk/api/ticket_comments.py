@@ -23,13 +23,13 @@ def get_comments(
     from itcj2.apps.helpdesk.models import Comment
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
 
     ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     can_see_internal = any(r in user_roles for r in ["admin", "secretary", "tech_desarrollo", "tech_soporte"])
 
-    query = Comment.query.filter_by(ticket_id=ticket_id)
+    query = db.query(Comment).filter_by(ticket_id=ticket_id)
     if not can_see_internal:
         query = query.filter_by(is_internal=False)
 
@@ -57,7 +57,7 @@ async def add_comment(
     from werkzeug.utils import secure_filename
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
     UPLOAD_FOLDER = os.getenv("HELPDESK_UPLOAD_PATH", Config.HELPDESK_UPLOAD_PATH)
 
     content_type = request.headers.get("content-type", "")
@@ -165,7 +165,7 @@ async def add_comment(
     from itcj2.core.models.user import User
     author = None
     try:
-        author = User.query.get(user_id)
+        author = db.get(User, user_id)
         if author and ticket:
             HelpdeskNotificationHelper.notify_comment_added(db, ticket, comment, author)
         db.commit()

@@ -25,8 +25,14 @@ router = APIRouter(prefix="/department", tags=["helpdesk-pages-department"])
 def _require_department_head(user: dict) -> None:
     """Verifica que el usuario tenga el rol department_head en helpdesk."""
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
-    if "department_head" not in user_roles_in_app(int(user["sub"]), "helpdesk"):
+    _db = SessionLocal()
+    try:
+        has_role = "department_head" in user_roles_in_app(_db, int(user["sub"]), "helpdesk")
+    finally:
+        _db.close()
+    if not has_role:
         raise PageForbidden()
 
 
@@ -81,7 +87,7 @@ async def ticket_detail(
     user_id = int(user["sub"])
     managed = _get_managed_department(user_id)
 
-    return render_helpdesk(request, "helpdesk/department_head/ticket_detail.html", {
+    return render_helpdesk(request, "helpdesk/user/ticket_detail.html", {
         "title": f"Ticket #{ticket_id}",
         "ticket_id": ticket_id,
         "department": managed["department"],

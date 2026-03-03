@@ -18,7 +18,7 @@ def get_categories(
     from itcj2.apps.helpdesk.models import InventoryCategory, InventoryItem
     from sqlalchemy import func
 
-    query = InventoryCategory.query
+    query = db.query(InventoryCategory)
     if active is not None:
         query = query.filter(InventoryCategory.is_active == (active.lower() == "true"))
 
@@ -46,7 +46,7 @@ def get_category(
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
 
-    category = InventoryCategory.query.get(category_id)
+    category = db.get(InventoryCategory, category_id)
     if not category:
         raise HTTPException(404, detail={"success": False, "error": "Categoría no encontrada"})
 
@@ -72,7 +72,7 @@ def create_category(
     if len(prefix) < 2 or len(prefix) > 10:
         raise HTTPException(400, detail={"success": False, "error": "El prefijo debe tener entre 2 y 10 caracteres"})
 
-    existing = InventoryCategory.query.filter_by(code=body["code"]).first()
+    existing = db.query(InventoryCategory).filter_by(code=body["code"]).first()
     if existing:
         raise HTTPException(409, detail={"success": False, "error": f"El código '{body['code']}' ya existe"})
 
@@ -101,7 +101,7 @@ def update_category(
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
 
-    category = InventoryCategory.query.get(category_id)
+    category = db.get(InventoryCategory, category_id)
     if not category:
         raise HTTPException(404, detail={"success": False, "error": "Categoría no encontrada"})
 
@@ -121,7 +121,7 @@ def toggle_category(
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
 
-    category = InventoryCategory.query.get(category_id)
+    category = db.get(InventoryCategory, category_id)
     if not category:
         raise HTTPException(404, detail={"success": False, "error": "Categoría no encontrada"})
 
@@ -144,7 +144,7 @@ def reorder_categories(
         raise HTTPException(400, detail={"success": False, "error": "Se requiere el array de categorías"})
 
     for item in body["categories"]:
-        category = InventoryCategory.query.get(item["id"])
+        category = db.get(InventoryCategory, item["id"])
         if category:
             category.display_order = item["display_order"]
 

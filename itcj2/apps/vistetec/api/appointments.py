@@ -204,7 +204,7 @@ def get_appointment_stats(
     from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "vistetec")
+    user_roles = user_roles_in_app(db, user_id, "vistetec")
 
     volunteer_id = user_id if "volunteer" in user_roles else None
 

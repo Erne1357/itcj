@@ -20,16 +20,25 @@ logger = logging.getLogger("itcj2.apps.helpdesk.pages.technician")
 router = APIRouter(prefix="/technician", tags=["helpdesk-pages-technician"])
 
 
+def _helpdesk_roles(user_id: int) -> set:
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return user_roles_in_app(_db, user_id, "helpdesk")
+    finally:
+        _db.close()
+
+
 @router.get("/dashboard", name="helpdesk.pages.technician.dashboard")
 async def dashboard(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.dashboard.technician"])),
 ):
     """Dashboard personal del técnico."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/technician/dashboard.html", {
         "user_roles": user_roles,
@@ -43,10 +52,8 @@ async def my_assignments(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.my_tickets"])),
 ):
     """Tickets asignados al técnico actual."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/technician/my_assignments.html", {
         "user_roles": user_roles,
@@ -60,10 +67,8 @@ async def team(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.team"])),
 ):
     """Vista de tickets del equipo técnico."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
     return render_helpdesk(request, "helpdesk/technician/team.html", {
         "user_roles": user_roles,
@@ -78,12 +83,10 @@ async def ticket_detail(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.my_tickets"])),
 ):
     """Vista detallada de un ticket para técnico."""
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/technician/ticket_detail.html", {
+    return render_helpdesk(request, "helpdesk/user/ticket_detail.html", {
         "ticket_id": ticket_id,
         "user_roles": user_roles,
         "active_page": "tech_assignments",

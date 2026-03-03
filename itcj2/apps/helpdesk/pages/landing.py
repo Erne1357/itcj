@@ -52,9 +52,14 @@ async def redirect_by_role(
     dashboard correspondiente según la prioridad de roles.
     """
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = set(user_roles_in_app(user_id, "helpdesk"))
+    _db = SessionLocal()
+    try:
+        user_roles = set(user_roles_in_app(_db, user_id, "helpdesk"))
+    finally:
+        _db.close()
 
     for role in _ROLE_PRIORITY:
         if role in user_roles:

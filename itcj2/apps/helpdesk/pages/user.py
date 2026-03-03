@@ -33,24 +33,29 @@ async def create_ticket(
     from itcj2.apps.helpdesk.models.ticket import Ticket
     from itcj2.core.models.position import UserPosition
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    _db = SessionLocal()
+    try:
+        user_roles = user_roles_in_app(_db, user_id, "helpdesk")
 
-    unrated_count = Ticket.query.filter(
-        Ticket.requester_id == user_id,
-        Ticket.status.in_(["RESOLVED_SUCCESS", "RESOLVED_FAILED"]),
-        Ticket.rating_attention.is_(None),
-    ).count()
+        unrated_count = _db.query(Ticket).filter(
+            Ticket.requester_id == user_id,
+            Ticket.status.in_(["RESOLVED_SUCCESS", "RESOLVED_FAILED"]),
+            Ticket.rating_attention.is_(None),
+        ).count()
 
-    can_create_for_other = "admin" in user_roles
-    if not can_create_for_other:
-        user_positions = UserPosition.query.filter_by(user_id=user_id, is_active=True).all()
-        for up in user_positions:
-            if up.position and up.position.department:
-                if up.position.department.code == "comp_center":
-                    can_create_for_other = True
-                    break
+        can_create_for_other = "admin" in user_roles
+        if not can_create_for_other:
+            user_positions = _db.query(UserPosition).filter_by(user_id=user_id, is_active=True).all()
+            for up in user_positions:
+                if up.position and up.position.department:
+                    if up.position.department.code == "comp_center":
+                        can_create_for_other = True
+                        break
+    finally:
+        _db.close()
 
     return render_helpdesk(request, "helpdesk/user/create_ticket.html", {
         "title": "Crear Ticket",
@@ -69,9 +74,14 @@ async def my_tickets(
 ):
     """Lista de tickets del usuario autenticado."""
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    _db = SessionLocal()
+    try:
+        user_roles = user_roles_in_app(_db, user_id, "helpdesk")
+    finally:
+        _db.close()
 
     return render_helpdesk(request, "helpdesk/user/my_tickets.html", {
         "title": "Mis Tickets",
@@ -91,9 +101,14 @@ async def ticket_detail(
 ):
     """Vista de detalle de un ticket específico."""
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
+    _db = SessionLocal()
+    try:
+        user_roles = user_roles_in_app(_db, user_id, "helpdesk")
+    finally:
+        _db.close()
 
     return render_helpdesk(request, "helpdesk/user/ticket_detail.html", {
         "title": f"Ticket #{ticket_id}",

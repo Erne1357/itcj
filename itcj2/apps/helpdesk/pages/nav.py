@@ -30,9 +30,14 @@ def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
             get_user_permissions_for_app,
             user_roles_in_app,
         )
+        from itcj2.database import SessionLocal
 
-        user_perms = get_user_permissions_for_app(user_id, "helpdesk")
-        user_roles = set(user_roles_in_app(user_id, "helpdesk"))
+        _db = SessionLocal()
+        try:
+            user_perms = get_user_permissions_for_app(_db, user_id, "helpdesk")
+            user_roles = set(user_roles_in_app(_db, user_id, "helpdesk"))
+        finally:
+            _db.close()
         nav_items = get_helpdesk_navigation(user_perms, user_roles)
 
         for item in nav_items:

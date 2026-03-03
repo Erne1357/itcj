@@ -19,8 +19,8 @@ def get_quick_stats(
     from itcj2.apps.helpdesk.models import InventoryItem
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" in user_roles or user_id in secretary_comp_center:
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
@@ -40,21 +40,21 @@ def get_quick_stats(
 
     if "department_head" in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept:
             return {"success": True, "data": {"total_items": 0, "active": 0, "assigned_to_users": 0, "global": 0}}
 
-        total = InventoryItem.query.filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True).count()
-        active = InventoryItem.query.filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.status == "ACTIVE").count()
-        assigned = InventoryItem.query.filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.isnot(None)).count()
-        global_items = InventoryItem.query.filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.is_(None)).count()
+        total = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True).count()
+        active = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.status == "ACTIVE").count()
+        assigned = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.isnot(None)).count()
+        global_items = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.is_(None)).count()
 
         return {
             "success": True,
             "data": {"department": user_dept.name, "total_items": total, "active": active, "assigned_to_users": assigned, "global": global_items},
         }
 
-    my_items = InventoryItem.query.filter(InventoryItem.assigned_to_user_id == user_id, InventoryItem.is_active == True).count()
+    my_items = db.query(InventoryItem).filter(InventoryItem.assigned_to_user_id == user_id, InventoryItem.is_active == True).count()
     return {"success": True, "data": {"my_items": my_items}}
 
 
@@ -68,7 +68,7 @@ def get_alerts(
 
     alerts = []
 
-    warranty_expiring = InventoryItem.query.filter(
+    warranty_expiring = db.query(InventoryItem).filter(
         InventoryItem.is_active == True,
         InventoryItem.warranty_expiration >= date.today(),
         InventoryItem.warranty_expiration <= date.today() + timedelta(days=30),
@@ -80,7 +80,7 @@ def get_alerts(
             "action": "/inventory/stats/warranty", "priority": "medium",
         })
 
-    maintenance_overdue = InventoryItem.query.filter(
+    maintenance_overdue = db.query(InventoryItem).filter(
         InventoryItem.is_active == True,
         InventoryItem.next_maintenance_date.isnot(None),
         InventoryItem.next_maintenance_date < date.today(),
@@ -92,7 +92,7 @@ def get_alerts(
             "action": "/inventory/stats/maintenance", "priority": "high",
         })
 
-    damaged = InventoryItem.query.filter(InventoryItem.is_active == True, InventoryItem.status == "DAMAGED").count()
+    damaged = db.query(InventoryItem).filter(InventoryItem.is_active == True, InventoryItem.status == "DAMAGED").count()
     if damaged > 0:
         alerts.append({
             "type": "danger", "icon": "fas fa-exclamation-triangle", "title": "Equipos dañados",
@@ -132,14 +132,14 @@ def get_recent_activity(
     from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     department_id = None
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(user_id)
+            user_dept = get_user_department(db, user_id)
             if user_dept:
                 department_id = user_dept.id
 
@@ -175,14 +175,14 @@ def get_category_chart(
     from sqlalchemy import func
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" in user_roles or user_id in secretary_comp_center:
         stats = InventoryStatsService.get_by_category()
     else:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if not user_dept:
             return {"success": True, "data": {"labels": [], "datasets": []}}
 
@@ -225,20 +225,20 @@ def get_status_chart(
     from sqlalchemy import func
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(["secretary_comp_center"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
-    query = InventoryItem.query.filter(InventoryItem.is_active == True)
+    results_query = db.query(
+        InventoryItem.status, func.count(InventoryItem.id)
+    ).filter(InventoryItem.is_active == True)
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(user_id)
+        user_dept = get_user_department(db, user_id)
         if user_dept:
-            query = query.filter(InventoryItem.department_id == user_dept.id)
+            results_query = results_query.filter(InventoryItem.department_id == user_dept.id)
 
-    results = db.query(
-        InventoryItem.status, func.count(InventoryItem.id)
-    ).filter(InventoryItem.is_active == True).group_by(InventoryItem.status).all()
+    results = results_query.group_by(InventoryItem.status).all()
 
     status_labels = {"ACTIVE": "Activo", "MAINTENANCE": "Mantenimiento", "DAMAGED": "Dañado", "LOST": "Extraviado"}
     status_colors = {"ACTIVE": "#1cc88a", "MAINTENANCE": "#f6c23e", "DAMAGED": "#e74a3b", "LOST": "#858796"}
