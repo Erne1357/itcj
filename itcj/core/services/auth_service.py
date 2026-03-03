@@ -48,7 +48,7 @@ def authenticate_by_username(username: str, nip: str):
         return None
     
     # Actualiza last_login
-    u.last_login = datetime.now(ZoneInfo("America/Monterrey"))
+    u.last_login = datetime.now(ZoneInfo("America/Ciudad_Juarez"))
     db.session.commit()
     
     role = db.session.query(Role).get(u.role_id)

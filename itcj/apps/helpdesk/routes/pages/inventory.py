@@ -124,7 +124,7 @@ def assign_equipment():
 def reports():
     """
     Página unificada de reportes de inventario.
-    Acepta ?tab=equipos|movimientos|garantias|mantenimiento|ciclo-vida
+    Acepta ?tab=equipos|movimientos|garantias|mantenimiento|ciclo-vida|verificacion
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
@@ -155,6 +155,13 @@ def maintenance_report():
 @web_app_required('helpdesk', perms=['helpdesk.inventory.api.read.stats'])
 def lifecycle_report():
     return redirect(url_for('helpdesk_pages.inventory_pages.reports', tab='ciclo-vida'))
+
+
+@bp.route('/reports/verification')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.page.verification'])
+def verification_report():
+    return redirect(url_for('helpdesk_pages.inventory_pages.reports', tab='verificacion'))
+
 
 @bp.route('/groups')
 @web_app_required('helpdesk', perms=['helpdesk.inventory_groups.page.list'])
@@ -213,6 +220,30 @@ def pending_items():
         'helpdesk/inventory/pending_items.html',
         user_roles=user_roles,
         active_page='inventory_pending'
+    )
+
+
+@bp.route('/verification')
+@web_app_required('helpdesk', perms=['helpdesk.inventory.page.verification'])
+def verification():
+    """
+    Página de verificación física de inventario.
+    Solo Admin y Secretaría del Centro de Cómputo.
+    """
+    from itcj.core.models.department import Department
+
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+    can_view_all = has_full_inventory_access(user_id, user_roles)
+
+    departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+
+    return render_template(
+        'helpdesk/inventory/verification.html',
+        user_roles=user_roles,
+        can_view_all=can_view_all,
+        departments=[{'id': d.id, 'name': d.name} for d in departments],
+        active_page='inventory_verification'
     )
 
 

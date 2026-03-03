@@ -142,7 +142,19 @@ class InventoryItem(db.Model):
     deactivated_at = db.Column(db.DateTime)
     deactivated_by_id = db.Column(db.BigInteger, db.ForeignKey("core_users.id"))
     deactivation_reason = db.Column(db.Text)
-    
+
+    # Última verificación física
+    # NOTA: Requiere ALTER TABLE en producción si la tabla ya existe:
+    #   ALTER TABLE helpdesk_inventory_items
+    #     ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMP,
+    #     ADD COLUMN IF NOT EXISTS last_verified_by_id BIGINT REFERENCES core_users(id);
+    last_verified_at = db.Column(db.DateTime, nullable=True)
+    last_verified_by_id = db.Column(
+        db.BigInteger,
+        db.ForeignKey("core_users.id"),
+        nullable=True
+    )
+
     # Relaciones
     category = db.relationship("InventoryCategory", back_populates="items")
     
@@ -171,7 +183,20 @@ class InventoryItem(db.Model):
         "User",
         foreign_keys=[deactivated_by_id]
     )
-    
+
+    last_verified_by = db.relationship(
+        "User",
+        foreign_keys=[last_verified_by_id]
+    )
+
+    # Historial de verificaciones físicas
+    verifications = db.relationship(
+        "InventoryVerification",
+        back_populates="inventory_item",
+        cascade="all, delete-orphan",
+        lazy='dynamic',
+        order_by="desc(InventoryVerification.verified_at)"
+    )
 
     ticket_items = db.relationship(
         "TicketInventoryItem",
@@ -335,6 +360,9 @@ class InventoryItem(db.Model):
             'needs_maintenance': self.needs_maintenance,
             'tickets_count': self.tickets_count,
             'active_tickets_count': self.active_tickets_count,
+            # Verificación física
+            'last_verified_at': self.last_verified_at.isoformat() if self.last_verified_at else None,
+            'last_verified_by_id': self.last_verified_by_id,
         }
         
         if include_relations:
@@ -354,5 +382,9 @@ class InventoryItem(db.Model):
                 'full_name': self.registered_by.full_name
             } if self.registered_by else None
             data['group'] = self.group.to_dict() if self.group else None  # NUEVO
-        
+            data['last_verified_by'] = {
+                'id': self.last_verified_by.id,
+                'full_name': self.last_verified_by.full_name,
+            } if self.last_verified_by else None
+
         return data

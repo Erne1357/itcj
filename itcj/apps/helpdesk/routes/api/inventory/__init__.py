@@ -15,6 +15,7 @@ from itcj.apps.helpdesk.routes.api.inventory.inventory_bulk import inventory_bul
 from itcj.apps.helpdesk.routes.api.inventory.inventory_pending import inventory_pending_api_bp
 from itcj.apps.helpdesk.routes.api.inventory.inventory_selection import bp as inventory_selection
 from itcj.apps.helpdesk.routes.api.inventory.inventory_reports import inventory_reports_api_bp
+from itcj.apps.helpdesk.routes.api.inventory.inventory_verification import bp as inventory_verification
 
 import itcj.apps.helpdesk.routes.api.inventory.inventory_assignments
 import itcj.apps.helpdesk.routes.api.inventory.inventory_categories
@@ -27,6 +28,7 @@ import itcj.apps.helpdesk.routes.api.inventory.inventory_bulk
 import itcj.apps.helpdesk.routes.api.inventory.inventory_pending
 import itcj.apps.helpdesk.routes.api.inventory.inventory_selection
 import itcj.apps.helpdesk.routes.api.inventory.inventory_reports
+import itcj.apps.helpdesk.routes.api.inventory.inventory_verification
 
 inventory_api_bp.register_blueprint(inventory_categories, url_prefix='/categories')
 inventory_api_bp.register_blueprint(inventory_history, url_prefix='/history')
@@ -39,3 +41,4 @@ inventory_api_bp.register_blueprint(inventory_bulk_api_bp, url_prefix='/bulk')
 inventory_api_bp.register_blueprint(inventory_pending_api_bp, url_prefix='/pending')
 inventory_api_bp.register_blueprint(inventory_selection, url_prefix='/selection')
 inventory_api_bp.register_blueprint(inventory_reports_api_bp, url_prefix='/reports')
+inventory_api_bp.register_blueprint(inventory_verification, url_prefix='/verification')

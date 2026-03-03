@@ -51,7 +51,7 @@ fi
 bash docker/scripts/generate-static-manifest.sh
 
 # -- 3. Asegurar que infraestructura esta corriendo --
-echo ">>> Verificando infraestructura (Redis + PostgreSQL)..."
+echo ">>> Verificando infraestructura (Redis + PostgreSQL + pgBouncer)..."
 docker compose -f "$COMPOSE_FILE" up -d redis postgres
 
 # Esperar a que Redis este listo
@@ -75,6 +75,26 @@ for i in $(seq 1 $PG_RETRIES); do
         break
     fi
     echo "    Intento $i/$PG_RETRIES - Esperando PostgreSQL..."
+    sleep 2
+done
+
+# Construir y levantar pgBouncer (se reconstruye solo si el Dockerfile cambio)
+echo ">>> Levantando pgBouncer..."
+docker compose -f "$COMPOSE_FILE" up -d --build pgbouncer
+
+# Esperar a que pgBouncer este listo
+echo ">>> Esperando a que pgBouncer este listo..."
+PGB_RETRIES=20
+for i in $(seq 1 $PGB_RETRIES); do
+    CONTAINER_ID=$(docker compose -f "$COMPOSE_FILE" ps -q pgbouncer 2>/dev/null || echo "")
+    if [ -n "$CONTAINER_ID" ]; then
+        STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_ID" 2>/dev/null || echo "starting")
+        if [ "$STATUS" = "healthy" ]; then
+            echo "    pgBouncer listo."
+            break
+        fi
+    fi
+    echo "    Intento $i/$PGB_RETRIES - Esperando pgBouncer..."
     sleep 2
 done
 

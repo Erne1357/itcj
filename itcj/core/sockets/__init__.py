@@ -42,6 +42,15 @@ def init_socketio(app):
         app.logger.error(f"✗ Redis ERROR: {e}")
         raise
 
+    # Limpiar estado de usuarios activos del ciclo anterior.
+    # Al reiniciar gunicorn/Docker los eventos disconnect nunca se disparan,
+    # por lo que ws:sid_map / ws:uid_refcount / ws:uids:* quedan con SIDs
+    # fantasma. Cualquier SID de antes del reinicio ya está muerto, así que
+    # es seguro borrar estas claves incondicionalmente.
+    from .system import flush_ws_state
+    flush_ws_state()
+    app.logger.info("✓ Estado WS de usuarios activos limpiado")
+
     # ⭐ Configuración simple y funcional
     socketio = SocketIO(
         app,

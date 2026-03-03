@@ -64,12 +64,32 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.tickets.page.list_all"
         },
 
-        # ==================== DOCUMENTOS ====================
+        # ==================== REPORTES (DROPDOWN) ====================
         {
-            "label": "Documentos",
-            "endpoint": "helpdesk_pages.admin_pages.documents",
-            "icon": "fa-file-pdf",
-            "permission": "helpdesk.documents.page.list"
+            "label": "Reportes",
+            "endpoint": "#",
+            "icon": "fa-chart-bar",
+            "permission": "helpdesk.stats.page.list",
+            "dropdown": [
+                {
+                    "label": "Estadísticas",
+                    "endpoint": "helpdesk_pages.admin_pages.stats",
+                    "icon": "fa-chart-pie",
+                    "permission": "helpdesk.stats.page.list"
+                },
+                {
+                    "label": "Análisis de Datos",
+                    "endpoint": "helpdesk_pages.admin_pages.analysis",
+                    "icon": "fa-brain",
+                    "permission": "helpdesk.stats.page.list"
+                },
+                {
+                    "label": "Documentos",
+                    "endpoint": "helpdesk_pages.admin_pages.documents",
+                    "icon": "fa-file-pdf",
+                    "permission": "helpdesk.documents.page.list"
+                },
+            ]
         },
 
         # ==================== INVENTARIO (UNIFICADO) ====================
@@ -114,6 +134,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "endpoint": "helpdesk_pages.inventory_pages.pending_items",
                     "icon": "fa-clock",
                     "permission": "helpdesk.inventory.page.pending"
+                },
+                {
+                    "label": "Verificación",
+                    "endpoint": "helpdesk_pages.inventory_pages.verification",
+                    "icon": "fa-clipboard-check",
+                    "permission": "helpdesk.inventory.page.verification"
                 },
                 {
                     "label": "Asignar Equipos",

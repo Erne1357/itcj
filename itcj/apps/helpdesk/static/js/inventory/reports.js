@@ -32,7 +32,8 @@
         'SPECS_UPDATED': 'Specs Actualizadas',
         'TRANSFERRED': 'Transferido',
         'DEACTIVATED': 'Dado de Baja',
-        'REACTIVATED': 'Reactivado'
+        'REACTIVATED': 'Reactivado',
+        'VERIFIED':    'Verificación Física'
     };
 
     const STATUS_LABELS = {
@@ -65,6 +66,7 @@
                 else if (target === '#panel-garantias') currentActiveTab = 'garantias';
                 else if (target === '#panel-mantenimiento') currentActiveTab = 'mantenimiento';
                 else if (target === '#panel-ciclo-vida') currentActiveTab = 'ciclo-vida';
+                else if (target === '#panel-verificacion') currentActiveTab = 'verificacion';
 
                 // Actualizar URL sin recargar
                 const url = new URL(window.location);
@@ -92,6 +94,9 @@
                 break;
             case 'ciclo-vida':
                 loadLifecycleReport();
+                break;
+            case 'verificacion':
+                loadVerificationReport();
                 break;
         }
         updateExportButtons();
@@ -121,8 +126,8 @@
     }
 
     function populateDepartmentSelects() {
-        const selects = ['eq-departments', 'mv-departments'];
-        selects.forEach(function (id) {
+        const multiSelects = ['eq-departments', 'mv-departments'];
+        multiSelects.forEach(function (id) {
             const select = document.getElementById(id);
             if (!select) return;
             select.innerHTML = '';
@@ -133,6 +138,18 @@
                 select.appendChild(option);
             });
         });
+
+        // Single-select con opción "Todos" para el tab de verificación
+        const vrSelect = document.getElementById('vr-department');
+        if (vrSelect) {
+            vrSelect.innerHTML = '<option value="">Todos</option>';
+            allDepartments.forEach(function (dept) {
+                const option = document.createElement('option');
+                option.value = dept.id;
+                option.textContent = dept.name;
+                vrSelect.appendChild(option);
+            });
+        }
     }
 
     function populateCategorySelect() {
@@ -500,6 +517,83 @@
         }).join('');
     }
 
+    // ==================== VERIFICACIÓN ====================
+
+    const VERIF_LABELS = {
+        recent:   { text: 'Reciente',      cls: 'badge-verif-recent'   },
+        outdated: { text: 'Vencido',       cls: 'badge-verif-outdated' },
+        critical: { text: 'Crítico',       cls: 'badge-verif-critical' },
+        never:    { text: 'Sin verificar', cls: 'badge-verif-never'    }
+    };
+
+    window.loadVerificationReport = async function () {
+        const tbody = document.getElementById('vr-tbody');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Cargando...</td></tr>';
+
+        const deptId      = document.getElementById('vr-department') ? document.getElementById('vr-department').value : '';
+        const verifStatus = document.getElementById('vr-verif-status') ? document.getElementById('vr-verif-status').value : 'all';
+
+        const params = new URLSearchParams({ per_page: '500' });
+        if (deptId)      params.set('department_id', deptId);
+        if (verifStatus !== 'all') params.set('status_filter', verifStatus);
+
+        try {
+            const response = await fetch(
+                `/api/help-desk/v1/inventory/verification/status?${params.toString()}`,
+                { headers: AUTH_HEADERS() }
+            );
+
+            if (!response.ok) throw new Error('Error al cargar verificaciones');
+            const result = await response.json();
+
+            const stats = result.stats || {};
+            document.getElementById('vr-stat-total').textContent    = stats.total    ?? 0;
+            document.getElementById('vr-stat-recent').textContent   = stats.recent   ?? 0;
+            document.getElementById('vr-stat-outdated').textContent = stats.outdated ?? 0;
+            document.getElementById('vr-stat-critical').textContent =
+                (stats.critical ?? 0) + (stats.never ?? 0);
+
+            document.getElementById('vr-total').textContent = result.pagination
+                ? result.pagination.total : (result.data || []).length;
+
+            renderVerificationTable(result.data || []);
+            updateExportButtons();
+
+        } catch (error) {
+            console.error('Error:', error);
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-3"><i class="fas fa-exclamation-triangle"></i> Error al cargar datos</td></tr>';
+        }
+    };
+
+    function renderVerificationTable(items) {
+        const tbody = document.getElementById('vr-tbody');
+
+        if (!items || items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox fa-2x mb-2 d-block"></i><small>No hay equipos con los filtros seleccionados</small></td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = items.map(function (item) {
+            const vs      = item.verification_status || 'never';
+            const info    = VERIF_LABELS[vs] || VERIF_LABELS.never;
+            const dept    = (item.department || {}).name || '—';
+            const equip   = [item.brand, item.model].filter(Boolean).join(' ') || '—';
+            const loc     = item.location_detail || '—';
+            const lastDt  = item.last_verified_at ? formatDateTime(item.last_verified_at) : '—';
+            const verifier = item.last_verified_by ? item.last_verified_by.full_name : '—';
+
+            return `<tr class="clickable-row" onclick="window.open('/help-desk/inventory/items/${item.id}', '_blank')">
+                <td><strong>${escapeHtml(item.inventory_number || '')}</strong></td>
+                <td class="d-none d-md-table-cell"><small>${escapeHtml(equip)}</small></td>
+                <td class="d-none d-lg-table-cell"><small>${escapeHtml(dept)}</small></td>
+                <td class="d-none d-md-table-cell"><small class="text-muted">${escapeHtml(loc)}</small></td>
+                <td><small>${escapeHtml(lastDt)}</small></td>
+                <td class="d-none d-sm-table-cell"><small>${escapeHtml(verifier)}</small></td>
+                <td><span class="badge ${info.cls}">${info.text}</span></td>
+            </tr>`;
+        }).join('');
+    }
+
     // ==================== EXPORTACIÓN ====================
 
     window.exportReport = async function (format) {
@@ -541,6 +635,13 @@
                 break;
             case 'ciclo-vida':
                 reportType = 'lifecycle';
+                break;
+            case 'verificacion':
+                reportType = 'verification';
+                filters = {
+                    department_id: document.getElementById('vr-department') ? document.getElementById('vr-department').value || null : null,
+                    status_filter: document.getElementById('vr-verif-status') ? document.getElementById('vr-verif-status').value : 'all'
+                };
                 break;
         }
 

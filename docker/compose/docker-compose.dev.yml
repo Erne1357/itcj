@@ -13,12 +13,36 @@ services:
       dockerfile: docker/backend/Dockerfile.db
     env_file: ../../.env
     volumes:
-      - pgdata:/var/lib/postgresql/data     
+      - pgdata:/var/lib/postgresql/data
       - ../../database/init-itcj.sh:/docker-entrypoint-initdb.d/init-itcj.sh:ro
       - ../../database/agendatec.dump:/docker-entrypoint-initdb.d/agendatec.dump:ro
-
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
     ports:
       - "5432:5432"
+
+  pgbouncer:
+    build:
+      context: ../backend/pgbouncer
+      dockerfile: Dockerfile
+    restart: always
+    env_file: ../../.env    # env_file resuelve relativo al compose file → provee POSTGRES_USER/PASSWORD al contenedor
+    environment:
+      - TZ=America/Ciudad_Juarez
+    volumes:
+      - ../backend/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   backend:
     restart: always
@@ -29,7 +53,7 @@ services:
     volumes:
       - ../../:/app
     depends_on:
-      - postgres
+      - pgbouncer
       - redis
     #ports:
     #  - "8000:8000"  # Para desarrollo directo
@@ -38,7 +62,7 @@ services:
     restart: always
     image: nginx:alpine
     environment:
-      TZ: America/Chihuahua
+      TZ: America/Ciudad_Juarez
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
       # Monta todos los directorios static de las apps

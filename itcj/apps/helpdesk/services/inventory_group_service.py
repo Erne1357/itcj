@@ -236,12 +236,13 @@ class InventoryGroupService:
         """
         query = InventoryItem.query.filter(
             InventoryItem.group_id == group_id,
-            InventoryItem.is_active == True
+            InventoryItem.is_active == True,
+            InventoryItem.status == 'ACTIVE'
         )
-        
+
         if category_id:
             query = query.filter_by(category_id=category_id)
-        
+
         return query.order_by(InventoryItem.inventory_number).all()
     
     @staticmethod

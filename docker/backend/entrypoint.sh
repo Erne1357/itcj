@@ -34,9 +34,13 @@ except Exception as e:
     sys.exit(1)
 PYEOF
 
-# Ejecutar migraciones después de la restauración
-echo "Ejecutando migraciones..."
-flask db upgrade || exit 1
+# Ejecutar migraciones con conexión DIRECTA a Postgres (nunca a pgBouncer).
+# Alembic usa advisory locks que son persistentes a nivel de conexión;
+# en transaction pooling mode, pgBouncer puede cambiar la conexión
+# subyacente entre transacciones y romper el lock.
+# MIGRATE_DATABASE_URL apunta a postgres:5432 (bypass de pgBouncer).
+echo "Ejecutando migraciones (conexión directa a Postgres)..."
+DATABASE_URL="${MIGRATE_DATABASE_URL:-$DATABASE_URL}" flask db upgrade || exit 1
 
 # Lanzar Gunicorn con Eventlet (soporte WebSockets)
 exec gunicorn \

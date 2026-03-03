@@ -279,7 +279,8 @@ function getActionButtons(ticket, type) {
 async function updateDashboardStats() {
     try {
         // Use dedicated stats endpoint instead of local calculations
-        const stats = await HelpdeskUtils.api.getTechnicianStats();
+        const response = await HelpdeskUtils.api.getTechnicianStats();
+        const stats = response.data;
         
         const totalTickets = stats.assigned_count + stats.in_progress_count;
         
