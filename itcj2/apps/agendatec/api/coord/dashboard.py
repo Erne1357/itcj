@@ -66,11 +66,11 @@ def coord_dashboard_summary(
     """Resumen del dashboard del coordinador."""
     coord_id = require_coordinator(int(user["sub"]), db)
 
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=503, detail="no_active_period")
 
-    enabled_days = set(period_service.get_enabled_days(period.id))
+    enabled_days = set(period_service.get_enabled_days(db, period.id))
     prog_ids = get_coord_program_ids(coord_id, db)
 
     ap_total = (

@@ -223,10 +223,15 @@ def require_admission_open() -> None:
     Lanza HTTPException(503) si está cerrada.
     """
     from itcj2.core.services import period_service
+    from itcj2.database import SessionLocal
 
-    period = period_service.get_active_period()
-    if not period:
-        raise HTTPException(status_code=503, detail="no_active_period")
-    config = period_service.get_agendatec_config(period.id)
-    if not config or not config.is_student_window_open():
-        raise HTTPException(status_code=503, detail="admission_closed")
+    db = SessionLocal()
+    try:
+        period = period_service.get_active_period(db)
+        if not period:
+            raise HTTPException(status_code=503, detail="no_active_period")
+        config = period_service.get_agendatec_config(db, period.id)
+        if not config or not config.is_student_window_open():
+            raise HTTPException(status_code=503, detail="admission_closed")
+    finally:
+        db.close()

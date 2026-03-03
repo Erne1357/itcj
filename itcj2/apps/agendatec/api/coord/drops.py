@@ -47,7 +47,7 @@ def coord_drops(
     if not prog_ids:
         return {"total": 0, "items": []}
 
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=503, detail="no_active_period")
 

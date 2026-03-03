@@ -243,7 +243,7 @@ def list_perms(
     """Lista permisos de una aplicación."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": svc.list_perms(app_key)}
+    return {"status": "ok", "data": svc.list_perms(db, app_key)}
 
 
 @router.post("/apps/{app_key}/perms", status_code=201)
@@ -257,7 +257,7 @@ def create_perm(
     from itcj2.core.models.permission import Permission
     from itcj2.core.services import authz_service as svc
 
-    app = svc.get_or_404_app(app_key)
+    app = svc.get_or_404_app(db, app_key)
     code = body.code.strip()
     name = body.name.strip()
     if not code or not name:
@@ -283,7 +283,7 @@ def delete_perm(
     from itcj2.core.models.permission import Permission
     from itcj2.core.services import authz_service as svc
 
-    app = svc.get_or_404_app(app_key)
+    app = svc.get_or_404_app(db, app_key)
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
@@ -307,7 +307,7 @@ def get_role_perms(
     from itcj2.core.models.role_permission import RolePermission
     from itcj2.core.services import authz_service as svc
 
-    app = svc.get_or_404_app(app_key)
+    app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
@@ -336,7 +336,7 @@ def replace_role_perms(
     from itcj2.core.models.role_permission import RolePermission
     from itcj2.core.services import authz_service as svc
 
-    app = svc.get_or_404_app(app_key)
+    app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
@@ -380,7 +380,7 @@ def add_role_perm(
     from itcj2.core.models.role_permission import RolePermission
     from itcj2.core.services import authz_service as svc
 
-    app = svc.get_or_404_app(app_key)
+    app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
@@ -408,7 +408,7 @@ def remove_role_perm(
     from itcj2.core.models.role_permission import RolePermission
     from itcj2.core.services import authz_service as svc
 
-    app = svc.get_or_404_app(app_key)
+    app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
         raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
@@ -450,7 +450,7 @@ def add_user_role(
     if not role_name:
         raise HTTPException(400, detail={"status": "error", "error": "role_name_required"})
 
-    created = svc.grant_role(user_id, app_key, role_name)
+    created = svc.grant_role(db, user_id, app_key, role_name)
     return {"status": "ok", "data": {"created": bool(created)}}
 
 
@@ -465,7 +465,7 @@ def remove_user_role(
     """Revoca un rol de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    svc.revoke_role(user_id, app_key, role_name)
+    svc.revoke_role(db, user_id, app_key, role_name)
 
 
 @router.get("/apps/{app_key}/users/{user_id}/perms")
@@ -478,7 +478,7 @@ def get_user_perms(
     """Permisos directos de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": sorted(list(svc.user_direct_perms_in_app(user_id, app_key)))}
+    return {"status": "ok", "data": sorted(list(svc.user_direct_perms_in_app(db, user_id, app_key)))}
 
 
 @router.post("/apps/{app_key}/users/{user_id}/perms")
@@ -496,7 +496,7 @@ def add_user_perm(
     if not code:
         raise HTTPException(400, detail={"status": "error", "error": "code_required"})
 
-    changed = svc.grant_perm(user_id, app_key, code, allow=body.allow)
+    changed = svc.grant_perm(db, user_id, app_key, code, allow=body.allow)
     return {"status": "ok", "data": {"updated": bool(changed)}}
 
 
@@ -511,7 +511,7 @@ def remove_user_perm(
     """Revoca un permiso directo de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    svc.revoke_perm(user_id, app_key, code)
+    svc.revoke_perm(db, user_id, app_key, code)
 
 
 @router.get("/apps/{app_key}/users/{user_id}/effective-perms")
@@ -524,4 +524,4 @@ def get_user_effective_perms(
     """Permisos efectivos de un usuario en una app (roles + directos + puestos)."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": svc.effective_perms(user_id, app_key)}
+    return {"status": "ok", "data": svc.effective_perms(db, user_id, app_key)}

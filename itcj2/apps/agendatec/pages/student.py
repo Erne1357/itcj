@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from itcj2.apps.agendatec.pages.nav import render_agendatec
-from itcj2.dependencies import require_page_roles
+from itcj2.dependencies import require_page_roles, DbSession
 
 logger = logging.getLogger("itcj2.apps.agendatec.pages.student")
 
@@ -35,6 +35,7 @@ def _is_window_open() -> bool:
 async def student_home(
     request: Request,
     user: dict = Depends(_require_student),
+    db: DbSession = None,
 ):
     """Home del estudiante — redirige a /close si la ventana está cerrada."""
     if not _is_window_open():
@@ -43,7 +44,7 @@ async def student_home(
     from itcj2.apps.agendatec.services.student.home import has_request
 
     user_id = int(user["sub"])
-    has_appt = has_request(user_id)
+    has_appt = has_request(db, user_id)
 
     return render_agendatec(request, "agendatec/student/home.html", {
         "title": "Alumno - Inicio",

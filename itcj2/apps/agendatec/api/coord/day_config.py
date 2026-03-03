@@ -22,12 +22,12 @@ CreatePerm = require_perms("agendatec", ["agendatec.slots.api.create"])
 DeletePerm = require_perms("agendatec", ["agendatec.slots.api.delete"])
 
 
-def _get_active_period_and_days():
+def _get_active_period_and_days(db):
     """Helper: retorna (period, enabled_days_set) o lanza 503."""
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=503, detail="no_active_period")
-    enabled = set(period_service.get_enabled_days(period.id))
+    enabled = set(period_service.get_enabled_days(db, period.id))
     return period, enabled
 
 
@@ -50,7 +50,7 @@ def get_day_config(
     coord_id = require_coordinator(int(user["sub"]), db)
     d = _parse_day(day)
 
-    _, enabled = _get_active_period_and_days()
+    _, enabled = _get_active_period_and_days(db)
     if d not in enabled:
         raise HTTPException(
             status_code=400,
@@ -91,7 +91,7 @@ def set_day_config(
     coord_id = require_coordinator(int(user["sub"]), db)
     d = _parse_day(body.day)
 
-    _, enabled = _get_active_period_and_days()
+    _, enabled = _get_active_period_and_days(db)
     if d not in enabled:
         raise HTTPException(
             status_code=400,
@@ -200,7 +200,7 @@ def delete_day_range(
     coord_id = require_coordinator(int(user["sub"]), db)
     d = _parse_day(body.day)
 
-    _, enabled = _get_active_period_and_days()
+    _, enabled = _get_active_period_and_days(db)
     if d not in enabled:
         raise HTTPException(status_code=400, detail="day_not_allowed")
 

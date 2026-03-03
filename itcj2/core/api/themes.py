@@ -35,11 +35,11 @@ class ThemeEnableBody(BaseModel):
 # ── Endpoint público ──────────────────────────────────────────────────────────
 
 @router.get("/active")
-def get_active_theme():
+def get_active_theme(db: DbSession = None):
     """Tema actualmente activo (público, sin autenticación)."""
     from itcj2.core.services import themes_service as svc
 
-    theme = svc.get_active_theme()
+    theme = svc.get_active_theme(db)
     if not theme:
         return {"status": "ok", "data": None}
     return {"status": "ok", "data": theme.to_dict(include_full=True)}
@@ -57,7 +57,7 @@ def get_themes_stats(
 
     return {
         "status": "ok",
-        "data": {"total": svc.get_themes_count(), "active": svc.get_active_themes_count()},
+        "data": {"total": svc.get_themes_count(db), "active": svc.get_active_themes_count(db)},
     }
 
 
@@ -69,7 +69,7 @@ def list_themes(
     """Lista todas las temáticas."""
     from itcj2.core.services import themes_service as svc
 
-    themes = svc.list_themes()
+    themes = svc.list_themes(db)
     return {"status": "ok", "data": [t.to_dict() for t in themes]}
 
 
@@ -82,7 +82,7 @@ def get_theme(
     """Detalle de una temática."""
     from itcj2.core.services import themes_service as svc
 
-    theme = svc.get_theme(theme_id)
+    theme = svc.get_theme(db, theme_id)
     if not theme:
         raise HTTPException(404, detail={"status": "error", "error": "theme_not_found"})
     return {"status": "ok", "data": theme.to_dict(include_full=True)}
@@ -104,7 +104,7 @@ async def create_theme(
 
     try:
         user_id = int(user["sub"])
-        theme = svc.create_theme(payload, created_by_id=user_id)
+        theme = svc.create_theme(db, payload, created_by_id=user_id)
         logger.info(f"Tema '{name}' creado por usuario {user_id}")
         return {"status": "ok", "data": theme.to_dict(include_full=True)}
     except ValueError as e:
@@ -123,7 +123,7 @@ async def update_theme(
 
     payload = body.model_dump()
     try:
-        theme = svc.update_theme(theme_id, **payload)
+        theme = svc.update_theme(db, theme_id, **payload)
         logger.info(f"Tema {theme_id} actualizado por usuario {int(user['sub'])}")
         return {"status": "ok", "data": theme.to_dict(include_full=True)}
     except ValueError as e:
@@ -143,7 +143,7 @@ def toggle_theme(
     from itcj2.core.services import themes_service as svc
 
     try:
-        theme = svc.toggle_theme_manual(theme_id, body.active)
+        theme = svc.toggle_theme_manual(db, theme_id, body.active)
         return {"status": "ok", "data": theme.to_dict()}
     except ValueError as e:
         raise HTTPException(404, detail={"status": "error", "error": str(e)})
@@ -160,7 +160,7 @@ def toggle_theme_enabled(
     from itcj2.core.services import themes_service as svc
 
     try:
-        theme = svc.toggle_theme_enabled(theme_id, body.enabled)
+        theme = svc.toggle_theme_enabled(db, theme_id, body.enabled)
         return {"status": "ok", "data": theme.to_dict()}
     except ValueError as e:
         raise HTTPException(404, detail={"status": "error", "error": str(e)})
@@ -176,7 +176,7 @@ def delete_theme(
     from itcj2.core.services import themes_service as svc
 
     try:
-        svc.delete_theme(theme_id)
+        svc.delete_theme(db, theme_id)
         logger.info(f"Tema {theme_id} eliminado por usuario {int(user['sub'])}")
     except ValueError as e:
         raise HTTPException(404, detail={"status": "error", "error": str(e)})

@@ -2,7 +2,7 @@
 
 class PositionDetailManager {
     constructor(positionId, availableRoles) {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.positionId = positionId;
         this.positionData = null;
         this.currentAppKey = null;

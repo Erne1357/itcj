@@ -29,6 +29,7 @@ def list_notifications(
 
     user_id = int(user["sub"])
     result = NotificationService.get_notifications(
+        db,
         user_id=user_id,
         app_name=app,
         unread_only=unread,
@@ -45,7 +46,7 @@ def unread_counts(user: CurrentUser, db: DbSession):
     from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
-    counts = NotificationService.get_unread_counts_by_app(user_id)
+    counts = NotificationService.get_unread_counts_by_app(db, user_id)
     return {
         "status": "ok",
         "data": {"counts": counts, "total": sum(counts.values())},
@@ -58,7 +59,7 @@ def mark_read(notification_id: int, user: CurrentUser, db: DbSession):
     from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
-    success = NotificationService.mark_read(notification_id, user_id)
+    success = NotificationService.mark_read(db, notification_id, user_id)
     if not success:
         raise HTTPException(404, detail="not_found")
 
@@ -72,7 +73,7 @@ def mark_all_read(user: CurrentUser, db: DbSession, app: str | None = None):
     from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
-    count = NotificationService.mark_all_read(user_id, app)
+    count = NotificationService.mark_all_read(db, user_id, app)
     db.commit()
     return {"status": "ok", "count": count}
 
@@ -83,7 +84,7 @@ def delete_notification(notification_id: int, user: CurrentUser, db: DbSession):
     from itcj2.core.services.notification_service import NotificationService
 
     user_id = int(user["sub"])
-    success = NotificationService.delete_notification(notification_id, user_id)
+    success = NotificationService.delete_notification(db, notification_id, user_id)
     if not success:
         raise HTTPException(404, detail="not_found")
 

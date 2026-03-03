@@ -26,19 +26,19 @@ logger = logging.getLogger(__name__)
 _VALID_SLOT_MINUTES = (5, 10, 15, 20, 30, 60)
 
 
-def _get_enabled_days_for_active_period() -> set[date]:
-    period = period_service.get_active_period()
+def _get_enabled_days_for_active_period(db) -> set[date]:
+    period = period_service.get_active_period(db)
     if not period:
         return set()
-    return set(period_service.get_enabled_days(period.id))
+    return set(period_service.get_enabled_days(db, period.id))
 
 
-def _require_allowed_day(d: date) -> None:
+def _require_allowed_day(d: date, db) -> None:
     """Lanza 400 si el día no está habilitado en el período activo."""
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=503, detail="no_active_period")
-    enabled = set(period_service.get_enabled_days(period.id))
+    enabled = set(period_service.get_enabled_days(db, period.id))
     if d not in enabled:
         raise HTTPException(
             status_code=400,
@@ -144,7 +144,7 @@ def create_availability_window(
     if not d:
         raise HTTPException(status_code=400, detail="invalid_day_format")
 
-    _require_allowed_day(d)
+    _require_allowed_day(d, db)
 
     coord_id = _resolve_coordinator_id(user, db, override_id=body.coordinator_id)
     if not coord_id:
@@ -186,8 +186,8 @@ def generate_slots(
     if not days_input:
         raise HTTPException(status_code=400, detail="invalid_payload_days")
 
-    period = period_service.get_active_period()
-    enabled_days = set(period_service.get_enabled_days(period.id)) if period else set()
+    period = period_service.get_active_period(db)
+    enabled_days = set(period_service.get_enabled_days(db, period.id)) if period else set()
 
     parsed_days: list[date] = []
     for s in days_input:
@@ -261,7 +261,7 @@ def list_my_windows(
     else:
         d = date.today()
 
-    _require_allowed_day(d)
+    _require_allowed_day(d, db)
 
     cid = _resolve_coordinator_id(user, db, override_id=coordinator_id)
     if not cid:

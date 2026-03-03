@@ -53,11 +53,11 @@ def hold_slot(
     if slot.is_booked:
         raise HTTPException(status_code=409, detail="slot_unavailable")
 
-    active_period = period_service.get_active_period()
+    active_period = period_service.get_active_period(db)
     if not active_period:
         raise HTTPException(status_code=503, detail="no_active_period")
 
-    enabled_days = set(period_service.get_enabled_days(active_period.id))
+    enabled_days = set(period_service.get_enabled_days(db, active_period.id))
     if slot.day not in enabled_days:
         raise HTTPException(
             status_code=400,

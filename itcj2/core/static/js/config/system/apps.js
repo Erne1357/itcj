@@ -1,7 +1,7 @@
 // apps.js - Gestión de aplicaciones
 class AppsManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.init();
     }
 

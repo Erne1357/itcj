@@ -20,8 +20,8 @@ def get_mobile_apps(
     from itcj2.core.services import mobile_service as svc
 
     user_id = int(user["sub"])
-    apps = svc.get_mobile_apps_for_user(user_id)
-    user_type = svc.get_user_type(user_id)
+    apps = svc.get_mobile_apps_for_user(db, user_id)
+    user_type = svc.get_user_type(db, user_id)
     return {"status": "ok", "data": {"apps": apps, "user_type": user_type}}
 
 
@@ -33,4 +33,4 @@ def get_user_type(
     """Tipo de usuario: 'student' o 'staff'."""
     from itcj2.core.services import mobile_service as svc
 
-    return {"status": "ok", "data": {"user_type": svc.get_user_type(int(user["sub"]))}}
+    return {"status": "ok", "data": {"user_type": svc.get_user_type(db, int(user["sub"]))}}

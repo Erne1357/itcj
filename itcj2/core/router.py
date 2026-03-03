@@ -10,6 +10,10 @@ core_router.include_router(auth_router)
 from .api.users import router as users_router
 core_router.include_router(users_router)
 
+# Users Admin: lista, crear, actualizar, reset (gestión administrativa)
+from .api.users_admin import router as users_admin_router
+core_router.include_router(users_admin_router)
+
 # Notifications: listado, marcar leídas, eliminar
 from .api.notifications import router as notifications_router
 core_router.include_router(notifications_router)

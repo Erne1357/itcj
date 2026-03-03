@@ -1,7 +1,7 @@
 // itcj/core/static/js/config/departments.js
 class DepartmentsManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.currentView = 'top-level'; // 'top-level' | 'subdirections' | 'departments'
         this.selectedTopLevel = null; // Dirección o Sindicato
         this.selectedSubdirection = null;

@@ -11,7 +11,7 @@
 
 class DashboardNotificationWidget {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.socket = null;
         this.notifications = [];
         this.counts = {};

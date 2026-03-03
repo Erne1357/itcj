@@ -27,7 +27,7 @@ def add_collaborator(
 
     user_id = int(user["sub"])
 
-    if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
+    if not collaborator_service.can_user_manage_collaborators(db, user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para gestionar colaboradores de este ticket"})
 
     collaborator = collaborator_service.add_collaborator(
@@ -58,7 +58,7 @@ def add_multiple_collaborators(
     if not body.collaborators:
         raise HTTPException(400, detail={"error": "empty_collaborators", "message": "La lista de colaboradores está vacía"})
 
-    if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
+    if not collaborator_service.can_user_manage_collaborators(db, user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para gestionar colaboradores de este ticket"})
 
     collaborators_data = [c.model_dump() for c in body.collaborators]
@@ -89,7 +89,7 @@ def get_collaborators(
     user_id = int(user["sub"])
     get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
-    collaborators = collaborator_service.get_ticket_collaborators(ticket_id)
+    collaborators = collaborator_service.get_ticket_collaborators(db, ticket_id)
     return {
         "ticket_id": ticket_id,
         "collaborators": [c.to_dict() for c in collaborators],
@@ -112,7 +112,7 @@ def update_collaborator(
     if body.time_invested_minutes is None and body.notes is None:
         raise HTTPException(400, detail={"error": "missing_fields", "message": "Debe proporcionar al menos time_invested_minutes o notes"})
 
-    if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
+    if not collaborator_service.can_user_manage_collaborators(db, user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para modificar colaboradores de este ticket"})
 
     collaborator = collaborator_service.update_collaborator(
@@ -138,7 +138,7 @@ def remove_collaborator(
 
     user_id = int(user["sub"])
 
-    if not collaborator_service.can_user_manage_collaborators(user_id, ticket_id):
+    if not collaborator_service.can_user_manage_collaborators(db, user_id, ticket_id):
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para remover colaboradores de este ticket"})
 
     collaborator_service.remove_collaborator(db, ticket_id=ticket_id, user_id=collab_user_id)
@@ -157,7 +157,7 @@ def suggest_role(
     from itcj2.apps.helpdesk.services import collaborator_service
 
     suggested_role = collaborator_service.suggest_collaboration_role(
-        user_id=collab_user_id, ticket_id=ticket_id
+        db, user_id=collab_user_id, ticket_id=ticket_id
     )
     return {"ticket_id": ticket_id, "user_id": collab_user_id, "suggested_role": suggested_role}
 
@@ -176,7 +176,7 @@ def my_collaborations(
     per_page = min(int(params.get("per_page", "20")), 100)
 
     result = collaborator_service.get_tickets_where_user_collaborated(
-        user_id=user_id, page=page, per_page=per_page
+        db, user_id=user_id, page=page, per_page=per_page
     )
     return result
 
@@ -192,5 +192,5 @@ def my_collaboration_stats(
     user_id = int(user["sub"])
     days = min(int(request.query_params.get("days", "30")), 365)
 
-    stats = collaborator_service.get_user_collaboration_stats(user_id=user_id, days=days)
+    stats = collaborator_service.get_user_collaboration_stats(db, user_id=user_id, days=days)
     return stats

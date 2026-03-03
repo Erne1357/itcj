@@ -5,14 +5,14 @@
  * con exponential backoff, y despacho de eventos personalizados.
  *
  * Uso:
- *   const client = new NotificationSSEClient('/api/core/v1');
+ *   const client = new NotificationSSEClient('/api/core/v2');
  *   client.on('notification', (data) => console.log('Nueva notificación:', data));
  *   client.on('counts', (counts) => console.log('Conteos:', counts));
  *   client.connect();
  */
 
 class NotificationSSEClient {
-    constructor(apiBase = '/api/core/v1') {
+    constructor(apiBase = '/api/core/v2') {
         this.apiBase = apiBase;
         this.reader = null;
         this.abortController = null;

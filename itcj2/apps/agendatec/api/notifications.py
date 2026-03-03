@@ -22,11 +22,11 @@ _DEFAULT_LIMIT = 20
 
 @router.get("")
 def list_notifications(
+    user: CurrentUser,
+    db: DbSession = None,
     unread: bool = Query(False, description="Solo no leídas"),
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     before_id: Optional[int] = Query(None),
-    user: dict = CurrentUser,
-    db: DbSession = None,
 ):
     """Lista notificaciones del usuario autenticado."""
     uid = int(user["sub"])
@@ -46,7 +46,7 @@ def list_notifications(
 @router.patch("/{notif_id}/read")
 def mark_read(
     notif_id: int,
-    user: dict = CurrentUser,
+    user: CurrentUser,
     db: DbSession = None,
 ):
     """Marca una notificación como leída."""
@@ -66,7 +66,7 @@ def mark_read(
 
 @router.patch("/read-all")
 def mark_all_read(
-    user: dict = CurrentUser,
+    user: CurrentUser,
     db: DbSession = None,
 ):
     """Marca todas las notificaciones del usuario como leídas."""

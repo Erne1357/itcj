@@ -6,7 +6,7 @@
 
 class MobileNotifications {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.limit = 20;
         this.offset = 0;
         this.hasMore = false;

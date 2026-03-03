@@ -4,7 +4,7 @@
 (function () {
     'use strict';
 
-    const API_BASE = '/api/vistetec/v1';
+    const API_BASE = '/api/vistetec/v2';
 
     // State
     let donationType = null;

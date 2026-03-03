@@ -13,7 +13,7 @@
  */
 
 class AppNotificationFAB {
-    constructor(appName, apiBase = '/api/core/v1') {
+    constructor(appName, apiBase = '/api/core/v2') {
         this.appName = appName;
         this.apiBase = apiBase;
         this.socket = null;

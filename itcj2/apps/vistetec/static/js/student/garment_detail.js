@@ -4,7 +4,7 @@
 (function () {
     'use strict';
 
-    const API_BASE = '/api/vistetec/v1';
+    const API_BASE = '/api/vistetec/v2';
     const loadingState = document.getElementById('loadingState');
     const detailView = document.getElementById('garmentDetail');
     const notFoundState = document.getElementById('notFoundState');

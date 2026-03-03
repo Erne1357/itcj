@@ -41,7 +41,7 @@ def get_direction(
     """Obtiene la dirección (departamento raíz sin padre)."""
     from itcj2.core.services import departments_service as svc
 
-    direction = svc.get_direction()
+    direction = svc.get_direction(db)
     return {
         "status": "ok",
         "data": direction.to_dict(include_children=True) if direction else None,
@@ -56,7 +56,7 @@ def get_union_delegation(
     """Obtiene la delegación sindical."""
     from itcj2.core.services import departments_service as svc
 
-    union_delegation = svc.get_union_delegation()
+    union_delegation = svc.get_union_delegation(db)
     return {
         "status": "ok",
         "data": union_delegation.to_dict(include_children=True) if union_delegation else None,
@@ -71,7 +71,7 @@ def list_subdirections(
     """Lista solo las subdirecciones (departamentos de segundo nivel)."""
     from itcj2.core.services import departments_service as svc
 
-    subdirs = svc.list_subdirections()
+    subdirs = svc.list_subdirections(db)
     return {"status": "ok", "data": [d.to_dict(include_children=True) for d in subdirs]}
 
 
@@ -83,7 +83,7 @@ def list_parent_options(
     """Lista departamentos disponibles como padres (dirección y subdirecciones)."""
     from itcj2.core.services import departments_service as svc
 
-    options = svc.list_parent_options()
+    options = svc.list_parent_options(db)
     return {"status": "ok", "data": [d.to_dict() for d in options]}
 
 
@@ -96,7 +96,7 @@ def list_by_parent(
     """Lista departamentos filtrados por parent_id."""
     from itcj2.core.services import departments_service as svc
 
-    depts = svc.list_departments_by_parent(parent_id)
+    depts = svc.list_departments_by_parent(db, parent_id)
     return {"status": "ok", "data": [d.to_dict() for d in depts]}
 
 
@@ -110,7 +110,7 @@ def list_departments(
     """Lista todos los departamentos."""
     from itcj2.core.services import departments_service as svc
 
-    depts = svc.list_departments()
+    depts = svc.list_departments(db)
     return {"status": "ok", "data": [d.to_dict() for d in depts]}
 
 
@@ -124,11 +124,11 @@ def get_department(
     from itcj2.core.services import departments_service as dept_svc
     from itcj2.core.services import positions_service as pos_svc
 
-    dept = dept_svc.get_department(dept_id)
+    dept = dept_svc.get_department(db, dept_id)
     if not dept:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
-    positions = dept_svc.get_department_positions(dept_id)
+    positions = dept_svc.get_department_positions(db, dept_id)
     positions_data = [
         {
             "id": p.id,
@@ -139,7 +139,7 @@ def get_department(
             "department_id": p.department_id,
             "is_active": p.is_active,
             "allows_multiple": p.allows_multiple,
-            "current_user": pos_svc.get_position_current_user(p.id),
+            "current_user": pos_svc.get_position_current_user(db, p.id),
         }
         for p in positions
     ]
@@ -169,6 +169,7 @@ def create_department(
 
     try:
         dept = svc.create_department(
+            db,
             code,
             name,
             body.description.strip() if body.description else None,
@@ -193,7 +194,7 @@ def update_department(
 
     updates = body.model_dump(exclude_none=True)
     try:
-        dept = svc.update_department(dept_id, **updates)
+        dept = svc.update_department(db, dept_id, **updates)
         logger.info(f"Departamento {dept_id} actualizado por usuario {int(user['sub'])}")
         return {"status": "ok", "data": dept.to_dict()}
     except ValueError as e:
@@ -213,7 +214,7 @@ def get_department_users(
     from itcj2.core.models.position import Position, UserPosition
     from itcj2.core.models.user import User
 
-    dept = dept_svc.get_department(dept_id)
+    dept = dept_svc.get_department(db, dept_id)
     if not dept:
         raise HTTPException(404, detail={"status": "error", "error": "Department not found"})
 

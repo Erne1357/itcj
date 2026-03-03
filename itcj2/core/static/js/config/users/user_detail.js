@@ -1,7 +1,7 @@
 // user_detail.js - Detalle de usuario con asignaciones por app
 class UserDetailManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.userId = window.userId;
         this.currentAppKey = null;
         this.permissions = [];

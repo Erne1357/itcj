@@ -72,7 +72,7 @@ def list_positions(
     """Lista todos los puestos organizacionales."""
     from itcj2.core.services import positions_service as svc
 
-    positions = svc.list_positions(department)
+    positions = svc.list_positions(db, department)
     return {
         "status": "ok",
         "data": [
@@ -85,7 +85,7 @@ def list_positions(
                 "department_id": p.department_id,
                 "is_active": p.is_active,
                 "allows_multiple": p.allows_multiple,
-                "current_user": svc.get_position_current_user(p.id),
+                "current_user": svc.get_position_current_user(db, p.id),
             }
             for p in positions
         ],
@@ -101,7 +101,7 @@ def get_user_positions(
     """Puestos activos de un usuario."""
     from itcj2.core.services import positions_service as svc
 
-    return {"status": "ok", "data": svc.get_user_active_positions(user_id)}
+    return {"status": "ok", "data": svc.get_user_active_positions(db, user_id)}
 
 
 @router.get("/users/{user_id}/apps/{app_key}/position-perms")
@@ -115,7 +115,7 @@ def get_user_position_permissions(
     from itcj2.core.services import positions_service as svc
 
     try:
-        perms = svc.get_position_effective_permissions(user_id, app_key)
+        perms = svc.get_position_effective_permissions(db, user_id, app_key)
         return {"status": "ok", "data": sorted(list(perms))}
     except Exception as e:
         raise HTTPException(400, detail={"status": "error", "error": str(e)})
@@ -130,7 +130,7 @@ def get_position(
     """Detalle completo de un puesto con usuarios y asignaciones de apps."""
     from itcj2.core.services import positions_service as svc
 
-    position = svc.get_position_by_id(position_id)
+    position = svc.get_position_by_id(db, position_id)
     if not position:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
@@ -145,8 +145,8 @@ def get_position(
             "department_id": position.department_id,
             "is_active": position.is_active,
             "allows_multiple": position.allows_multiple,
-            "current_users": svc.get_position_current_users(position_id),
-            "assignments": svc.get_position_assignments(position_id),
+            "current_users": svc.get_position_current_users(db, position_id),
+            "assignments": svc.get_position_assignments(db, position_id),
         },
     }
 
@@ -167,6 +167,7 @@ def create_position(
 
     try:
         position = svc.create_position(
+            db,
             code=code,
             title=title,
             description=body.description.strip() if body.description else None,
@@ -201,7 +202,7 @@ def update_position(
 
     updates = body.model_dump(exclude_none=True)
     try:
-        position = svc.update_position(position_id, **updates)
+        position = svc.update_position(db, position_id, **updates)
         logger.info(f"Puesto {position_id} actualizado por usuario {int(user['sub'])}")
         return {
             "status": "ok",
@@ -231,15 +232,15 @@ def delete_position(
     from itcj2.core.models.position import UserPosition
     from itcj2.core.services import positions_service as svc
 
-    active = UserPosition.query.filter_by(position_id=position_id, is_active=True).count()
+    active = db.query(UserPosition).filter_by(position_id=position_id, is_active=True).count()
     if active > 0:
         raise HTTPException(409, detail={"status": "error", "error": "position_has_active_users"})
 
-    position = svc.get_position_by_id(position_id)
+    position = svc.get_position_by_id(db, position_id)
     if not position:
         raise HTTPException(404, detail={"status": "error", "error": "not_found"})
 
-    svc.delete_position(position_id)
+    svc.delete_position(db, position_id)
     logger.info(f"Puesto {position_id} eliminado por usuario {int(user['sub'])}")
 
 
@@ -254,7 +255,7 @@ def get_position_current_user(
     """Usuario actualmente asignado al puesto."""
     from itcj2.core.services import positions_service as svc
 
-    return {"status": "ok", "data": svc.get_position_current_user(position_id)}
+    return {"status": "ok", "data": svc.get_position_current_user(db, position_id)}
 
 
 @router.get("/{position_id}/users")
@@ -266,7 +267,7 @@ def get_position_all_users(
     """Todos los usuarios asignados al puesto."""
     from itcj2.core.services import positions_service as svc
 
-    return {"status": "ok", "data": svc.get_position_current_users(position_id)}
+    return {"status": "ok", "data": svc.get_position_current_users(db, position_id)}
 
 
 @router.post("/{position_id}/assign-user", status_code=201)
@@ -287,7 +288,7 @@ def assign_user_to_position(
             raise HTTPException(400, detail={"status": "error", "error": "invalid_date_format"})
 
     try:
-        assignment = svc.assign_user_to_position(body.user_id, position_id, start_date, body.notes)
+        assignment = svc.assign_user_to_position(db, body.user_id, position_id, start_date, body.notes)
         logger.info(f"Usuario {body.user_id} asignado al puesto {position_id}")
         return {
             "status": "ok",
@@ -321,13 +322,13 @@ def transfer_position(
 
     old_user_id = body.old_user_id
     if not old_user_id:
-        current = svc.get_position_current_user(position_id)
+        current = svc.get_position_current_user(db, position_id)
         if not current:
             raise HTTPException(400, detail={"status": "error", "error": "no_current_user"})
         old_user_id = current["user_id"]
 
     try:
-        svc.transfer_position(old_user_id, body.new_user_id, position_id, transfer_date)
+        svc.transfer_position(db, old_user_id, body.new_user_id, position_id, transfer_date)
         return {"status": "ok", "data": {"transferred": True}}
     except Exception as e:
         raise HTTPException(500, detail={"status": "error", "error": str(e)})
@@ -352,12 +353,12 @@ def remove_user_from_position(
 
     user_id = body.user_id
     if not user_id:
-        current = svc.get_position_current_user(position_id)
+        current = svc.get_position_current_user(db, position_id)
         if not current:
             raise HTTPException(400, detail={"status": "error", "error": "no_current_user"})
         user_id = current["user_id"]
 
-    success = svc.remove_user_from_position(user_id, position_id, end_date)
+    success = svc.remove_user_from_position(db, user_id, position_id, end_date)
     if success:
         return {"status": "ok", "data": {"removed": True}}
     raise HTTPException(404, detail={"status": "error", "error": "removal_failed"})
@@ -375,7 +376,7 @@ def get_position_assignments(
     from itcj2.core.services import positions_service as svc
 
     try:
-        return {"status": "ok", "data": svc.get_position_assignments(position_id)}
+        return {"status": "ok", "data": svc.get_position_assignments(db, position_id)}
     except ValueError as e:
         raise HTTPException(404, detail={"status": "error", "error": str(e)})
 
@@ -392,7 +393,7 @@ def get_position_app_roles(
     from itcj2.core.models.position import PositionAppRole
     from itcj2.core.services.authz_service import get_or_404_app
 
-    app = get_or_404_app(app_key)
+    app = get_or_404_app(db, app_key)
     roles = (
         db.query(Role.name)
         .join(PositionAppRole, PositionAppRole.role_id == Role.id)
@@ -418,7 +419,7 @@ def assign_role_to_position(
         raise HTTPException(400, detail={"status": "error", "error": "role_name_required"})
 
     try:
-        created = svc.assign_role_to_position(position_id, app_key, role_name)
+        created = svc.assign_role_to_position(db, position_id, app_key, role_name)
         return {"status": "ok", "data": {"created": created}}
     except ValueError as e:
         raise HTTPException(400, detail={"status": "error", "error": str(e)})
@@ -435,7 +436,7 @@ def remove_role_from_position(
     """Remueve un rol de un puesto en una app."""
     from itcj2.core.services import positions_service as svc
 
-    svc.remove_role_from_position(position_id, app_key, role_name)
+    svc.remove_role_from_position(db, position_id, app_key, role_name)
 
 
 @router.get("/{position_id}/apps/{app_key}/perms")
@@ -450,7 +451,7 @@ def get_position_app_perms(
     from itcj2.core.models.position import PositionAppPerm
     from itcj2.core.services.authz_service import get_or_404_app
 
-    app = get_or_404_app(app_key)
+    app = get_or_404_app(db, app_key)
     perms = (
         db.query(Permission.code)
         .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
@@ -480,7 +481,7 @@ def assign_perm_to_position(
         raise HTTPException(400, detail={"status": "error", "error": "code_required"})
 
     try:
-        created = svc.assign_permission_to_position(position_id, app_key, perm_code, body.allow)
+        created = svc.assign_permission_to_position(db, position_id, app_key, perm_code, body.allow)
         return {"status": "ok", "data": {"updated": created}}
     except ValueError as e:
         raise HTTPException(400, detail={"status": "error", "error": str(e)})
@@ -498,8 +499,8 @@ def remove_perm_from_position(
     from itcj2.core.models.position import PositionAppPerm
     from itcj2.core.services.authz_service import get_or_404_app, get_perm
 
-    app = get_or_404_app(app_key)
-    perm = get_perm(app.id, perm_code)
+    app = get_or_404_app(db, app_key)
+    perm = get_perm(db, app.id, perm_code)
     if not perm:
         raise HTTPException(404, detail={"status": "error", "error": "permission_not_found"})
 
@@ -522,7 +523,7 @@ def get_position_effective_perms(
     from itcj2.core.models.position import PositionAppRole, PositionAppPerm
     from itcj2.core.services.authz_service import get_or_404_app
 
-    app = get_or_404_app(app_key)
+    app = get_or_404_app(db, app_key)
 
     perms_via_roles = (
         db.query(Permission.code)

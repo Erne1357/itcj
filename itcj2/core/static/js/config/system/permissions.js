@@ -1,7 +1,7 @@
 // permissions.js - Gestión de permisos por aplicación
 class PermissionsManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.appKey = window.appKey;
         this.roles = [];
         this.permissions = [];

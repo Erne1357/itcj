@@ -237,7 +237,7 @@ def admin_create_request(
     if not student:
         raise HTTPException(status_code=404, detail="student_not_found")
 
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=503, detail="no_active_period")
 
@@ -316,7 +316,7 @@ def admin_create_request(
     if not slot or slot.is_booked:
         raise HTTPException(status_code=409, detail="slot_unavailable")
 
-    enabled_days = set(period_service.get_enabled_days(period.id))
+    enabled_days = set(period_service.get_enabled_days(db, period.id))
     if slot.day not in enabled_days:
         raise HTTPException(status_code=400, detail="day_not_enabled")
 

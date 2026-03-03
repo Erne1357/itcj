@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 @router.get("")
 def list_programs(
+    user: CurrentUser,
+    db: DbSession = None,
     q: Optional[str] = Query(None, description="Búsqueda por nombre"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    user: dict = CurrentUser,
-    db: DbSession = None,
 ):
     """Lista programas académicos con paginación y búsqueda opcional."""
     query = db.query(Program)
@@ -48,7 +48,7 @@ def list_programs(
 @router.get("/{program_id}/coordinator")
 def program_coordinator(
     program_id: int,
-    user: dict = CurrentUser,
+    user: CurrentUser,
     db: DbSession = None,
 ):
     """Obtiene los coordinadores asignados a un programa."""

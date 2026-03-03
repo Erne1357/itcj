@@ -144,6 +144,7 @@ async def create_ticket(
 
     try:
         ticket = ticket_service.create_ticket(
+            db,
             requester_id=requester_id,
             area=data["area"],
             category_id=data["category_id"],
@@ -229,6 +230,7 @@ def list_tickets(
 
     try:
         result = ticket_service.list_tickets(
+            db,
             user_id=user_id,
             user_roles=user_roles,
             status=status,

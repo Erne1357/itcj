@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     VISTETEC_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,webp"
 
     # Static versioning
-    STATIC_VERSION: str = "1.0.0"
+    STATIC_VERSION: str = "1.0.111111"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

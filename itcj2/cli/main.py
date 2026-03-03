@@ -21,11 +21,13 @@ from itcj2.cli.vistetec import vistetec_cli
 
 
 def _register_all_models():
-    """Importa todos los modelos para que SQLAlchemy resuelva todas las relationships."""
-    import itcj2.core.models  # noqa: F401
-    import itcj2.apps.helpdesk.models  # noqa: F401
-    import itcj2.apps.agendatec.models  # noqa: F401
-    import itcj2.apps.vistetec.models  # noqa: F401
+    """Importa todos los modelos para que SQLAlchemy resuelva todas las relationships.
+
+    itcj2/models/__init__.py centraliza todos los imports (core + todas las apps).
+    database.py también lo hace, pero llamarlo aquí garantiza que los modelos
+    estén registrados antes de que cualquier comando acceda a la sesión.
+    """
+    import itcj2.models  # noqa: F401
 
 
 @click.group()

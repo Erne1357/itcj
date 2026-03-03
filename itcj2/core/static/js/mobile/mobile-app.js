@@ -8,7 +8,7 @@
 
 class MobileApp {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.socket = null;
         this.totalUnread = 0;
         

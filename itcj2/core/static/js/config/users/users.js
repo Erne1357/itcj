@@ -1,7 +1,7 @@
 // users.js - Gestión de usuarios y asignaciones
 class UsersManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.currentUserId = null;
         this.currentAppKey = null;
         this.apps = [];

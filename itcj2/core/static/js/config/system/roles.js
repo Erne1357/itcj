@@ -1,7 +1,7 @@
 // roles.js - Gestión de roles globales
 class RolesManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.init();
     }
 

@@ -1,7 +1,7 @@
 // itcj/core/static/js/config/department_detail.js
 class DepartmentDetailManager {
     constructor(departmentId) {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.departmentId = departmentId;
         this.currentPositionId = null;
         this.currentAppKey = null;

@@ -5,7 +5,7 @@
 (function () {
     'use strict';
 
-    const API_BASE = '/api/vistetec/v1';
+    const API_BASE = '/api/vistetec/v2';
 
     // Modals
     let scheduleModal, attendModal;

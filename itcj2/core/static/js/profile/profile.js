@@ -1,6 +1,6 @@
 class ProfileManager {
     constructor() {
-        this.apiBase = '/api/core/v1';
+        this.apiBase = '/api/core/v2';
         this.currentFilter = 'all';
         this.readStatusFilter = 'all';
         this.dateRangeFilter = 'week';

@@ -58,7 +58,7 @@ def list_periods(
     for p in periods:
         period_dict = p.to_dict()
         period_dict["agendatec_config"] = p.agendatec_config.to_dict() if p.agendatec_config else None
-        period_dict["request_count"] = period_service.count_requests_in_period(p.id)
+        period_dict["request_count"] = period_service.count_requests_in_period(db, p.id)
         items.append(period_dict)
 
     return {"items": items}
@@ -108,6 +108,7 @@ def create_period(
 
     try:
         period_service.create_agendatec_config(
+            db,
             period_id=period.id,
             student_admission_start=admission_start,
             student_admission_deadline=admission_deadline,
@@ -123,7 +124,7 @@ def create_period(
     db.commit()
 
     result = period.to_dict()
-    config = period_service.get_agendatec_config(period.id)
+    config = period_service.get_agendatec_config(db, period.id)
     if config:
         result["agendatec_config"] = config.to_dict()
     return result
@@ -234,14 +235,14 @@ def update_period(
 
     if config_fields:
         try:
-            period_service.update_agendatec_config(period_id, **config_fields)
+            period_service.update_agendatec_config(db, period_id, **config_fields)
         except ValueError as e:
             raise HTTPException(status_code=404, detail={"error": "config_not_found", "message": str(e)})
 
     db.commit()
 
     result = period.to_dict()
-    config = period_service.get_agendatec_config(period.id)
+    config = period_service.get_agendatec_config(db, period.id)
     if config:
         result["agendatec_config"] = config.to_dict()
     return result
@@ -258,7 +259,7 @@ def activate_period(
     """Activa un período y desactiva todos los demás."""
     uid = int(user["sub"])
     try:
-        period = period_service.activate_period(period_id, uid)
+        period = period_service.activate_period(db, period_id, uid)
         return period.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=404, detail={"error": "period_not_found", "message": str(e)})
@@ -277,7 +278,7 @@ def delete_period(
     if not period:
         raise HTTPException(status_code=404, detail="period_not_found")
 
-    request_count = period_service.count_requests_in_period(period_id)
+    request_count = period_service.count_requests_in_period(db, period_id)
     if request_count > 0:
         raise HTTPException(
             status_code=409,
@@ -393,12 +394,12 @@ def get_active_period(
     Obtiene el período activo con días habilitados y configuración.
     Requiere autenticación con acceso a agendatec.
     """
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=404, detail="no_active_period")
 
-    enabled_days = period_service.get_enabled_days(period.id)
-    config = period_service.get_agendatec_config(period.id)
+    enabled_days = period_service.get_enabled_days(db, period.id)
+    config = period_service.get_agendatec_config(db, period.id)
 
     result = period.to_dict()
     result["enabled_days"] = [d.isoformat() for d in enabled_days]
@@ -436,11 +437,11 @@ def get_period_stats(
         .all()
     )
 
-    enabled_days_objs = period_service.get_enabled_days(period_id)
+    enabled_days_objs = period_service.get_enabled_days(db, period_id)
 
     stats_dict = {
         "period": period.to_dict(),
-        "total_requests": period_service.count_requests_in_period(period_id),
+        "total_requests": period_service.count_requests_in_period(db, period_id),
         "by_type": {},
         "by_status": {},
         "enabled_days_count": len(enabled_days_objs),

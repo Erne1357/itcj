@@ -50,11 +50,11 @@ def coord_appointments(
     except Exception:
         raise HTTPException(status_code=400, detail="invalid_day_format")
 
-    period = period_service.get_active_period()
+    period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=503, detail="no_active_period")
 
-    enabled_days = set(period_service.get_enabled_days(period.id))
+    enabled_days = set(period_service.get_enabled_days(db, period.id))
     if d not in enabled_days:
         raise HTTPException(status_code=400, detail="day_not_allowed")
 
