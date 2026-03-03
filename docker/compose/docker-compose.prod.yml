@@ -131,10 +131,10 @@ services:
       - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       # upstream.conf generado por deploy.sh en el host
       - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
-      - ../../itcj/core/static:/www/static/core:ro
-      - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
-      - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
-      - ../../itcj/apps/vistetec/static:/www/static/vistetec:ro
+      - ../../itcj2/core/static:/www/static/core:ro
+      - ../../itcj2/apps/agendatec/static:/www/static/agendatec:ro
+      - ../../itcj2/apps/helpdesk/static:/www/static/helpdesk:ro
+      - ../../itcj2/apps/vistetec/static:/www/static/vistetec:ro
     depends_on:
       - redis
       - postgres

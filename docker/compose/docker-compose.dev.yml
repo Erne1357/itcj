@@ -43,10 +43,10 @@ services:
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
       # Archivos estáticos de las apps
-      - ../../itcj/core/static:/www/static/core:ro
-      - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
-      - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
-      - ../../itcj/apps/vistetec/static:/www/static/vistetec:ro
+      - ../../itcj2/core/static:/www/static/core:ro
+      - ../../itcj2/apps/agendatec/static:/www/static/agendatec:ro
+      - ../../itcj2/apps/helpdesk/static:/www/static/helpdesk:ro
+      - ../../itcj2/apps/vistetec/static:/www/static/vistetec:ro
     depends_on:
       - backend
     ports:

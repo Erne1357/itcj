@@ -31,10 +31,10 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 templates = Jinja2Templates(
     directory=[
-        os.path.join(_BASE, "itcj", "core", "templates"),
-        os.path.join(_BASE, "itcj", "apps", "agendatec", "templates"),
-        os.path.join(_BASE, "itcj", "apps", "helpdesk", "templates"),
-        os.path.join(_BASE, "itcj", "apps", "vistetec", "templates"),
+        os.path.join(_BASE, "itcj2", "core", "templates"),
+        os.path.join(_BASE, "itcj2", "apps", "agendatec", "templates"),
+        os.path.join(_BASE, "itcj2", "apps", "helpdesk", "templates"),
+        os.path.join(_BASE, "itcj2", "apps", "vistetec", "templates"),
     ]
 )
 
