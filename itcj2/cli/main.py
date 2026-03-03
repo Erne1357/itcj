@@ -20,9 +20,18 @@ from itcj2.cli.agendatec import agendatec_cli
 from itcj2.cli.vistetec import vistetec_cli
 
 
+def _register_all_models():
+    """Importa todos los modelos para que SQLAlchemy resuelva todas las relationships."""
+    import itcj2.core.models  # noqa: F401
+    import itcj2.apps.helpdesk.models  # noqa: F401
+    import itcj2.apps.agendatec.models  # noqa: F401
+    import itcj2.apps.vistetec.models  # noqa: F401
+
+
 @click.group()
 def cli():
     """CLI de administración para la plataforma ITCJ (FastAPI)."""
+    _register_all_models()
 
 
 cli.add_command(core_cli)
