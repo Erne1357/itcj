@@ -81,9 +81,44 @@ def _register_error_handlers(app: FastAPI):
         500: {"title": "Error Interno", "message": "Algo salió mal en nuestros servidores."},
     }
 
+    def _is_page_request(request: Request) -> bool:
+        """True si la petición es de una página (no de la API REST)."""
+        return not request.url.path.startswith("/api/")
+
+    def _render_error_page(request: Request, status_code: int):
+        """Intenta renderizar el template HTML de error. Retorna None si falla."""
+        try:
+            from itcj2.templates import render
+            info = ERROR_MESSAGES.get(status_code, {"title": "Error", "message": "Ocurrió un error inesperado."})
+            return render(request, "core/errors/core_error.html", {
+                "error_code": status_code,
+                "error_title": info["title"],
+                "error_message": info["message"],
+            }, status_code=status_code)
+        except Exception as e:
+            logger.exception("Error al renderizar página de error %d: %s", status_code, e)
+            return None
+
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        if _is_page_request(request):
+            page = _render_error_page(request, exc.status_code)
+            if page:
+                return page
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": exc.detail, "status": exc.status_code},
+        )
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.exception("Unhandled exception: %s", exc)
+        if _is_page_request(request):
+            page = _render_error_page(request, 500)
+            if page:
+                return page
         return JSONResponse(
             status_code=500,
             content={"error": "internal_error", "status": 500},
@@ -93,6 +128,10 @@ def _register_error_handlers(app: FastAPI):
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
+        if _is_page_request(request):
+            page = _render_error_page(request, 422)
+            if page:
+                return page
         return JSONResponse(
             status_code=422,
             content={

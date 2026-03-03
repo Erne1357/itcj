@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 
 
 def register_routers(app: FastAPI):
@@ -37,3 +38,14 @@ def register_routers(app: FastAPI):
     # VisteTec pages (prefix /vistetec): landing, student, volunteer, admin
     from itcj2.apps.vistetec.pages.router import vistetec_pages_router
     app.include_router(vistetec_pages_router)
+
+    # Redirect raíz: autenticado → dashboard o móvil, no autenticado → login
+    @app.get("/", include_in_schema=False)
+    async def root_redirect(request: Request):
+        user = getattr(request.state, "current_user", None)
+        if user:
+            # Alumnos tienen cn (número de control de 8 dígitos)
+            if user.get("cn"):
+                return RedirectResponse("/itcj/m/", status_code=302)
+            return RedirectResponse("/itcj/dashboard", status_code=302)
+        return RedirectResponse("/itcj/auth/login", status_code=302)
