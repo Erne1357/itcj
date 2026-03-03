@@ -432,7 +432,7 @@ def get_user_roles(
     """Roles de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": sorted(list(svc.user_roles_in_app(user_id, app_key)))}
+    return {"status": "ok", "data": sorted(list(svc.user_roles_in_app(db, user_id, app_key)))}
 
 
 @router.post("/apps/{app_key}/users/{user_id}/roles")

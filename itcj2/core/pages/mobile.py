@@ -137,36 +137,40 @@ async def mobile_switch_mobile(
 def _build_quick_actions(user_id: int) -> list[dict]:
     """Construye la lista de accesos rápidos para staff según sus roles."""
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     actions: list[dict] = []
-
-    roles_itcj = user_roles_in_app(user_id, "itcj")
-    if "admin" in roles_itcj:
-        actions.append({
-            "label": "Configuración",
-            "url": "/itcj/config",
-            "icon": "bi-gear",
-        })
-
+    _db = SessionLocal()
     try:
-        if user_roles_in_app(user_id, "helpdesk"):
+        roles_itcj = user_roles_in_app(_db, user_id, "itcj")
+        if "admin" in roles_itcj:
             actions.append({
-                "label": "Tickets",
-                "url": "/help-desk/",
-                "icon": "bi-ticket-detailed",
+                "label": "Configuración",
+                "url": "/itcj/config",
+                "icon": "bi-gear",
             })
-    except Exception:
-        pass
 
-    try:
-        roles_agenda = user_roles_in_app(user_id, "agendatec")
-        if roles_agenda - {"student"}:
-            actions.append({
-                "label": "AgendaTec",
-                "url": "/agendatec/",
-                "icon": "bi-calendar-check",
-            })
-    except Exception:
-        pass
+        try:
+            if user_roles_in_app(_db, user_id, "helpdesk"):
+                actions.append({
+                    "label": "Tickets",
+                    "url": "/help-desk/",
+                    "icon": "bi-ticket-detailed",
+                })
+        except Exception:
+            pass
+
+        try:
+            roles_agenda = user_roles_in_app(_db, user_id, "agendatec")
+            if roles_agenda - {"student"}:
+                actions.append({
+                    "label": "AgendaTec",
+                    "url": "/agendatec/",
+                    "icon": "bi-calendar-check",
+                })
+        except Exception:
+            pass
+    finally:
+        _db.close()
 
     return actions

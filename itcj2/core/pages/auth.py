@@ -7,7 +7,9 @@ Rutas:
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from itcj2.dependencies import get_current_user_optional
+from sqlalchemy.orm import Session
+
+from itcj2.dependencies import get_current_user_optional, get_db
 from itcj2.templates import render
 
 router = APIRouter(prefix="/auth", tags=["core-pages"])
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/auth", tags=["core-pages"])
 async def login_page(
     request: Request,
     user: dict | None = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
 ) -> RedirectResponse | HTMLResponse:
     """Página de inicio de sesión.
 
@@ -27,7 +30,7 @@ async def login_page(
         from itcj2.core.services.authz_service import user_roles_in_app
         from itcj2.core.utils.role_home import role_home
 
-        destination = role_home(user_roles_in_app(int(user["sub"]), "itcj"))
+        destination = role_home(user_roles_in_app(db, int(user["sub"]), "itcj"))
         return RedirectResponse(destination, status_code=302)
 
     return render(request, "core/auth/login.html")

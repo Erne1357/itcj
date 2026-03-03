@@ -70,11 +70,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
         # Refrescar cookie si es necesario (misma lógica que Flask)
         if needs_refresh and data:
             from itcj2.core.services.authz_service import user_roles_in_app
+            from itcj2.database import SessionLocal
+
+            _db = SessionLocal()
+            try:
+                _refresh_roles = list(user_roles_in_app(_db, int(data["sub"]), "itcj"))
+            finally:
+                _db.close()
 
             new_token = _encode_jwt(
                 {
                     "sub": data["sub"],
-                    "role": list(user_roles_in_app(int(data["sub"]), "itcj")),
+                    "role": _refresh_roles,
                     "cn": data.get("cn"),
                     "name": data.get("name"),
                 },

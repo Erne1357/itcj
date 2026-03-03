@@ -41,7 +41,7 @@ def password_state(user: CurrentUser, db: DbSession):
     if not u:
         raise HTTPException(404, detail="user_not_found")
 
-    if "student" in user_roles_in_app(u.id, "itcj"):
+    if "student" in user_roles_in_app(db, u.id, "itcj"):
         return PasswordStateResponse(must_change=False)
 
     must_change = verify_nip(DEFAULT_PASSWORD, u.password_hash)
@@ -55,7 +55,7 @@ def change_password(body: ChangePasswordRequest, user: CurrentUser, db: DbSessio
     from itcj2.core.utils.security import hash_nip
 
     u = _get_user(user, db)
-    if not u or "student" in user_roles_in_app(u.id, "itcj"):
+    if not u or "student" in user_roles_in_app(db, u.id, "itcj"):
         raise HTTPException(403, detail="unauthorized")
 
     if body.new_password == DEFAULT_PASSWORD:
@@ -80,14 +80,14 @@ def get_current_user_info(user: CurrentUser, db: DbSession):
         raise HTTPException(404, detail="user_not_found")
 
     # Rol global
-    roles_itcj = user_roles_in_app(u.id, "itcj")
+    roles_itcj = user_roles_in_app(db, u.id, "itcj")
     global_role = list(roles_itcj)[0] if roles_itcj else "Usuario"
 
     # Roles por app
     app_keys = [a.key for a in db.query(App.key).all()]
     roles = {}
     for key in app_keys:
-        app_roles = user_roles_in_app(u.id, key)
+        app_roles = user_roles_in_app(db, u.id, key)
         roles[key] = list(app_roles) if isinstance(app_roles, set) else app_roles
 
     # Posiciones activas

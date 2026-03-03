@@ -7,7 +7,9 @@ Rutas:
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from itcj2.dependencies import require_page_login
+from sqlalchemy.orm import Session
+
+from itcj2.dependencies import get_db, require_page_login
 from itcj2.templates import render
 
 router = APIRouter(tags=["core-pages"])
@@ -21,6 +23,7 @@ _DESKTOP_ROLES = frozenset({"coordinator", "social_service", "admin", "staff"})
 async def dashboard(
     request: Request,
     user: dict = Depends(require_page_login),
+    db: Session = Depends(get_db),
 ):
     """Dashboard principal del sistema.
 
@@ -39,7 +42,7 @@ async def dashboard(
         return RedirectResponse("/itcj/m/", status_code=302)
 
     uid = int(user["sub"])
-    user_roles = set(user_roles_in_app(uid, "itcj"))
+    user_roles = set(user_roles_in_app(db, uid, "itcj"))
 
     if not user_roles & _DESKTOP_ROLES:
         return RedirectResponse("/itcj/m/", status_code=302)

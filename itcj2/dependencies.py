@@ -64,7 +64,7 @@ def require_page_roles(app_key: str, roles: list[str]):
     """
     _roles_set = set(roles)
 
-    def dependency(request: Request) -> dict:
+    def dependency(request: Request, db: Session = Depends(get_db)) -> dict:
         user = getattr(request.state, "current_user", None)
         if not user:
             raise PageLoginRequired()
@@ -72,7 +72,7 @@ def require_page_roles(app_key: str, roles: list[str]):
         from itcj2.core.services.authz_service import user_roles_in_app
 
         uid = int(user["sub"])
-        if not _roles_set & set(user_roles_in_app(uid, app_key)):
+        if not _roles_set & set(user_roles_in_app(db, uid, app_key)):
             raise PageForbidden()
 
         return user
@@ -94,7 +94,7 @@ def require_page_app(app_key: str, perms: list[str] | None = None):
     """
     _perms_set = set(perms) if perms else set()
 
-    def dependency(request: Request) -> dict:
+    def dependency(request: Request, db: Session = Depends(get_db)) -> dict:
         user = getattr(request.state, "current_user", None)
         if not user:
             raise PageLoginRequired()
@@ -106,11 +106,11 @@ def require_page_app(app_key: str, perms: list[str] | None = None):
 
         uid = int(user["sub"])
 
-        if not has_any_assignment(uid, app_key):
+        if not has_any_assignment(db, uid, app_key):
             raise PageForbidden()
 
         if _perms_set:
-            user_perms = get_user_permissions_for_app(uid, app_key)
+            user_perms = get_user_permissions_for_app(db, uid, app_key)
             if not (_perms_set & user_perms):
                 raise PageForbidden()
 
@@ -141,7 +141,7 @@ def require_app(app_key: str):
         from itcj2.core.services.authz_service import has_any_assignment
 
         user_id = int(user["sub"])
-        if not has_any_assignment(user_id, app_key):
+        if not has_any_assignment(db, user_id, app_key):
             raise HTTPException(
                 status_code=403,
                 detail=f"Sin acceso a la aplicación: {app_key}",
@@ -186,14 +186,14 @@ def require_perms(app_key: str, perms: list[str]):
 
         uid = int(user["sub"])
 
-        if not has_any_assignment(uid, app_key, include_positions=True):
+        if not has_any_assignment(db, uid, app_key, include_positions=True):
             raise HTTPException(
                 status_code=403,
                 detail=f"Sin acceso a la aplicación: {app_key}",
             )
 
         user_perm_set = get_user_permissions_for_app(
-            uid, app_key, include_positions=True
+            db, uid, app_key, include_positions=True
         )
         if not (_perms_set & user_perm_set):
             raise HTTPException(
@@ -224,7 +224,7 @@ def require_roles(app_key: str, roles: list[str]):
         from itcj2.core.services.authz_service import user_roles_in_app
 
         user_id = int(user["sub"])
-        user_roles = set(user_roles_in_app(user_id, app_key))
+        user_roles = set(user_roles_in_app(db, user_id, app_key))
 
         if not user_roles.intersection(roles):
             raise HTTPException(

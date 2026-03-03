@@ -29,7 +29,7 @@ def login(body: LoginRequest, response: Response, db: DbSession):
     from itcj2.core.services.auth_service import authenticate, authenticate_by_username
 
     is_student = raw_id.isdigit() and len(raw_id) == 8
-    user = authenticate(raw_id, nip) if is_student else authenticate_by_username(raw_id, nip)
+    user = authenticate(db, raw_id, nip) if is_student else authenticate_by_username(db, raw_id, nip)
 
     if not user:
         raise HTTPException(401, detail="invalid_credentials")

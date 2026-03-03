@@ -42,10 +42,15 @@ router = APIRouter(tags=["core-pages-config"])
 def _assert_admin(user: dict) -> None:
     """Lanza PageForbidden si el usuario no tiene rol admin en itcj."""
     from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     uid = int(user["sub"])
-    if "admin" not in user_roles_in_app(uid, "itcj"):
-        raise PageForbidden()
+    _db = SessionLocal()
+    try:
+        if "admin" not in user_roles_in_app(_db, uid, "itcj"):
+            raise PageForbidden()
+    finally:
+        _db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -66,37 +71,41 @@ async def settings(
     from itcj2.core.models.permission import Permission
     from itcj2.core.models.role import Role
     from itcj2.core.models.user import User
-
-    apps = App.query.order_by(App.key.asc()).all()
-    roles = Role.query.order_by(Role.name.asc()).all()
-    users_count = User.query.count()
-    permissions_count = Permission.query.count()
-    departments_count = Department.query.filter_by(is_active=True).count()
-
-    themes_count = 0
-    active_theme_name = None
-    try:
-        from itcj2.core.models.theme import Theme
-        from itcj2.core.services import themes_service
-
-        themes_count = Theme.query.filter_by(is_enabled=True).count()
-        active = themes_service.get_active_theme()
-        if active:
-            active_theme_name = active.name
-    except Exception:
-        pass
-
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    return render(request, "core/config/index.html", {
-        "apps": apps,
-        "roles": roles,
-        "users_count": users_count,
-        "permissions_count": permissions_count,
-        "departments_count": departments_count,
-        "themes_count": themes_count,
-        "active_theme_name": active_theme_name,
-    })
+    _db = SessionLocal()
+    try:
+        apps = _db.query(App).order_by(App.key.asc()).all()
+        roles = _db.query(Role).order_by(Role.name.asc()).all()
+        users_count = _db.query(User).count()
+        permissions_count = _db.query(Permission).count()
+        departments_count = _db.query(Department).filter_by(is_active=True).count()
+
+        themes_count = 0
+        active_theme_name = None
+        try:
+            from itcj2.core.models.theme import Theme
+            from itcj2.core.services import themes_service
+
+            themes_count = _db.query(Theme).filter_by(is_enabled=True).count()
+            active = themes_service.get_active_theme()
+            if active:
+                active_theme_name = active.name
+        except Exception:
+            pass
+
+        return render(request, "core/config/index.html", {
+            "apps": apps,
+            "roles": roles,
+            "users_count": users_count,
+            "permissions_count": permissions_count,
+            "departments_count": departments_count,
+            "themes_count": themes_count,
+            "active_theme_name": active_theme_name,
+        })
+    finally:
+        _db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -113,10 +122,15 @@ async def apps_management(
     _assert_admin(user)
 
     from itcj2.core.models.app import App
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    apps = App.query.order_by(App.key.asc()).all()
-    return render(request, "core/config/system/apps.html", {"apps": apps})
+    _db = SessionLocal()
+    try:
+        apps = _db.query(App).order_by(App.key.asc()).all()
+        return render(request, "core/config/system/apps.html", {"apps": apps})
+    finally:
+        _db.close()
 
 
 @router.get("/config/roles", name="core.pages.config.roles_management")
@@ -128,10 +142,15 @@ async def roles_management(
     _assert_admin(user)
 
     from itcj2.core.models.role import Role
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    roles = Role.query.order_by(Role.name.asc()).all()
-    return render(request, "core/config/system/roles.html", {"roles": roles})
+    _db = SessionLocal()
+    try:
+        roles = _db.query(Role).order_by(Role.name.asc()).all()
+        return render(request, "core/config/system/roles.html", {"roles": roles})
+    finally:
+        _db.close()
 
 
 @router.get("/config/apps/{app_key}/permissions", name="core.pages.config.app_permissions")
@@ -145,22 +164,27 @@ async def app_permissions(
 
     from itcj2.core.models.app import App
     from itcj2.core.models.permission import Permission
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    app = App.query.filter_by(key=app_key).first()
-    if not app:
-        raise HTTPException(status_code=404, detail="App no encontrada")
+    _db = SessionLocal()
+    try:
+        app = _db.query(App).filter_by(key=app_key).first()
+        if not app:
+            raise HTTPException(status_code=404, detail="App no encontrada")
 
-    permissions = (
-        Permission.query
-        .filter_by(app_id=app.id)
-        .order_by(Permission.code.asc())
-        .all()
-    )
-    return render(request, "core/config/system/permissions.html", {
-        "app": app,
-        "permissions": permissions,
-    })
+        permissions = (
+            _db.query(Permission)
+            .filter_by(app_id=app.id)
+            .order_by(Permission.code.asc())
+            .all()
+        )
+        return render(request, "core/config/system/permissions.html", {
+            "app": app,
+            "permissions": permissions,
+        })
+    finally:
+        _db.close()
 
 
 @router.get("/config/themes", name="core.pages.config.themes_management")
@@ -194,35 +218,39 @@ async def users_management(
     from itcj2.core.models.app import App
     from itcj2.core.models.role import Role
     from itcj2.core.models.user import User
+    from itcj2.database import SessionLocal
+    from itcj2.models.base import paginate
     from itcj2.templates import render
 
-    per_page = 20
-    users_query = User.query
+    _db = SessionLocal()
+    try:
+        per_page = 20
+        users_query = _db.query(User)
 
-    if q:
-        term = f"%{q}%"
-        users_query = users_query.filter(
-            or_(
-                User.full_name.ilike(term),
-                User.username.ilike(term),
-                User.control_number.ilike(term),
-                User.email.ilike(term),
+        if q:
+            term = f"%{q}%"
+            users_query = users_query.filter(
+                or_(
+                    User.full_name.ilike(term),
+                    User.username.ilike(term),
+                    User.control_number.ilike(term),
+                    User.email.ilike(term),
+                )
             )
-        )
 
-    pagination = users_query.order_by(User.full_name.asc()).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
-    apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
-    roles = Role.query.order_by(Role.name.asc()).all()
+        pagination = paginate(users_query.order_by(User.full_name.asc()), page=page, per_page=per_page)
+        apps = _db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
+        roles = _db.query(Role).order_by(Role.name.asc()).all()
 
-    return render(request, "core/config/users/users.html", {
-        "users": pagination.items,
-        "apps": apps,
-        "roles": roles,
-        "pagination": pagination,
-        "current_query": q,
-    })
+        return render(request, "core/config/users/users.html", {
+            "users": pagination.items,
+            "apps": apps,
+            "roles": roles,
+            "pagination": pagination,
+            "current_query": q,
+        })
+    finally:
+        _db.close()
 
 
 @router.get("/config/users/{user_id}", name="core.pages.config.user_detail")
@@ -237,20 +265,25 @@ async def user_detail(
     from itcj2.core.models.app import App
     from itcj2.core.models.role import Role
     from itcj2.core.models.user import User
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    target = User.query.get(user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    _db = SessionLocal()
+    try:
+        target = _db.get(User, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
-    roles = Role.query.order_by(Role.name.asc()).all()
+        apps = _db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
+        roles = _db.query(Role).order_by(Role.name.asc()).all()
 
-    return render(request, "core/config/users/user_detail.html", {
-        "user": target,
-        "apps": apps,
-        "roles": roles,
-    })
+        return render(request, "core/config/users/user_detail.html", {
+            "user": target,
+            "apps": apps,
+            "roles": roles,
+        })
+    finally:
+        _db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -281,16 +314,21 @@ async def department_detail(
     _assert_admin(user)
 
     from itcj2.core.models.department import Department
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    dept = Department.query.get(department_id)
-    if not dept:
-        raise HTTPException(status_code=404, detail="Departamento no encontrado")
+    _db = SessionLocal()
+    try:
+        dept = _db.get(Department, department_id)
+        if not dept:
+            raise HTTPException(status_code=404, detail="Departamento no encontrado")
 
-    return render(request, "core/config/organization/department_detail.html", {
-        "department_id": department_id,
-        "department": dept,
-    })
+        return render(request, "core/config/organization/department_detail.html", {
+            "department_id": department_id,
+            "department": dept,
+        })
+    finally:
+        _db.close()
 
 
 @router.get("/config/positions/{position_id}", name="core.pages.config.position_detail")
@@ -304,19 +342,24 @@ async def position_detail(
 
     from itcj2.core.models.position import Position
     from itcj2.core.models.role import Role
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    position = Position.query.get(position_id)
-    if not position:
-        raise HTTPException(status_code=404, detail="Puesto no encontrado")
+    _db = SessionLocal()
+    try:
+        position = _db.get(Position, position_id)
+        if not position:
+            raise HTTPException(status_code=404, detail="Puesto no encontrado")
 
-    roles = Role.query.order_by(Role.name.asc()).all()
+        roles = _db.query(Role).order_by(Role.name.asc()).all()
 
-    return render(request, "core/config/organization/position_detail.html", {
-        "position_id": position_id,
-        "position": position,
-        "roles": roles,
-    })
+        return render(request, "core/config/organization/position_detail.html", {
+            "position_id": position_id,
+            "position": position,
+            "roles": roles,
+        })
+    finally:
+        _db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -334,20 +377,25 @@ async def email_management(
 
     from itcj2.core.models.app import App
     from itcj2.core.utils import msgraph_mail
+    from itcj2.database import SessionLocal
     from itcj2.templates import render
 
-    apps = App.query.filter_by(is_active=True).order_by(App.key.asc()).all()
-    apps_email = [
-        {
-            "key": app.key,
-            "name": app.name,
-            "connected": (acct := msgraph_mail.read_account_info(app.key)) is not None,
-            "username": acct.get("username") if acct else None,
-            "account_name": acct.get("name") if acct else None,
-        }
-        for app in apps
-    ]
-    return render(request, "core/config/system/email.html", {"apps_email": apps_email})
+    _db = SessionLocal()
+    try:
+        apps = _db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
+        apps_email = [
+            {
+                "key": app.key,
+                "name": app.name,
+                "connected": (acct := msgraph_mail.read_account_info(app.key)) is not None,
+                "username": acct.get("username") if acct else None,
+                "account_name": acct.get("name") if acct else None,
+            }
+            for app in apps
+        ]
+        return render(request, "core/config/system/email.html", {"apps_email": apps_email})
+    finally:
+        _db.close()
 
 
 @router.get("/config/email/auth/login", name="core.pages.config.email_auth_login")
@@ -361,11 +409,16 @@ async def email_auth_login(
 
     from itcj2.core.models.app import App as AppModel
     from itcj2.core.utils import msgraph_mail
+    from itcj2.database import SessionLocal
 
     if not app:
         return RedirectResponse("/itcj/config/email", status_code=302)
 
-    app_obj = AppModel.query.filter_by(key=app, is_active=True).first()
+    _db = SessionLocal()
+    try:
+        app_obj = _db.query(AppModel).filter_by(key=app, is_active=True).first()
+    finally:
+        _db.close()
     if not app_obj:
         logger.warning("email_auth_login: app '%s' no encontrada", app)
         return RedirectResponse("/itcj/config/email", status_code=302)
