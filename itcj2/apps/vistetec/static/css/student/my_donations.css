@@ -1,0 +1,24 @@
+.donation-card {
+    border-left: 4px solid #dc3545;
+    transition: all 0.2s;
+}
+.donation-card:hover {
+    transform: translateX(4px);
+}
+.donation-card.type-garment {
+    border-left-color: #8B1538;
+}
+.donation-card.type-pantry {
+    border-left-color: #fd7e14;
+}
+.stat-card {
+    border-radius: 1rem;
+}
+.stat-icon {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}

@@ -1,0 +1,175 @@
+{% extends "vistetec/base.html" %}
+
+{% block title %}VisteTec - Inicio{% endblock %}
+
+{% block extra_css %}
+<style>
+    .vistetec-hero {
+        background: linear-gradient(135deg, #8B1538 0%, #5C0E24 100%);
+        border-radius: 1.5rem;
+        color: white;
+        padding: 2.5rem 2rem;
+        margin-bottom: 2rem;
+    }
+    .vistetec-hero-icon {
+        width: 80px;
+        height: 80px;
+        background: rgba(255,255,255,0.15);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1rem;
+    }
+    .vistetec-main-btn {
+        background: white;
+        color: #8B1538;
+        border: none;
+        padding: 1rem 2.5rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-radius: 50px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    .vistetec-main-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        background: #f8f9fa;
+        color: #5C0E24;
+    }
+    .vistetec-feature-card {
+        border: none;
+        border-radius: 1rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        cursor: pointer;
+    }
+    .vistetec-feature-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 25px rgba(139, 21, 56, 0.15);
+    }
+    .vistetec-feature-icon {
+        width: 70px;
+        height: 70px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1rem;
+    }
+    .vistetec-stat {
+        text-align: center;
+        padding: 1rem;
+    }
+    .vistetec-stat-number {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #8B1538;
+    }
+    @media (max-width: 576px) {
+        .vistetec-hero {
+            padding: 2rem 1.5rem;
+            border-radius: 1rem;
+        }
+        .vistetec-hero-icon {
+            width: 60px;
+            height: 60px;
+        }
+        .vistetec-main-btn {
+            padding: 0.875rem 2rem;
+            font-size: 1rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Hero Section -->
+    <div class="vistetec-hero text-center">
+        <div class="vistetec-hero-icon">
+            <i class="bi bi-bag-heart" style="font-size: 2.5rem;"></i>
+        </div>
+        <h1 class="fw-bold mb-2">VisteTec</h1>
+        <p class="mb-4 opacity-75">Reciclaje de Ropa y Despensa del ITCJ</p>
+        
+        <button class="vistetec-main-btn" id="btnEntrar">
+            <i class="bi bi-box-arrow-in-right me-2"></i>Entrar
+        </button>
+        
+        <p class="mt-3 mb-0 small opacity-75">
+            <i class="bi bi-heart-fill me-1"></i>
+            Ropa gratis para estudiantes que la necesiten
+        </p>
+    </div>
+
+    <!-- Features -->
+    <h5 class="text-center text-muted mb-4">¿Qué puedes hacer aquí?</h5>
+    
+    <div class="row g-4 justify-content-center mb-4">
+        <!-- Explorar Catálogo -->
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="card vistetec-feature-card shadow-sm h-100" onclick="window.location.href='{{ url_for('vistetec_pages.student_pages.catalog') }}'">
+                <div class="card-body text-center p-4">
+                    <div class="vistetec-feature-icon" style="background-color: #fdf2f4;">
+                        <i class="bi bi-grid-3x3-gap" style="font-size: 1.75rem; color: #8B1538;"></i>
+                    </div>
+                    <h5 class="fw-bold">Explorar Ropa</h5>
+                    <p class="text-muted small mb-0">Encuentra prendas disponibles y apártalas gratis</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Donar -->
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="card vistetec-feature-card shadow-sm h-100">
+                <div class="card-body text-center p-4">
+                    <div class="vistetec-feature-icon" style="background-color: #e8f5e9;">
+                        <i class="bi bi-gift" style="font-size: 1.75rem; color: #2e7d32;"></i>
+                    </div>
+                    <h5 class="fw-bold">Donar</h5>
+                    <p class="text-muted small mb-0">Dona ropa o despensa y ayuda a otros estudiantes</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mis Apartados -->
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="card vistetec-feature-card shadow-sm h-100" onclick="window.location.href='{{ url_for('vistetec_pages.student_pages.my_appointments') }}'">
+                <div class="card-body text-center p-4">
+                    <div class="vistetec-feature-icon" style="background-color: #e3f2fd;">
+                        <i class="bi bi-bag-check" style="font-size: 1.75rem; color: #1976d2;"></i>
+                    </div>
+                    <h5 class="fw-bold">Mis Apartados</h5>
+                    <p class="text-muted small mb-0">Revisa las prendas que tienes reservadas</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info adicional -->
+    <div class="text-center mt-4">
+        <p class="text-muted small mb-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Toda la ropa es donada por la comunidad del ITCJ
+        </p>
+        <p class="text-muted small mb-0">
+            <i class="bi bi-clock me-1"></i>
+            Aparta tu prenda y pasa a recogerla en el horario que elijas
+        </p>
+    </div>
+</div>
+
+<script>
+document.getElementById('btnEntrar').addEventListener('click', function() {
+    // Redirigir según el rol del usuario
+    {% if 'admin' in user_roles %}
+        window.location.href = "{{ url_for('vistetec_pages.admin_pages.dashboard') }}";
+    {% elif 'volunteer' in user_roles %}
+        window.location.href = "{{ url_for('vistetec_pages.volunteer_pages.dashboard') }}";
+    {% else %}
+        window.location.href = "{{ url_for('vistetec_pages.student_pages.catalog') }}";
+    {% endif %}
+});
+</script>
+{% endblock %}

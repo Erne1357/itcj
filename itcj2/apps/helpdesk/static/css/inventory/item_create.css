@@ -1,0 +1,87 @@
+.form-section {
+    background: #f8f9fc;
+    border-radius: 0.35rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.form-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #5a5c69;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e3e6f0;
+}
+.inventory-preview {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    text-align: center;
+}
+.inventory-preview .number {
+    font-size: 2rem;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 2px;
+}
+.required-field::after {
+    content: ' *';
+    color: #e74a3b;
+}
+.spec-field {
+    margin-bottom: 1rem;
+}
+#dynamic-specs-container {
+    min-height: 100px;
+}
+.category-icon-preview {
+    font-size: 3rem;
+    margin: 1rem 0;
+}
+.mode-selector {
+    background: #f8f9fc;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+.mode-btn {
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #e3e6f0;
+    background: white;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+.mode-btn.active {
+    border-color: #4e73df;
+    background: #4e73df;
+    color: white;
+}
+.mode-btn:hover:not(.active) {
+    border-color: #4e73df;
+    background: #f8f9fc;
+}
+.bulk-item-preview {
+    background: #fff;
+    border: 1px solid #e3e6f0;
+    border-radius: 0.35rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.quantity-preview {
+    font-size: 3rem;
+    font-weight: bold;
+    color: #4e73df;
+}
+.bulk-item-preview {
+    background: #fff;
+    border: 1px solid #e3e6f0;
+    border-radius: 0.35rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.quantity-preview {
+    font-size: 3rem;
+    font-weight: bold;
+    color: #4e73df;
+}

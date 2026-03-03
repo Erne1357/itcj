@@ -1,0 +1,13 @@
+#toastContainer {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1080;
+}
+
+.toast.show {
+    display: block;
+}
+.navbar.sticky-top, .navbar.fixed-top {
+    box-shadow: 0 2px 10px rgba(0,0,0,.08);
+}

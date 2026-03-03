@@ -1,0 +1,83 @@
+.info-card {
+    border-left: 4px solid #4e73df;
+}
+.info-label {
+    font-weight: 600;
+    color: #5a5c69;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    margin-bottom: 0.25rem;
+}
+.info-value {
+    font-size: 1rem;
+    color: #3a3b45;
+    margin-bottom: 1rem;
+}
+.info-value.empty {
+    color: #858796;
+    font-style: italic;
+}
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+}
+.status-indicator.active { background: #1cc88a; }
+.status-indicator.maintenance { background: #f6c23e; }
+.status-indicator.damaged { background: #e74a3b; }
+.status-indicator.lost { background: #858796; }
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e3e6f0;
+}
+.timeline-item {
+    position: relative;
+    margin-bottom: 1.5rem;
+}
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -25px;
+    top: 5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 3px solid #4e73df;
+    z-index: 1;
+}
+.timeline-item.event-assigned::before { border-color: #1cc88a; }
+.timeline-item.event-status::before { border-color: #f6c23e; }
+.timeline-item.event-maintenance::before { border-color: #36b9cc; }
+.timeline-item.event-danger::before { border-color: #e74a3b; }
+.spec-badge {
+    background: #f8f9fc;
+    border: 1px solid #e3e6f0;
+    border-radius: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    margin: 0.25rem;
+    display: inline-block;
+}
+.action-button {
+    margin: 0.25rem;
+}
+.warranty-card {
+    border-left: 4px solid #1cc88a;
+}
+.warranty-card.expiring {
+    border-left-color: #f6c23e;
+}
+.warranty-card.expired {
+    border-left-color: #e74a3b;
+}

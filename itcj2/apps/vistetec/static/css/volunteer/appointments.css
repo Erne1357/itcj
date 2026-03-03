@@ -1,0 +1,290 @@
+/* VisteTec - Volunteer Appointments */
+
+.nav-pills .nav-link {
+    color: #6c757d;
+    border-radius: 0.5rem;
+}
+.nav-pills .nav-link.active {
+    background-color: #8B1538;
+}
+
+/* Appointment cards */
+.appointment-item {
+    border-left: 4px solid #8B1538;
+    transition: all 0.2s;
+}
+.appointment-item.status-attended {
+    border-left-color: #0dcaf0;
+}
+.appointment-item.status-completed {
+    border-left-color: #198754;
+}
+.appointment-item.status-no_show {
+    border-left-color: #6c757d;
+}
+
+/* Slot cards */
+.slot-item {
+    border-left: 4px solid #dee2e6;
+    transition: all 0.2s;
+}
+.slot-item.signed-up {
+    border-left-color: #8B1538;
+}
+.slot-item.inactive {
+    border-left-color: #dc3545;
+    opacity: 0.6;
+}
+
+/* Garment thumbnails */
+.garment-mini {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 8px;
+}
+.garment-mini-placeholder {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #fdf2f4;
+    border-radius: 8px;
+}
+
+/* Weekday toggle buttons */
+.weekday-btn {
+    width: 48px;
+    height: 40px;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    background: white;
+    color: #495057;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.weekday-btn:hover {
+    border-color: #8B1538;
+    color: #8B1538;
+}
+.weekday-btn.active {
+    background-color: #8B1538;
+    border-color: #8B1538;
+    color: white;
+}
+
+/* Schedule preview */
+.schedule-preview {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.88rem;
+    color: #495057;
+}
+
+/* Donation indicator */
+.donation-indicator {
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.88rem;
+    color: #664d03;
+    display: flex;
+    align-items: center;
+}
+
+/* Calendario voluntarios - Grid Layout */
+.calendar-grid-volunteer {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.4rem;
+}
+
+.calendar-grid-volunteer .calendar-header {
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #6c757d;
+    padding: 0.4rem 0;
+    text-transform: uppercase;
+}
+
+.calendar-day-volunteer {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+    background-color: #f8f9fa;
+    position: relative;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.calendar-day-volunteer.empty {
+    cursor: default;
+    background-color: transparent;
+}
+
+.calendar-day-volunteer.disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    background-color: #f8f9fa;
+}
+
+.calendar-day-volunteer.available {
+    background-color: white;
+    border-color: #dee2e6;
+}
+
+.calendar-day-volunteer.available:hover {
+    border-color: #8B1538;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(139, 21, 56, 0.15);
+}
+
+.calendar-day-volunteer.active {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+}
+
+.calendar-day-volunteer.has-signups {
+    background-color: #8B1538;
+    color: white;
+    border-color: #8B1538;
+}
+
+.calendar-day-volunteer.has-signups:hover {
+    background-color: #6d1029;
+    border-color: #6d1029;
+}
+
+.calendar-day-volunteer.has-partial-signups {
+    background: linear-gradient(135deg, #8B1538 50%, white 50%);
+    border-color: #8B1538;
+}
+
+.calendar-day-volunteer-indicator {
+    position: absolute;
+    bottom: 3px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: #8B1538;
+}
+
+.calendar-day-volunteer.has-signups .calendar-day-volunteer-indicator {
+    background-color: white;
+}
+
+/* Leyenda del calendario voluntarios */
+.calendar-legend-volunteer {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.calendar-legend-volunteer .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.calendar-legend-volunteer .legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.calendar-legend-volunteer .legend-dot.selected {
+    background-color: #8B1538;
+}
+
+.calendar-legend-volunteer .legend-dot.available {
+    background-color: white;
+    border: 2px solid #dee2e6;
+}
+
+/* Tarjetas de horarios para voluntarios */
+.volunteer-time-slot {
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid #dee2e6;
+    background-color: white;
+    border-radius: 0.5rem;
+}
+
+.volunteer-time-slot:hover {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+}
+
+.volunteer-time-slot.selected {
+    border-color: #8B1538;
+    background-color: #fdf2f4;
+}
+
+.volunteer-time-slot.already-signed {
+    border-color: #198754;
+    background-color: #d1e7dd;
+}
+
+.volunteer-time-slot.already-signed:hover {
+    border-color: #146c43;
+    background-color: #c4dccf;
+}
+
+.volunteer-time-slot input[type="checkbox"] {
+    accent-color: #8B1538;
+    cursor: pointer;
+}
+
+/* Spinner animation for loading states */
+.spinner-icon {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Signup button */
+.signup-btn {
+    min-width: 130px;
+    font-size: 0.82rem;
+}
+
+@media (max-width: 576px) {
+    .weekday-btn {
+        width: 40px;
+        height: 36px;
+        font-size: 0.75rem;
+    }
+    .signup-btn {
+        min-width: auto;
+        font-size: 0.75rem;
+    }
+    .nav-pills .nav-link {
+        font-size: 0.82rem;
+        padding: 0.4rem 0.6rem;
+    }
+}

@@ -1,0 +1,119 @@
+#notifFab {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #198754;
+    /* bootstrap .text-bg-success */
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .2);
+    z-index: 1050;
+    cursor: pointer;
+}
+
+#notifFab .badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+}
+
+#notifPanel {
+    position: fixed;
+    right: 16px;
+    bottom: 80px;
+    width: min(92vw, 360px);
+    max-height: 60vh;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+    overflow: hidden;
+    z-index: 1050;
+    transform: translateY(16px);
+    opacity: 0;
+    pointer-events: none;
+    transition: .16s ease;
+}
+
+#notifPanel.open {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+#notifPanel .head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+}
+
+#notifPanel .tabs {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+
+#notifPanel .tabs .tab {
+    padding: 2px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .875rem;
+}
+
+#notifPanel .tabs .tab.active {
+    background: #f0f2f4;
+}
+
+#notifPanel .list {
+    max-height: calc(60vh - 46px);
+    overflow: auto;
+}
+
+#notifPanel .notif-item {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f5f5f5;
+}
+
+#notifPanel .notif-item.unread {
+    background: #f8fff9;
+}
+
+.btn-icon {
+    --size: 32px;
+    width: var(--size);
+    height: var(--size);
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    line-height: 1;
+}
+
+.btn-icon i {
+    font-size: 1rem;
+}
+
+@media (max-width: 480px) {
+    #notifFab {
+        right: 12px;
+        bottom: 12px;
+        width: 52px;
+        height: 52px;
+    }
+
+    #notifPanel {
+        width: calc(100vw - 24px);
+        right: 12px;
+        bottom: 76px;
+    }
+    .btn-icon {
+        --size: 30px;
+    }
+}

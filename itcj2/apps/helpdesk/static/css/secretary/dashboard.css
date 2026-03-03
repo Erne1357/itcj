@@ -1,0 +1,105 @@
+/* ==================== SECRETARY DASHBOARD STYLES ==================== */
+
+/* Cursor pointer para elementos clickeables */
+.cursor-pointer {
+    cursor: pointer !important;
+    transition: all 0.2s ease;
+}
+
+/* Hover effect para elementos clickeables */
+.hover-bg-light:hover {
+    background-color: #f8f9fa !important;
+}
+
+/* Efecto para items del inventario */
+.border-bottom.hover-bg-light {
+    transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.border-bottom.hover-bg-light:hover {
+    background-color: #f0f8ff !important;
+    transform: translateX(4px);
+    border-left: 3px solid var(--sitec-primary, #059669);
+}
+
+/* Badges y cards */
+.card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ==================== EQUIPMENT STYLES ==================== */
+/* Equipment Icon (similar a ticket_detail) */
+.equipment-icon-dashboard {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--sitec-primary, #059669), var(--sitec-secondary, #047857));
+    border-radius: 12px;
+    color: white;
+    font-size: 1.75rem;
+    flex-shrink: 0;
+    transition: transform 0.3s ease;
+}
+
+/* Inventory Item Card */
+.inventory-item-card {
+    transition: all 0.3s ease;
+    border-left: 3px solid transparent;
+}
+
+.inventory-item-card:hover {
+    background-color: #f0f8ff !important;
+    border-left-color: var(--sitec-primary, #059669) !important;
+    transform: translateX(4px);
+}
+
+.inventory-item-card:hover .equipment-icon-dashboard {
+    transform: scale(1.05) rotate(5deg);
+}
+
+.inventory-item-card:hover .fa-chevron-right {
+    color: var(--sitec-primary, #059669) !important;
+    transform: translateX(5px);
+}
+
+/* Animación de entrada para items */
+.inventory-item-card {
+    animation: slideInFromLeft 0.3s ease;
+}
+
+@keyframes slideInFromLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Scrollbar personalizado */
+.list-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.list-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.list-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.list-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}

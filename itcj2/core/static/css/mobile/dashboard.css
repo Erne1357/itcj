@@ -1,0 +1,286 @@
+/* ==============================================
+   ITCJ Mobile Dashboard - Dashboard Specific Styles
+   ============================================== */
+
+/* ==============================================
+   GREETING
+   ============================================== */
+
+/* Los estilos base del greeting están en mobile-base.css */
+
+/* Desktop: centrar contenido y mejorar layout */
+@media (min-width: 768px) {
+    .mobile-greeting {
+        padding: calc(var(--mobile-safe-top) + 32px) 24px 24px;
+        padding-bottom: 80px;
+        margin-bottom: -35px;
+    }
+
+    .mobile-greeting-text {
+        font-size: 32px;
+    }
+    
+    .mobile-greeting-sub {
+        font-size: 16px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-greeting {
+        padding: calc(var(--mobile-safe-top) + 40px) 32px 32px;
+        padding-bottom: 90px;
+        margin-bottom: -40px;
+        border-radius: 0 0 24px 24px;
+    }
+    
+    .mobile-greeting-text {
+        font-size: 36px;
+    }
+}
+
+/* ==============================================
+   USER INFO CARD
+   ============================================== */
+
+.mobile-user-card {
+    background: var(--mobile-card-bg);
+    border-radius: 16px;
+    margin: 12px 16px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border: 1px solid var(--mobile-border);
+}
+
+@media (min-width: 768px) {
+    .mobile-user-card {
+        max-width: 720px;
+        margin: 12px auto;
+        padding: 20px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-user-card {
+        max-width: 960px;
+    }
+}
+
+.mobile-user-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--mobile-primary), var(--mobile-primary-light));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+}
+
+.mobile-user-avatar.staff {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.mobile-user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.mobile-user-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--mobile-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mobile-user-detail {
+    font-size: 12px;
+    color: var(--mobile-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.mobile-user-detail i {
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+/* ==============================================
+   QUICK ACTIONS (Staff)
+   ============================================== */
+
+.mobile-quick-actions {
+    display: flex;
+    gap: 10px;
+    padding: 0 16px 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.mobile-quick-actions::-webkit-scrollbar {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .mobile-quick-actions {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 12px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-quick-actions {
+        max-width: 960px;
+    }
+}
+
+.mobile-quick-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--mobile-card-bg);
+    border: 1px solid var(--mobile-border);
+    border-radius: 20px;
+    text-decoration: none;
+    color: var(--mobile-text);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.mobile-quick-action-btn:hover {
+    background: #f0fdf4;
+    border-color: var(--mobile-primary-light);
+    color: var(--mobile-primary-dark);
+}
+
+.mobile-quick-action-btn:active {
+    transform: scale(0.97);
+}
+
+.mobile-quick-action-btn i {
+    font-size: 16px;
+    color: var(--mobile-primary);
+}
+
+/* ==============================================
+   DESKTOP LAYOUT IMPROVEMENTS
+   ============================================== */
+
+@media (min-width: 768px) {
+    /* Contenedor principal centrado */
+    .mobile-main {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    /* User card más grande en desktop */
+    .mobile-user-card {
+        padding: 24px;
+        gap: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    
+    .mobile-user-avatar {
+        width: 64px;
+        height: 64px;
+        font-size: 22px;
+    }
+    
+    .mobile-user-name {
+        font-size: 18px;
+    }
+    
+    .mobile-user-detail {
+        font-size: 14px;
+        margin-top: 4px;
+    }
+    
+    .mobile-user-detail i {
+        font-size: 14px;
+    }
+    
+    /* Section titles */
+    .mobile-section-title {
+        font-size: 16px;
+        padding: 16px 24px 12px;
+        max-width: 720px;
+        margin: 0 auto;
+    }
+    
+    /* App grid - 3 columnas en tablet */
+    .mobile-app-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 24px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .mobile-main {
+        max-width: 1000px;
+    }
+    
+    /* User card aún más grande */
+    .mobile-user-card {
+        padding: 28px 32px;
+        border-radius: 20px;
+    }
+    
+    .mobile-user-avatar {
+        width: 72px;
+        height: 72px;
+        font-size: 26px;
+    }
+    
+    .mobile-user-name {
+        font-size: 20px;
+    }
+    
+    .mobile-user-detail {
+        font-size: 15px;
+    }
+    
+    /* Section titles */
+    .mobile-section-title {
+        font-size: 18px;
+        max-width: 960px;
+    }
+    
+    /* App grid - 4 columnas en desktop */
+    .mobile-app-grid {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+        max-width: 960px;
+        padding: 0 32px 32px;
+    }
+}
+
+@media (min-width: 1200px) {
+    .mobile-main {
+        max-width: 1100px;
+    }
+    
+    .mobile-app-grid {
+        max-width: 1040px;
+    }
+    
+    .mobile-section-title {
+        max-width: 1040px;
+    }
+}
