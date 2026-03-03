@@ -5,6 +5,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from .config import get_settings
 
+# Registra todos los modelos en el mapper de SQLAlchemy antes de la primera
+# sesión para que las relaciones con referencias cruzadas (p. ej. User → Ticket)
+# puedan resolverse correctamente.
+import itcj2.models  # noqa: F401
+
 engine = create_engine(
     get_settings().DATABASE_URL,
     pool_pre_ping=True,
