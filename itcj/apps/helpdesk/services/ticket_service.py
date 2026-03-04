@@ -322,7 +322,7 @@ def list_tickets(
     assigned_to_team: str = None,
     created_by_me: bool = False,
     department_id: int = None,
-    search: str = None,  # Búsqueda por título, número o descripción
+    search: str = None,  # Búsqueda por título, número, descripción, solicitante o asignado
     page: int = 1,
     per_page: int = 20,
     include_metrics: bool = False
@@ -340,7 +340,7 @@ def list_tickets(
         assigned_to_team: Solo tickets asignados al equipo (sin usuario específico)
         created_by_me: Solo tickets creados por mí
         department_id: Solo tickets de un departamento
-        search: Búsqueda por título, número de ticket o descripción
+        search: Búsqueda por título, número de ticket, descripción, nombre del solicitante o nombre del asignado
         page: Página actual
         per_page: Tickets por página
     
@@ -413,14 +413,27 @@ def list_tickets(
     if department_id:
         query = query.filter(Ticket.requester_department_id == department_id)
     
-    # Búsqueda por texto (título, número de ticket o descripción)
+    # Búsqueda por texto (título, número, descripción, solicitante o asignado)
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
+        # Aliases para evitar conflicto si ya hay joins con User
+        RequesterUser = db.aliased(User, flat=True)
+        AssignedUser = db.aliased(User, flat=True)
+        query = query.outerjoin(
+            RequesterUser, Ticket.requester_id == RequesterUser.id
+        ).outerjoin(
+            AssignedUser, Ticket.assigned_to_user_id == AssignedUser.id
+        ).filter(
             db.or_(
                 Ticket.title.ilike(search_term),
                 Ticket.ticket_number.ilike(search_term),
-                Ticket.description.ilike(search_term)
+                Ticket.description.ilike(search_term),
+                RequesterUser.first_name.ilike(search_term),
+                RequesterUser.last_name.ilike(search_term),
+                RequesterUser.middle_name.ilike(search_term),
+                AssignedUser.first_name.ilike(search_term),
+                AssignedUser.last_name.ilike(search_term),
+                AssignedUser.middle_name.ilike(search_term),
             )
         )
     

@@ -160,6 +160,22 @@ def stats():
     )
 
 
+@bp.route('/analysis')
+@web_app_required('helpdesk', perms=['helpdesk.stats.page.list'])
+def analysis():
+    """
+    Análisis avanzado de datos: outliers, clustering K-means, distribuciones, tendencias.
+    """
+    user_id = int(g.current_user['sub'])
+    user_roles = user_roles_in_app(user_id, 'helpdesk')
+
+    return render_template(
+        'helpdesk/admin/analysis.html',
+        user_roles=user_roles,
+        active_page='admin_analysis'
+    )
+
+
 @bp.route('/documents')
 @web_app_required('helpdesk', perms=['helpdesk.documents.page.list'])
 def documents():

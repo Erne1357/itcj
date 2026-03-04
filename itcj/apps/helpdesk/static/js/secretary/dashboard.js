@@ -45,7 +45,8 @@ window.refreshDashboard = refreshDashboard;
 async function loadDashboardStats() {
     try {
         // Use dedicated stats endpoint instead of loading all tickets
-        const stats = await HelpdeskUtils.api.getDepartmentStats(DEPARTMENT_ID);
+        const response = await HelpdeskUtils.api.getDepartmentStats(DEPARTMENT_ID);
+        const stats = response.data;
         
         // Update cards
         document.getElementById('activeTicketsCount').textContent = stats.active_tickets || 0;

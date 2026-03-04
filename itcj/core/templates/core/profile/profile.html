@@ -753,6 +753,24 @@
                         .catch(err => console.error('[Profile] Error updating badge:', err));
                 });
 
+                // Listen for notification read events (badge sync from other widgets)
+                socket.on('notification:read', (data) => {
+                    if (data.total !== undefined) {
+                        const badge = document.getElementById('notificationBadge');
+                        if (badge) {
+                            badge.textContent = data.total > 99 ? '99+' : data.total;
+                            badge.style.display = data.total > 0 ? 'inline' : 'none';
+                        }
+                    }
+                    // Reload notifications if tab is active
+                    const notificationsTab = document.getElementById('notifications-tab');
+                    if (notificationsTab && notificationsTab.classList.contains('active')) {
+                        if (window.profileManager) {
+                            window.profileManager.loadNotifications();
+                        }
+                    }
+                });
+
                 socket.on('connect_error', (error) => {
                     console.error('[Profile] WebSocket error:', error);
                 });

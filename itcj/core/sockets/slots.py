@@ -45,12 +45,15 @@ def register_slot_events(socketio):
         if not user:
             return False  # rechazar
         g.current_user = user  # disponible en este contexto
+        from .system import track_connect
+        track_connect(socketio, request.sid, user)
         emit("hello", {"msg": f"Conectado como {user.get('name') or user.get('cn')}"})
 
     @socketio.on("disconnect", namespace=NAMESPACE)
     def on_disconnect(*args, **kwargs):
         try:
-            # ... tu limpieza, por ejemplo:
+            from .system import track_disconnect
+            track_disconnect(socketio, request.sid)
             db.session.remove()
         except Exception:
             pass

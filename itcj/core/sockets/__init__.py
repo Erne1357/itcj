@@ -42,6 +42,15 @@ def init_socketio(app):
         app.logger.error(f"✗ Redis ERROR: {e}")
         raise
 
+    # Limpiar estado de usuarios activos del ciclo anterior.
+    # Al reiniciar gunicorn/Docker los eventos disconnect nunca se disparan,
+    # por lo que ws:sid_map / ws:uid_refcount / ws:uids:* quedan con SIDs
+    # fantasma. Cualquier SID de antes del reinicio ya está muerto, así que
+    # es seguro borrar estas claves incondicionalmente.
+    from .system import flush_ws_state
+    flush_ws_state()
+    app.logger.info("✓ Estado WS de usuarios activos limpiado")
+
     # ⭐ Configuración simple y funcional
     socketio = SocketIO(
         app,
@@ -63,13 +72,18 @@ def init_socketio(app):
             token = request.cookies.get("itcj_token")
             if not token:
                 return False
-            
+
             data = decode_jwt(token)
             if not data:
                 return False
-            
+
             g.current_user = data
             current_app.logger.info(f"WS conectado: {data.get('cn')} (SID: {request.sid})")
+
+            # Rastrear usuario activo en Redis
+            from .system import track_connect
+            track_connect(socketio, request.sid, data)
+
             return True
         except Exception as e:
             current_app.logger.error(f"WS connect error: {e}")
@@ -80,6 +94,11 @@ def init_socketio(app):
         try:
             if hasattr(g, 'current_user'):
                 current_app.logger.info(f"WS desconectado: {g.current_user.get('cn')}")
+
+            # Eliminar sesión activa de Redis
+            from .system import track_disconnect
+            track_disconnect(socketio, request.sid)
+
             db.session.remove()
         except:
             pass
@@ -97,10 +116,12 @@ def init_socketio(app):
     from .requests import register_request_events
     from .notifications import register_notification_events
     from .helpdesk import register_helpdesk_events
+    from .system import register_system_events
 
     register_slot_events(socketio)
     register_request_events(socketio)
     register_notification_events(socketio)
     register_helpdesk_events(socketio)
+    register_system_events(socketio)
 
     return socketio

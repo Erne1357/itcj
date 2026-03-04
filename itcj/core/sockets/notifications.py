@@ -18,15 +18,23 @@ def register_notification_events(socketio):
         g.current_user = user
         uid = int(user["sub"])
         join_room(_user_room(uid))
+        from .system import track_connect
+        track_connect(socketio, request.sid, user)
         emit("hello", {"msg": "WS /notify conectado", "uid": uid})
 
     @socketio.on("disconnect", namespace=NAMESPACE)
     def on_disconnect(*args, **kwargs):
         try:
+            from .system import track_disconnect
+            track_disconnect(socketio, request.sid)
             db.session.remove()
         except Exception:
             pass
 
-# Emisor
+# Emisor de nuevas notificaciones
 def push_notification(socketio, user_id: int, payload: dict):
     socketio.emit("notify", payload, to=_user_room(int(user_id)), namespace=NAMESPACE)
+
+# Emisor de evento de lectura (sincronización de badges)
+def push_notification_read(socketio, user_id: int, payload: dict):
+    socketio.emit("notification:read", payload, to=_user_room(int(user_id)), namespace=NAMESPACE)

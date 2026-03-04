@@ -165,6 +165,11 @@ class HelpdeskAPI {
     async getTechnicianStats() {
         return this.request('/stats/technician');
     }
+
+    async getGlobalStats(filters = {}) {
+        const params = new URLSearchParams(filters);
+        return this.request(`/stats/global?${params}`);
+    }
 }
 
 // Instancia global

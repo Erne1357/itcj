@@ -7,11 +7,28 @@ class Config:
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "my_jwt_secret")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///default.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Opciones del engine optimizadas para pgBouncer (transaction mode).
+    # SQLAlchemy mantiene un pool pequeño hacia pgBouncer; pgBouncer
+    # multiplexa esas conexiones a un número reducido de conexiones reales
+    # en Postgres. pool_pre_ping detecta conexiones caídas en el checkout.
+    #
+    # Nota para migración a FastAPI/asyncpg (transaction pooling):
+    #   Al crear el engine async, agregar:
+    #   connect_args={"prepared_statement_cache_size": 0}
+    #   porque asyncpg usa prepared statements del servidor por defecto.
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,   # Valida conexión antes de usarla
+        "pool_size": 5,          # Conexiones base al pool (→ pgBouncer)
+        "max_overflow": 10,      # Conexiones extra bajo carga pico
+        "pool_recycle": 1800,    # Reciclar conexiones cada 30 min
+        "pool_timeout": 10,      # Timeout esperando conexión del pool (seg)
+    }
     COOKIE_SECURE = False
     COOKIE_SAMESITE = "Lax"
     JWT_EXPIRES_HOURS = 12
     JWT_REFRESH_THRESHOLD_SECONDS = 2 * 3600  # 2 horas para refresh JWT
-    STATIC_VERSION = "1.0.11114830"
+    STATIC_VERSION = "1.0.11114837"
 
     INSTANCE_PATH = os.path.abspath('instance')
     HELPDESK_UPLOAD_PATH = os.path.join(INSTANCE_PATH, 'apps', 'helpdesk')

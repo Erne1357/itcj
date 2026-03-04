@@ -137,12 +137,15 @@ def mark_notification_read(notification_id):
         return jsonify({"error": "unauthorized"}), 401
 
     try:
-        success = NotificationService.mark_read(notification_id, user_id)
+        app_name = NotificationService.mark_read(notification_id, user_id)
 
-        if not success:
+        if not app_name:
             return jsonify({"error": "not_found"}), 404
 
         db.session.commit()
+
+        # Broadcast read event para sincronizar badges entre widgets
+        NotificationService.broadcast_read(user_id, app_name)
 
         return jsonify({"status": "ok"}), 200
 
@@ -173,6 +176,9 @@ def mark_all_notifications_read():
     try:
         count = NotificationService.mark_all_read(user_id, app_name)
         db.session.commit()
+
+        # Broadcast read event para sincronizar badges entre widgets
+        NotificationService.broadcast_read(user_id, app_name)
 
         return jsonify({
             "status": "ok",

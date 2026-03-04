@@ -1,13 +1,14 @@
 """
 API para gestión de items del inventario (equipos)
 """
-from flask import Blueprint, request, jsonify, g,current_app
+from flask import Blueprint, request, jsonify, g, current_app
 from itcj.core.extensions import db
-from itcj.core.services.authz_service import user_roles_in_app, _get_users_with_position
+from itcj.core.services.authz_service import user_roles_in_app
 from itcj.core.utils.decorators import api_app_required
 from itcj.apps.helpdesk.models import InventoryItem, InventoryCategory
 from itcj.apps.helpdesk.services.inventory_service import InventoryService
 from itcj.apps.helpdesk.utils.inventory_validators import InventoryValidators
+from itcj.apps.helpdesk.utils.inventory_access import has_full_inventory_access, has_dept_inventory_access
 from sqlalchemy import or_, and_, func
 from datetime import datetime, date
 import logging
@@ -40,24 +41,20 @@ def get_items():
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
     user_dept = None
 
-    
     # Query base
     query = InventoryItem.query.filter_by(is_active=True)
-    
-    # Permisos: restringir por rol
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
-        # Jefe de departamento: solo su departamento
-        if 'department_head' in user_roles:
-            # Obtener departamento del usuario
+
+    # Permisos: restringir según nivel de acceso
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
+            # Acceso departamental: solo su departamento
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if user_dept:
                 query = query.filter(InventoryItem.department_id == user_dept.id)
             else:
-                # Si no tiene departamento, no ve nada
                 return jsonify({
                     'success': True,
                     'data': [],
@@ -145,20 +142,18 @@ def get_item(item_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     item = InventoryItem.query.get(item_id)
-    
+
     if not item or not item.is_active:
         return jsonify({
             'success': False,
             'error': 'Equipo no encontrado'
         }), 404
-    
+
     # Verificar permisos
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and ('tech_soporte' not in user_roles and 'tech_desarrollo' not in user_roles):
-        # Jefe de depto: solo su departamento
-        if 'department_head' in user_roles:
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
@@ -167,13 +162,12 @@ def get_item(item_id):
                     'error': 'No tiene permiso para ver este equipo'
                 }), 403
         else:
-            # Usuario: solo su equipo
             if item.assigned_to_user_id != user_id:
                 return jsonify({
                     'success': False,
                     'error': 'No tiene permiso para ver este equipo'
                 }), 403
-    
+
     return jsonify({
         'success': True,
         'data': item.to_dict(include_relations=True)
@@ -185,34 +179,33 @@ def get_item(item_id):
 def get_item_tickets(item_id):
     """
     Obtener tickets relacionados con un item de inventario
-    
+
     Query params:
         - status: str (opcional) - filtrar por estado de ticket
         - page: int (default: 1)
         - per_page: int (default: 20, max: 100)
-    
+
     Returns:
         200: Lista de tickets
         403: Sin permiso
         404: Item no encontrado
     """
     from itcj.apps.helpdesk.models import Ticket, TicketInventoryItem
-    
+
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
-    
+
     item = InventoryItem.query.get(item_id)
-    
+
     if not item or not item.is_active:
         return jsonify({
             'success': False,
             'error': 'Equipo no encontrado'
         }), 404
-    
+
     # Verificar permisos (mismo esquema que get_item)
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and ('tech_soporte' not in user_roles and 'tech_desarrollo' not in user_roles):
-        if 'department_head' in user_roles:
+    if not has_full_inventory_access(user_id, user_roles):
+        if has_dept_inventory_access(user_id, user_roles):
             from itcj.core.services.departments_service import get_user_department
             user_dept = get_user_department(user_id)
             if not user_dept or item.department_id != user_dept.id:
@@ -221,7 +214,6 @@ def get_item_tickets(item_id):
                     'error': 'No tiene permiso para ver los tickets de este equipo'
                 }), 403
         else:
-            # Usuario: solo si es su equipo
             if item.assigned_to_user_id != user_id:
                 return jsonify({
                     'success': False,
@@ -268,7 +260,7 @@ def create_item():
     
     Body:
         - category_id: int (requerido)
-        - department_id: int (requerido)
+        - department_id: int (opcional, si no se envía va al limbo del CC)
         - brand: str (opcional)
         - model: str (opcional)
         - serial_number: str (opcional, único)
@@ -279,22 +271,24 @@ def create_item():
         - maintenance_frequency_days: int (opcional)
         - notes: str (opcional)
         - assigned_to_user_id: int (opcional)
-    
+
     Returns:
         201: Equipo creado
         400: Datos inválidos
     """
     data = request.get_json()
     user_id = int(g.current_user['sub'])
-    
+
     # Validaciones
     is_valid, message, category = InventoryValidators.validate_category(data.get('category_id'))
     if not is_valid:
         return jsonify({'success': False, 'error': message}), 400
-    
-    is_valid, message, department = InventoryValidators.validate_department(data.get('department_id'))
-    if not is_valid:
-        return jsonify({'success': False, 'error': message}), 400
+
+    # Departamento es opcional: si no viene, el servicio lo manda al limbo del CC
+    if data.get('department_id'):
+        is_valid, message, department = InventoryValidators.validate_department(data.get('department_id'))
+        if not is_valid:
+            return jsonify({'success': False, 'error': message}), 400
     
     # Validar serial único
     if data.get('serial_number'):
@@ -544,10 +538,9 @@ def get_user_equipment(target_user_id):
     """
     current_user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(current_user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
 
-    # Solo Centro de Cómputo puede consultar equipos de otros usuarios
-    if 'admin' not in user_roles and current_user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+    # Solo usuarios con acceso completo pueden consultar equipos de otros
+    if not has_full_inventory_access(current_user_id, user_roles):
         return jsonify({
             'success': False,
             'error': 'No tiene permiso para consultar equipos de otros usuarios'
@@ -578,11 +571,9 @@ def get_department_equipment(department_id):
     """
     user_id = int(g.current_user['sub'])
     user_roles = user_roles_in_app(user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(['secretary_comp_center'])
 
-    
-    # Verificar permiso si no es admin
-    if 'admin' not in user_roles and user_id not in secretary_comp_center and 'tech_desarrollo' not in user_roles and 'tech_soporte' not in user_roles:
+    # Verificar permiso si no tiene acceso completo
+    if not has_full_inventory_access(user_id, user_roles):
         from itcj.core.services.departments_service import get_user_department
         user_dept = get_user_department(user_id)
         if not user_dept or user_dept.id != department_id:
@@ -590,7 +581,7 @@ def get_department_equipment(department_id):
                 'success': False,
                 'error': 'No tiene permiso para ver este departamento'
             }), 403
-    
+
     include_assigned = request.args.get('include_assigned', 'true').lower() == 'true'
     
     items = InventoryService.get_items_for_department(department_id, include_assigned)

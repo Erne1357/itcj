@@ -125,7 +125,7 @@ class InventoryBulkService:
                     category_id=data['category_id'],
                     brand=data.get('brand'),
                     model=data.get('model'),
-                    serial_number=item_data['serial_number'],
+                    serial_number=item_data.get('serial_number') or None,
                     specifications=data.get('specifications'),
                     department_id=department_id,
                     assigned_to_user_id=item_data.get('assigned_to_user_id'),
@@ -176,7 +176,8 @@ class InventoryBulkService:
     def validate_serial_numbers(serial_numbers: list) -> dict:
         """
         Valida que los números de serie no estén duplicados.
-        
+        Ignora valores None/vacíos (equipos sin número de serie).
+
         Returns:
             {
                 'valid': bool,
@@ -189,22 +190,28 @@ class InventoryBulkService:
             'duplicates_in_list': [],
             'duplicates_in_db': []
         }
-        
+
+        # Filtrar None y vacíos antes de validar
+        non_empty = [sn for sn in serial_numbers if sn]
+
+        if not non_empty:
+            return result
+
         # Verificar duplicados en la lista
         seen = set()
-        for sn in serial_numbers:
+        for sn in non_empty:
             if sn in seen:
                 result['duplicates_in_list'].append(sn)
                 result['valid'] = False
             seen.add(sn)
-        
+
         # Verificar duplicados en BD
         existing = InventoryItem.query.filter(
-            InventoryItem.serial_number.in_(serial_numbers)
+            InventoryItem.serial_number.in_(non_empty)
         ).all()
-        
+
         if existing:
             result['duplicates_in_db'] = [item.serial_number for item in existing]
             result['valid'] = False
-        
+
         return result
