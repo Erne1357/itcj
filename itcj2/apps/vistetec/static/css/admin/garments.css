@@ -1,0 +1,117 @@
+/* Gestión de Prendas Admin - VisteTec */
+
+.garment-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.garment-filters .form-control,
+.garment-filters .form-select {
+    max-width: 200px;
+}
+
+.garments-table th {
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    font-weight: 600;
+    white-space: nowrap;
+    border-top: none;
+}
+
+.garments-table td {
+    vertical-align: middle;
+    font-size: 0.9rem;
+}
+
+.garment-thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    object-fit: cover;
+    background-color: #f8f9fa;
+}
+
+.garment-thumb-placeholder {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #adb5bd;
+    font-size: 1.2rem;
+}
+
+.status-badge {
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.status-available {
+    background-color: #d1e7dd;
+    color: #0f5132;
+}
+
+.status-reserved {
+    background-color: #fff3cd;
+    color: #664d03;
+}
+
+.status-delivered {
+    background-color: #cfe2ff;
+    color: #084298;
+}
+
+.status-withdrawn {
+    background-color: #e2e3e5;
+    color: #41464b;
+}
+
+.condition-badge {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    color: #495057;
+}
+
+.garment-code {
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.stat-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: border-color 0.2s;
+}
+
+.stat-pill:hover,
+.stat-pill.active {
+    border-color: currentColor;
+}
+
+@media (max-width: 768px) {
+    .garment-filters .form-control,
+    .garment-filters .form-select {
+        max-width: 100%;
+    }
+
+    .garments-table {
+        font-size: 0.85rem;
+    }
+}

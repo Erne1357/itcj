@@ -1,0 +1,78 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Categorías de Tickets{% endblock %}
+
+{% block header_title %}Categorías{% endblock %}
+{% block header_subtitle %}Gestión de Categorías de Tickets{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-light btn-sm" id="btnNewCategory" onclick="openNewCategoryModal()">
+    <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline">Nueva Categoría</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between">
+        <h5 class="mb-0"><i class="fas fa-tags me-2"></i>Categorías de Tickets</h5>
+        <div class="d-flex gap-2">
+            <select class="form-select form-select-sm" id="activeFilter" style="width: auto;">
+                <option value="">Todas</option>
+                <option value="true" selected>Activas</option>
+                <option value="false">Inactivas</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div id="categoriesList">
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-3">Cargando categorías...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+<!-- Modal Nueva/Editar Categoría -->
+<div class="modal fade" id="categoryModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="categoryModalTitle">
+                    <i class="fas fa-tag me-2"></i>Nueva Categoría
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="categoryId">
+                <div class="mb-3">
+                    <label for="categoryName" class="form-label fw-semibold">
+                        Nombre <span class="text-danger">*</span>
+                    </label>
+                    <input type="text" class="form-control" id="categoryName"
+                        placeholder="Nombre de la categoría" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label for="categoryDescription" class="form-label fw-semibold">Descripción</label>
+                    <textarea class="form-control" id="categoryDescription" rows="3"
+                        placeholder="Descripción opcional..."></textarea>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="categoryActive" checked>
+                    <label class="form-check-label" for="categoryActive">Activa</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnSaveCategory">
+                    <i class="fas fa-save me-2"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

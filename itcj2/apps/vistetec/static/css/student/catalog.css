@@ -1,0 +1,59 @@
+/* VisteTec - Estilos del catálogo */
+
+.garment-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+    border: none;
+}
+
+.garment-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1) !important;
+}
+
+.garment-card .card-img-top {
+    height: 220px;
+    object-fit: cover;
+    background-color: #f8f9fa;
+}
+
+.garment-card .card-img-placeholder {
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #fdf2f4;
+}
+
+.garment-card .card-img-placeholder i {
+    font-size: 3rem;
+    color: #adb5bd;
+}
+
+.garment-card .badge-condition {
+    font-size: 0.7rem;
+}
+
+/* Filtros sticky en mobile */
+@media (max-width: 768px) {
+    .garment-card .card-img-top,
+    .garment-card .card-img-placeholder {
+        height: 180px;
+    }
+}
+
+/* Paginación personalizada */
+.pagination .page-link {
+    color: #8B1538;
+    border-color: #dee2e6;
+}
+
+.pagination .page-item.active .page-link {
+    background-color: #8B1538;
+    border-color: #8B1538;
+}
+
+.pagination .page-link:hover {
+    background-color: #fdf2f4;
+    color: #8B1538;
+}

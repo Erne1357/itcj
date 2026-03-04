@@ -1,0 +1,235 @@
+{% extends "vistetec/base.html" %}
+{% block title %}Registrar Donación{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/volunteer/register_donation.css') }}?v={{ sv('vistetec', 'css/volunteer/register_donation.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container py-3" style="max-width: 700px;">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('vistetec_pages.volunteer_pages.dashboard') }}">Dashboard</a></li>
+            <li class="breadcrumb-item active">Registrar Donación</li>
+        </ol>
+    </nav>
+
+    <h2 class="fw-bold mb-4">Registrar Donación</h2>
+
+    <!-- Paso 1: Tipo de donación -->
+    <div id="step1" class="mb-4">
+        <h5 class="fw-bold mb-3">1. Tipo de donación</h5>
+        <div class="row g-3">
+            <div class="col-6">
+                <label class="donation-type-card card border-0 shadow-sm h-100 text-center p-4" data-type="garment">
+                    <input type="radio" name="donationType" value="garment" class="d-none">
+                    <i class="bi bi-bag-heart mb-2" style="font-size: 2.5rem; color: #8B1538;"></i>
+                    <h6 class="fw-bold mb-1">Ropa</h6>
+                    <small class="text-muted">Prendas de vestir</small>
+                </label>
+            </div>
+            <div class="col-6">
+                <label class="donation-type-card card border-0 shadow-sm h-100 text-center p-4" data-type="pantry">
+                    <input type="radio" name="donationType" value="pantry" class="d-none">
+                    <i class="bi bi-box-seam mb-2" style="font-size: 2.5rem; color: #8B1538;"></i>
+                    <h6 class="fw-bold mb-1">Despensa</h6>
+                    <small class="text-muted">Alimentos y productos</small>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paso 2: Información del donante -->
+    <div id="step2" class="mb-4 d-none">
+        <h5 class="fw-bold mb-3">2. Información del donante</h5>
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="isAnonymous">
+                    <label class="form-check-label" for="isAnonymous">
+                        Donación anónima
+                    </label>
+                </div>
+
+                <div id="donorFields">
+                    <div class="mb-3">
+                        <label class="form-label">Buscar estudiante (opcional)</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="donorSearch" placeholder="Número de control o nombre...">
+                            <button class="btn btn-outline-secondary" type="button" id="btnSearchDonor">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                        <div id="donorSearchResults" class="list-group mt-2 d-none"></div>
+                    </div>
+
+                    <div id="selectedDonor" class="alert alert-light d-none">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="bi bi-person-check me-2" style="color: #8B1538;"></i>
+                                <span id="selectedDonorName"></span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClearDonor">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="externalDonorFields" class="d-none">
+                        <div class="mb-3">
+                            <label class="form-label">Nombre del donante externo</label>
+                            <input type="text" class="form-control" id="externalDonorName" placeholder="Nombre completo">
+                        </div>
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="isExternalDonor">
+                        <label class="form-check-label" for="isExternalDonor">
+                            Donante externo (no es estudiante)
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paso 3: Detalles de la donación (Ropa) -->
+    <div id="step3Garment" class="mb-4 d-none">
+        <h5 class="fw-bold mb-3">3. Detalles de la prenda</h5>
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">Nombre de la prenda <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="garmentName" placeholder="Ej: Camisa azul manga larga" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Categoría <span class="text-danger">*</span></label>
+                        <select class="form-select" id="garmentCategory" required>
+                            <option value="">Seleccionar...</option>
+                            <option value="camisa">Camisa</option>
+                            <option value="pantalon">Pantalón</option>
+                            <option value="vestido">Vestido</option>
+                            <option value="falda">Falda</option>
+                            <option value="chamarra">Chamarra</option>
+                            <option value="sueter">Suéter</option>
+                            <option value="zapatos">Zapatos</option>
+                            <option value="tenis">Tenis</option>
+                            <option value="accesorios">Accesorios</option>
+                            <option value="otro">Otro</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Condición <span class="text-danger">*</span></label>
+                        <select class="form-select" id="garmentCondition" required>
+                            <option value="">Seleccionar...</option>
+                            <option value="nuevo">Nuevo</option>
+                            <option value="como_nuevo">Como nuevo</option>
+                            <option value="buen_estado">Buen estado</option>
+                            <option value="usado">Usado</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Talla</label>
+                        <input type="text" class="form-control" id="garmentSize" placeholder="S, M, L, XL...">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Género</label>
+                        <select class="form-select" id="garmentGender">
+                            <option value="">Sin especificar</option>
+                            <option value="masculino">Masculino</option>
+                            <option value="femenino">Femenino</option>
+                            <option value="unisex">Unisex</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notas adicionales</label>
+                        <textarea class="form-control" id="garmentNotes" rows="2" placeholder="Observaciones..."></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paso 3: Detalles de la donación (Despensa) -->
+    <div id="step3Pantry" class="mb-4 d-none">
+        <h5 class="fw-bold mb-3">3. Detalles de la despensa</h5>
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">Artículo <span class="text-danger">*</span></label>
+                        <select class="form-select" id="pantryItem" required>
+                            <option value="">Seleccionar artículo...</option>
+                        </select>
+                        <div id="pantryItemsLoading" class="small text-muted mt-1 d-none">
+                            <span class="spinner-border spinner-border-sm me-1"></span>Cargando artículos...
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Cantidad <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="pantryQuantity" min="1" value="1" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Unidad</label>
+                        <input type="text" class="form-control" id="pantryUnit" readonly disabled placeholder="-">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Asociar a campaña</label>
+                        <select class="form-select" id="pantryCampaign">
+                            <option value="">Sin asociar a campaña</option>
+                        </select>
+                        <small class="text-muted">Si hay una campaña activa relacionada, se asociará automáticamente</small>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notas adicionales</label>
+                        <textarea class="form-control" id="pantryNotes" rows="2" placeholder="Observaciones..."></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Botón de envío -->
+    <div id="submitSection" class="d-none">
+        <button type="button" class="btn btn-lg w-100" id="btnSubmit" style="background-color: #8B1538; border-color: #8B1538; color: white;">
+            <i class="bi bi-check-circle me-2"></i>
+            <span id="btnSubmitText">Registrar Donación</span>
+            <span id="btnSubmitLoading" class="d-none">
+                <span class="spinner-border spinner-border-sm me-1"></span>Registrando...
+            </span>
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal éxito -->
+<div class="modal fade" id="successModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-center">
+            <div class="modal-body py-5">
+                <div class="mb-3">
+                    <i class="bi bi-heart-fill text-danger" style="font-size: 4rem;"></i>
+                </div>
+                <h4 class="fw-bold">¡Donación registrada!</h4>
+                <p class="text-muted mb-0">Gracias por tu generosidad</p>
+                <p class="fw-bold mt-2" id="donationCode"></p>
+            </div>
+            <div class="modal-footer border-0 justify-content-center">
+                <button type="button" class="btn" style="background-color: #8B1538; color: white;" onclick="location.reload()">
+                    <i class="bi bi-plus-circle me-1"></i>Nueva donación
+                </button>
+                <a href="{{ url_for('vistetec_pages.volunteer_pages.dashboard') }}" class="btn btn-outline-secondary">
+                    Ir al dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='vistetec/js/volunteer/register_donation.js') }}?v={{ sv('vistetec', 'js/volunteer/register_donation.js') }}"></script>
+{% endblock %}

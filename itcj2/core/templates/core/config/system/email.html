@@ -1,0 +1,101 @@
+{% extends "core/config/config_base.html" %}
+
+{% set sidebar_active = 'email' %}
+
+{% block title %}Configuracion de Correo{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Correo</li>
+{% endblock %}
+
+{% block page_icon %}<i class="bi bi-envelope-fill"></i>{% endblock %}
+{% block page_title %}Configuracion de Correo{% endblock %}
+{% block page_subtitle %}Conecta una cuenta de Microsoft para enviar correos desde cada aplicacion{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/system/email.css') }}?v={{ sv('core', 'css/config/system/email.css') }}">
+{% endblock %}
+
+{% block content %}
+<!-- Info -->
+<div class="alert alert-info d-flex align-items-start gap-2 mb-4">
+    <i class="bi bi-info-circle-fill mt-1"></i>
+    <div>
+        <strong>Correo delegado con Microsoft Graph.</strong>
+        Cada aplicacion puede conectar su propia cuenta de Outlook/Microsoft 365 para enviar correos.
+        Los tokens se renuevan automaticamente (hasta ~90 dias sin actividad).
+    </div>
+</div>
+
+<!-- Cards de apps -->
+<div class="row g-3">
+    {% for app in apps_email %}
+    <div class="col-12 col-md-6 col-xl-4">
+        <div class="card email-app-card h-100 {% if app.connected %}border-success{% endif %}" data-app-key="{{ app.key }}">
+            <div class="card-body">
+                <div class="d-flex align-items-center gap-3 mb-3">
+                    <div class="email-app-icon">
+                        <i class="bi bi-app"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <h6 class="mb-0">{{ app.name }}</h6>
+                        <small class="text-muted">{{ app.key }}</small>
+                    </div>
+                    <span class="badge email-status-badge {% if app.connected %}bg-success{% else %}bg-secondary{% endif %}"
+                          data-app-key="{{ app.key }}">
+                        {% if app.connected %}Conectado{% else %}Sin sesion{% endif %}
+                    </span>
+                </div>
+
+                <div class="email-account-info mb-3" data-app-key="{{ app.key }}">
+                    {% if app.connected %}
+                    <div class="d-flex align-items-center gap-2 text-success">
+                        <i class="bi bi-person-check-fill"></i>
+                        <span class="small">
+                            {% if app.account_name %}{{ app.account_name }} &mdash; {% endif %}
+                            <strong>{{ app.username }}</strong>
+                        </span>
+                    </div>
+                    {% else %}
+                    <div class="d-flex align-items-center gap-2 text-muted">
+                        <i class="bi bi-person-x"></i>
+                        <span class="small">No hay cuenta conectada</span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="email-actions d-flex gap-2" data-app-key="{{ app.key }}">
+                    <a href="{{ url_for('pages_core.pages_config.email_auth_login', app=app.key) }}"
+                       class="btn btn-sm {% if app.connected %}btn-outline-primary{% else %}btn-primary{% endif %}">
+                        <i class="bi bi-microsoft me-1"></i>
+                        {% if app.connected %}Reconectar{% else %}Conectar{% endif %}
+                    </a>
+                    {% if app.connected %}
+                    <button class="btn btn-sm btn-outline-danger btn-email-logout"
+                            data-app-key="{{ app.key }}">
+                        <i class="bi bi-box-arrow-right me-1"></i>Desconectar
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if apps_email|length == 0 %}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-app-indicator text-muted d-block mb-2" style="font-size: 2.5rem;"></i>
+                <h6 class="text-muted">No hay aplicaciones activas</h6>
+                <p class="text-muted small mb-0">Activa al menos una aplicacion para configurar correo.</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/config/system/email.js') }}?v={{ sv('core', 'js/config/system/email.js') }}"></script>
+{% endblock %}

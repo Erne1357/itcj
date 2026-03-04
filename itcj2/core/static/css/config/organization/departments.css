@@ -1,0 +1,279 @@
+/* Tarjeta de dirección */
+.direction-card {
+    cursor: pointer;
+    transition: all 0.4s ease;
+    border: 3px solid transparent;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.direction-card:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(13, 110, 253, 0.2);
+    border-color: var(--bs-primary);
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+}
+
+.direction-icon {
+    font-size: 4rem;
+    color: var(--bs-primary);
+}
+
+/* Tarjetas de nivel superior (Dirección y Sindicato) */
+.top-level-card {
+    cursor: pointer;
+    transition: all 0.4s ease;
+    border: 3px solid transparent;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.top-level-card:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(13, 110, 253, 0.2);
+    border-color: var(--bs-primary);
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+}
+
+.top-level-card:hover .top-level-icon i {
+    transform: translateY(-5px);
+    color: var(--bs-primary);
+}
+
+.top-level-icon {
+    transition: all 0.3s ease;
+}
+
+.top-level-icon i {
+    transition: all 0.3s ease;
+}
+
+/* Tarjetas de subdirecciones */
+.subdirection-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.subdirection-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    border-color: var(--bs-primary);
+}
+
+.subdirection-icon {
+    font-size: 2.5rem;
+    color: var(--bs-primary);
+}
+
+/* Botones de administración discretos */
+.admin-btn {
+    opacity: 0.6;
+    transition: all 0.2s ease;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.card:hover .admin-btn {
+    opacity: 1;
+}
+
+.admin-btn:hover {
+    transform: scale(1.1);
+    opacity: 1;
+    background-color: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: white;
+}
+
+.department-card {
+    transition: all 0.2s ease;
+}
+
+.department-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.department-icon {
+    font-size: 2.5rem;
+}
+
+/* Animaciones */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.4s ease;
+}
+
+@keyframes expandCard {
+    from {
+        transform: scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: scale(1.05);
+        opacity: 0;
+    }
+}
+
+@keyframes expandDirection {
+    from {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: scale(1.1) translateY(-20px);
+        opacity: 0;
+    }
+}
+
+.expand-out {
+    animation: expandCard 0.3s ease forwards;
+}
+
+.expand-direction {
+    animation: expandDirection 0.4s ease forwards;
+}
+
+.back-btn {
+    transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+    transform: translateX(-5px);
+}
+
+/* ===== Responsive para Departments ===== */
+@media (max-width: 992px) {
+    /* Top level cards en grid de 2 columnas */
+    #mainContainer .col-md-6 {
+        width: 50%;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Direccion icon mas pequeno */
+    .direction-icon {
+        font-size: 3rem;
+    }
+
+    /* Top level cards full width */
+    #mainContainer .col-md-6 {
+        width: 100%;
+    }
+
+    .top-level-card {
+        border-width: 2px;
+    }
+
+    .top-level-card:hover {
+        transform: translateY(-4px);
+    }
+
+    .top-level-icon i {
+        font-size: 2.5rem;
+    }
+
+    /* Subdirection cards compactas */
+    .subdirection-card {
+        border-width: 1px;
+    }
+
+    .subdirection-card:hover {
+        transform: translateY(-3px);
+    }
+
+    .subdirection-icon {
+        font-size: 2rem;
+    }
+
+    /* Admin buttons siempre visibles en mobile */
+    .admin-btn {
+        opacity: 1;
+        width: 28px;
+        height: 28px;
+    }
+
+    /* Department cards */
+    .department-icon {
+        font-size: 2rem;
+    }
+
+    /* Back button mas compacto */
+    .back-btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .back-btn .me-2 {
+        margin-right: 0.5rem !important;
+    }
+}
+
+@media (max-width: 576px) {
+    /* Iconos aun mas pequenos */
+    .direction-icon {
+        font-size: 2.5rem;
+    }
+
+    .top-level-icon i {
+        font-size: 2rem;
+    }
+
+    .subdirection-icon {
+        font-size: 1.75rem;
+    }
+
+    .department-icon {
+        font-size: 1.75rem;
+    }
+
+    /* Cards con menos padding */
+    .top-level-card .card-body,
+    .subdirection-card .card-body,
+    .department-card .card-body {
+        padding: 0.75rem;
+    }
+
+    /* Titulos mas pequenos */
+    .top-level-card h4 {
+        font-size: 1.1rem;
+    }
+
+    .subdirection-card h5 {
+        font-size: 1rem;
+    }
+
+    .department-card h6 {
+        font-size: 0.9rem;
+    }
+
+    /* Admin button en esquina */
+    .admin-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 0.75rem;
+    }
+
+    /* Modal de crear departamento */
+    #createDepartmentModal .modal-body {
+        padding: 0.75rem;
+    }
+
+    #createDepartmentModal .form-label {
+        font-size: 0.875rem;
+    }
+}

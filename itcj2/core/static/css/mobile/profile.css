@@ -1,0 +1,156 @@
+/* ==============================================
+   ITCJ Mobile - Student Profile Styles
+   ============================================== */
+
+.mobile-profile-container {
+    padding: 16px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+    .mobile-profile-container {
+        padding: 24px;
+    }
+}
+
+/* ==============================================
+   AVATAR SECTION
+   ============================================== */
+
+.mobile-profile-avatar-section {
+    text-align: center;
+    padding: 24px 0 20px;
+}
+
+.mobile-profile-avatar-lg {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--mobile-primary), var(--mobile-primary-light));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+}
+
+.mobile-profile-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--mobile-text);
+    margin: 0 0 8px;
+}
+
+.mobile-profile-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f0fdf4;
+    color: var(--mobile-primary);
+    padding: 4px 14px;
+    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid #bbf7d0;
+}
+
+/* ==============================================
+   SECTIONS
+   ============================================== */
+
+.mobile-profile-section {
+    background: var(--mobile-card-bg);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border: 1px solid var(--mobile-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.mobile-profile-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--mobile-text);
+    margin: 0 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mobile-profile-section-title i {
+    color: var(--mobile-primary);
+    font-size: 16px;
+}
+
+/* ==============================================
+   FIELDS
+   ============================================== */
+
+.mobile-profile-field {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--mobile-border);
+}
+
+.mobile-profile-field:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.mobile-profile-field:first-of-type {
+    padding-top: 0;
+}
+
+.mobile-profile-field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--mobile-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.mobile-profile-field-value {
+    font-size: 15px;
+    color: var(--mobile-text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mobile-profile-field-value i {
+    font-size: 14px;
+    color: var(--mobile-text-muted);
+}
+
+/* ==============================================
+   LOGOUT BUTTON
+   ============================================== */
+
+.mobile-profile-logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 12px;
+    color: #dc2626;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.mobile-profile-logout-btn:hover {
+    background: #fee2e2;
+}
+
+.mobile-profile-logout-btn:active {
+    transform: scale(0.98);
+}

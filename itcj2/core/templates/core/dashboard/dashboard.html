@@ -1,0 +1,197 @@
+<!-- itcj/core/templates/dashboard/dashboard.html -->
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ITCJ - Dashboard</title>
+    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/dashboard.css') }}?v={{ sv('core', 'css/dashboard/dashboard.css') }}">
+    <link rel="stylesheet" href="{{url_for('static', filename='core/css/must_change.css') }}?v={{ sv('core', 'css/must_change.css') }}">
+    <!-- ⭐ NUEVO: Profile Menu CSS -->
+    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/profile-menu.css') }}?v={{ sv('core', 'css/dashboard/profile-menu.css') }}">
+    <!-- ⭐ NUEVO: Notifications CSS -->
+    <link rel="stylesheet" href="{{url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}">
+    <!-- ⭐ NUEVO: Dashboard Tutorial CSS -->
+    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/dashboard_tutorial.css') }}?v={{ sv('core', 'css/dashboard/dashboard_tutorial.css') }}">
+    <!-- Sistema de Tematicas Dinamicas -->
+    {% if active_theme %}
+        {% if active_theme.css_file %}
+    <link rel="stylesheet" href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file) }}">
+        {% endif %}
+        {% if active_theme.custom_css %}
+    <style id="theme-custom-css">{{ active_theme.custom_css | safe }}</style>
+        {% endif %}
+    {% endif %}
+    <!-- Shepherd.js CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
+
+    <link rel="shortcut icon" href="{{url_for('static', filename='core/icon/favicon.ico') }}?v={{ sv('core', 'icon/favicon.ico') }}"
+        type="image/x-icon">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <script src="https://unpkg.com/lucide@0.378.0/dist/umd/lucide.js"></script>
+</head>
+
+<body>
+    <div id="desktop" class="desktop">
+        <div class="desktop-background"></div>
+
+        <div id="desktop-grid" class="desktop-grid" aria-label="Escritorio cuadriculado">
+            <!-- Solo apps e icono de papelera -->
+            <div class="desktop-icon" data-app="agendatec">
+                <div class="icon-container" style="position: relative;">
+                    <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec"
+                        style="width:45px;height:45px;">
+                    <span id="badge-agendatec" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
+                </div>
+                <span class="icon-label">AgendaTec</span>
+            </div>
+
+            <div class="desktop-icon" data-app="helpdesk">
+                <div class="icon-container" style="position: relative;">
+                    <img src="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}" alt="Help Desk"
+                        style="width:45px;height:45px;">
+                    <span id="badge-helpdesk" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
+                </div>
+                <span class="icon-label">Help Desk</span>
+            </div>
+
+            <div class="desktop-icon" data-app="vistetec">
+                <div class="icon-container" style="position: relative;">
+                    <i class="bi bi-bag-heart-fill" style="font-size:45px;color:#ec4899;"></i>
+                    <span id="badge-vistetec" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
+                </div>
+                <span class="icon-label">VisteTec</span>
+            </div>
+
+            <!-- Papelera (decoración) -->
+            <!-- Se renderizará dinámicamente por JS -->
+        </div>
+
+        <div id="windows-container"></div>
+
+        <div class="taskbar">
+            <button class="start-button" title="Menú">
+                <i data-lucide="menu"></i>
+            </button>
+
+            <div class="search-container">
+                <i data-lucide="search" class="search-icon"></i>
+                <input type="text" placeholder="© 2026 ITCJ. Todos los derechos reservados."
+                    class="search-input disabled" readonly>
+            </div>
+
+            <div class="pinned-apps">
+                <button class="pinned-app" title="AgendaTec">
+                    <i data-lucide="calendar"></i>
+                </button>
+                <button class="pinned-app" title="Help Desk">
+                    <i data-lucide="ticket"></i>
+                </button>
+                <button class="pinned-app" title="VisteTec">
+                    <i data-lucide="shirt"></i>
+                </button>
+            </div>
+
+            <div id="open-apps" class="open-apps"></div>
+
+            <div class="system-tray">
+                <!-- ⭐ NUEVO: Tutorial Button -->
+                <button id="dashboardTutorialButton" title="Ver Tutorial del Dashboard">
+                    <i data-lucide="help-circle"></i>
+                    <span>Tutorial</span>
+                </button>
+
+                <!-- ⭐ NUEVO: Notification Bell -->
+                <button id="notificationBell" class="system-icon" title="Notificaciones" style="position: relative;">
+                    <i data-lucide="bell"></i>
+                    <span id="globalNotificationBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 9px; padding: 2px 4px; min-width: 16px;">0</span>
+                </button>
+
+                <button class="system-icon">
+                    <i data-lucide="wifi"></i>
+                </button>
+                <button class="system-icon">
+                    <i data-lucide="volume-2"></i>
+                </button>
+                <button class="system-icon">
+                    <i data-lucide="battery"></i>
+                </button>
+
+                <div class="datetime">
+                    <div id="time"></div>
+                    <div id="date"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Modal de cambio de contraseña -->
+    <div class="modal fade" id="forcePwModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static"
+        data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content windows-modal">
+                <div class="modal-header windows-header">
+                    <h5 class="modal-title windows-title">Alerta de Seguridad</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
+                        disabled></button>
+                </div>
+                <div class="modal-body windows-body">
+                    <div class="d-flex align-items-start mb-3">
+                        <i class="bi bi-exclamation-triangle-fill text-warning fs-1 me-3"></i>
+                        <div>
+                            <p class="mb-2 windows-text">❌ ¡Contraseña por defecto detectada!</p>
+                            <p class="mb-0 windows-text">Para continuar, debe actualizar su contraseña por motivos de
+                                seguridad.</p>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label windows-text">Nueva contraseña (mínimo 8 caracteres)</label>
+                        <input type="password" class="form-control windows-input" id="newPw" minlength="8" placeholder="Ingresa tu nueva contraseña">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label windows-text">Confirmar contraseña</label>
+                        <input type="password" class="form-control windows-input" id="confirmPw" minlength="8" placeholder="Confirma tu nueva contraseña">
+                    </div>
+                    <div id="pwErr" class="text-danger small d-none windows-text"></div>
+                </div>
+                <div class="modal-footer windows-footer">
+                    <button id="btnSavePw" class="btn btn-primary windows-btn">Aceptar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Shepherd.js JS -->
+    <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
+
+    <!-- Notification System (WebSocket-based) -->
+    <script src="{{url_for('static', filename='core/js/dashboard/notification-widget.js') }}?v={{ sv('core', 'js/dashboard/notification-widget.js') }}"></script>
+
+    <script src="{{url_for('static', filename='core/js/dashboard/profile-menu.js') }}?v={{ sv('core', 'js/dashboard/profile-menu.js') }}"></script>
+    <script src="{{url_for('static', filename='core/js/dashboard/dashboard.js') }}?v={{ sv('core', 'js/dashboard/dashboard.js') }}"></script>
+    <script src="{{url_for('static', filename='core/js/must_change.js') }}?v={{ sv('core', 'js/must_change.js') }}"></script>
+
+    <!-- ⭐ NUEVO: Dashboard Tutorial Script -->
+    <script src="{{url_for('static', filename='core/js/dashboard/dashboard_tutorial.js') }}?v={{ sv('core', 'js/dashboard/dashboard_tutorial.js') }}"></script>
+
+    <!-- Sistema de Tematicas Dinamicas - JavaScript -->
+    {% if active_theme %}
+    <script>
+        // Configuracion de tematica activa disponible globalmente
+        window.activeTheme = {{ active_theme | tojson | safe }};
+    </script>
+        {% if active_theme.js_file %}
+    <script src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file) }}"></script>
+        {% endif %}
+    {% endif %}
+
+    <!-- Notification Widget se auto-inicializa en notification-widget.js -->
+</body>
+
+</html>

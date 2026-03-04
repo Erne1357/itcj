@@ -1,0 +1,29 @@
+.pending-header {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    padding: 2rem;
+    border-radius: 0.5rem;
+    margin-bottom: 2rem;
+}
+.pending-item {
+    transition: background-color 0.2s;
+}
+.pending-item:hover {
+    background-color: #fff3cd;
+}
+.pending-item.selected {
+    background-color: #d1ecf1;
+}
+.limbo-badge {
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+.quick-assign-btn {
+    transition: all 0.2s;
+}
+.quick-assign-btn:hover {
+    transform: scale(1.05);
+}

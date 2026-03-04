@@ -73,9 +73,18 @@ class PositionDetailManager {
                 this.assignRole();
             }
             
-            // Asignar permiso
-            if (e.target.closest('#assignPermBtn')) {
-                this.assignPermission();
+            // Asignar permiso (desde el picker)
+            if (e.target.closest('.perm-item:not(.assigned)')) {
+                const item = e.target.closest('.perm-item');
+                this.assignPermission(item.dataset.permCode);
+            }
+
+            // Toggle grupo de permisos
+            if (e.target.closest('.perm-group-header')) {
+                const header = e.target.closest('.perm-group-header');
+                header.classList.toggle('collapsed');
+                const items = header.nextElementSibling;
+                items.classList.toggle('collapsed');
             }
             
             // Remover rol
@@ -568,27 +577,116 @@ class PositionDetailManager {
         if (!this.currentAppKey) return;
         
         try {
-            const permsResponse = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/perms`);
+            const [permsResponse, assignedResponse] = await Promise.all([
+                fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/perms`),
+                fetch(`${this.apiBase}/positions/${this.positionId}/apps/${this.currentAppKey}/perms`)
+            ]);
             if (permsResponse.ok) {
                 const permsResult = await permsResponse.json();
                 this.permissions = permsResult.data || [];
-                this.populatePermissionSelect();
+                const assignedResult = assignedResponse.ok ? await assignedResponse.json() : { data: [] };
+                this.populatePermissionPicker(assignedResult.data || []);
             }
         } catch (error) {
             console.error('Error loading app permissions:', error);
         }
     }
 
-    populatePermissionSelect() {
-        const select = document.getElementById('permToAssign');
-        if (!select) return;
-        
-        select.innerHTML = '<option value="">Seleccionar permiso...</option>';
+    populatePermissionPicker(assignedPerms = []) {
+        const listContainer = document.getElementById('permPickerList');
+        const footer = document.getElementById('permPickerFooter');
+        const searchInput = document.getElementById('permSearchInput');
+        if (!listContainer) return;
+
+        // Group permissions by module (2nd segment of code: app.MODULE.type.action)
+        const groups = {};
+        const assignedSet = new Set(assignedPerms);
+
         this.permissions.forEach(perm => {
-            const option = document.createElement('option');
-            option.value = perm.code;
-            option.textContent = `${perm.name} (${perm.code})`;
-            select.appendChild(option);
+            const parts = perm.code.split('.');
+            const module = parts.length >= 2 ? parts[1] : 'otros';
+            if (!groups[module]) groups[module] = [];
+            groups[module].push(perm);
+        });
+
+        const sortedModules = Object.keys(groups).sort();
+
+        if (sortedModules.length === 0) {
+            listContainer.innerHTML = '<div class="perm-picker-empty"><i class="bi bi-key"></i>No hay permisos disponibles</div>';
+            if (footer) footer.textContent = '';
+            return;
+        }
+
+        let html = '';
+        let totalAvailable = 0;
+
+        sortedModules.forEach(module => {
+            const perms = groups[module];
+            const availableCount = perms.filter(p => !assignedSet.has(p.code)).length;
+            totalAvailable += availableCount;
+
+            html += `<div class="perm-group" data-module="${module}">`;
+            html += `<div class="perm-group-header">`;
+            html += `<span><i class="bi bi-chevron-down chevron me-1"></i>${module}</span>`;
+            html += `<span class="badge bg-secondary">${availableCount}/${perms.length}</span>`;
+            html += `</div>`;
+            html += `<div class="perm-group-items">`;
+
+            perms.forEach(perm => {
+                const isAssigned = assignedSet.has(perm.code);
+                html += `<div class="perm-item ${isAssigned ? 'assigned' : ''}" data-perm-code="${perm.code}" data-perm-name="${perm.name}">`;
+                html += `<div class="perm-item-icon">`;
+                html += isAssigned ? '<i class="bi bi-check-circle-fill"></i>' : '<i class="bi bi-circle"></i>';
+                html += `</div>`;
+                html += `<div class="perm-item-info">`;
+                html += `<div class="perm-item-name">${perm.name}</div>`;
+                html += `<div class="perm-item-code">${perm.code}</div>`;
+                html += `</div>`;
+                if (!isAssigned) {
+                    html += `<div class="perm-item-add"><i class="bi bi-plus-circle"></i></div>`;
+                }
+                html += `</div>`;
+            });
+
+            html += `</div></div>`;
+        });
+
+        listContainer.innerHTML = html;
+        if (footer) footer.textContent = `${totalAvailable} disponibles de ${this.permissions.length} permisos`;
+
+        // Bind search
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.oninput = () => this._filterPermPicker(searchInput.value, listContainer);
+        }
+    }
+
+    _filterPermPicker(query, container) {
+        const q = query.toLowerCase().trim();
+        const groups = container.querySelectorAll('.perm-group');
+
+        groups.forEach(group => {
+            const items = group.querySelectorAll('.perm-item');
+            let visibleCount = 0;
+
+            items.forEach(item => {
+                const name = (item.dataset.permName || '').toLowerCase();
+                const code = (item.dataset.permCode || '').toLowerCase();
+                const match = !q || name.includes(q) || code.includes(q);
+                item.style.display = match ? '' : 'none';
+                if (match) visibleCount++;
+            });
+
+            // Hide entire group if no matches
+            group.style.display = visibleCount > 0 ? '' : 'none';
+
+            // Auto-expand groups when searching
+            const header = group.querySelector('.perm-group-header');
+            const itemsContainer = group.querySelector('.perm-group-items');
+            if (q) {
+                header?.classList.remove('collapsed');
+                itemsContainer?.classList.remove('collapsed');
+            }
         });
     }
 
@@ -676,10 +774,7 @@ class PositionDetailManager {
         }
     }
 
-    async assignPermission() {
-        const select = document.getElementById('permToAssign');
-        const permCode = select?.value;
-        
+    async assignPermission(permCode) {
         if (!permCode) {
             this.showError('Selecciona un permiso');
             return;
@@ -694,7 +789,6 @@ class PositionDetailManager {
             
             if (response.ok) {
                 this.showSuccess('Permiso asignado correctamente');
-                select.value = '';
                 await Promise.all([
                     this.loadAppAssignments(),
                     this.refreshPositionAndApps()

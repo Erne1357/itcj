@@ -69,12 +69,6 @@ class UserDetailManager {
             assignRoleBtn.addEventListener('click', () => this.assignRole());
         }
 
-        // Permission assignment in modal
-        const assignPermBtn = document.getElementById('modalAssignPerm');
-        if (assignPermBtn) {
-            assignPermBtn.addEventListener('click', () => this.assignPermission());
-        }
-
         // Remove assignments (delegated events)
         document.addEventListener('click', (e) => {
             if (e.target.closest('.remove-role-btn')) {
@@ -85,6 +79,22 @@ class UserDetailManager {
             if (e.target.closest('.remove-perm-btn')) {
                 const btn = e.target.closest('.remove-perm-btn');
                 this.removePermission(btn.dataset.permCode);
+            }
+
+            // Asignar permiso desde picker
+            if (e.target.closest('.perm-item:not(.assigned)')) {
+                const item = e.target.closest('.perm-item');
+                if (item.dataset.permCode) {
+                    this.assignPermission(item.dataset.permCode);
+                }
+            }
+
+            // Toggle grupo de permisos
+            if (e.target.closest('.perm-group-header')) {
+                const header = e.target.closest('.perm-group-header');
+                header.classList.toggle('collapsed');
+                const items = header.nextElementSibling;
+                items.classList.toggle('collapsed');
             }
         });
 
@@ -420,32 +430,113 @@ class UserDetailManager {
         if (!this.currentAppKey) return;
         
         try {
-            const response = await fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/perms`);
-            const result = await response.json();
+            const [allPermsResponse, assignedPermsResponse] = await Promise.all([
+                fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/perms`),
+                fetch(`${this.apiBase}/authz/apps/${this.currentAppKey}/users/${this.userId}/perms`)
+            ]);
             
-            if (response.ok && result.data) {
-                this.permissions = result.data;
-                this.populateModalPermissionSelect();
+            if (allPermsResponse.ok) {
+                const result = await allPermsResponse.json();
+                this.permissions = result.data || [];
+                const assignedResult = assignedPermsResponse.ok ? await assignedPermsResponse.json() : { data: [] };
+                this.populatePermissionPicker(assignedResult.data || []);
             }
         } catch (error) {
             console.error('Error loading app permissions:', error);
         }
     }
 
-    populateModalPermissionSelect() {
-        const select = document.getElementById('modalPermToAssign');
-        if (!select) return;
-        
-        // Clear existing options (except first)
-        while (select.children.length > 1) {
-            select.removeChild(select.lastChild);
-        }
-        
+    populatePermissionPicker(assignedPerms = []) {
+        const listContainer = document.getElementById('modalPermPickerList');
+        const footer = document.getElementById('modalPermPickerFooter');
+        const searchInput = document.getElementById('modalPermSearchInput');
+        if (!listContainer) return;
+
+        const groups = {};
+        const assignedSet = new Set(assignedPerms);
+
         this.permissions.forEach(perm => {
-            const option = document.createElement('option');
-            option.value = perm.code;
-            option.textContent = `${perm.name} (${perm.code})`;
-            select.appendChild(option);
+            const parts = perm.code.split('.');
+            const module = parts.length >= 2 ? parts[1] : 'otros';
+            if (!groups[module]) groups[module] = [];
+            groups[module].push(perm);
+        });
+
+        const sortedModules = Object.keys(groups).sort();
+
+        if (sortedModules.length === 0) {
+            listContainer.innerHTML = '<div class="perm-picker-empty"><i class="bi bi-key"></i>No hay permisos disponibles</div>';
+            if (footer) footer.textContent = '';
+            return;
+        }
+
+        let html = '';
+        let totalAvailable = 0;
+
+        sortedModules.forEach(module => {
+            const perms = groups[module];
+            const availableCount = perms.filter(p => !assignedSet.has(p.code)).length;
+            totalAvailable += availableCount;
+
+            html += `<div class="perm-group" data-module="${module}">`;
+            html += `<div class="perm-group-header">`;
+            html += `<span><i class="bi bi-chevron-down chevron me-1"></i>${module}</span>`;
+            html += `<span class="badge bg-secondary">${availableCount}/${perms.length}</span>`;
+            html += `</div>`;
+            html += `<div class="perm-group-items">`;
+
+            perms.forEach(perm => {
+                const isAssigned = assignedSet.has(perm.code);
+                html += `<div class="perm-item ${isAssigned ? 'assigned' : ''}" data-perm-code="${perm.code}" data-perm-name="${perm.name}">`;
+                html += `<div class="perm-item-icon">`;
+                html += isAssigned ? '<i class="bi bi-check-circle-fill"></i>' : '<i class="bi bi-circle"></i>';
+                html += `</div>`;
+                html += `<div class="perm-item-info">`;
+                html += `<div class="perm-item-name">${perm.name}</div>`;
+                html += `<div class="perm-item-code">${perm.code}</div>`;
+                html += `</div>`;
+                if (!isAssigned) {
+                    html += `<div class="perm-item-add"><i class="bi bi-plus-circle"></i></div>`;
+                }
+                html += `</div>`;
+            });
+
+            html += `</div></div>`;
+        });
+
+        listContainer.innerHTML = html;
+        if (footer) footer.textContent = `${totalAvailable} disponibles de ${this.permissions.length} permisos`;
+
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.oninput = () => this._filterPermPicker(searchInput.value, listContainer);
+        }
+    }
+
+    _filterPermPicker(query, container) {
+        const q = query.toLowerCase().trim();
+        const groups = container.querySelectorAll('.perm-group');
+
+        groups.forEach(group => {
+            const items = group.querySelectorAll('.perm-item');
+            let visibleCount = 0;
+
+            items.forEach(item => {
+                const name = (item.dataset.permName || '').toLowerCase();
+                const code = (item.dataset.permCode || '').toLowerCase();
+                const match = !q || name.includes(q) || code.includes(q);
+                item.style.display = match ? '' : 'none';
+                if (match) visibleCount++;
+            });
+
+            group.style.display = visibleCount > 0 ? '' : 'none';
+
+            const header = group.querySelector('.perm-group-header');
+            const itemsContainer = group.querySelector('.perm-group-items');
+            if (q) {
+                header?.classList.remove('collapsed');
+                itemsContainer?.classList.remove('collapsed');
+            }
         });
     }
 
@@ -545,10 +636,7 @@ class UserDetailManager {
         }
     }
 
-    async assignPermission() {
-        const select = document.getElementById('modalPermToAssign');
-        const permCode = select.value;
-        
+    async assignPermission(permCode) {
         if (!permCode) {
             this.showError('Selecciona un permiso');
             return;
@@ -567,8 +655,8 @@ class UserDetailManager {
             
             if (response.ok) {
                 this.showSuccess('Permiso asignado correctamente');
-                select.value = '';
                 await this.loadModalAssignments();
+                await this.loadAppPermissions();
                 await this.loadUserAssignmentsForApp(this.currentAppKey);
             } else {
                 this.showError(result.error || 'Error al asignar el permiso');
@@ -608,6 +696,7 @@ class UserDetailManager {
             if (response.ok) {
                 this.showSuccess('Permiso removido correctamente');
                 await this.loadModalAssignments();
+                await this.loadAppPermissions();
                 await this.loadUserAssignmentsForApp(this.currentAppKey);
             } else {
                 const result = await response.json();

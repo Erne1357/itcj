@@ -310,13 +310,18 @@
                             <div id="userPermsList" class="d-flex flex-wrap gap-2 mb-2">
                                 <!-- Se llena dinamicamente -->
                             </div>
-                            <div class="input-group input-group-sm">
-                                <select class="form-select" id="permToAssign">
-                                    <option value="">Seleccionar permiso...</option>
-                                </select>
-                                <button class="btn btn-success" id="assignPermBtn">
-                                    <i class="bi bi-plus-lg"></i>
-                                </button>
+                            <div class="perm-picker mt-2">
+                                <div class="perm-picker-search">
+                                    <input type="text" class="form-control form-control-sm" id="permSearchInput"
+                                           placeholder="Buscar permisos..." autocomplete="off">
+                                </div>
+                                <div class="perm-picker-list" id="permPickerList">
+                                    <div class="perm-picker-empty">
+                                        <i class="bi bi-arrow-left"></i>
+                                        Selecciona una aplicacion
+                                    </div>
+                                </div>
+                                <div class="perm-picker-footer" id="permPickerFooter"></div>
                             </div>
                         </div>
 

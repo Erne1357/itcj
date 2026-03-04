@@ -1,0 +1,107 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Reporte de Ciclo de Vida{% endblock %}
+
+{% block header_title %}Ciclo de Vida de Equipos{% endblock %}
+{% block header_subtitle %}Antigüedad y Estado de los Equipos del Inventario{% endblock %}
+
+{% block header_back %}
+<a href="{{ url_for('helpdesk.pages.admin.inventory_reports') }}" class="btn btn-outline-light btn-sm">
+    <i class="fas fa-arrow-left me-2"></i>Reportes
+</a>
+{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-light btn-sm" id="btnExport" onclick="exportReport()">
+    <i class="fas fa-download me-1"></i><span class="d-none d-sm-inline">Exportar</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="row mb-3 g-2">
+    <div class="col-md-4">
+        <select class="form-select" id="filterAge">
+            <option value="">Todas las antigüedades</option>
+            <option value="0-2">Menos de 2 años</option>
+            <option value="2-5">2 a 5 años</option>
+            <option value="5-10">5 a 10 años</option>
+            <option value="10+">Más de 10 años</option>
+        </select>
+    </div>
+    <div class="col-md-4">
+        <select class="form-select" id="filterCategory">
+            <option value="">Todas las categorías</option>
+        </select>
+    </div>
+    <div class="col-md-4">
+        <select class="form-select" id="filterStatus">
+            <option value="">Todos los estados</option>
+            <option value="ACTIVO">Activos</option>
+            <option value="EN_MANTENIMIENTO">En Mantenimiento</option>
+            <option value="DE_BAJA">De Baja</option>
+        </select>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
+            <div class="card-body py-2">
+                <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Menos de 2 años</small>
+                <h3 class="text-success mb-0" id="count0to2">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-primary border-4 h-100">
+            <div class="card-body py-2">
+                <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">2 a 5 años</small>
+                <h3 class="text-primary mb-0" id="count2to5">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
+            <div class="card-body py-2">
+                <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">5 a 10 años</small>
+                <h3 class="text-warning mb-0" id="count5to10">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm border-start border-danger border-4 h-100">
+            <div class="card-body py-2">
+                <small class="text-muted fw-semibold d-block" style="font-size: 0.7rem;">Más de 10 años</small>
+                <h3 class="text-danger mb-0" id="count10plus">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between">
+        <h5 class="mb-0">
+            <i class="fas fa-hourglass-end me-2 text-danger"></i>Equipos por Antigüedad
+        </h5>
+        <span class="badge bg-secondary" id="totalCount">0 equipos</span>
+    </div>
+    <div class="card-body p-0">
+        <div id="lifecycleList">
+            <div class="text-center py-5">
+                <div class="spinner-border text-danger" role="status"></div>
+                <p class="text-muted mt-3">Cargando reporte de ciclo de vida...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

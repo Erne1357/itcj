@@ -1,0 +1,47 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Equipo Técnico{% endblock %}
+
+{% block header_title %}Tickets del Equipo{% endblock %}
+{% block header_subtitle %}Tickets Disponibles para el Equipo Técnico{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('helpdesk.pages.technician.dashboard') }}" class="btn btn-outline-light btn-sm">
+    <i class="fas fa-tachometer-alt me-1"></i><span class="d-none d-sm-inline">Dashboard</span>
+</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="alert alert-info border-0 shadow-sm mb-4">
+    <i class="fas fa-users me-2"></i>
+    <strong>Tickets del Equipo:</strong> Estos tickets están disponibles para cualquier técnico.
+    Puedes tomarlos para trabajar en ellos desde el dashboard.
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between">
+        <h5 class="mb-0">
+            <i class="fas fa-users me-2"></i>Tickets Disponibles del Equipo
+            <span class="badge bg-secondary ms-2" id="teamCount">0</span>
+        </h5>
+        <div class="d-flex gap-2">
+            <input type="text" class="form-control form-control-sm" id="searchInput"
+                placeholder="Buscar..." style="width: 200px;">
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div id="teamList">
+            <div class="text-center py-5">
+                <div class="spinner-border text-secondary" role="status"></div>
+                <p class="text-muted mt-3">Cargando tickets del equipo...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ sv('helpdesk', 'js/technician/dashboard.js') }}"></script>
+{% endblock %}

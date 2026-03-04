@@ -1,0 +1,343 @@
+/* ==============================================
+   Mobile App Shell - Sidebar & Back Button
+   Estilos compartidos para apps en iframe móvil
+   ============================================== */
+
+:root {
+    --app-sidebar-width: 280px;
+    --app-header-height: 56px;
+    --app-safe-top: env(safe-area-inset-top, 0px);
+}
+
+/* ==============================================
+   MOBILE APP HEADER (con flecha de regreso)
+   ============================================== */
+
+.mobile-app-header-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1030;
+    display: flex;
+    align-items: center;
+    padding: var(--app-safe-top) 0 0 0;
+}
+
+.mobile-back-to-dashboard {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+    flex-shrink: 0;
+    margin-right: 8px;
+}
+
+.mobile-back-to-dashboard:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.mobile-back-to-dashboard:active {
+    transform: scale(0.9);
+}
+
+/* Mostrar solo cuando está en iframe */
+body.in-mobile-iframe .mobile-back-to-dashboard {
+    display: flex;
+}
+
+/* ==============================================
+   SIDEBAR OVERLAY & CONTAINER
+   ============================================== */
+
+.app-sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1040;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.app-sidebar-overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.app-sidebar {
+    position: fixed;
+    top: 0;
+    right: -100%;
+    width: var(--app-sidebar-width);
+    max-width: 85vw;
+    height: 100%;
+    background: #ffffff;
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-sidebar.active {
+    right: 0;
+}
+
+/* ==============================================
+   SIDEBAR HEADER
+   ============================================== */
+
+.app-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: calc(var(--app-safe-top) + 16px) 16px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(135deg, var(--app-primary, #059669) 0%, var(--app-primary-dark, #047857) 100%);
+    color: white;
+}
+
+.app-sidebar-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.app-sidebar-title i {
+    font-size: 20px;
+}
+
+.app-sidebar-close {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.app-sidebar-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* ==============================================
+   SIDEBAR NAVIGATION
+   ============================================== */
+
+.app-sidebar-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 0;
+    -webkit-overflow-scrolling: touch;
+}
+
+.app-sidebar-section {
+    padding: 8px 16px;
+}
+
+.app-sidebar-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #9ca3af;
+    margin-bottom: 8px;
+    padding: 0 12px;
+}
+
+.app-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    margin: 2px 8px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: #374151;
+    font-size: 15px;
+    font-weight: 500;
+    transition: background 0.2s, color 0.2s, transform 0.15s;
+}
+
+.app-sidebar-item:hover {
+    background: #f3f4f6;
+    color: #374151;
+    text-decoration: none;
+}
+
+.app-sidebar-item:active {
+    transform: scale(0.98);
+}
+
+.app-sidebar-item.active {
+    background: var(--app-primary-light, #ecfdf5);
+    color: var(--app-primary, #059669);
+}
+
+.app-sidebar-item i {
+    width: 24px;
+    font-size: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.app-sidebar-item .badge {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 4px 8px;
+}
+
+/* ==============================================
+   SIDEBAR FOOTER
+   ============================================== */
+
+.app-sidebar-footer {
+    padding: 16px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.app-sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.app-sidebar-user-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--app-primary, #059669), var(--app-primary-light, #10b981));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.app-sidebar-user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.app-sidebar-user-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.app-sidebar-user-role {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.app-sidebar-logout {
+    width: 100%;
+    padding: 12px;
+    background: #fee2e2;
+    border: none;
+    border-radius: 10px;
+    color: #dc2626;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s;
+}
+
+.app-sidebar-logout:hover {
+    background: #fecaca;
+}
+
+/* ==============================================
+   HAMBURGER BUTTON OVERRIDE
+   ============================================== */
+
+.navbar-toggler.sidebar-trigger {
+    border: none;
+    padding: 8px;
+}
+
+/* ==============================================
+   BODY CLASS WHEN SIDEBAR IS OPEN
+   ============================================== */
+
+body.sidebar-open {
+    overflow: hidden;
+}
+
+/* ==============================================
+   RESPONSIVE - Desktop hide mobile elements
+   ============================================== */
+
+@media (min-width: 992px) {
+    .mobile-back-to-dashboard {
+        display: none !important;
+    }
+    
+    .app-sidebar,
+    .app-sidebar-overlay {
+        display: none !important;
+    }
+    
+    .sidebar-trigger {
+        display: none !important;
+    }
+}
+
+/* ==============================================
+   ANIMATION CLASSES
+   ============================================== */
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideOutRight {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(100%);
+    }
+}
+
+.app-sidebar.animating-in {
+    animation: slideInRight 0.3s ease forwards;
+}
+
+.app-sidebar.animating-out {
+    animation: slideOutRight 0.3s ease forwards;
+}

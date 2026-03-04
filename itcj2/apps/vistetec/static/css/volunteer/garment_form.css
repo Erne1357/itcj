@@ -1,0 +1,15 @@
+/* VisteTec - Estilos del formulario de prendas */
+
+#imagePreviewContainer {
+    min-height: 200px;
+}
+
+#imagePlaceholder:hover {
+    border-color: #8B1538 !important;
+    background-color: #fdf2f4 !important;
+}
+
+.form-label {
+    font-weight: 500;
+    font-size: 0.9rem;
+}

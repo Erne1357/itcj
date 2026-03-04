@@ -1,0 +1,60 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Reporte de Mantenimientos{% endblock %}
+
+{% block header_title %}Reporte de Mantenimientos{% endblock %}
+{% block header_subtitle %}Historial de Servicios Preventivos y Correctivos{% endblock %}
+
+{% block header_back %}
+<a href="{{ url_for('helpdesk.pages.admin.inventory_reports') }}" class="btn btn-outline-light btn-sm">
+    <i class="fas fa-arrow-left me-2"></i>Reportes
+</a>
+{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-light btn-sm" id="btnExport" onclick="exportReport()">
+    <i class="fas fa-download me-1"></i><span class="d-none d-sm-inline">Exportar</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="row mb-3 g-2">
+    <div class="col-md-3">
+        <select class="form-select" id="filterType">
+            <option value="">Todos los tipos</option>
+            <option value="PREVENTIVO">Preventivo</option>
+            <option value="CORRECTIVO">Correctivo</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <input type="date" class="form-control" id="filterDateFrom" placeholder="Desde">
+    </div>
+    <div class="col-md-3">
+        <input type="date" class="form-control" id="filterDateTo" placeholder="Hasta">
+    </div>
+    <div class="col-md-3">
+        <select class="form-select" id="filterCategory">
+            <option value="">Todas las categorías</option>
+        </select>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between">
+        <h5 class="mb-0">
+            <i class="fas fa-tools me-2 text-info"></i>Historial de Mantenimientos
+        </h5>
+        <span class="badge bg-secondary" id="totalCount">0 registros</span>
+    </div>
+    <div class="card-body p-0">
+        <div id="maintenanceList">
+            <div class="text-center py-5">
+                <div class="spinner-border text-info" role="status"></div>
+                <p class="text-muted mt-3">Cargando historial de mantenimientos...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
