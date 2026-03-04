@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "postgresql+psycopg2://postgres:password@postgres:5432/itcj"
+    DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
 
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
@@ -38,13 +38,15 @@ class Settings(BaseSettings):
     HELPDESK_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,gif,webp"
     HELPDESK_MAX_DOCUMENT_SIZE: int = 25 * 1024 * 1024
     HELPDESK_ALLOWED_DOC_EXTENSIONS: str = "xlsx,xls,csv,pdf,doc,docx"
+    HELPDESK_MAX_RESOLUTION_FILES: int = 10
+    HELPDESK_MAX_COMMENT_FILES: int = 3
 
     VISTETEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "vistetec", "garments")
     VISTETEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
     VISTETEC_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,webp"
 
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111112"
+    STATIC_VERSION: str = "1.0.1111116"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

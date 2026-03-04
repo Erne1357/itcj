@@ -1,4 +1,4 @@
-// itcj/apps/helpdesk/static/js/user/create_ticket.js
+﻿// itcj/apps/helpdesk/static/js/user/create_ticket.js
 
 /**
  * ========================================
@@ -937,7 +937,7 @@ const Equipment = {
                     deptId = userData.data.id;
                 }
 
-                endpoint = `/api/help-desk/v2/inventory/items?department_id=${deptId}`;
+                endpoint = `/api/help-desk/v2/inventory/items?department_id=${deptId}&status=ACTIVE`;
             }
 
             const response = await fetch(endpoint);
@@ -1289,7 +1289,12 @@ const FormValidation = {
                 // Agregar campos del ticket
                 Object.keys(formData).forEach(key => {
                     if (formData[key] !== null && formData[key] !== undefined) {
-                        formDataMultipart.append(key, formData[key]);
+                        // Los arrays deben serializarse como JSON string para que el backend los parsee correctamente
+                        if (Array.isArray(formData[key])) {
+                            formDataMultipart.append(key, JSON.stringify(formData[key]));
+                        } else {
+                            formDataMultipart.append(key, formData[key]);
+                        }
                     }
                 });
 

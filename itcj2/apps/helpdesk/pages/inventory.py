@@ -64,9 +64,17 @@ async def items_list(
     user: dict = Depends(_require_helpdesk),
 ):
     """Lista de equipos del inventario (admin/secretaría: todos; jefe depto: su depto)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
-    can_view_all = "admin" in user_roles or "secretary" in user_roles
+
+    _db = SessionLocal()
+    try:
+        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+    finally:
+        _db.close()
 
     return render_helpdesk(request, "helpdesk/inventory/items_list.html", {
         "user_roles": user_roles,
@@ -153,51 +161,6 @@ async def assign_equipment(
     })
 
 
-@router.get("/reports/warranty", name="helpdesk.pages.inventory.warranty_report")
-async def warranty_report(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
-):
-    """Reporte de garantías de equipos."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/inventory/reports/warranty.html", {
-        "user_roles": user_roles,
-        "active_page": "inventory_reports",
-    })
-
-
-@router.get("/reports/maintenance", name="helpdesk.pages.inventory.maintenance_report")
-async def maintenance_report(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
-):
-    """Reporte de mantenimientos."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/inventory/reports/maintenance.html", {
-        "user_roles": user_roles,
-        "active_page": "inventory_reports",
-    })
-
-
-@router.get("/reports/lifecycle", name="helpdesk.pages.inventory.lifecycle_report")
-async def lifecycle_report(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
-):
-    """Reporte de ciclo de vida (antigüedad) de equipos."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/inventory/reports/lifecycle.html", {
-        "user_roles": user_roles,
-        "active_page": "inventory_reports",
-    })
-
-
 @router.get("/groups", name="helpdesk.pages.inventory.groups_list")
 async def groups_list(
     request: Request,
@@ -206,6 +169,7 @@ async def groups_list(
     """Lista de grupos de equipos (salones, laboratorios)."""
     from itcj2.core.services.departments_service import get_user_department
     from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
@@ -213,12 +177,13 @@ async def groups_list(
     try:
         user_dept = get_user_department(_db, user_id)
         department_id = user_dept.id if user_dept else None
+        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
     finally:
         _db.close()
 
     return render_helpdesk(request, "helpdesk/inventory/groups_list.html", {
         "user_roles": user_roles,
-        "can_view_all": "admin" in user_roles,
+        "can_view_all": can_view_all,
         "department_id": department_id,
         "active_page": "inventory_groups",
     })
@@ -279,4 +244,101 @@ async def bulk_register(
         "bulk_mode": True,
         "user_roles": user_roles,
         "active_page": "inventory_items",
+    })
+
+
+@router.get("/reports", name="helpdesk.pages.inventory.reports")
+async def reports(
+    request: Request,
+    tab: str = "equipos",
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
+):
+    """
+    Página unificada de reportes de inventario.
+    Acepta ?tab=equipos|movimientos|garantias|mantenimiento|ciclo-vida|verificacion
+    """
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    return render_helpdesk(request, "helpdesk/inventory/reports.html", {
+        "user_roles": user_roles,
+        "active_page": "inventory_reports",
+        "active_tab": tab,
+    })
+
+
+@router.get("/reports/warranty", name="helpdesk.pages.inventory.warranty_report")
+async def warranty_report(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
+):
+    """Redirige a /reports?tab=garantias."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/help-desk/inventory/reports?tab=garantias", status_code=302)
+
+
+@router.get("/reports/maintenance", name="helpdesk.pages.inventory.maintenance_report")
+async def maintenance_report(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
+):
+    """Redirige a /reports?tab=mantenimiento."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/help-desk/inventory/reports?tab=mantenimiento", status_code=302)
+
+
+@router.get("/reports/lifecycle", name="helpdesk.pages.inventory.lifecycle_report")
+async def lifecycle_report(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.stats"])),
+):
+    """Redirige a /reports?tab=ciclo-vida."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/help-desk/inventory/reports?tab=ciclo-vida", status_code=302)
+
+
+@router.get("/reports/verification", name="helpdesk.pages.inventory.verification_report")
+async def verification_report(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.verification"])),
+):
+    """Redirige a /reports?tab=verificacion."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse("/help-desk/inventory/reports?tab=verificacion", status_code=302)
+
+
+@router.get("/verification", name="helpdesk.pages.inventory.verification")
+async def verification(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.verification"])),
+):
+    """
+    Página de verificación física de inventario.
+    Solo Admin y Secretaría del Centro de Cómputo.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    _db = SessionLocal()
+    try:
+        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+        from itcj2.core.models.department import Department
+        departments = (
+            _db.query(Department)
+            .filter_by(is_active=True)
+            .order_by(Department.name)
+            .all()
+        )
+        departments_data = [{"id": d.id, "name": d.name} for d in departments]
+    finally:
+        _db.close()
+
+    return render_helpdesk(request, "helpdesk/inventory/verification.html", {
+        "user_roles": user_roles,
+        "can_view_all": can_view_all,
+        "departments": departments_data,
+        "active_page": "inventory_verification",
     })

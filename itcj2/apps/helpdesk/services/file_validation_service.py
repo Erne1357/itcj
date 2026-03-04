@@ -96,15 +96,26 @@ def validate_and_get_file_info(file_storage, allowed_extensions=None, max_size=N
     """
     Pipeline completo de validación de archivo.
 
+    Acepta tanto FastAPI UploadFile (tiene .filename y .file) como
+    objetos file-like de Werkzeug (tienen .filename y .seek/.read directamente).
+
     Returns:
         tuple: (is_valid, file_info_or_error)
     """
     settings = get_settings()
 
-    if not file_storage or not file_storage.filename:
+    if not file_storage:
         return False, 'No se proporcionó archivo'
 
-    original_filename = file_storage.filename
+    # Normalizar: FastAPI UploadFile tiene .filename en sí mismo pero los métodos
+    # seek/read/tell están en .file (SpooledTemporaryFile). Werkzeug FileStorage
+    # los tiene directamente sobre sí mismo.
+    original_filename = getattr(file_storage, 'filename', None)
+    if not original_filename:
+        return False, 'No se proporcionó archivo'
+
+    file_handle = getattr(file_storage, 'file', file_storage)
+
     extension = get_extension(original_filename)
 
     if not extension:
@@ -122,9 +133,9 @@ def validate_and_get_file_info(file_storage, allowed_extensions=None, max_size=N
         else:
             max_size = settings.HELPDESK_MAX_DOCUMENT_SIZE
 
-    file_storage.seek(0, os.SEEK_END)
-    file_size = file_storage.tell()
-    file_storage.seek(0)
+    file_handle.seek(0, os.SEEK_END)
+    file_size = file_handle.tell()
+    file_handle.seek(0)
 
     if file_size == 0:
         return False, 'El archivo está vacío'
@@ -133,7 +144,7 @@ def validate_and_get_file_info(file_storage, allowed_extensions=None, max_size=N
         max_mb = max_size / (1024 * 1024)
         return False, f'El archivo excede el límite de {max_mb:.0f}MB'
 
-    is_valid, error = validate_file_magic_bytes(file_storage, extension)
+    is_valid, error = validate_file_magic_bytes(file_handle, extension)
     if not is_valid:
         return False, error
 

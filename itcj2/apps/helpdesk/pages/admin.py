@@ -177,6 +177,21 @@ async def stats(
     })
 
 
+@router.get("/analysis", name="helpdesk.pages.admin.analysis")
+async def analysis(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.stats.page.list"])),
+):
+    """Análisis avanzado de datos: outliers, clustering K-means, distribuciones, tendencias."""
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    return render_helpdesk(request, "helpdesk/admin/analysis.html", {
+        "user_roles": user_roles,
+        "active_page": "admin_analysis",
+    })
+
+
 @router.get("/documents", name="helpdesk.pages.admin.documents")
 async def documents(
     request: Request,

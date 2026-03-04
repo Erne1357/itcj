@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Widget de Notificaciones para el Dashboard
  *
  * Muestra un icono de campana en la taskbar con badge de notificaciones no leídas,
@@ -173,6 +173,17 @@ class DashboardNotificationWidget {
                 this.handleNewNotification(notification);
             });
 
+            // Evento: notificación leída (sincronización de badges)
+            this.socket.on('notification:read', (data) => {
+                if (data.counts !== undefined) {
+                    this.updateCounts(data.counts, data.total);
+                    // Recargar lista si el panel está abierto
+                    if (this.panelOpen) {
+                        this.loadRecentNotifications().then(() => this.renderNotifications());
+                    }
+                }
+            });
+
             // Evento: error
             this.socket.on('connect_error', (error) => {
                 console.error('[NotificationWidget] WebSocket error:', error);
@@ -208,7 +219,7 @@ class DashboardNotificationWidget {
      * Actualiza badges en iconos de aplicaciones del escritorio
      */
     updateAppBadges() {
-        const apps = ['agendatec', 'helpdesk'];
+        const apps = ['agendatec', 'helpdesk', 'vistetec'];
 
         apps.forEach(appName => {
             const badge = document.getElementById(`badge-${appName}`);
@@ -435,6 +446,8 @@ class DashboardNotificationWidget {
             appId = 'agendatec';
         } else if (url.includes('/help-desk')) {
             appId = 'helpdesk';
+        } else if (url.includes('/vistetec')) {
+            appId = 'vistetec';
         } else if (url.includes('/compras')) {
             appId = 'compras';
         } else if (url.includes('/itcj/profile')) {
@@ -514,30 +527,6 @@ class DashboardNotificationWidget {
             }
         } catch (error) {
             console.error('[NotificationWidget] Error marking all as read:', error);
-        }
-    }
-
-    /**
-     * Abre la página de perfil con notificaciones
-     * Si está en dashboard, abre iframe. Si está en iframe, navega directamente.
-     */
-    openProfileNotifications() {
-        this.closePanel();
-
-        // Detectar si estamos en el dashboard principal o dentro de un iframe
-        const isInDashboard = window.self === window.top;
-
-        if (isInDashboard) {
-            // Estamos en el dashboard - abrir como iframe usando WindowsDesktop
-            if (window.desktop && typeof window.desktop.openApplication === 'function') {
-                window.desktop.openApplication('profile');
-            } else {
-                // Fallback si desktop no está disponible
-                window.location.href = '/itcj/profile';
-            }
-        } else {
-            // Estamos dentro de un iframe - navegar directamente
-            window.location.href = '/itcj/profile';
         }
     }
 

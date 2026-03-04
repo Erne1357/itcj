@@ -66,6 +66,10 @@ class InventoryItem(Base):
     deactivated_by_id = Column(BigInteger, ForeignKey("core_users.id"))
     deactivation_reason = Column(Text)
 
+    # Última verificación física
+    last_verified_at = Column(DateTime, nullable=True)
+    last_verified_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+
     # Relaciones
     category = relationship("InventoryCategory", back_populates="items")
     department = relationship("Department", backref="inventory_items")
@@ -75,6 +79,15 @@ class InventoryItem(Base):
     registered_by = relationship("User", foreign_keys=[registered_by_id], backref="registered_equipment")
     assigned_by = relationship("User", foreign_keys=[assigned_by_id])
     deactivated_by = relationship("User", foreign_keys=[deactivated_by_id])
+    last_verified_by = relationship("User", foreign_keys=[last_verified_by_id])
+
+    verifications = relationship(
+        "InventoryVerification",
+        back_populates="inventory_item",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+        order_by="desc(InventoryVerification.verified_at)",
+    )
 
     ticket_items = relationship(
         "TicketInventoryItem",
@@ -218,6 +231,9 @@ class InventoryItem(Base):
             'needs_maintenance': self.needs_maintenance,
             'tickets_count': self.tickets_count,
             'active_tickets_count': self.active_tickets_count,
+            # Verificación física
+            'last_verified_at': _date_iso(self.last_verified_at),
+            'last_verified_by_id': self.last_verified_by_id,
         }
 
         if include_relations:
@@ -237,5 +253,9 @@ class InventoryItem(Base):
                 'full_name': self.registered_by.full_name,
             } if self.registered_by else None
             data['group'] = self.group.to_dict() if self.group else None
+            data['last_verified_by'] = {
+                'id': self.last_verified_by.id,
+                'full_name': self.last_verified_by.full_name,
+            } if self.last_verified_by else None
 
         return data

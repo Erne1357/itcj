@@ -1,0 +1,367 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Verificación de Inventario - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/verification.css') }}?v={{ sv('helpdesk', 'css/inventory/verification.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Header -->
+    <div class="verif-header shadow mb-3 mb-md-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div>
+                <h1 class="h4 h3-md mb-1">
+                    <i class="fas fa-clipboard-check mr-2"></i>
+                    Verificación de Inventario
+                </h1>
+                <p class="mb-0 opacity-75 small d-none d-sm-block">
+                    Confirmación física de equipos registrados — Solo Admin / Secretaría CC
+                </p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge badge-warning" id="badge-unverified">
+                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                    <span id="count-unverified">0</span> sin verificar
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Estadísticas rápidas -->
+    <div class="row mb-3 mb-md-4 g-2">
+        <!-- Total equipos -->
+        <div class="col-6 col-lg-3 mb-2">
+            <div class="card border-left-primary shadow h-100">
+                <div class="card-body py-2 py-md-3">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1" style="font-size:.65rem;">Total Equipos</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-total">—</div>
+                        </div>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-laptop fa-lg fa-md-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Verificados recientes -->
+        <div class="col-6 col-lg-3 mb-2">
+            <div class="card border-left-success shadow h-100">
+                <div class="card-body py-2 py-md-3">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size:.65rem;">Recientes (&lt;30 días)</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-recent">—</div>
+                        </div>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-check-circle fa-lg fa-md-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Vencidos -->
+        <div class="col-6 col-lg-3 mb-2">
+            <div class="card border-left-warning shadow h-100">
+                <div class="card-body py-2 py-md-3">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size:.65rem;">Vencidos (30-90 días)</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-outdated">—</div>
+                        </div>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-clock fa-lg fa-md-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Críticos / Nunca -->
+        <div class="col-6 col-lg-3 mb-2">
+            <div class="card border-left-danger shadow h-100">
+                <div class="card-body py-2 py-md-3">
+                    <div class="row no-gutters align-items-center">
+                        <div class="col mr-2">
+                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1" style="font-size:.65rem;">Críticos / Sin verif.</div>
+                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-critical">—</div>
+                        </div>
+                        <div class="col-auto d-none d-sm-block">
+                            <i class="fas fa-exclamation-circle fa-lg fa-md-2x text-gray-300"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card shadow mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="row align-items-end g-2">
+
+                <!-- Búsqueda -->
+                <div class="col-12 col-md-4">
+                    <label class="small font-weight-bold mb-1">Buscar</label>
+                    <div class="input-group input-group-sm">
+                        <div class="input-group-prepend">
+                            <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        </div>
+                        <input type="text" id="filter-search" class="form-control form-control-sm"
+                               placeholder="N° inventario, marca, modelo…">
+                    </div>
+                </div>
+
+                <!-- Departamento (solo si can_view_all) -->
+                {% if can_view_all %}
+                <div class="col-12 col-md-3">
+                    <label class="small font-weight-bold mb-1">Departamento</label>
+                    <select id="filter-department" class="form-control form-control-sm">
+                        <option value="">Todos los departamentos</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept.id }}">{{ dept.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+
+                <!-- Estado de verificación -->
+                <div class="col-12 col-md-3">
+                    <label class="small font-weight-bold mb-1">Estado de verificación</label>
+                    <select id="filter-verif-status" class="form-control form-control-sm">
+                        <option value="all">Todos</option>
+                        <option value="recent">Reciente (&lt;30 días)</option>
+                        <option value="outdated">Vencido (30-90 días)</option>
+                        <option value="critical">Crítico (&gt;90 días)</option>
+                        <option value="never">Sin verificar</option>
+                    </select>
+                </div>
+
+                <!-- Botón actualizar -->
+                <div class="col-auto">
+                    <button class="btn btn-primary btn-sm" id="btn-refresh">
+                        <i class="fas fa-sync-alt mr-1"></i>Actualizar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de equipos -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <span class="font-weight-bold small">
+                <i class="fas fa-list mr-1"></i>
+                Equipos
+                <span class="text-muted" id="table-count-label"></span>
+            </span>
+        </div>
+
+        <!-- Estado de carga -->
+        <div id="loading-state" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted small">Cargando equipos…</p>
+        </div>
+
+        <!-- Estado vacío -->
+        <div id="empty-state" class="text-center py-5 d-none">
+            <i class="fas fa-clipboard-check fa-3x text-gray-300 mb-3"></i>
+            <p class="text-muted">No hay equipos que coincidan con los filtros.</p>
+        </div>
+
+        <!-- Tabla -->
+        <div id="table-wrapper" class="d-none">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" id="verif-table">
+                    <thead class="thead-light">
+                        <tr>
+                            <th class="text-nowrap">N° Inventario</th>
+                            <th class="d-none d-md-table-cell">Equipo</th>
+                            <th class="d-none d-lg-table-cell">Departamento</th>
+                            <th class="d-none d-md-table-cell">Ubicación</th>
+                            <th>Última verificación</th>
+                            <th class="d-none d-sm-table-cell">Verificado por</th>
+                            <th>Estado</th>
+                            <th class="text-center">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="verif-tbody">
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Paginación -->
+            <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+                <div class="btn-group btn-group-sm" id="pagination-controls"></div>
+                <span class="small text-muted" id="pagination-info"></span>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /container-fluid -->
+
+
+<!-- ═══════════ MODAL: Verificar Equipo ═══════════ -->
+<div class="modal fade" id="modal-verify" tabindex="-1" role="dialog" aria-labelledby="modalVerifyLabel">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalVerifyLabel">
+                    <i class="fas fa-clipboard-check mr-2"></i>
+                    Verificar Equipo
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Identificación del equipo (solo lectura) -->
+                <div class="verif-item-header mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge badge-secondary" id="verif-item-number">—</span>
+                        <span class="font-weight-bold" id="verif-item-name">—</span>
+                    </div>
+                    <small class="text-muted" id="verif-item-dept">—</small>
+                </div>
+
+                <hr class="mt-1 mb-3">
+
+                <!-- Sección 1: Datos confirmados/editables -->
+                <h6 class="font-weight-bold text-primary mb-2">
+                    <i class="fas fa-edit mr-1"></i>Datos del equipo — Editar si es necesario
+                </h6>
+                <div class="row">
+                    <div class="col-12 col-md-6 mb-2">
+                        <label class="small font-weight-bold">Ubicación actual</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-location"
+                               placeholder="Aula 201, Lab 3 - Estación 5…" maxlength="200">
+                        <small class="text-muted">Ubicación a confirmar / corregir</small>
+                    </div>
+                    <div class="col-12 col-md-6 mb-2">
+                        <label class="small font-weight-bold">Estado del equipo</label>
+                        <select class="form-control form-control-sm" id="verif-status">
+                            <option value="ACTIVE">Activo</option>
+                            <option value="MAINTENANCE">En mantenimiento</option>
+                            <option value="DAMAGED">Dañado</option>
+                            <option value="LOST">Extraviado</option>
+                            <option value="RETIRED">Dado de baja</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4 mb-2">
+                        <label class="small font-weight-bold">Marca</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-brand"
+                               placeholder="HP, Dell, Lenovo…" maxlength="100">
+                    </div>
+                    <div class="col-12 col-md-4 mb-2">
+                        <label class="small font-weight-bold">Modelo</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-model"
+                               placeholder="OptiPlex 7090…" maxlength="100">
+                    </div>
+                    <div class="col-12 col-md-4 mb-2">
+                        <label class="small font-weight-bold">N° de serie</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-serial"
+                               placeholder="SN12345…" maxlength="100">
+                    </div>
+                    <div class="col-12 col-md-6 mb-2">
+                        <label class="small font-weight-bold">Grupo (Salón / Lab / Oficina)</label>
+                        <select class="form-control form-control-sm" id="verif-group">
+                            <option value="">Sin grupo</option>
+                        </select>
+                        <small class="text-muted" id="verif-group-hint"></small>
+                    </div>
+                </div>
+
+                <!-- Sección 2: Especificaciones técnicas (dinámica por categoría) -->
+                <div id="specs-section" class="d-none mt-3">
+                    <h6 class="font-weight-bold text-primary mb-0 d-flex align-items-center justify-content-between">
+                        <span><i class="fas fa-microchip mr-1"></i>Especificaciones técnicas</span>
+                        <button type="button" id="btn-toggle-specs" class="btn btn-link btn-sm p-0 text-primary">
+                            <small id="specs-toggle-text">Mostrar</small>
+                            <i class="fas fa-chevron-down fa-xs ml-1" id="specs-toggle-icon"></i>
+                        </button>
+                    </h6>
+                    <div id="specs-collapse" class="d-none">
+                        <div class="row mt-2" id="specs-fields-container">
+                            <!-- Campos dinámicos generados por verification.js -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sección 3: Observaciones -->
+                <h6 class="font-weight-bold text-primary mb-2 mt-3">
+                    <i class="fas fa-comment mr-1"></i>Observaciones
+                </h6>
+                <textarea class="form-control form-control-sm" id="verif-observations"
+                          rows="3"
+                          placeholder="Estado físico, daños visibles, accesorios presentes, notas adicionales…"></textarea>
+
+                <!-- Indicador de cambios detectados -->
+                <div class="alert alert-info alert-sm mt-3 d-none" id="changes-alert">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    <span id="changes-msg"></span>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">
+                    <i class="fas fa-times mr-1"></i>Cancelar
+                </button>
+                <button type="button" class="btn btn-success btn-sm" id="btn-confirm-verify">
+                    <i class="fas fa-check mr-1"></i>
+                    <span id="btn-verify-label">Registrar Verificación</span>
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════ MODAL: Historial de verificaciones ═══════════ -->
+<div class="modal fade" id="modal-history" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-history mr-2"></i>Historial de verificaciones
+                    <small class="text-muted ml-2" id="history-item-name"></small>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="history-loading" class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                </div>
+                <div id="history-empty" class="text-center py-4 d-none text-muted">
+                    <i class="fas fa-clipboard fa-2x mb-2"></i>
+                    <p>Este equipo no tiene verificaciones registradas.</p>
+                </div>
+                <ul class="list-group list-group-flush" id="history-list"></ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Datos del servidor para JS -->
+<script>
+    const VERIF_CONFIG = {
+        canViewAll: {{ 'true' if can_view_all else 'false' }},
+        apiBase: '/api/help-desk/v2/inventory/verification',
+    };
+</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/verification.js') }}?v={{ sv('helpdesk', 'js/inventory/verification.js') }}"></script>
+{% endblock %}

@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def _get_upload_folder():
-    from itcj2.config import Settings
-    return os.getenv("HELPDESK_UPLOAD_PATH", Settings.HELPDESK_UPLOAD_PATH)
+    from itcj2.config import get_settings
+    return get_settings().HELPDESK_UPLOAD_PATH
 
 
 @router.post("/ticket/{ticket_id}", status_code=201)
@@ -31,11 +31,12 @@ def upload_attachment(
     from itcj2.apps.helpdesk.services import ticket_service
     from itcj2.apps.helpdesk.services import file_validation_service as fvs
     from itcj2.apps.helpdesk.models import Attachment
-    from itcj2.config import Settings
+    from itcj2.config import get_settings
     from itcj2.apps.helpdesk.utils.timezone_utils import now_local
     from werkzeug.utils import secure_filename
 
     user_id = int(user["sub"])
+    s = get_settings()
     UPLOAD_FOLDER = _get_upload_folder()
 
     if attachment_type not in ("ticket", "resolution", "comment"):
@@ -45,11 +46,11 @@ def upload_attachment(
         raise HTTPException(400, detail={"error": "missing_comment_id", "message": "comment_id es requerido para adjuntos de comentario"})
 
     if attachment_type == "ticket":
-        allowed_ext = Settings.HELPDESK_ALLOWED_EXTENSIONS
+        allowed_ext = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(','))
     else:
-        allowed_ext = Settings.HELPDESK_ALLOWED_EXTENSIONS | Settings.HELPDESK_ALLOWED_DOC_EXTENSIONS
+        allowed_ext = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(',')) | set(s.HELPDESK_ALLOWED_DOC_EXTENSIONS.split(','))
 
-    is_valid, result = fvs.validate_and_get_file_info(file.file, allowed_extensions=allowed_ext)
+    is_valid, result = fvs.validate_and_get_file_info(file, allowed_extensions=allowed_ext)
     if not is_valid:
         raise HTTPException(400, detail={"error": "invalid_file", "message": result})
 
@@ -59,20 +60,20 @@ def upload_attachment(
 
         if attachment_type == "resolution":
             existing_count = db.query(Attachment).filter_by(ticket_id=ticket_id, attachment_type="resolution").count()
-            if existing_count >= Settings.HELPDESK_MAX_RESOLUTION_FILES:
-                raise HTTPException(400, detail={"error": "limit_reached", "message": f"Máximo {Settings.HELPDESK_MAX_RESOLUTION_FILES} archivos de resolución"})
+            if existing_count >= s.HELPDESK_MAX_RESOLUTION_FILES:
+                raise HTTPException(400, detail={"error": "limit_reached", "message": f"Máximo {s.HELPDESK_MAX_RESOLUTION_FILES} archivos de resolución"})
 
         elif attachment_type == "comment" and comment_id:
             existing_count = db.query(Attachment).filter_by(comment_id=comment_id, attachment_type="comment").count()
-            if existing_count >= Settings.HELPDESK_MAX_COMMENT_FILES:
-                raise HTTPException(400, detail={"error": "limit_reached", "message": f"Máximo {Settings.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
+            if existing_count >= s.HELPDESK_MAX_COMMENT_FILES:
+                raise HTTPException(400, detail={"error": "limit_reached", "message": f"Máximo {s.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
 
         original_filename = secure_filename(file.filename)
         extension = result["extension"]
         is_img = result["is_image"]
 
         if attachment_type == "comment" and is_img:
-            seq = fvs.get_next_comment_image_number(ticket_id)
+            seq = fvs.get_next_comment_image_number(db, ticket_id)
             store_filename = f"{ticket.ticket_number}_{seq}.jpg"
             folder = os.path.join(UPLOAD_FOLDER, "comments", ticket.ticket_number)
         elif attachment_type == "resolution":

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from itcj2.dependencies import get_current_user_optional, get_db
 from itcj2.templates import render
 
-router = APIRouter(prefix="/auth", tags=["core-pages"])
+router = APIRouter(prefix="", tags=["core-pages"])
 
 
 @router.get("/login", name="core.pages.auth.login", response_model=None)

@@ -162,11 +162,14 @@
                     </div>
 
                     <div class="form-group">
-                        <label class="required-field">Departamento</label>
-                        <select class="form-control" id="department-id" name="department_id" required>
-                            <option value="">Seleccionar departamento...</option>
+                        <label>Departamento</label>
+                        <select class="form-control" id="department-id" name="department_id">
+                            <option value="">Sin asignar (Limbo CC)</option>
                             <!-- Se llenará con JavaScript -->
                         </select>
+                        <small class="form-text text-muted">
+                            <i class="fas fa-info-circle"></i> Si no seleccionas departamento, el equipo quedará pendiente de asignación en el Centro de Cómputo
+                        </small>
                     </div>
 
                     <div class="form-group">

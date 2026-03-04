@@ -64,13 +64,15 @@ async def create_ticket(
         custom_fields = data.get("custom_fields", {})
         custom_field_files = {}
         for key in form:
-            if key.startswith("custom_field_") and not key.startswith("custom_field_file_"):
-                field_key = key.replace("custom_field_", "")
-                custom_fields[field_key] = form[key]
-        for key in form:
-            if key.startswith("custom_field_") and hasattr(form[key], "read"):
-                field_key = key.replace("custom_field_", "")
-                custom_field_files[field_key] = form[key]
+            if not key.startswith("custom_field_"):
+                continue
+            field_key = key.replace("custom_field_", "", 1)
+            value = form[key]
+            if hasattr(value, "read"):
+                # Es un archivo (UploadFile) — va a custom_field_files, no a custom_fields
+                custom_field_files[field_key] = value
+            else:
+                custom_fields[field_key] = value
     else:
         data = await request.json()
         photo_file = None

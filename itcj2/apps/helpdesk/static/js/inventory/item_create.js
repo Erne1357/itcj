@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Formulario de Crear/Editar Equipo
  * Maneja campos dinámicos según categoría seleccionada y modo individual/masivo
  */
@@ -176,7 +176,7 @@ async function loadDepartments() {
         allDepartments = result.data;
 
         const select = document.getElementById('department-id');
-        select.innerHTML = '<option value="">Seleccionar departamento...</option>';
+        select.innerHTML = '<option value="">Sin asignar (Limbo CC)</option>';
 
         allDepartments.forEach(dept => {
             const option = document.createElement('option');
@@ -455,12 +455,13 @@ async function handleSubmit(e) {
 
 function collectFormData() {
     const form = document.getElementById('create-item-form');
+    const deptValue = form.querySelector('#department-id').value;
     const formData = {
         category_id: parseInt(form.querySelector('#category-id').value),
         brand: form.querySelector('#brand').value.trim() || null,
         model: form.querySelector('#model').value.trim() || null,
         serial_number: form.querySelector('#serial-number').value.trim() || null,
-        department_id: parseInt(form.querySelector('#department-id').value),
+        department_id: deptValue ? parseInt(deptValue) : null,
         location_detail: form.querySelector('#location-detail').value.trim() || null,
         acquisition_date: form.querySelector('#acquisition-date').value || null,
         warranty_expiration: form.querySelector('#warranty-expiration').value || null,
@@ -506,11 +507,7 @@ function validateFormData(data) {
         return false;
     }
 
-    if (!data.department_id) {
-        showError('Debe seleccionar un departamento');
-        return false;
-    }
-
+    // department_id es opcional: si no se selecciona, va al limbo del CC
     return true;
 }
 

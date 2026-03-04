@@ -10,8 +10,10 @@ config = context.config
 fileConfig(config.config_file_name)
 logger = logging.getLogger("alembic.env")
 
-# DATABASE_URL desde variable de entorno (anula alembic.ini si está definida)
-database_url = os.getenv("DATABASE_URL")
+# Preferir MIGRATE_DATABASE_URL (conexión directa a Postgres, sin pgBouncer)
+# para evitar problemas de DDL con pool_mode=transaction.
+# Si no está definida, usar DATABASE_URL como fallback.
+database_url = os.getenv("MIGRATE_DATABASE_URL") or os.getenv("DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 

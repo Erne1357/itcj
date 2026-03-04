@@ -53,8 +53,10 @@ services:
     volumes:
       - ../../:/app
     depends_on:
-      - pgbouncer
-      - redis
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_started
     # --reload para hot-reload en desarrollo
     command: uvicorn asgi:app --host 0.0.0.0 --port 8001 --reload --log-level info
     #ports:

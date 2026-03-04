@@ -65,12 +65,32 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.tickets.page.list_all"
         },
 
-        # ==================== DOCUMENTOS ====================
+        # ==================== REPORTES (DROPDOWN) ====================
         {
-            "label": "Documentos",
-            "endpoint": "helpdesk_pages.admin_pages.documents",
-            "icon": "fa-file-pdf",
-            "permission": "helpdesk.documents.page.list"
+            "label": "Reportes",
+            "endpoint": "#",
+            "icon": "fa-chart-bar",
+            "permission": "helpdesk.stats.page.list",
+            "dropdown": [
+                {
+                    "label": "Estadísticas",
+                    "endpoint": "helpdesk_pages.admin_pages.stats",
+                    "icon": "fa-chart-pie",
+                    "permission": "helpdesk.stats.page.list"
+                },
+                {
+                    "label": "Análisis de Datos",
+                    "endpoint": "helpdesk_pages.admin_pages.analysis",
+                    "icon": "fa-brain",
+                    "permission": "helpdesk.stats.page.list"
+                },
+                {
+                    "label": "Documentos",
+                    "endpoint": "helpdesk_pages.admin_pages.documents",
+                    "icon": "fa-file-pdf",
+                    "permission": "helpdesk.documents.page.list"
+                },
+            ]
         },
 
         # ==================== INVENTARIO (UNIFICADO) ====================
@@ -117,6 +137,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "permission": "helpdesk.inventory.page.pending"
                 },
                 {
+                    "label": "Verificación",
+                    "endpoint": "helpdesk_pages.inventory_pages.verification",
+                    "icon": "fa-clipboard-check",
+                    "permission": "helpdesk.inventory.page.verification"
+                },
+                {
                     "label": "Asignar Equipos",
                     "endpoint": "helpdesk_pages.inventory_pages.assign_equipment",
                     "icon": "fa-user-plus",
@@ -124,26 +150,9 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                 },
                 {
                     "label": "Reportes",
-                    "endpoint": "#",
+                    "endpoint": "helpdesk_pages.inventory_pages.reports",
                     "icon": "fa-chart-bar",
-                    "permission": "helpdesk.inventory.page.reports",
-                    "submenu": [
-                        {
-                            "label": "Garantías",
-                            "endpoint": "helpdesk_pages.inventory_pages.warranty_report",
-                            "icon": "fa-shield-alt"
-                        },
-                        {
-                            "label": "Mantenimientos",
-                            "endpoint": "helpdesk_pages.inventory_pages.maintenance_report",
-                            "icon": "fa-tools"
-                        },
-                        {
-                            "label": "Ciclo de Vida",
-                            "endpoint": "helpdesk_pages.inventory_pages.lifecycle_report",
-                            "icon": "fa-history"
-                        }
-                    ]
+                    "permission": "helpdesk.inventory.page.reports"
                 }
             ]
         }

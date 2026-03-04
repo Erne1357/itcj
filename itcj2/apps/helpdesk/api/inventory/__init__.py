@@ -11,6 +11,8 @@ from .pending import router as pending_router
 from .selection import router as selection_router
 from .stats import router as stats_router
 from .bulk import router as bulk_router
+from .reports import router as reports_router
+from .verification import router as verification_router
 
 inventory_router = APIRouter(tags=["helpdesk-inventory"])
 
@@ -24,3 +26,5 @@ inventory_router.include_router(pending_router, prefix="/pending")
 inventory_router.include_router(selection_router, prefix="/selection")
 inventory_router.include_router(stats_router, prefix="/stats")
 inventory_router.include_router(bulk_router, prefix="/bulk")
+inventory_router.include_router(reports_router, prefix="/reports")
+inventory_router.include_router(verification_router, prefix="/verification")

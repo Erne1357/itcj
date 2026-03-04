@@ -1,4 +1,4 @@
-class ProfileManager {
+﻿class ProfileManager {
     constructor() {
         this.apiBase = '/api/core/v2';
         this.currentFilter = 'all';
@@ -261,19 +261,20 @@ class ProfileManager {
         let hasAppFilters = false;
         Object.entries(appCounts).forEach(([appName, count]) => {
             const appKey = this.getAppKey(appName);
+            const displayName = this.getAppDisplayName(appKey);
             const filterId = `notif${appKey.charAt(0).toUpperCase() + appKey.slice(1)}`;
-            
+
             // Check if filter already exists
             if (!document.getElementById(filterId)) {
                 hasAppFilters = true;
                 const html = `
                     <input type="radio" class="btn-check" name="notifFilter" id="${filterId}">
                     <label class="btn btn-outline-secondary" for="${filterId}">
-                        ${appName} <span class="badge app-badge-${appKey} ms-1">${count}</span>
+                        ${displayName} <span class="badge app-badge-${appKey} ms-1">${count}</span>
                     </label>
                 `;
                 filterGroup.insertAdjacentHTML('beforeend', html);
-                
+
                 // Bind event
                 document.getElementById(filterId).addEventListener('change', (e) => {
                     this.currentFilter = appKey;
@@ -458,13 +459,28 @@ class ProfileManager {
     }
 
     getAppKey(appName) {
+        // Handles both raw keys and display names
+        const rawKeys = ['core', 'agendatec', 'helpdesk', 'vistetec', 'inventory', 'tickets'];
+        if (rawKeys.includes(appName)) return appName;
         const mapping = {
             'ITCJ Core': 'core',
             'AgendaTec': 'agendatec',
             'Help Desk': 'helpdesk',
+            'VisteTec': 'vistetec',
             'Tickets': 'tickets'
         };
         return mapping[appName] || 'other';
+    }
+
+    getAppDisplayName(appKey) {
+        const names = {
+            'agendatec': 'AgendaTec',
+            'helpdesk': 'Help Desk',
+            'vistetec': 'VisteTec',
+            'inventory': 'Inventario',
+            'core': 'Sistema',
+        };
+        return names[appKey] || appKey;
     }
 
     getAppKeyFromName(appName) {

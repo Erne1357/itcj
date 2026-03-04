@@ -53,12 +53,13 @@ async def add_comment(
     from itcj2.apps.helpdesk.services import ticket_service
     from itcj2.apps.helpdesk.services import file_validation_service as fvs
     from itcj2.apps.helpdesk.models import Attachment
-    from itcj2.config import Settings
+    from itcj2.config import get_settings
     from werkzeug.utils import secure_filename
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    UPLOAD_FOLDER = os.getenv("HELPDESK_UPLOAD_PATH", Settings.HELPDESK_UPLOAD_PATH)
+    s = get_settings()
+    UPLOAD_FOLDER = s.HELPDESK_UPLOAD_PATH
 
     content_type = request.headers.get("content-type", "")
 
@@ -90,14 +91,14 @@ async def add_comment(
         if not can_create_internal:
             raise HTTPException(403, detail={"error": "forbidden_internal", "message": "No tienes permiso para crear notas internas"})
 
-    if len(files) > Settings.HELPDESK_MAX_COMMENT_FILES:
-        raise HTTPException(400, detail={"error": "too_many_files", "message": f"Máximo {Settings.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
+    if len(files) > s.HELPDESK_MAX_COMMENT_FILES:
+        raise HTTPException(400, detail={"error": "too_many_files", "message": f"Máximo {s.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
 
     # Pre-validate files
-    allowed_ext = Settings.HELPDESK_ALLOWED_EXTENSIONS | Settings.HELPDESK_ALLOWED_DOC_EXTENSIONS
+    allowed_ext = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(',')) | set(s.HELPDESK_ALLOWED_DOC_EXTENSIONS.split(','))
     validated_files = []
     for f in files:
-        is_valid, result = fvs.validate_and_get_file_info(f.file, allowed_extensions=allowed_ext)
+        is_valid, result = fvs.validate_and_get_file_info(f, allowed_extensions=allowed_ext)
         if not is_valid:
             raise HTTPException(400, detail={"error": "invalid_file", "message": f"{f.filename}: {result}"})
         validated_files.append((f, result))
@@ -113,6 +114,13 @@ async def add_comment(
     ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=False)
     saved_files = []
 
+    # Calcular el offset de imágenes existentes UNA vez antes del loop, luego
+    # incrementar con un contador local para evitar que el query devuelva el
+    # mismo número cuando se suben varias imágenes en el mismo request
+    # (los inserts no están commiteados hasta después del loop).
+    existing_image_count = fvs.get_next_comment_image_number(db, ticket_id) - 1
+    img_counter = 0
+
     for f, info in validated_files:
         try:
             original_filename = secure_filename(f.filename)
@@ -121,7 +129,8 @@ async def add_comment(
             os.makedirs(folder, exist_ok=True)
 
             if is_img:
-                seq = fvs.get_next_comment_image_number(ticket_id)
+                img_counter += 1
+                seq = existing_image_count + img_counter
                 store_filename = f"{ticket.ticket_number}_{seq}.jpg"
                 filepath = os.path.join(folder, store_filename)
                 f.file.seek(0)
