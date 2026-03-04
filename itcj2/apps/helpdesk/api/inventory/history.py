@@ -39,7 +39,7 @@ def get_item_history(
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver el historial de este equipo"})
 
     event_types_list = event_types.split(",") if event_types else None
-    history = InventoryHistoryService.get_item_history(item_id=item_id, limit=limit, event_types=event_types_list)
+    history = InventoryHistoryService.get_item_history(db, item_id=item_id, limit=limit, event_types=event_types_list)
     history_data = [h.to_dict(include_relations=True) for h in history]
 
     return {
@@ -75,7 +75,7 @@ def get_recent_events(
         else:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver eventos recientes"})
 
-    events = InventoryHistoryService.get_recent_events(department_id=dept_filter, days=days, limit=limit)
+    events = InventoryHistoryService.get_recent_events(db, department_id=dept_filter, days=days, limit=limit)
     events_data = [e.to_dict(include_relations=True) for e in events]
 
     return {
@@ -99,7 +99,7 @@ def get_user_assignment_history(
     if not target:
         raise HTTPException(404, detail={"success": False, "error": "Usuario no encontrado"})
 
-    events = InventoryHistoryService.get_assignment_history(target_user_id)
+    events = InventoryHistoryService.get_assignment_history(db, target_user_id)
     events_data = [e.to_dict(include_relations=True) for e in events]
 
     return {
@@ -140,7 +140,7 @@ def get_maintenance_history(
             if item.assigned_to_user_id != user_id:
                 raise HTTPException(403, detail={"success": False, "error": "Sin permiso"})
 
-    maintenance_events = InventoryHistoryService.get_maintenance_history(item_id)
+    maintenance_events = InventoryHistoryService.get_maintenance_history(db, item_id)
     events_data = [e.to_dict(include_relations=True) for e in maintenance_events]
 
     return {
@@ -157,7 +157,7 @@ def get_transfers(
 ):
     from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
-    transfers = InventoryHistoryService.get_transfers_between_departments(days)
+    transfers = InventoryHistoryService.get_transfers_between_departments(db, days)
     transfers_data = [t.to_dict(include_relations=True) for t in transfers]
 
     return {"success": True, "data": transfers_data, "total": len(transfers_data), "filters": {"days": days}}

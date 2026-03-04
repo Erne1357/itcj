@@ -31,6 +31,7 @@ def list_available_slots(
     parsed_to = datetime.fromisoformat(to_date).date() if to_date else None
 
     slots = time_slot_service.get_available_slots(
+        db,
         from_date=parsed_from,
         to_date=parsed_to,
         location_id=location_id,
@@ -53,6 +54,7 @@ def list_all_slots(
     parsed_to = datetime.fromisoformat(to_date).date() if to_date else None
 
     slots = time_slot_service.get_all_slots(
+        db,
         from_date=parsed_from,
         to_date=parsed_to,
         location_id=location_id,
@@ -62,7 +64,7 @@ def list_all_slots(
     result = []
     for s in slots:
         data = s.to_dict(include_volunteers=True)
-        data["is_signed_up"] = time_slot_service.is_volunteer_signed_up(s.id, volunteer_id)
+        data["is_signed_up"] = time_slot_service.is_volunteer_signed_up(db, s.id, volunteer_id)
         result.append(data)
 
     return result
@@ -85,6 +87,7 @@ def get_calendar_slots(
         )
 
     return time_slot_service.get_slots_for_date_range(
+        db,
         datetime.fromisoformat(from_date).date(),
         datetime.fromisoformat(to_date).date(),
     )
@@ -98,7 +101,7 @@ def list_locations(
     """Lista ubicaciones disponibles."""
     from itcj2.apps.vistetec.services import time_slot_service
 
-    locations = time_slot_service.get_locations()
+    locations = time_slot_service.get_locations(db)
     return [loc.to_dict() for loc in locations]
 
 
@@ -112,6 +115,7 @@ def list_my_signups(
     from itcj2.apps.vistetec.services import time_slot_service
 
     slots = time_slot_service.get_volunteer_signups(
+        db,
         volunteer_id=int(user["sub"]),
         include_past=include_past,
     )
@@ -136,6 +140,7 @@ def create_schedule(
         end_time = datetime.strptime(body.end_time, "%H:%M").time()
 
         slots = time_slot_service.create_schedule_slots(
+            db,
             created_by_id=int(user["sub"]),
             start_date=start_date,
             end_date=end_date,
@@ -165,6 +170,7 @@ def signup_for_slot(
 
     try:
         sv = time_slot_service.signup_volunteer(
+            db,
             slot_id=slot_id,
             volunteer_id=int(user["sub"]),
         )
@@ -184,6 +190,7 @@ def unsignup_from_slot(
 
     try:
         time_slot_service.unsignup_volunteer(
+            db,
             slot_id=slot_id,
             volunteer_id=int(user["sub"]),
         )
@@ -215,6 +222,7 @@ def update_slot(
             data["end_time"] = datetime.strptime(data["end_time"], "%H:%M").time()
 
         slot = time_slot_service.update_slot(
+            db,
             slot_id=slot_id,
             user_id=int(user["sub"]),
             **data,
@@ -235,6 +243,7 @@ def cancel_slot(
 
     try:
         slot = time_slot_service.cancel_slot(
+            db,
             slot_id=slot_id,
             user_id=int(user["sub"]),
         )

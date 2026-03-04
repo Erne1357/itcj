@@ -19,7 +19,7 @@ def get_pending_items(
 ):
     from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
 
-    items = InventoryPendingService.get_pending_items(category_id)
+    items = InventoryPendingService.get_pending_items(db, category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items]}
 
 
@@ -30,7 +30,7 @@ def get_pending_stats(
 ):
     from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
 
-    stats = InventoryPendingService.get_pending_stats()
+    stats = InventoryPendingService.get_pending_stats(db)
     return {"success": True, "stats": stats}
 
 
@@ -51,7 +51,7 @@ def assign_to_department(
 
     try:
         assigned_items = InventoryPendingService.assign_to_department(
-            body["item_ids"], body["department_id"], user_id,
+            db, body["item_ids"], body["department_id"], user_id,
             body.get("location_detail"), body.get("notes"),
         )
         return {

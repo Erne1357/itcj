@@ -40,7 +40,7 @@ def my_requests(
     """
     student = _get_student(user, db)
     service = get_request_service()
-    return service.get_student_requests(student)
+    return service.get_student_requests(db, student)
 
 
 # ==================== POST / ====================
@@ -62,6 +62,7 @@ def create_request(
 
     if body.type == "DROP":
         result = service.create_drop_request(
+            db,
             student=student,
             program_id=body.program_id,
             description=body.description,
@@ -70,6 +71,7 @@ def create_request(
         if not body.slot_id:
             raise HTTPException(status_code=400, detail="slot_id_required")
         result = service.create_appointment_request(
+            db,
             student=student,
             program_id=body.program_id,
             slot_id=body.slot_id,
@@ -115,7 +117,7 @@ def cancel_request(
         raise HTTPException(status_code=404, detail="request_not_found")
 
     service = get_request_service()
-    result = service.cancel_request(request_obj, student)
+    result = service.cancel_request(db, request_obj, student)
 
     if result.success:
         return {"ok": True}

@@ -90,16 +90,17 @@ def save_garment_image(file, garment_code):
         )
 
     max_size = s.VISTETEC_MAX_IMAGE_SIZE
-    file.seek(0, os.SEEK_END)
-    size = file.tell()
-    file.seek(0)
+    raw = file.file
+    raw.seek(0, os.SEEK_END)
+    size = raw.tell()
+    raw.seek(0)
 
     if size > max_size:
         max_mb = max_size / (1024 * 1024)
         raise ValueError(f'El archivo excede el tamaño máximo de {max_mb:.0f} MB.')
 
     try:
-        compressed, ext = _compress_image(file)
+        compressed, ext = _compress_image(raw)
     except Exception as e:
         raise ValueError(f'Error al procesar la imagen: {str(e)}')
 

@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from itcj2.apps.vistetec.models.donation import Donation
+from itcj2.apps.vistetec.models.donation import VTDonation as Donation
 from itcj2.apps.vistetec.models.garment import Garment
 from itcj2.models.base import paginate
 

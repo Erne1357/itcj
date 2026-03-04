@@ -53,12 +53,12 @@ async def add_comment(
     from itcj2.apps.helpdesk.services import ticket_service
     from itcj2.apps.helpdesk.services import file_validation_service as fvs
     from itcj2.apps.helpdesk.models import Attachment
-    from itcj2.config import Config
+    from itcj2.config import Settings
     from werkzeug.utils import secure_filename
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    UPLOAD_FOLDER = os.getenv("HELPDESK_UPLOAD_PATH", Config.HELPDESK_UPLOAD_PATH)
+    UPLOAD_FOLDER = os.getenv("HELPDESK_UPLOAD_PATH", Settings.HELPDESK_UPLOAD_PATH)
 
     content_type = request.headers.get("content-type", "")
 
@@ -90,14 +90,14 @@ async def add_comment(
         if not can_create_internal:
             raise HTTPException(403, detail={"error": "forbidden_internal", "message": "No tienes permiso para crear notas internas"})
 
-    if len(files) > Config.HELPDESK_MAX_COMMENT_FILES:
-        raise HTTPException(400, detail={"error": "too_many_files", "message": f"Máximo {Config.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
+    if len(files) > Settings.HELPDESK_MAX_COMMENT_FILES:
+        raise HTTPException(400, detail={"error": "too_many_files", "message": f"Máximo {Settings.HELPDESK_MAX_COMMENT_FILES} archivos por comentario"})
 
     # Pre-validate files
-    allowed_ext = Config.HELPDESK_ALLOWED_EXTENSIONS | Config.HELPDESK_ALLOWED_DOC_EXTENSIONS
+    allowed_ext = Settings.HELPDESK_ALLOWED_EXTENSIONS | Settings.HELPDESK_ALLOWED_DOC_EXTENSIONS
     validated_files = []
     for f in files:
-        is_valid, result = fvs.validate_and_get_file_info(f, allowed_extensions=allowed_ext)
+        is_valid, result = fvs.validate_and_get_file_info(f.file, allowed_extensions=allowed_ext)
         if not is_valid:
             raise HTTPException(400, detail={"error": "invalid_file", "message": f"{f.filename}: {result}"})
         validated_files.append((f, result))
@@ -124,7 +124,8 @@ async def add_comment(
                 seq = fvs.get_next_comment_image_number(ticket_id)
                 store_filename = f"{ticket.ticket_number}_{seq}.jpg"
                 filepath = os.path.join(folder, store_filename)
-                compressed, file_size = fvs.compress_image_for_helpdesk(f)
+                f.file.seek(0)
+                compressed, file_size = fvs.compress_image_for_helpdesk(f.file)
                 with open(filepath, "wb") as out:
                     out.write(compressed.read())
                 mime_type = "image/jpeg"
@@ -136,7 +137,9 @@ async def add_comment(
                     store_filename = f"{base}_{counter}{ext}"
                     counter += 1
                 filepath = os.path.join(folder, store_filename)
-                f.save(filepath)
+                f.file.seek(0)
+                with open(filepath, "wb") as out:
+                    out.write(f.file.read())
                 file_size = info["size"]
                 mime_type = f.content_type
 

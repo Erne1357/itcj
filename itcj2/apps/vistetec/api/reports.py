@@ -31,7 +31,7 @@ def get_dashboard_summary(
     """Resumen general para el dashboard."""
     from itcj2.apps.vistetec.services import reports_service
 
-    return reports_service.get_dashboard_summary()
+    return reports_service.get_dashboard_summary(db)
 
 
 @router.get("/garments")
@@ -45,6 +45,7 @@ def get_garment_report(
     from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_garment_report(
+        db,
         date_from=_parse_date(date_from),
         date_to=_parse_date(date_to),
     )
@@ -61,6 +62,7 @@ def get_donation_report(
     from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_donation_report(
+        db,
         date_from=_parse_date(date_from),
         date_to=_parse_date(date_to),
     )
@@ -77,6 +79,7 @@ def get_appointment_report(
     from itcj2.apps.vistetec.services import reports_service
 
     return reports_service.get_appointment_report(
+        db,
         date_from=_parse_date(date_from),
         date_to=_parse_date(date_to),
     )
@@ -91,4 +94,4 @@ def get_recent_activity(
     """Actividad reciente configurable por límite."""
     from itcj2.apps.vistetec.services import reports_service
 
-    return reports_service.get_recent_activity(limit=limit)
+    return reports_service.get_recent_activity(db, limit=limit)

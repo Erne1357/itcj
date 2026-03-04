@@ -62,6 +62,7 @@ def list_donations(
     from itcj2.apps.vistetec.services import donation_service
 
     return donation_service.get_donations(
+        db,
         donation_type=type,
         page=page,
         per_page=per_page,
@@ -79,6 +80,7 @@ def list_my_donations(
     from itcj2.apps.vistetec.services import donation_service
 
     return donation_service.get_my_donations(
+        db,
         user_id=user["sub"],
         page=page,
         per_page=per_page,
@@ -95,7 +97,7 @@ def get_donation_stats(
     from itcj2.apps.vistetec.services import donation_service
 
     donor_id = user["sub"] if mine else None
-    return donation_service.get_donation_stats(donor_id=donor_id)
+    return donation_service.get_donation_stats(db, donor_id=donor_id)
 
 
 @router.get("/top-donors")
@@ -107,7 +109,7 @@ def get_top_donors(
     """Top donadores."""
     from itcj2.apps.vistetec.services import donation_service
 
-    return donation_service.get_top_donors(limit=limit)
+    return donation_service.get_top_donors(db, limit=limit)
 
 
 @router.get("/recent")
@@ -119,7 +121,7 @@ def get_recent_donations(
     """Donaciones más recientes."""
     from itcj2.apps.vistetec.services import donation_service
 
-    donations = donation_service.get_recent_donations(limit=limit)
+    donations = donation_service.get_recent_donations(db, limit=limit)
     return [d.to_dict(include_relations=True) for d in donations]
 
 
@@ -143,6 +145,7 @@ def register_garment_donation(
 
         if body.garment_id:
             donation = donation_service.register_garment_donation(
+                db,
                 registered_by_id=registered_by_id,
                 garment_id=body.garment_id,
                 donor_id=body.donor_id,
@@ -152,6 +155,7 @@ def register_garment_donation(
         else:
             garment_data = body.garment.model_dump()
             donation = donation_service.register_new_garment_donation(
+                db,
                 registered_by_id=registered_by_id,
                 garment_data=garment_data,
                 donor_id=body.donor_id,
@@ -180,6 +184,7 @@ def register_pantry_donation(
     try:
         registered_by_id = user["sub"]
         donation = donation_service.register_pantry_donation(
+            db,
             registered_by_id=registered_by_id,
             pantry_item_id=body.pantry_item_id,
             quantity=body.quantity,
@@ -206,7 +211,7 @@ def get_donation(
     """Obtiene una donación por ID."""
     from itcj2.apps.vistetec.services import donation_service
 
-    donation = donation_service.get_donation_by_id(donation_id)
+    donation = donation_service.get_donation_by_id(db, donation_id)
     if not donation:
         raise HTTPException(404, detail={"error": "not_found", "message": "Donación no encontrada"})
     return donation.to_dict(include_relations=True)

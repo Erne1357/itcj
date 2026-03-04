@@ -173,6 +173,39 @@ ENDPOINT_MAP: dict[str, str] = {
     # Social
     "agendatec_pages.social_pages.social_home":          "/agendatec/social/home",
 
+    # ── AgendaTec: API ───────────────────────────────────────────────────────
+    # Periods
+    "agendatec_api.api_periods.list_periods":              "/api/agendatec/v2/periods",
+    "agendatec_api.api_periods.create_period":             "/api/agendatec/v2/periods",
+    "agendatec_api.api_periods.get_active_period":         "/api/agendatec/v2/periods/active/info",
+    "agendatec_api.api_periods.get_period":                "/api/agendatec/v2/periods/{period_id}",
+    "agendatec_api.api_periods.update_period":             "/api/agendatec/v2/periods/{period_id}",
+    "agendatec_api.api_periods.activate_period":           "/api/agendatec/v2/periods/{period_id}/activate",
+    "agendatec_api.api_periods.delete_period":             "/api/agendatec/v2/periods/{period_id}",
+    "agendatec_api.api_periods.get_enabled_days":          "/api/agendatec/v2/periods/{period_id}/enabled-days",
+    "agendatec_api.api_periods.set_enabled_days":          "/api/agendatec/v2/periods/{period_id}/enabled-days",
+    "agendatec_api.api_periods.get_period_stats":          "/api/agendatec/v2/periods/{period_id}/stats",
+    # Programs
+    "agendatec_api.api_programs.list_programs":            "/api/agendatec/v2/programs",
+    # Admin Stats
+    "agendatec_api.api_admin.admin_stats.stats_overview":     "/api/agendatec/v2/admin/stats/overview",
+    "agendatec_api.api_admin.admin_stats.stats_coordinators": "/api/agendatec/v2/admin/stats/coordinators",
+    # Admin Requests
+    "agendatec_api.api_admin.admin_requests.admin_list_requests":          "/api/agendatec/v2/admin/requests",
+    "agendatec_api.api_admin.admin_requests.admin_get_request_detail":     "/api/agendatec/v2/admin/requests/{req_id}",
+    "agendatec_api.api_admin.admin_requests.admin_change_request_status":  "/api/agendatec/v2/admin/requests/{req_id}/status",
+    "agendatec_api.api_admin.admin_requests.admin_create_request":         "/api/agendatec/v2/admin/requests/create",
+    # Admin Reports
+    "agendatec_api.api_admin.admin_reports.export_requests_xlsx":  "/api/agendatec/v2/admin/reports/requests.xlsx",
+    # Admin Surveys
+    "agendatec_api.api_admin.admin_surveys.send_surveys":          "/api/agendatec/v2/admin/surveys/send",
+    # Admin Users
+    "agendatec_api.api_admin.admin_users.list_coordinators":             "/api/agendatec/v2/admin/users/coordinators",
+    "agendatec_api.api_admin.admin_users.create_coordinator":            "/api/agendatec/v2/admin/users/coordinators",
+    "agendatec_api.api_admin.admin_users.update_coordinator":            "/api/agendatec/v2/admin/users/coordinators/{coord_id}",
+    "agendatec_api.api_admin.admin_users.list_students":                 "/api/agendatec/v2/admin/users/students",
+    "agendatec_api.api_admin.admin_users.search_users_for_coordinator":  "/api/agendatec/v2/admin/users/search",
+
     # ── VisteTec: Páginas ────────────────────────────────────────────────────
     # Student
     "vistetec_pages.student_pages.catalog":              "/vistetec/student/catalog",

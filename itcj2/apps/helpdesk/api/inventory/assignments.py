@@ -45,6 +45,7 @@ def assign_to_user(
 
     try:
         updated_item = InventoryService.assign_to_user(
+            db,
             item_id=body["item_id"], user_id=body["user_id"], assigned_by_id=assigned_by_id,
             location=body.get("location"), notes=body.get("notes"),
             ip_address=request.client.host if request.client else None,
@@ -90,6 +91,7 @@ def unassign_from_user(
 
     try:
         updated_item = InventoryService.unassign_from_user(
+            db,
             item_id=body["item_id"], unassigned_by_id=unassigned_by_id,
             notes=body.get("notes"),
             ip_address=request.client.host if request.client else None,
@@ -148,6 +150,7 @@ def transfer_between_departments(
         item.department_id = new_dept.id
 
         InventoryHistoryService.log_event(
+            db,
             item_id=item.id, event_type="TRANSFERRED", performed_by_id=user_id,
             old_value={"department_id": item.department_id, "department_name": old_dept_name, "assigned_to_user": old_user},
             new_value={"department_id": new_dept.id, "department_name": new_dept.name, "assigned_to_user": None},
@@ -188,6 +191,7 @@ def bulk_assign(
                 results["failed"].append({"item_id": item_id, "error": "Equipo no encontrado"})
                 continue
             InventoryService.assign_to_user(
+                db,
                 item_id=item_id, user_id=body["user_id"], assigned_by_id=assigned_by_id,
                 notes=body.get("notes"),
                 ip_address=request.client.host if request.client else None,
@@ -240,6 +244,7 @@ def update_location(
         item.location_detail = body["location"]
 
         InventoryHistoryService.log_event(
+            db,
             item_id=item.id, event_type="LOCATION_CHANGED", performed_by_id=user_id,
             old_value={"location": old_location},
             new_value={"location": body["location"]},

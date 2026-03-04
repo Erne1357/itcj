@@ -107,9 +107,10 @@ class CustomFieldsValidator:
         errors = []
         validation = config.get('validation', {})
         if 'maxSize' in validation:
-            file.seek(0, 2)
-            file_size = file.tell()
-            file.seek(0)
+            raw = file.file
+            raw.seek(0, 2)
+            file_size = raw.tell()
+            raw.seek(0)
             if file_size > validation['maxSize']:
                 max_mb = validation['maxSize'] / (1024 * 1024)
                 errors.append(f"{config['label']}: El archivo no debe exceder {max_mb}MB")

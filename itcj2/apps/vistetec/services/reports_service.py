@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
-from itcj2.apps.vistetec.models.appointment import Appointment
-from itcj2.apps.vistetec.models.donation import Donation
+from itcj2.apps.vistetec.models.appointment import VTAppointment as Appointment
+from itcj2.apps.vistetec.models.donation import VTDonation as Donation
 from itcj2.apps.vistetec.models.garment import Garment
 from itcj2.apps.vistetec.models.pantry_campaign import PantryCampaign
 from itcj2.apps.vistetec.models.pantry_item import PantryItem

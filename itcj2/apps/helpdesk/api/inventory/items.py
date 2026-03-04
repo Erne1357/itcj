@@ -101,7 +101,7 @@ def get_my_equipment(
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
     user_id = int(user["sub"])
-    items = InventoryService.get_items_for_user(user_id, category_id)
+    items = InventoryService.get_items_for_user(db, user_id, category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items], "total": len(items)}
 
 
@@ -122,7 +122,7 @@ def get_user_equipment(
     if "admin" not in user_roles and current_user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
         raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para consultar equipos de otros usuarios"})
 
-    items = InventoryService.get_items_for_user(target_user_id, category_id)
+    items = InventoryService.get_items_for_user(db, target_user_id, category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items], "total": len(items)}
 
 
@@ -146,7 +146,7 @@ def get_department_equipment(
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
-    items = InventoryService.get_items_for_department(department_id, include_assigned.lower() == "true")
+    items = InventoryService.get_items_for_department(db, department_id, include_assigned.lower() == "true")
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items], "total": len(items)}
 
 
@@ -279,6 +279,7 @@ def create_item(
 
     try:
         item = InventoryService.create_item(
+            db,
             data=data,
             registered_by_id=user_id,
             ip_address=request.client.host if request.client else None,
@@ -316,6 +317,7 @@ def update_item(
 
     try:
         updated_item = InventoryService.update_item(
+            db,
             item_id=item_id, data=data, updated_by_id=user_id,
             ip_address=request.client.host if request.client else None,
         )
@@ -353,6 +355,7 @@ def change_item_status(
 
     try:
         updated_item = InventoryService.change_status(
+            db,
             item_id=item_id, new_status=body["status"], changed_by_id=user_id,
             notes=body.get("notes"),
             ip_address=request.client.host if request.client else None,
@@ -381,6 +384,7 @@ def deactivate_item(
 
     try:
         item = InventoryService.deactivate_item(
+            db,
             item_id=item_id, deactivated_by_id=user_id, reason=body["reason"],
             ip_address=request.client.host if request.client else None,
         )

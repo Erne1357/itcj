@@ -47,9 +47,10 @@ def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = No
     if file_ext not in allowed_extensions:
         raise ValueError(f'Solo se permiten: {", ".join(allowed_extensions)}')
 
-    photo_file.seek(0, 2)
-    file_size = photo_file.tell()
-    photo_file.seek(0)
+    raw = photo_file.file
+    raw.seek(0, 2)
+    file_size = raw.tell()
+    raw.seek(0)
 
     if file_size > max_size:
         raise ValueError(f'El archivo no debe exceder {max_size // (1024*1024)}MB')
@@ -58,7 +59,7 @@ def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = No
     filepath = os.path.join(upload_path, filename)
 
     try:
-        img = Image.open(photo_file)
+        img = Image.open(raw)
 
         if img.mode in ('RGBA', 'LA', 'P'):
             background = Image.new('RGB', img.size, (255, 255, 255))

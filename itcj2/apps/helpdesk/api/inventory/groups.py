@@ -57,7 +57,7 @@ def get_groups_by_department(
         if not user_dept or user_dept.id != department_id:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver grupos de este departamento"})
 
-    groups = InventoryGroupService.get_groups_by_department(department_id)
+    groups = InventoryGroupService.get_groups_by_department(db, department_id)
     return {"success": True, "data": [g.to_dict(include_capacities=True) for g in groups]}
 
 
@@ -86,7 +86,7 @@ def get_group_items(
 ):
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
-    items = InventoryGroupService.get_group_items(group_id, category_id)
+    items = InventoryGroupService.get_group_items(db, group_id, category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items]}
 
 
@@ -106,7 +106,7 @@ def create_group(
         raise HTTPException(400, detail={"success": False, "error": "Departamento requerido"})
 
     try:
-        group = InventoryGroupService.create_group(body, user_id)
+        group = InventoryGroupService.create_group(db, body, user_id)
         return {"success": True, "message": "Grupo creado exitosamente", "data": group.to_dict(include_capacities=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -125,7 +125,7 @@ def update_group(
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     try:
-        group = InventoryGroupService.update_group(group_id, body)
+        group = InventoryGroupService.update_group(db, group_id, body)
         return {"success": True, "message": "Grupo actualizado exitosamente", "data": group.to_dict(include_capacities=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -147,7 +147,7 @@ def update_capacities(
         raise HTTPException(400, detail={"success": False, "error": "Capacidades requeridas"})
 
     try:
-        group = InventoryGroupService.update_capacities(group_id, body["capacities"])
+        group = InventoryGroupService.update_capacities(db, group_id, body["capacities"])
         return {"success": True, "message": "Capacidades actualizadas exitosamente", "data": group.to_dict(include_capacities=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -165,7 +165,7 @@ def delete_group(
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
     try:
-        InventoryGroupService.delete_group(group_id)
+        InventoryGroupService.delete_group(db, group_id)
         return {"success": True, "message": "Grupo eliminado exitosamente"}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -188,7 +188,7 @@ def assign_item_to_group(
         raise HTTPException(400, detail={"success": False, "error": "item_id requerido"})
 
     try:
-        item = InventoryGroupService.assign_item_to_group(body["item_id"], group_id, user_id)
+        item = InventoryGroupService.assign_item_to_group(db, body["item_id"], group_id, user_id)
         return {"success": True, "message": "Equipo asignado al grupo exitosamente", "data": item.to_dict(include_relations=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -208,7 +208,7 @@ def unassign_item_from_group(
     user_id = int(user["sub"])
 
     try:
-        item = InventoryGroupService.unassign_item_from_group(item_id, user_id)
+        item = InventoryGroupService.unassign_item_from_group(db, item_id, user_id)
         return {"success": True, "message": "Equipo removido del grupo exitosamente", "data": item.to_dict(include_relations=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})

@@ -14,7 +14,7 @@ def get_overview(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    stats = InventoryStatsService.get_overview_stats()
+    stats = InventoryStatsService.get_overview_stats(db)
     return {"success": True, "data": stats}
 
 
@@ -24,7 +24,7 @@ def get_by_category(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    stats = InventoryStatsService.get_by_category()
+    stats = InventoryStatsService.get_by_category(db)
     return {"success": True, "data": stats, "total": len(stats)}
 
 
@@ -34,7 +34,7 @@ def get_by_department(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    stats = InventoryStatsService.get_by_department()
+    stats = InventoryStatsService.get_by_department(db)
     return {"success": True, "data": stats, "total": len(stats)}
 
 
@@ -47,7 +47,7 @@ def get_problematic_items(
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
 
-    problematic = InventoryStatsService.get_problematic_items(min_tickets=min_tickets, days=days)
+    problematic = InventoryStatsService.get_problematic_items(db, min_tickets=min_tickets, days=days)
 
     result = []
     for data in problematic:
@@ -67,7 +67,7 @@ def get_warranty_report(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    report = InventoryStatsService.get_warranty_report()
+    report = InventoryStatsService.get_warranty_report(db)
     return {"success": True, "data": report}
 
 
@@ -77,7 +77,7 @@ def get_maintenance_report(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    report = InventoryStatsService.get_maintenance_report()
+    report = InventoryStatsService.get_maintenance_report(db)
     return {"success": True, "data": report}
 
 
@@ -87,7 +87,7 @@ def get_lifecycle_report(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-    report = InventoryStatsService.get_lifecycle_report()
+    report = InventoryStatsService.get_lifecycle_report(db)
     return {"success": True, "data": report}
 
 

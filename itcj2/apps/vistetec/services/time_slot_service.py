@@ -5,9 +5,9 @@ from typing import Optional
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from itcj2.apps.vistetec.models.location import Location
+from itcj2.apps.vistetec.models.location import VTLocation as Location
 from itcj2.apps.vistetec.models.slot_volunteer import SlotVolunteer
-from itcj2.apps.vistetec.models.time_slot import TimeSlot
+from itcj2.apps.vistetec.models.time_slot import VTTimeSlot as TimeSlot
 
 
 # ==================== SLOT QUERIES ====================

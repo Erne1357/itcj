@@ -31,6 +31,7 @@ def list_my_appointments(
     from itcj2.apps.vistetec.services import appointment_service
 
     appointments = appointment_service.get_student_appointments(
+        db,
         student_id=user["sub"],
         status=status,
         include_past=include_past,
@@ -49,6 +50,7 @@ def create_appointment(
 
     try:
         appointment = appointment_service.create_appointment(
+            db,
             student_id=user["sub"],
             garment_id=body.garment_id,
             slot_id=body.slot_id,
@@ -74,6 +76,7 @@ def cancel_my_appointment(
 
     try:
         appointment = appointment_service.cancel_appointment(
+            db,
             appointment_id=appointment_id,
             user_id=int(user["sub"]),
             is_volunteer=False,
@@ -101,6 +104,7 @@ def list_volunteer_appointments(
     date_filter = datetime.fromisoformat(date).date() if date else None
 
     appointments = appointment_service.get_volunteer_appointments(
+        db,
         volunteer_id=user["sub"],
         date_filter=date_filter,
         status=status,
@@ -116,7 +120,7 @@ def list_today_appointments(
     """Lista citas de hoy para el voluntario."""
     from itcj2.apps.vistetec.services import appointment_service
 
-    appointments = appointment_service.get_today_appointments_for_volunteer(user["sub"])
+    appointments = appointment_service.get_today_appointments_for_volunteer(db, user["sub"])
     return [a.to_dict(include_relations=True) for a in appointments]
 
 
@@ -132,6 +136,7 @@ def mark_attendance(
 
     try:
         appointment = appointment_service.mark_attendance(
+            db,
             appointment_id=appointment_id,
             volunteer_id=user["sub"],
             attended=body.attended,
@@ -156,6 +161,7 @@ def complete_appointment(
 
     try:
         appointment = appointment_service.complete_appointment(
+            db,
             appointment_id=appointment_id,
             volunteer_id=user["sub"],
             outcome=body.outcome,
@@ -180,6 +186,7 @@ def volunteer_cancel_appointment(
 
     try:
         appointment = appointment_service.cancel_appointment(
+            db,
             appointment_id=appointment_id,
             user_id=user["sub"],
             is_volunteer=True,
@@ -208,4 +215,4 @@ def get_appointment_stats(
 
     volunteer_id = user_id if "volunteer" in user_roles else None
 
-    return appointment_service.get_appointment_stats(volunteer_id=volunteer_id)
+    return appointment_service.get_appointment_stats(db, volunteer_id=volunteer_id)

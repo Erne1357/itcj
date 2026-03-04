@@ -37,6 +37,7 @@ def list_items(
         active_filter = is_active.lower() == "true"
 
     return pantry_service.get_items(
+        db,
         category=category,
         search=search,
         is_active=active_filter,
@@ -55,7 +56,7 @@ def create_item(
     from itcj2.apps.vistetec.services import pantry_service
 
     try:
-        item = pantry_service.create_item(body.model_dump())
+        item = pantry_service.create_item(db, body.model_dump())
         logger.info(f"Item de despensa '{item.name}' creado por usuario {int(user['sub'])}")
         return {"message": "Artículo creado", "item": item.to_dict()}
     except ValueError as e:
@@ -71,7 +72,7 @@ def get_item(
     """Obtiene un item de despensa por ID."""
     from itcj2.apps.vistetec.services import pantry_service
 
-    item = pantry_service.get_item_by_id(item_id)
+    item = pantry_service.get_item_by_id(db, item_id)
     if not item:
         raise HTTPException(404, detail={"error": "not_found", "message": "Artículo no encontrado"})
     return item.to_dict()
@@ -88,7 +89,7 @@ def update_item(
     from itcj2.apps.vistetec.services import pantry_service
 
     try:
-        item = pantry_service.update_item(item_id, body.model_dump(exclude_none=True))
+        item = pantry_service.update_item(db, item_id, body.model_dump(exclude_none=True))
         logger.info(f"Item de despensa {item_id} actualizado por usuario {int(user['sub'])}")
         return {"message": "Artículo actualizado", "item": item.to_dict()}
     except ValueError as e:
@@ -105,7 +106,7 @@ def delete_item(
     from itcj2.apps.vistetec.services import pantry_service
 
     try:
-        pantry_service.deactivate_item(item_id)
+        pantry_service.deactivate_item(db, item_id)
         logger.info(f"Item de despensa {item_id} desactivado por usuario {int(user['sub'])}")
         return {"message": "Artículo desactivado"}
     except ValueError as e:
@@ -120,7 +121,7 @@ def list_pantry_categories(
     """Lista categorías de items de despensa."""
     from itcj2.apps.vistetec.services import pantry_service
 
-    return pantry_service.get_categories()
+    return pantry_service.get_categories(db)
 
 
 # ── Stock ─────────────────────────────────────────────────────────────────────
@@ -133,7 +134,7 @@ def get_stock_summary(
     """Resumen del inventario actual."""
     from itcj2.apps.vistetec.services import pantry_service
 
-    return pantry_service.get_stock_summary()
+    return pantry_service.get_stock_summary(db)
 
 
 @router.post("/stock/in")
@@ -147,6 +148,7 @@ def stock_in(
 
     try:
         item = pantry_service.stock_in(
+            db,
             item_id=body.item_id,
             quantity=body.quantity,
             notes=body.notes,
@@ -168,6 +170,7 @@ def stock_out(
 
     try:
         item = pantry_service.stock_out(
+            db,
             item_id=body.item_id,
             quantity=body.quantity,
             notes=body.notes,
@@ -196,6 +199,7 @@ def list_campaigns(
         active_filter = is_active.lower() == "true"
 
     return pantry_service.get_campaigns(
+        db,
         is_active=active_filter,
         page=page,
         per_page=per_page,
@@ -210,7 +214,7 @@ def list_active_campaigns(
     """Lista campañas activas."""
     from itcj2.apps.vistetec.services import pantry_service
 
-    return pantry_service.get_active_campaigns()
+    return pantry_service.get_active_campaigns(db)
 
 
 @router.post("/campaigns", status_code=201)
@@ -223,7 +227,7 @@ def create_campaign(
     from itcj2.apps.vistetec.services import pantry_service
 
     try:
-        campaign = pantry_service.create_campaign(body.model_dump(exclude_none=True))
+        campaign = pantry_service.create_campaign(db, body.model_dump(exclude_none=True))
         logger.info(f"Campaña '{campaign.name}' creada por usuario {int(user['sub'])}")
         return {"message": "Campaña creada", "campaign": campaign.to_dict()}
     except ValueError as e:
@@ -239,7 +243,7 @@ def get_campaign(
     """Obtiene una campaña por ID."""
     from itcj2.apps.vistetec.services import pantry_service
 
-    campaign = pantry_service.get_campaign_by_id(campaign_id)
+    campaign = pantry_service.get_campaign_by_id(db, campaign_id)
     if not campaign:
         raise HTTPException(404, detail={"error": "not_found", "message": "Campaña no encontrada"})
     return campaign.to_dict()
@@ -256,7 +260,7 @@ def update_campaign(
     from itcj2.apps.vistetec.services import pantry_service
 
     try:
-        campaign = pantry_service.update_campaign(campaign_id, body.model_dump(exclude_none=True))
+        campaign = pantry_service.update_campaign(db, campaign_id, body.model_dump(exclude_none=True))
         logger.info(f"Campaña {campaign_id} actualizada por usuario {int(user['sub'])}")
         return {"message": "Campaña actualizada", "campaign": campaign.to_dict()}
     except ValueError as e:
@@ -273,7 +277,7 @@ def delete_campaign(
     from itcj2.apps.vistetec.services import pantry_service
 
     try:
-        pantry_service.deactivate_campaign(campaign_id)
+        pantry_service.deactivate_campaign(db, campaign_id)
         logger.info(f"Campaña {campaign_id} desactivada por usuario {int(user['sub'])}")
         return {"message": "Campaña desactivada"}
     except ValueError as e:

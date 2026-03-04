@@ -13,7 +13,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from itcj2.dependencies import require_page_login
+from itcj2.dependencies import DbSession, require_page_login
 from itcj2.templates import render
 
 logger = logging.getLogger("itcj2.core.pages.mobile")
@@ -26,6 +26,7 @@ router = APIRouter(prefix="/m", tags=["core-pages-mobile"])
 async def mobile_dashboard(
     request: Request,
     user: dict = Depends(require_page_login),
+    db: DbSession = None,
 ):
     """Dashboard móvil: estudiantes ven vista de alumno, staff ve vista de personal."""
     from itcj2.core.services.mobile_service import (
@@ -35,9 +36,9 @@ async def mobile_dashboard(
     )
 
     user_id = int(user["sub"])
-    mobile_user = get_user_for_mobile(user_id)
-    user_type = get_user_type(user_id)
-    apps = get_mobile_apps_for_user(user_id)
+    mobile_user = get_user_for_mobile(db, user_id)
+    user_type = get_user_type(db, user_id)
+    apps = get_mobile_apps_for_user(db, user_id)
 
     if user_type == "student":
         return render(request, "core/mobile/student_dashboard.html", {
@@ -78,13 +79,14 @@ async def mobile_notifications(
 async def mobile_profile(
     request: Request,
     user: dict = Depends(require_page_login),
+    db: DbSession = None,
 ):
     """Perfil en vista móvil: simplificado para estudiantes, completo para staff."""
     from itcj2.core.services.mobile_service import get_user_for_mobile, get_user_type
 
     user_id = int(user["sub"])
-    mobile_user = get_user_for_mobile(user_id)
-    user_type = get_user_type(user_id)
+    mobile_user = get_user_for_mobile(db, user_id)
+    user_type = get_user_type(db, user_id)
 
     if user_type == "student":
         return render(request, "core/mobile/student_profile.html", {

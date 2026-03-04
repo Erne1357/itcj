@@ -22,7 +22,7 @@ def validate_serial_numbers(
     if not body.get("serial_numbers") or not isinstance(body["serial_numbers"], list):
         raise HTTPException(400, detail={"success": False, "error": "serial_numbers (array) requerido"})
 
-    result = InventoryBulkService.validate_serial_numbers(body["serial_numbers"])
+    result = InventoryBulkService.validate_serial_numbers(db, body["serial_numbers"])
     return {"success": True, "validation": result}
 
 
@@ -36,7 +36,7 @@ def get_next_inventory_number(
     from itcj2.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
 
     try:
-        inventory_number = InventoryBulkService.get_next_inventory_number(category_id, year)
+        inventory_number = InventoryBulkService.get_next_inventory_number(db, category_id, year)
         return {"success": True, "inventory_number": inventory_number}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -63,13 +63,13 @@ def bulk_create_items(
         raise HTTPException(400, detail={"success": False, "error": "Debe incluir al menos un equipo"})
 
     serial_numbers = [item["serial_number"] for item in body["items"]]
-    validation = InventoryBulkService.validate_serial_numbers(serial_numbers)
+    validation = InventoryBulkService.validate_serial_numbers(db, serial_numbers)
 
     if not validation["valid"]:
         raise HTTPException(400, detail={"success": False, "error": "Números de serie duplicados", "validation": validation})
 
     try:
-        created_items = InventoryBulkService.bulk_create_items(body, user_id)
+        created_items = InventoryBulkService.bulk_create_items(db, body, user_id)
         return {
             "success": True,
             "message": f"{len(created_items)} equipos registrados exitosamente",

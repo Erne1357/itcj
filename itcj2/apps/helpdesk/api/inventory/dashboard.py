@@ -24,7 +24,7 @@ def get_quick_stats(
 
     if "admin" in user_roles or user_id in secretary_comp_center:
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
-        stats = InventoryStatsService.get_overview_stats()
+        stats = InventoryStatsService.get_overview_stats(db)
         return {
             "success": True,
             "data": {
@@ -143,7 +143,7 @@ def get_recent_activity(
             if user_dept:
                 department_id = user_dept.id
 
-    events = InventoryHistoryService.get_recent_events(department_id=department_id, days=7, limit=limit)
+    events = InventoryHistoryService.get_recent_events(db, department_id=department_id, days=7, limit=limit)
 
     events_data = []
     for event in events:
@@ -179,7 +179,7 @@ def get_category_chart(
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
 
     if "admin" in user_roles or user_id in secretary_comp_center:
-        stats = InventoryStatsService.get_by_category()
+        stats = InventoryStatsService.get_by_category(db)
     else:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, user_id)

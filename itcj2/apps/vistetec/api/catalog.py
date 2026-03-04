@@ -31,6 +31,7 @@ def list_catalog(
     per_page = min(per_page, 50)
 
     result = catalog_service.list_garments(
+        db,
         page=page,
         per_page=per_page,
         category=category,
@@ -51,7 +52,7 @@ def list_categories(
     """Categorías con prendas disponibles."""
     from itcj2.apps.vistetec.services import catalog_service
 
-    return catalog_service.get_available_categories()
+    return catalog_service.get_available_categories(db)
 
 
 @router.get("/sizes")
@@ -62,7 +63,7 @@ def list_sizes(
     """Tallas con prendas disponibles."""
     from itcj2.apps.vistetec.services import catalog_service
 
-    return catalog_service.get_available_sizes()
+    return catalog_service.get_available_sizes(db)
 
 
 @router.get("/stats")
@@ -73,7 +74,7 @@ def get_catalog_stats(
     """Estadísticas generales del catálogo."""
     from itcj2.apps.vistetec.services import catalog_service
 
-    return catalog_service.get_catalog_stats()
+    return catalog_service.get_catalog_stats(db)
 
 
 @router.get("/{garment_id}")
@@ -85,7 +86,7 @@ def get_garment_detail(
     """Detalle de una prenda del catálogo."""
     from itcj2.apps.vistetec.services import catalog_service
 
-    detail = catalog_service.get_garment_detail(garment_id)
+    detail = catalog_service.get_garment_detail(db, garment_id)
     if not detail:
         raise HTTPException(404, detail={"error": "not_found", "message": "Prenda no encontrada"})
     return detail

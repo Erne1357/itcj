@@ -36,10 +36,12 @@ class CustomFieldsFileService:
 
         is_image = ext in ['jpg', 'jpeg', 'png', 'gif', 'webp']
 
+        raw = file.file
         if is_image:
-            CustomFieldsFileService._save_image(file, filepath)
+            CustomFieldsFileService._save_image(raw, filepath)
         else:
-            file.save(filepath)
+            with open(filepath, 'wb') as f:
+                f.write(raw.read())
 
         relative_path = f"/instance/apps/helpdesk/custom_fields/{filename}"
         logger.info(f"Archivo de campo personalizado guardado: {relative_path}")
@@ -73,5 +75,6 @@ class CustomFieldsFileService:
         except Exception as e:
             logger.error(f"Error procesando imagen: {e}")
             file.seek(0)
-            file.save(filepath)
+            with open(filepath, 'wb') as f:
+                f.write(file.read())
             logger.warning(f"Imagen guardada sin procesar: {filepath}")

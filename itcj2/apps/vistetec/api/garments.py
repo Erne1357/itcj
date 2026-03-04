@@ -30,6 +30,7 @@ def list_garments(
     per_page = min(per_page, 100)
 
     result = garment_service.list_all_garments(
+        db,
         page=page,
         per_page=per_page,
         status=status,
@@ -79,6 +80,7 @@ async def create_garment(
     try:
         user_id = int(user["sub"])
         garment = garment_service.create_garment(
+            db,
             data=data,
             image_file=image_file,
             registered_by_id=user_id,
@@ -111,7 +113,7 @@ async def update_garment(
         image_file = None
 
     try:
-        garment = garment_service.update_garment(garment_id, data, image_file)
+        garment = garment_service.update_garment(db, garment_id, data, image_file)
         if not garment:
             raise HTTPException(404, detail={"error": "not_found", "message": "Prenda no encontrada"})
         logger.info(f"Prenda {garment_id} actualizada por usuario {int(user['sub'])}")
@@ -129,7 +131,7 @@ def delete_garment(
     """Elimina una prenda (admin)."""
     from itcj2.apps.vistetec.services import garment_service
 
-    if garment_service.delete_garment(garment_id):
+    if garment_service.delete_garment(db, garment_id):
         logger.info(f"Prenda {garment_id} eliminada por usuario {int(user['sub'])}")
         return {"message": "Prenda eliminada"}
     raise HTTPException(404, detail={"error": "not_found", "message": "Prenda no encontrada"})
@@ -144,7 +146,7 @@ def withdraw_garment(
     """Retira una prenda del inventario."""
     from itcj2.apps.vistetec.services import garment_service
 
-    garment = garment_service.withdraw_garment(garment_id)
+    garment = garment_service.withdraw_garment(db, garment_id)
     if not garment:
         raise HTTPException(
             404,

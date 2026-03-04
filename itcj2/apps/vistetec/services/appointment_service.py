@@ -5,10 +5,10 @@ from typing import Optional
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from itcj2.apps.vistetec.models.appointment import Appointment
+from itcj2.apps.vistetec.models.appointment import VTAppointment as Appointment
 from itcj2.apps.vistetec.models.garment import Garment
 from itcj2.apps.vistetec.models.slot_volunteer import SlotVolunteer
-from itcj2.apps.vistetec.models.time_slot import TimeSlot
+from itcj2.apps.vistetec.models.time_slot import VTTimeSlot as TimeSlot
 
 
 def _generate_code(db: Session) -> str:
