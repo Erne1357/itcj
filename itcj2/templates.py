@@ -92,7 +92,7 @@ class _TemplateRequest:
 
 ENDPOINT_MAP: dict[str, str] = {
     # ── Core: Auth ──────────────────────────────────────────────────────────
-    "pages_core.pages_auth.login_page":                  "/itcj/auth/login",
+    "pages_core.pages_auth.login_page":                  "/itcj/login",
 
     # ── Core: Dashboard ─────────────────────────────────────────────────────
     "pages_core.pages_dashboard.dashboard":              "/itcj/dashboard",
@@ -150,6 +150,7 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.inventory_pages.maintenance_report": "/help-desk/inventory/reports/maintenance",
     "helpdesk_pages.inventory_pages.lifecycle_report":   "/help-desk/inventory/reports/lifecycle",
     "helpdesk_pages.inventory_pages.verification":       "/help-desk/inventory/verification",
+    "helpdesk_pages.inventory_pages.reports":            "/help-desk/inventory/reports",
 
     # ── AgendaTec: Páginas ───────────────────────────────────────────────────
     # Student
@@ -179,7 +180,7 @@ ENDPOINT_MAP: dict[str, str] = {
     # Periods
     "agendatec_api.api_periods.list_periods":              "/api/agendatec/v2/periods",
     "agendatec_api.api_periods.create_period":             "/api/agendatec/v2/periods",
-    "agendatec_api.api_periods.get_active_period":         "/api/agendatec/v2/periods/active/info",
+    "agendatec_api.api_periods.get_active_period":         "/api/agendatec/v2/periods/active",
     "agendatec_api.api_periods.get_period":                "/api/agendatec/v2/periods/{period_id}",
     "agendatec_api.api_periods.update_period":             "/api/agendatec/v2/periods/{period_id}",
     "agendatec_api.api_periods.activate_period":           "/api/agendatec/v2/periods/{period_id}/activate",
@@ -241,7 +242,7 @@ def _make_url_for() -> Callable[..., str]:
     1. Archivos estáticos: ``url_for('static', filename='core/css/auth.css')``
        → ``/static/core/css/auth.css``
     2. Endpoints nombrados: ``url_for('pages_core.pages_auth.login_page')``
-       → ``/itcj/auth/login`` (vía ENDPOINT_MAP)
+       → ``/itcj/login`` (vía ENDPOINT_MAP)
     """
 
     def url_for(endpoint: str, **kwargs: str) -> str:

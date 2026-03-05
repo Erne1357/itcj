@@ -28,7 +28,7 @@ def _garment_summary(db: Session):
         db.query(Garment.status, func.count(Garment.id)).group_by(Garment.status).all()
     )
 
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = datetime.now() - timedelta(days=30)
     recent = db.query(Garment).filter(Garment.created_at >= thirty_days_ago).count()
 
     return {
@@ -47,7 +47,7 @@ def _donation_summary(db: Session):
     garments = db.query(Donation).filter_by(donation_type='garment').count()
     pantry = db.query(Donation).filter_by(donation_type='pantry').count()
 
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = datetime.now() - timedelta(days=30)
     recent = db.query(Donation).filter(Donation.created_at >= thirty_days_ago).count()
 
     pantry_items_total = db.query(
@@ -187,7 +187,7 @@ def get_donation_report(db: Session, date_from=None, date_to=None):
         .all()
     )
 
-    six_months_ago = datetime.utcnow() - timedelta(days=180)
+    six_months_ago = datetime.now() - timedelta(days=180)
     effective_from = date_from if date_from and date_from > six_months_ago else six_months_ago
 
     monthly = [
@@ -258,7 +258,7 @@ def get_appointment_report(db: Session, date_from=None, date_to=None):
     total_final = completed + no_show
     attendance_rate = round((completed / total_final * 100), 1) if total_final > 0 else 0
 
-    six_months_ago = datetime.utcnow() - timedelta(days=180)
+    six_months_ago = datetime.now() - timedelta(days=180)
     effective_from = date_from if date_from and date_from > six_months_ago else six_months_ago
 
     monthly = [

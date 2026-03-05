@@ -42,7 +42,7 @@ def require_page_login(request: Request) -> dict:
 
     Equivale a @login_required de Flask pero lanza ``PageLoginRequired``
     en lugar de 401 JSON. El exception handler en main.py redirige a
-    ``/itcj/auth/login``.
+    ``/itcj/login``.
     """
     user = getattr(request.state, "current_user", None)
     if not user:

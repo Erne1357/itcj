@@ -108,7 +108,7 @@ def _build_base_query(
         except Exception:
             pass
     elif preset:
-        now = datetime.utcnow()
+        now = datetime.now()
         presets = {
             "today": (now.replace(hour=0, minute=0, second=0, microsecond=0), now),
             "week": (now - timedelta(days=7), now),
@@ -362,7 +362,7 @@ def get_global_stats(
         efficiency_rated = [t for t in tickets if t.rating_efficiency is not None]
         efficiency_rate = round(sum(1 for t in efficiency_rated if t.rating_efficiency) / len(efficiency_rated) * 100, 1) if efficiency_rated else 0
 
-        now = datetime.utcnow()
+        now = datetime.now()
         monthly_trend = []
         for i in range(11, -1, -1):
             month_start = (now.replace(day=1) - timedelta(days=i * 30)).replace(day=1, hour=0, minute=0, second=0)
@@ -1038,7 +1038,7 @@ def get_trends(
         if exclude_outliers and tickets:
             tickets, exclusion_info = _exclude_outlier_tickets(tickets)
 
-        now = datetime.utcnow()
+        now = datetime.now()
 
         monthly = []
         for i in range(23, -1, -1):

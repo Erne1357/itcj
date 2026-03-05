@@ -27,7 +27,7 @@ def _verification_status(last_verified_at) -> str:
     """Calcula el estado de verificación según la última fecha."""
     if not last_verified_at:
         return "never"
-    delta = (datetime.utcnow() - last_verified_at).days
+    delta = (datetime.now() - last_verified_at).days
     if delta < _RECENT_DAYS:
         return "recent"
     if delta <= _OUTDATED_DAYS:
@@ -308,7 +308,7 @@ def verify_item(
                 raise HTTPException(400, detail={"success": False, "error": str(e)})
 
     # Crear registro de verificación
-    now = datetime.utcnow()
+    now = datetime.now()
     verification = InventoryVerification(
         inventory_item_id=item_id,
         verified_by_id=user_id,

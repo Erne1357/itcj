@@ -1,3 +1,0 @@
-# FastAPI requirements are now in requirements.txt (Fase 5: sin Flask)
-# This file is kept for backwards compatibility.
--r requirements.txt

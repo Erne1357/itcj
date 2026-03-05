@@ -20,7 +20,7 @@
               coordinador</strong>.</li>
         </ul>
         <div class="student-home-buttons d-flex flex-column flex-sm-row gap-2">
-          {% if not current_user['has_appointment'] %}
+          {% if not has_appointment %}
           <a href="{{ url_for('agendatec_pages.student_pages.student_new_request') }}" class="btn btn-primary">
             <i class="bi bi-rocket-takeoff me-1"></i> Iniciar solicitud
           </a>

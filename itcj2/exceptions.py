@@ -10,7 +10,7 @@ Los handlers se registran en itcj2/main.py.
 class PageLoginRequired(Exception):
     """Se lanza cuando una página requiere autenticación y el usuario no está logueado.
 
-    El exception handler redirige a /itcj/auth/login.
+    El exception handler redirige a /itcj/login.
     """
 
 

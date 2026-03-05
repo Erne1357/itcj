@@ -4,7 +4,6 @@ Migrado de itcj/apps/agendatec/services/request_ops.py (Flask) a SQLAlchemy puro
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Optional
 
@@ -20,6 +19,7 @@ from itcj2.core.models.user import User
 from itcj2.core.services.notification_service import NotificationService
 from itcj2.sockets.notifications import push_notification
 from itcj2.sockets.requests import broadcast_request_status_changed
+from itcj2.utils import async_broadcast as _async_broadcast
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +37,6 @@ _TITLE_MAP = {
 }
 _TYPE_LABEL = {"APPOINTMENT": "CITA", "DROP": "BAJA"}
 
-
-def _async_broadcast(coro):
-    """Dispara un coroutine de broadcast sin bloquear el hilo síncrono."""
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coro)
-    except RuntimeError:
-        pass
 
 
 def admin_change_request_status(

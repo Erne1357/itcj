@@ -4,7 +4,6 @@ Helper de Notificaciones para Helpdesk
 Proporciona métodos para crear notificaciones en los diferentes eventos del ciclo de vida de tickets.
 Incluye broadcasts WebSocket para actualizaciones en tiempo real.
 """
-import asyncio
 import logging
 from typing import Optional
 
@@ -13,17 +12,9 @@ from sqlalchemy.orm import Session
 from itcj2.core.services.notification_service import NotificationService
 from itcj2.core.models.user import User
 from itcj2.core.services.authz_service import _get_users_with_position
+from itcj2.utils import async_broadcast as _async_broadcast
 
 logger = logging.getLogger(__name__)
-
-
-def _async_broadcast(coro):
-    """Dispara un coroutine de broadcast sin bloquear el hilo síncrono."""
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coro)
-    except RuntimeError:
-        pass
 
 
 class HelpdeskNotificationHelper:

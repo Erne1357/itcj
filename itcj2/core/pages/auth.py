@@ -2,7 +2,7 @@
 Páginas de autenticación del Core (equivalente a itcj/core/routes/pages/auth.py).
 
 Rutas:
-  GET /itcj/auth/login  → Página de inicio de sesión
+  GET /itcj/login  → Página de inicio de sesión
 """
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse

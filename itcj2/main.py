@@ -12,6 +12,12 @@ async def lifespan(app: FastAPI):
     """Startup y shutdown de la aplicación."""
     logger.info("FastAPI ITCJ v2 iniciando...")
 
+    # Capturar el event loop principal para que async_broadcast funcione
+    # desde endpoints síncronos (que corren en el threadpool).
+    import asyncio
+    from itcj2.utils import set_main_loop
+    set_main_loop(asyncio.get_running_loop())
+
     yield
 
     # Shutdown: cerrar pool de conexiones
@@ -60,7 +66,7 @@ def _register_error_handlers(app: FastAPI):
     @app.exception_handler(PageLoginRequired)
     async def page_login_required_handler(request: Request, exc: PageLoginRequired):
         """Redirige a login cuando una página requiere autenticación."""
-        return RedirectResponse("/itcj/auth/login", status_code=302)
+        return RedirectResponse("/itcj/login", status_code=302)
 
     @app.exception_handler(PageForbidden)
     async def page_forbidden_handler(request: Request, exc: PageForbidden):

@@ -10,7 +10,6 @@ Centraliza la lógica de negocio para gestión de solicitudes de estudiantes:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -35,22 +34,9 @@ from itcj2.sockets.requests import (
     broadcast_drop_created,
     broadcast_request_status_changed,
 )
+from itcj2.utils import async_broadcast as _async_broadcast
 
 logger = logging.getLogger(__name__)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _async_broadcast(coro):
-    """Dispara un coroutine de broadcast sin bloquear el hilo síncrono."""
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coro)
-    except RuntimeError:
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

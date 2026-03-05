@@ -66,7 +66,16 @@ function getCoordId() {
       
       currentCoordinatorId = data.current_coordinator_id;
       sharedCoordinators = data.coordinators || [];
-      
+
+      // Si el día ya estaba seleccionado (appointmentsInitReady disparó antes que esta respuesta),
+      // unirse ahora que ya tenemos el ID de coordinador.
+      const daySelect = document.getElementById("apDay");
+      if (currentCoordinatorId && daySelect?.value) {
+        window.__lastApJoin && window.__reqLeaveApDay?.({ coord_id: currentCoordinatorId, day: window.__lastApJoin });
+        window.__reqJoinApDay?.({ coord_id: currentCoordinatorId, day: daySelect.value });
+        window.__lastApJoin = daySelect.value;
+      }
+
       // Si hay múltiples coordinadores, mostrar el filtro
       if (data.has_multiple_coordinators) {
         const filterContainer = document.getElementById("coordFilterContainer");
@@ -135,8 +144,8 @@ function getCoordId() {
     // para vista "tabla", necesitamos TODOS los slots del día (incluso vacíos)
     url.searchParams.set("include_empty", useTable ? "1" : "0");
 
-    const coordId = getCoordId();
-    if (coordId > 0 && day) {
+    const coordId = currentCoordinatorId;
+    if (coordId && day) {
       // salir de cualquier día previo (guardamos último en el closure del módulo)
       window.__lastApJoin && window.__reqLeaveApDay?.({ coord_id: coordId, day: window.__lastApJoin });
       window.__reqJoinApDay?.({ coord_id: coordId, day });

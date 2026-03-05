@@ -69,6 +69,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_client.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/home.js') }}?v={{ sv('agendatec', 'js/coord/home.js') }}"></script>
 {% endblock %}

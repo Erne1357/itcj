@@ -120,7 +120,7 @@ def deliver_garment(db: Session, garment_id, delivered_to_id, delivered_by_id):
     garment.status = 'delivered'
     garment.delivered_to_id = delivered_to_id
     garment.delivered_by_id = delivered_by_id
-    garment.delivered_at = datetime.utcnow()
+    garment.delivered_at = datetime.now()
     db.commit()
     return garment
 

@@ -29,7 +29,7 @@
             renderReminders(data?.missing_slots || []);
 
             // Suscripción a rooms de sockets (una sola vez)
-            tryJoinRoomsOnce(data?.days_allowed || []);
+            tryJoinRoomsOnce(data?.days_allowed || [], data?.current_coordinator_id);
         } catch (e) {
             console.error("[dash] error load", e);
             if (periodNameEl) {
@@ -57,27 +57,38 @@
 
     // ---- Sockets: refrescar KPIs cuando cambien requests ----
     let roomsBound = false;
-    function getCoordId() { try { return Number(document.body?.dataset?.coordId || 0); } catch { return 0; } }
-    function tryJoinRoomsOnce(daysAllowed) {
-        if (roomsBound) return;
-        const coordId = getCoordId();
-        const s = window.__reqSocket;
-        if (!coordId || !s) return;
-        // Unirse a drops
+    let _lastCoordId = 0;
+    let _lastDays = [];
+    const scheduleReload = debounce(() => loadDashboard(), 250);
+
+    function joinRooms(coordId, daysAllowed) {
         window.__reqJoinDrops?.({ coord_id: coordId });
-        // Unirse a todas las rooms de citas por día permitido
         (daysAllowed || []).forEach(day => {
             window.__reqJoinApDay?.({ coord_id: coordId, day });
         });
-        // Handlers (evitar duplicados)
-        s.off?.("appointment_created");
-        s.off?.("drop_created");
-        s.off?.("request_status_changed");
-        const scheduleReload = debounce(() => loadDashboard(), 250);
-        s.on("appointment_created", (p) => { scheduleReload(); });
-        s.on("drop_created", (p) => { scheduleReload(); });
-        s.on("request_status_changed", (p) => { scheduleReload(); });
-        roomsBound = true;
+    }
+
+    function tryJoinRoomsOnce(daysAllowed, coordEntityId) {
+        const coordId = coordEntityId || 0;
+        const s = window.__reqSocket;
+        if (!coordId || !s) return;
+        _lastCoordId = coordId;
+        _lastDays = daysAllowed || [];
+        joinRooms(coordId, daysAllowed);
+        if (!roomsBound) {
+            // Registrar handlers de eventos una sola vez
+            s.off?.("appointment_created");
+            s.off?.("drop_created");
+            s.off?.("request_status_changed");
+            s.on("appointment_created", () => { scheduleReload(); });
+            s.on("drop_created", () => { scheduleReload(); });
+            s.on("request_status_changed", () => { scheduleReload(); });
+            // Al reconectarse, el servidor elimina las rooms — hay que volver a unirse
+            s.on("connect", () => {
+                if (_lastCoordId) joinRooms(_lastCoordId, _lastDays);
+            });
+            roomsBound = true;
+        }
     }
 
     function debounce(fn, wait) {

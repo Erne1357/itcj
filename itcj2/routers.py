@@ -48,4 +48,4 @@ def register_routers(app: FastAPI):
             if user.get("cn"):
                 return RedirectResponse("/itcj/m/", status_code=302)
             return RedirectResponse("/itcj/dashboard", status_code=302)
-        return RedirectResponse("/itcj/auth/login", status_code=302)
+        return RedirectResponse("/itcj/login", status_code=302)

@@ -21,6 +21,11 @@
       currentCoordinatorId = data.current_coordinator_id;
       sharedCoordinators = data.coordinators || [];
       
+      // Unirse a la room de drops del coordinador para recibir eventos en tiempo real
+      if (currentCoordinatorId) {
+        window.__reqJoinDrops?.({ coord_id: currentCoordinatorId });
+      }
+      
       // Si hay múltiples coordinadores, mostrar el filtro
       if (data.has_multiple_coordinators) {
         const filterContainer = document.getElementById("coordFilterContainer");
@@ -284,10 +289,6 @@
   // Carga inicial
   try {
     $("#btnLoadDrops").click();
-    const coordId = getCoordId();
-    if (coordId > 0) {
-      window.__reqJoinDrops?.({ coord_id: coordId });
-    }
   } catch { }
 
   function escapeHtml(str) {

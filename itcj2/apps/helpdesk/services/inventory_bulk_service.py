@@ -153,17 +153,21 @@ class InventoryBulkService:
 
         seen = set()
         for sn in serial_numbers:
+            if sn is None:
+                continue  # serial_number is optional; skip null values
             if sn in seen:
                 result['duplicates_in_list'].append(sn)
                 result['valid'] = False
             seen.add(sn)
 
-        existing = db.query(InventoryItem).filter(
-            InventoryItem.serial_number.in_(serial_numbers)
-        ).all()
+        non_null_serials = [sn for sn in serial_numbers if sn is not None]
+        if non_null_serials:
+            existing = db.query(InventoryItem).filter(
+                InventoryItem.serial_number.in_(non_null_serials)
+            ).all()
 
-        if existing:
-            result['duplicates_in_db'] = [item.serial_number for item in existing]
-            result['valid'] = False
+            if existing:
+                result['duplicates_in_db'] = [item.serial_number for item in existing]
+                result['valid'] = False
 
         return result

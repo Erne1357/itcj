@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
 from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
 from itcj2.apps.helpdesk.models.inventory_history import InventoryHistory
+from itcj2.core.models.department import Department
 
 
 class InventoryService:
@@ -51,7 +52,12 @@ class InventoryService:
         if not data.get('category_id'):
             raise ValueError("Categoría requerida")
         if not data.get('department_id'):
-            raise ValueError("Departamento requerido")
+            cc_department = db.query(Department).filter_by(code='comp_center').first()
+            if not cc_department:
+                raise ValueError("Departamento del Centro de Cómputo (comp_center) no encontrado")
+            data['department_id'] = cc_department.id
+            if not data.get('status'):
+                data['status'] = 'PENDING_ASSIGNMENT'
 
         if not data.get('inventory_number'):
             data['inventory_number'] = InventoryService.generate_inventory_number(

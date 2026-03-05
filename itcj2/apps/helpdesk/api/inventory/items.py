@@ -5,7 +5,7 @@ Fuente: itcj/apps/helpdesk/routes/api/inventory/inventory_items.py
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms, require_app
 
 router = APIRouter(tags=["helpdesk-inventory-items"])
@@ -236,8 +236,8 @@ def get_item_tickets(
 
 @router.post("", status_code=201)
 def create_item(
-    body: dict,
     request: Request,
+    body: dict = Body(...),
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.create"]),
     db: DbSession = None,
 ):
@@ -247,16 +247,17 @@ def create_item(
     user_id = int(user["sub"])
     data = dict(body)
 
-    is_valid, message, category = InventoryValidators.validate_category(data.get("category_id"))
+    is_valid, message, category = InventoryValidators.validate_category(data.get("category_id"), db=db)
     if not is_valid:
         raise HTTPException(400, detail={"success": False, "error": message})
 
-    is_valid, message, department = InventoryValidators.validate_department(data.get("department_id"))
-    if not is_valid:
-        raise HTTPException(400, detail={"success": False, "error": message})
+    if data.get("department_id"):
+        is_valid, message, department = InventoryValidators.validate_department(data.get("department_id"), db=db)
+        if not is_valid:
+            raise HTTPException(400, detail={"success": False, "error": message})
 
     if data.get("serial_number"):
-        is_valid, message = InventoryValidators.validate_serial_number(data["serial_number"])
+        is_valid, message = InventoryValidators.validate_serial_number(data["serial_number"], db=db)
         if not is_valid:
             raise HTTPException(400, detail={"success": False, "error": message})
 
@@ -295,8 +296,8 @@ def create_item(
 @router.patch("/{item_id}")
 def update_item(
     item_id: int,
-    body: dict,
     request: Request,
+    body: dict = Body(...),
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.update"]),
     db: DbSession = None,
 ):
@@ -332,8 +333,8 @@ def update_item(
 @router.post("/{item_id}/status")
 def change_item_status(
     item_id: int,
-    body: dict,
     request: Request,
+    body: dict = Body(...),
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.update"]),
     db: DbSession = None,
 ):
@@ -371,8 +372,8 @@ def change_item_status(
 @router.post("/{item_id}/deactivate")
 def deactivate_item(
     item_id: int,
-    body: dict,
     request: Request,
+    body: dict = Body(...),
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.delete"]),
     db: DbSession = None,
 ):

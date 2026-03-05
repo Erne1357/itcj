@@ -434,7 +434,9 @@ async function handleSubmit(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || error.message || 'Error al registrar equipo');
+            const detail = error.detail || error;
+            const msg = (typeof detail === 'string') ? detail : (detail.error || detail.message || 'Error al registrar equipo');
+            throw new Error(msg);
         }
 
         const result = await response.json();
@@ -763,7 +765,9 @@ async function handleBulkSubmit(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || error.message || 'Error en registro masivo');
+            const detail = error.detail || error;
+            const msg = (typeof detail === 'string') ? detail : (detail.error || detail.message || 'Error en registro masivo');
+            throw new Error(msg);
         }
 
         const result = await response.json();

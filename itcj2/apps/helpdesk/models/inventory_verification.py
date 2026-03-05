@@ -39,7 +39,7 @@ class InventoryVerification(Base):
     # Cuándo se verificó
     verified_at = Column(
         DateTime,
-        default=datetime.utcnow,
+        default=datetime.now(),
         nullable=False,
         index=True,
     )

@@ -124,6 +124,7 @@ def coord_dashboard_summary(
             "start_date": period.start_date.isoformat(),
             "end_date": period.end_date.isoformat(),
         },
+        "current_coordinator_id": coord_id,
         "days_allowed": [str(x) for x in sorted(enabled_days)],
         "appointments": {"total": ap_total, "pending": ap_pending},
         "drops": {"total": drops_total, "pending": drops_pending},

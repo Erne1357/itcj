@@ -130,6 +130,38 @@ def create_period(
     return result
 
 
+# ==================== GET /active ====================
+
+@router.get("/active")
+def get_active_period(
+    user: dict = require_app("agendatec"),
+    db: DbSession = None,
+):
+    """
+    Obtiene el período activo con días habilitados y configuración.
+    Requiere autenticación con acceso a agendatec.
+    """
+    period = period_service.get_active_period(db)
+    if not period:
+        raise HTTPException(status_code=404, detail="no_active_period")
+
+    enabled_days = period_service.get_enabled_days(db, period.id)
+    config = period_service.get_agendatec_config(db, period.id)
+
+    result = period.to_dict()
+    result["enabled_days"] = [d.isoformat() for d in enabled_days]
+
+    if config:
+        result["agendatec_config"] = config.to_dict()
+        result["is_window_open"] = config.is_student_window_open()
+        result["window_status"] = config.get_window_status()
+    else:
+        result["is_window_open"] = False
+        result["window_status"] = {"is_open": False, "reason": "no_config"}
+
+    return result
+
+
 # ==================== GET /<period_id> ====================
 
 @router.get("/{period_id}")
@@ -381,38 +413,6 @@ def delete_enabled_day(
 
     db.delete(enabled_day)
     db.commit()
-
-
-# ==================== GET /active ====================
-
-@router.get("/active/info")
-def get_active_period(
-    user: dict = require_app("agendatec"),
-    db: DbSession = None,
-):
-    """
-    Obtiene el período activo con días habilitados y configuración.
-    Requiere autenticación con acceso a agendatec.
-    """
-    period = period_service.get_active_period(db)
-    if not period:
-        raise HTTPException(status_code=404, detail="no_active_period")
-
-    enabled_days = period_service.get_enabled_days(db, period.id)
-    config = period_service.get_agendatec_config(db, period.id)
-
-    result = period.to_dict()
-    result["enabled_days"] = [d.isoformat() for d in enabled_days]
-
-    if config:
-        result["agendatec_config"] = config.to_dict()
-        result["is_window_open"] = config.is_student_window_open()
-        result["window_status"] = config.get_window_status()
-    else:
-        result["is_window_open"] = False
-        result["window_status"] = {"is_open": False, "reason": "no_config"}
-
-    return result
 
 
 # ==================== GET /<period_id>/stats ====================
