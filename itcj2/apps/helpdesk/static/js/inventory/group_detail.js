@@ -435,7 +435,7 @@ async function addSelectedEquipment() {
 }
 
 async function removeEquipmentFromGroup(itemId) {
-    if (!confirm('¿Remover este equipo del grupo?')) return;
+    if (!await HelpdeskUtils.confirmDialog('Remover equipo', '¿Remover este equipo del grupo?')) return;
 
     try {
         const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/items/${itemId}`, {
@@ -468,7 +468,7 @@ async function removeSelectedEquipment() {
         return;
     }
 
-    if (!confirm(`¿Remover ${checkboxes.length} equipo(s) del grupo?`)) return;
+    if (!await HelpdeskUtils.confirmDialog('Remover equipos', `¿Remover ${checkboxes.length} equipo(s) del grupo?`)) return;
 
     const itemIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.itemId));
 
@@ -512,7 +512,7 @@ function editGroup() {
 }
 
 async function confirmDeleteGroup() {
-    if (!confirm('¿Eliminar este grupo? Los equipos NO serán eliminados, solo se removerán del grupo.')) return;
+    if (!await HelpdeskUtils.confirmDialog('Eliminar grupo', '¿Eliminar este grupo? Los equipos NO serán eliminados, solo se removerán del grupo.')) return;
 
     try {
         const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}`, {

@@ -597,16 +597,16 @@
     function showSuccess(message) {
         if (typeof showToast === 'function') {
             showToast(message, 'success');
-        } else {
-            alert(message);
+        } else if (window.HelpdeskUtils) {
+            HelpdeskUtils.showToast(message, 'success');
         }
     }
 
     function showError(message) {
         if (typeof showToast === 'function') {
             showToast(message, 'error');
-        } else {
-            alert(message);
+        } else if (window.HelpdeskUtils) {
+            HelpdeskUtils.showToast(message, 'error');
         }
     }
 

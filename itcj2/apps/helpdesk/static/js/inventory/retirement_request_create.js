@@ -221,7 +221,7 @@
             window.location.href = `/help-desk/inventory/retirement-requests/${reqId}`;
 
         } catch (err) {
-            alert('Error: ' + err.message);
+            showToast('Error: ' + err.message, 'error');
             el.btnDraft.disabled  = false;
             el.btnSubmit.disabled = false;
             updateButtons();

@@ -682,9 +682,7 @@ async function handleAssignUser(e) {
 }
 
 async function unassignUser() {
-    if (!confirm('¿Está seguro de liberar este equipo? Volverá a ser global del departamento.')) {
-        return;
-    }
+    if (!await HelpdeskUtils.confirmDialog('Liberar equipo', '¿Está seguro de liberar este equipo? Volverá a ser global del departamento.')) return;
 
     try {
         const response = await fetch('/api/help-desk/v2/inventory/assignments/unassign', {

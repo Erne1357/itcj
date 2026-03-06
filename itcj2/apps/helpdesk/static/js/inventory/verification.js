@@ -102,7 +102,7 @@
             window.HelpdeskUtils.showToast(msg, type);
             return;
         }
-        alert(msg);
+        console.warn('showToast fallback:', msg);
     }
 
     function setLoading(on) {
@@ -802,7 +802,7 @@
     async function executeVerifBulkLimbo() {
         const ids = getVerifSelectedIds();
         if (!ids.length) return;
-        if (!confirm(`¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
+        if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', `¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
 
         const btn = document.getElementById('btn-verif-bulk-limbo');
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
@@ -831,7 +831,7 @@
     }
 
     async function sendVerifSingleToLimbo(itemId) {
-        if (!confirm('¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
+        if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', '¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
 
         try {
             const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {

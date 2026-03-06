@@ -669,7 +669,7 @@ async function executeBulkTransfer() {
 async function executeBulkLimbo() {
     const ids = getSelectedItemIds();
     if (!ids.length) return;
-    if (!confirm(`¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
+    if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', `¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
 
     const btn = document.getElementById('btn-bulk-limbo');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
@@ -702,7 +702,7 @@ async function executeBulkLimbo() {
 
 async function sendSingleToLimbo(itemId) {
     $('#quickActionsModal').modal('hide');
-    if (!confirm('¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
+    if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', '¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
 
     try {
         const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {

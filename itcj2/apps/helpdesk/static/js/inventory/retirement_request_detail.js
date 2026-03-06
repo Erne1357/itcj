@@ -289,19 +289,19 @@
                 const panel = document.getElementById('add-item-panel');
                 if (panel && window.$ && $(panel).collapse) $(panel).collapse('hide');
                 loadRequest();
-            } catch (err) { alert(err.message); }
+            } catch (err) { showToast(err.message, 'error'); }
         });
     }
 
     async function removeItem(retirementItemId) {
-        if (!confirm('¿Quitar este equipo de la solicitud?')) return;
+        if (!await HelpdeskUtils.confirmDialog('Quitar equipo', '¿Quitar este equipo de la solicitud?')) return;
         try {
             const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items/${retirementItemId}`, {
                 method: 'DELETE',
             });
             if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
             loadRequest();
-        } catch (err) { alert(err.message); }
+        } catch (err) { showToast(err.message, 'error'); }
     }
 
     // ── Actions ───────────────────────────────────────────────────────────────
@@ -315,7 +315,7 @@
             if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Error en ${action}`); }
             closeConfirmModal();
             loadRequest();
-        } catch (err) { alert(err.message); }
+        } catch (err) { showToast(err.message, 'error'); }
     }
 
     // Approve / Reject
@@ -338,7 +338,7 @@
     if (el.btnUploadDoc) {
         el.btnUploadDoc.addEventListener('click', async () => {
             const file = el.docFileInput ? el.docFileInput.files[0] : null;
-            if (!file) { alert('Selecciona un archivo primero'); return; }
+            if (!file) { showToast('Selecciona un archivo primero', 'warning'); return; }
             const fd = new FormData();
             fd.append('file', file);
             try {
@@ -347,7 +347,7 @@
                 });
                 if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
                 loadRequest();
-            } catch (err) { alert(err.message); }
+            } catch (err) { showToast(err.message, 'error'); }
         });
     }
 
