@@ -56,6 +56,10 @@
                     backUrl = "{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}";
                     backText = "Assignar Tickets";
                     break;
+                case 'secretary_dashboard':
+                    backUrl = "{{ url_for('helpdesk_pages.secretary_pages.dashboard') }}";
+                    backText = "Dashboard Secretaría";
+                    break;
                 default:
                     // Mantener valores por defecto
                     break;
@@ -78,6 +82,9 @@
             } else if (referrer.includes('/help-desk/admin/assign-tickets')) {
                 backUrl = "/help-desk/admin/assign-tickets";
                 backText = "Administración";
+            } else if (referrer.includes('/help-desk/secretary/')) {
+                backUrl = "{{ url_for('helpdesk_pages.secretary_pages.dashboard') }}";
+                backText = "Dashboard Secretaría";
             } else if (referrer.includes('/help-desk')) {
                 // Si viene de alguna página de helpdesk pero no coincide con las anteriores
                 backText = "Volver";

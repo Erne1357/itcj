@@ -4,6 +4,7 @@ let currentPage = 1;
 const itemsPerPage = 20;
 let currentFilters = {};
 let totalTickets = 0;
+let pendingScrollRestore = 0;
 let summaryStats = {
     total: 0,
     pending: 0,
@@ -13,6 +14,19 @@ let summaryStats = {
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
+    // Restore state if coming back from a ticket detail
+    if (document.referrer.includes('/help-desk/user/tickets/')) {
+        const saved = HelpdeskUtils.NavState.load('admin_tickets_list');
+        if (saved) {
+            document.getElementById('searchInput').value = saved.search || '';
+            document.getElementById('filterStatus').value = saved.status || '';
+            document.getElementById('filterArea').value = saved.area || '';
+            document.getElementById('filterPriority').value = saved.priority || '';
+            currentFilters = saved.filters || {};
+            currentPage = saved.page || 1;
+            pendingScrollRestore = saved.scrollY || 0;
+        }
+    }
     loadSummaryStats();
     loadTickets();
     setupFilters();
@@ -61,6 +75,12 @@ async function loadTickets() {
 
         renderTickets(tickets);
 
+        if (pendingScrollRestore > 0) {
+            const sy = pendingScrollRestore;
+            pendingScrollRestore = 0;
+            requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
+        }
+
         console.log('✅ Tickets cargados:', tickets.length, 'de', totalTickets);
 
     } catch (error) {
@@ -103,6 +123,7 @@ function setupFilters() {
         filterArea.value = '';
         filterPriority.value = '';
         searchInput.value = '';
+        HelpdeskUtils.NavState.clear('admin_tickets_list');
         applyFilters();
     });
 }
@@ -334,7 +355,15 @@ function changePage(page) {
 
 // ==================== TICKET DETAIL ====================
 function goToTicketDetail(ticketId) {
-    // Redirigir a la página de detalle del ticket con el parámetro from
+    HelpdeskUtils.NavState.save('admin_tickets_list', {
+        search: document.getElementById('searchInput').value,
+        status: document.getElementById('filterStatus').value,
+        area: document.getElementById('filterArea').value,
+        priority: document.getElementById('filterPriority').value,
+        filters: currentFilters,
+        page: currentPage,
+        scrollY: window.scrollY,
+    });
     window.location.href = `/help-desk/user/tickets/${ticketId}?from=admin_tickets_list`;
 }
 

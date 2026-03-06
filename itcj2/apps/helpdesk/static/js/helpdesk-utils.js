@@ -467,6 +467,30 @@ function renderCollaborators(collaborators) {
 }
 
 
+// ==================== NAV STATE ====================
+const NavState = {
+    save(key, state) {
+        try {
+            sessionStorage.setItem('_nav_' + key, JSON.stringify({ ...state, _ts: Date.now() }));
+        } catch(e) {}
+    },
+    load(key, maxAgeMs = 1800000) { // expires after 30 min
+        try {
+            const raw = sessionStorage.getItem('_nav_' + key);
+            if (!raw) return null;
+            const s = JSON.parse(raw);
+            if (Date.now() - (s._ts || 0) > maxAgeMs) {
+                sessionStorage.removeItem('_nav_' + key);
+                return null;
+            }
+            return s;
+        } catch(e) { return null; }
+    },
+    clear(key) {
+        try { sessionStorage.removeItem('_nav_' + key); } catch(e) {}
+    }
+};
+
 // ==================== EXPORT ====================
 window.HelpdeskUtils = {
     api,
@@ -483,5 +507,6 @@ window.HelpdeskUtils = {
     goToTicketDetail,
     goToTicketDetailNewTab,
     getAttachments,
-    renderCollaborators
+    renderCollaborators,
+    NavState
 };

@@ -4,6 +4,7 @@ let currentPage = 1;
 const itemsPerPage = 10;
 let currentFilters = {};
 let totalTickets = 0;
+let pendingScrollRestore = 0;
 let allTickets = []; // Variable global para almacenar todos los tickets
 let summaryStats = {
     total: 0,
@@ -25,6 +26,19 @@ document.addEventListener('DOMContentLoaded', () => {
         url: window.location.href,
         text: 'Mis Tickets'
     }));
+
+    // Restore state if coming back from a ticket detail
+    if (document.referrer.includes('/help-desk/user/tickets/')) {
+        const saved = HelpdeskUtils.NavState.load('my_tickets');
+        if (saved) {
+            document.getElementById('searchInput').value = saved.search || '';
+            document.getElementById('filterStatus').value = saved.status || '';
+            document.getElementById('filterArea').value = saved.area || '';
+            currentFilters = saved.filters || {};
+            currentPage = saved.page || 1;
+            pendingScrollRestore = saved.scrollY || 0;
+        }
+    }
 
     // Dar tiempo para que el tutorial se inicialice primero
     // Si está en modo tutorial, esperar un poco más
@@ -124,6 +138,12 @@ async function loadMyTickets() {
         allTickets = tickets; // Guardar tickets en variable global
 
         renderTickets(tickets);
+
+        if (pendingScrollRestore > 0) {
+            const sy = pendingScrollRestore;
+            pendingScrollRestore = 0;
+            requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
+        }
 
         console.log('✅ Tickets cargados:', tickets.length, 'de', totalTickets);
 
@@ -611,6 +631,14 @@ function showErrorState() {
 
 // ==================== NAVIGATION ====================
 function goToTicketDetail(ticketId) {
+    HelpdeskUtils.NavState.save('my_tickets', {
+        search: document.getElementById('searchInput').value,
+        status: document.getElementById('filterStatus').value,
+        area: document.getElementById('filterArea').value,
+        filters: currentFilters,
+        page: currentPage,
+        scrollY: window.scrollY,
+    });
     HelpdeskUtils.goToTicketDetail(ticketId, 'my_tickets');
 }
 

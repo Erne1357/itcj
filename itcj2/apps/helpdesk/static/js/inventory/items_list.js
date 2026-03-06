@@ -10,12 +10,29 @@ let perPage = 20;
 let currentFilters = {};
 let allCategories = [];
 let allDepartments = [];
+let pendingScrollRestore = 0;
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Restore state if coming back from an item detail page
+    if (/\/help-desk\/inventory\/items\/\d+/.test(document.referrer)) {
+        const saved = HelpdeskUtils.NavState.load('inventory_items');
+        if (saved) {
+            document.getElementById('search-input').value = saved.search || '';
+            document.getElementById('category-filter').value = saved.category_id || '';
+            document.getElementById('status-filter').value = saved.status || '';
+            document.getElementById('assigned-filter').value = saved.assigned || '';
+            const deptEl = document.getElementById('department-filter');
+            if (deptEl) deptEl.value = saved.department_id || '';
+            currentFilters = saved.filters || {};
+            currentPage = saved.page || 1;
+            pendingScrollRestore = saved.scrollY || 0;
+        }
+    }
+
     initializeFilters();
     loadCategories();
     loadDepartments();
-    loadItems();
+    loadItems(currentPage);
     
     // Event listeners
     document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 500));
@@ -58,6 +75,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Form submit - Cambiar estado
     document.getElementById('change-status-form').addEventListener('submit', handleChangeStatus);
+
+    // Save state when navigating to an item detail
+    document.addEventListener('click', function(e) {
+        const link = e.target.closest('a[href]');
+        if (link && /^\/help-desk\/inventory\/items\/\d+$/.test(link.getAttribute('href'))) {
+            HelpdeskUtils.NavState.save('inventory_items', {
+                search: document.getElementById('search-input').value,
+                category_id: document.getElementById('category-filter').value,
+                status: document.getElementById('status-filter').value,
+                assigned: document.getElementById('assigned-filter').value,
+                department_id: document.getElementById('department-filter')?.value || '',
+                filters: currentFilters,
+                page: currentPage,
+                scrollY: window.scrollY,
+            });
+        }
+    });
 });
 
 // ==================== CARGAR DATOS ====================
@@ -98,6 +132,12 @@ async function loadItems(page = 1) {
         renderPagination();
         updateStats();
         hideLoading();
+
+        if (pendingScrollRestore > 0) {
+            const sy = pendingScrollRestore;
+            pendingScrollRestore = 0;
+            requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
+        }
 
     } catch (error) {
         console.error('Error:', error);
@@ -433,6 +473,7 @@ function clearFilters() {
     document.getElementById('filters-form').reset();
     initializeFilters();
     renderActiveFilters();
+    HelpdeskUtils.NavState.clear('inventory_items');
     loadItems(1);
 }
 

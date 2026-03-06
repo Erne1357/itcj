@@ -8,10 +8,35 @@
 // ==================== GLOBAL STATE ====================
 let allDeptTickets = [];
 let allInventoryItems = [];
+let pendingScrollRestore = 0;
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
-    initializeDashboard();
+    initializeDashboard().then(() => {
+        // Restore state if coming back from a ticket detail
+        if (document.referrer.includes('/help-desk/user/tickets/')) {
+            const saved = HelpdeskUtils.NavState.load('secretary_dashboard');
+            if (saved) {
+                // Restore active tab
+                if (saved.activeTab) {
+                    const tabId = saved.activeTab.replace('-panel', '-tab');
+                    const tabEl = document.getElementById(tabId);
+                    if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
+                }
+                // Restore filters and re-apply
+                if (saved.search) document.getElementById('searchTickets').value = saved.search;
+                if (saved.status) document.getElementById('filterStatus').value = saved.status;
+                if (saved.area)   document.getElementById('filterArea').value = saved.area;
+                if (saved.search || saved.status || saved.area) applyFilters();
+                pendingScrollRestore = saved.scrollY || 0;
+                if (pendingScrollRestore > 0) {
+                    const sy = pendingScrollRestore;
+                    pendingScrollRestore = 0;
+                    setTimeout(() => window.scrollTo({ top: sy, behavior: 'instant' }), 150);
+                }
+            }
+        }
+    });
     setupFilters();
     setupWebSocketListeners();
 });
@@ -456,8 +481,16 @@ function createTicket() {
 window.createTicket = createTicket;
 
 function viewTicket(ticketId) {
-    // Redirect to ticket detail page
-    window.location.href = `/help-desk/user/tickets/${ticketId}`;
+    // Save state before navigating to ticket detail
+    const activeTabPane = document.querySelector('.tab-pane.active');
+    HelpdeskUtils.NavState.save('secretary_dashboard', {
+        activeTab: activeTabPane ? activeTabPane.id : 'tickets-panel',
+        search: document.getElementById('searchTickets')?.value || '',
+        status: document.getElementById('filterStatus')?.value || '',
+        area:   document.getElementById('filterArea')?.value || '',
+        scrollY: window.scrollY,
+    });
+    window.location.href = `/help-desk/user/tickets/${ticketId}?from=secretary_dashboard`;
 }
 window.viewTicket = viewTicket;
 

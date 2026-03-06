@@ -6,6 +6,7 @@
  */
 
 // ==================== GLOBAL STATE ====================
+let pendingScrollRestore = 0;
 let myTickets = {
     assigned: [],
     inProgress: [],
@@ -23,7 +24,29 @@ let socketRoomsBound = false;
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
-    initializeDashboard();
+    initializeDashboard().then(() => {
+        // Restore state if coming back from a ticket detail
+        if (document.referrer.includes('/help-desk/user/tickets/')) {
+            const saved = HelpdeskUtils.NavState.load('technician_dashboard');
+            if (saved) {
+                if (saved.activeTab) {
+                    const tabEl = document.getElementById(saved.activeTab);
+                    if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
+                }
+                if (saved.historyFilter) {
+                    const hf = document.getElementById('historyFilter');
+                    if (hf) { hf.value = saved.historyFilter; applyHistoryFilters(); }
+                }
+                if (saved.historySearch) {
+                    const hs = document.getElementById('historySearch');
+                    if (hs) { hs.value = saved.historySearch; applyHistoryFilters(); }
+                }
+                if (saved.scrollY) {
+                    setTimeout(() => window.scrollTo({ top: saved.scrollY, behavior: 'instant' }), 200);
+                }
+            }
+        }
+    });
     setupModals();
     setupFilters();
     setupWebSocketListeners();
@@ -266,13 +289,24 @@ function getActionButtons(ticket, type) {
     }
     
     buttons += `
-        <button class="btn btn-outline-secondary btn-sm d-block w-100" 
-                onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'technician')">
+        <button class="btn btn-outline-secondary btn-sm d-block w-100"
+                onclick="goToTicketDetailWithState(${ticket.id})">
             <i class="fas fa-eye me-1"></i>Ver Detalle
         </button>
     `;
     
     return buttons;
+}
+
+function goToTicketDetailWithState(ticketId) {
+    const activeTabEl = document.querySelector('#technicianTabs .nav-link.active');
+    HelpdeskUtils.NavState.save('technician_dashboard', {
+        activeTab: activeTabEl?.id || 'queue-tab',
+        historyFilter: document.getElementById('historyFilter')?.value || '',
+        historySearch: document.getElementById('historySearch')?.value || '',
+        scrollY: window.scrollY,
+    });
+    HelpdeskUtils.goToTicketDetail(ticketId, 'technician');
 }
 
 // ==================== DASHBOARD STATS ====================
