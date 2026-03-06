@@ -1,6 +1,5 @@
 """
-Inventory Bulk API v2 — 3 endpoints.
-Fuente: itcj/apps/helpdesk/routes/api/inventory/inventory_bulk.py
+Inventory Bulk API v2 — Registro masivo con listas de seriales.
 """
 import logging
 
@@ -12,17 +11,20 @@ logger = logging.getLogger(__name__)
 
 
 @router.post("/validate-serials")
-def validate_serial_numbers(
+def validate_bulk_serials(
     body: dict,
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.bulk.create"]),
     db: DbSession = None,
 ):
+    """
+    Valida las listas de seriales antes del registro masivo.
+    Verifica duplicados en la lista y en la BD para los 3 campos de identificación.
+
+    Body: { supplier_serial_list, itcj_serial_list, id_tecnm_list, serial_separator }
+    """
     from itcj2.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
 
-    if not body.get("serial_numbers") or not isinstance(body["serial_numbers"], list):
-        raise HTTPException(400, detail={"success": False, "error": "serial_numbers (array) requerido"})
-
-    result = InventoryBulkService.validate_serial_numbers(db, body["serial_numbers"])
+    result = InventoryBulkService.validate_bulk_serials(db, body)
     return {"success": True, "validation": result}
 
 
@@ -51,22 +53,48 @@ def bulk_create_items(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.bulk.create"]),
     db: DbSession = None,
 ):
+    """
+    Registro masivo de equipos.
+
+    Body:
+      category_id          (requerido)
+      brand, model, specifications, acquisition_date, warranty_expiration,
+      maintenance_frequency_days, notes, department_id  (comunes a todos)
+      quantity             (int) — número de equipos, alternativa a 'items'
+      items                (list[dict]) — overrides por posición (department_id, location_detail, etc.)
+      supplier_serial_list (str) — seriales de proveedor separados por serial_separator
+      itcj_serial_list     (str) — seriales ITCJ
+      id_tecnm_list        (str) — IDs TecNM
+      serial_separator     ("comma"|"semicolon"|"space"|"newline"|"auto")
+    """
     from itcj2.apps.helpdesk.services.inventory_bulk_service import InventoryBulkService
 
     user_id = int(user["sub"])
 
     if not body.get("category_id"):
         raise HTTPException(400, detail={"success": False, "error": "category_id requerido"})
-    if not body.get("items") or not isinstance(body["items"], list):
-        raise HTTPException(400, detail={"success": False, "error": "items (array) requerido"})
-    if len(body["items"]) == 0:
-        raise HTTPException(400, detail={"success": False, "error": "Debe incluir al menos un equipo"})
 
-    serial_numbers = [item["serial_number"] for item in body["items"]]
-    validation = InventoryBulkService.validate_serial_numbers(db, serial_numbers)
+    has_items = body.get("items") and len(body["items"]) > 0
+    has_quantity = body.get("quantity") and int(body["quantity"]) > 0
+    if not has_items and not has_quantity:
+        raise HTTPException(400, detail={
+            "success": False,
+            "error": "Se requiere 'items' (array) o 'quantity' (entero > 0)",
+        })
 
-    if not validation["valid"]:
-        raise HTTPException(400, detail={"success": False, "error": "Números de serie duplicados", "validation": validation})
+    has_serial_lists = any([
+        body.get("supplier_serial_list"),
+        body.get("itcj_serial_list"),
+        body.get("id_tecnm_list"),
+    ])
+    if has_serial_lists:
+        validation = InventoryBulkService.validate_bulk_serials(db, body)
+        if not validation["valid"]:
+            raise HTTPException(400, detail={
+                "success": False,
+                "error": "Errores en las listas de seriales",
+                "validation": validation,
+            })
 
     try:
         created_items = InventoryBulkService.bulk_create_items(db, body, user_id)

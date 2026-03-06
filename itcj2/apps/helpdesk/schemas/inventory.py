@@ -8,7 +8,9 @@ class CreateItemRequest(BaseModel):
     department_id: int
     brand: Optional[str] = None
     model: Optional[str] = None
-    serial_number: Optional[str] = None
+    supplier_serial: Optional[str] = None
+    itcj_serial: Optional[str] = None
+    id_tecnm: Optional[str] = None
     specifications: Optional[dict] = None
     location_detail: Optional[str] = None
     acquisition_date: Optional[str] = None
@@ -21,6 +23,9 @@ class CreateItemRequest(BaseModel):
 class UpdateItemRequest(BaseModel):
     brand: Optional[str] = None
     model: Optional[str] = None
+    supplier_serial: Optional[str] = None
+    itcj_serial: Optional[str] = None
+    id_tecnm: Optional[str] = None
     specifications: Optional[dict] = None
     location_detail: Optional[str] = None
     warranty_expiration: Optional[str] = None
@@ -143,8 +148,19 @@ class BulkCreateRequest(BaseModel):
     warranty_expiration: Optional[str] = None
     maintenance_frequency_days: Optional[int] = None
     notes: Optional[str] = None
-    items: list[dict]
+    department_id: Optional[int] = None
+    # Listas de identificadores: texto separado por el separador elegido
+    supplier_serial_list: Optional[str] = None
+    itcj_serial_list: Optional[str] = None
+    id_tecnm_list: Optional[str] = None
+    serial_separator: Optional[str] = "newline"  # comma | semicolon | space | newline | auto
+    # items: overrides por equipo (posicional). Si no se provee, se usa quantity.
+    quantity: Optional[int] = None
+    items: Optional[list[dict]] = None
 
 
-class ValidateSerialsRequest(BaseModel):
-    serial_numbers: list[str]
+class ValidateBulkSerialsRequest(BaseModel):
+    supplier_serial_list: Optional[str] = None
+    itcj_serial_list: Optional[str] = None
+    id_tecnm_list: Optional[str] = None
+    serial_separator: Optional[str] = "newline"

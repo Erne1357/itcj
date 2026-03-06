@@ -13,6 +13,7 @@ from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
 from itcj2.apps.helpdesk.models.inventory_group_capacity import InventoryGroupCapacity
 from itcj2.apps.helpdesk.models.ticket_inventory_item import TicketInventoryItem
 from itcj2.apps.helpdesk.models.inventory_verification import InventoryVerification
+from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest, InventoryRetirementRequestItem
 
 __all__ = [
     "Ticket",
@@ -30,4 +31,6 @@ __all__ = [
     "InventoryGroupCapacity",
     "TicketInventoryItem",
     "InventoryVerification",
+    "InventoryRetirementRequest",
+    "InventoryRetirementRequestItem",
 ]

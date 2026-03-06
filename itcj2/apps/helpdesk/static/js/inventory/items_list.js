@@ -32,7 +32,29 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('select-all').addEventListener('change', function(e) {
         const checkboxes = document.querySelectorAll('#items-table tbody input[type="checkbox"]');
         checkboxes.forEach(cb => cb.checked = e.target.checked);
+        updateBulkBar();
     });
+
+    // Bulk transfer button
+    const btnBulkTransfer = document.getElementById('btn-bulk-transfer');
+    if (btnBulkTransfer) btnBulkTransfer.addEventListener('click', openBulkTransferModal);
+    const btnBulkDeselect = document.getElementById('btn-bulk-deselect');
+    if (btnBulkDeselect) btnBulkDeselect.addEventListener('click', () => {
+        document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
+        updateBulkBar();
+    });
+    const btnConfirmBulkTransfer = document.getElementById('btn-confirm-bulk-transfer');
+    if (btnConfirmBulkTransfer) btnConfirmBulkTransfer.addEventListener('click', executeBulkTransfer);
+
+    const btnBulkBaja = document.getElementById('btn-bulk-baja');
+    if (btnBulkBaja) btnBulkBaja.addEventListener('click', () => {
+        const ids = getSelectedItemIds();
+        if (!ids.length) return;
+        window.location.href = `/help-desk/inventory/retirement-requests/create?item_ids=${ids.join(',')}`;
+    });
+
+    const btnBulkLimbo = document.getElementById('btn-bulk-limbo');
+    if (btnBulkLimbo) btnBulkLimbo.addEventListener('click', executeBulkLimbo);
 
     // Form submit - Cambiar estado
     document.getElementById('change-status-form').addEventListener('submit', handleChangeStatus);
@@ -166,7 +188,11 @@ function renderTable(items) {
     document.getElementById('table-container').style.display = 'block';
     document.getElementById('empty-state').style.display = 'none';
 
-    tbody.innerHTML = items.map(item => {
+    // Reset select-all and bulk bar after render
+    const selectAllCb = document.getElementById('select-all');
+    if (selectAllCb) selectAllCb.checked = false;
+
+    const tbodyHtml = items.map(item => {
         const statusBadge = getStatusBadge(item.status);
         const warrantyIndicator = getWarrantyIndicator(item);
         const categoryIcon = getCategoryIcon(item.category?.icon);
@@ -174,7 +200,8 @@ function renderTable(items) {
         return `
             <tr>
                 <td>
-                    <input type="checkbox" class="item-checkbox" data-item-id="${item.id}">
+                    <input type="checkbox" class="item-checkbox" data-item-id="${item.id}"
+                           onchange="updateBulkBar()">
                 </td>
                 <td>
                     <a href="/help-desk/inventory/items/${item.id}" class="font-weight-bold">
@@ -227,6 +254,8 @@ function renderTable(items) {
             </tr>
         `;
     }).join('');
+    tbody.innerHTML = tbodyHtml;
+    updateBulkBar();
 }
 
 function renderPagination() {
@@ -423,8 +452,13 @@ function showQuickActions(itemId) {
             <button class="list-group-item list-group-item-action" onclick="openAssignModal(${itemId})">
                 <i class="fas fa-user-plus text-info mr-2"></i> Asignar a Usuario
             </button>
-            <button class="list-group-item list-group-item-action text-danger" onclick="confirmDeactivate(${itemId})">
-                <i class="fas fa-trash-alt mr-2"></i> Dar de Baja
+            <button class="list-group-item list-group-item-action text-danger"
+                    onclick="window.location='/help-desk/inventory/retirement-requests/create?item_id=${itemId}'">
+                <i class="fas fa-file-alt mr-2"></i> Solicitar Baja
+            </button>
+            <button class="list-group-item list-group-item-action text-warning"
+                    onclick="sendSingleToLimbo(${itemId})">
+                <i class="fas fa-inbox mr-2"></i> Enviar al Limbo
             </button>
         </div>
     `;
@@ -554,4 +588,133 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(() => func.apply(this, args), wait);
     };
+}
+
+// ==================== SELECCIÓN / ACCIONES MASIVAS ====================
+function getSelectedItemIds() {
+    return Array.from(document.querySelectorAll('.item-checkbox:checked'))
+        .map(cb => parseInt(cb.dataset.itemId));
+}
+
+function updateBulkBar() {
+    const ids = getSelectedItemIds();
+    const bar = document.getElementById('bulk-action-bar');
+    const countEl = document.getElementById('bulk-selected-count');
+    if (!bar) return;
+    if (ids.length > 0) {
+        bar.style.display = '';
+        if (countEl) countEl.textContent = ids.length;
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function openBulkTransferModal() {
+    const ids = getSelectedItemIds();
+    if (!ids.length) return;
+
+    const countEl = document.getElementById('bulk-transfer-count');
+    if (countEl) countEl.textContent = ids.length;
+
+    // Populate department select from already-loaded allDepartments
+    const deptSelect = document.getElementById('bulk-transfer-dept');
+    if (deptSelect && allDepartments.length) {
+        deptSelect.innerHTML = '<option value="">Seleccionar...</option>';
+        allDepartments.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = d.name;
+            deptSelect.appendChild(opt);
+        });
+    }
+
+    $('#bulkTransferModal').modal('show');
+}
+
+async function executeBulkTransfer() {
+    const ids = getSelectedItemIds();
+    const deptId = parseInt(document.getElementById('bulk-transfer-dept').value);
+    if (!deptId) { showToast('Selecciona un departamento destino', 'error'); return; }
+
+    const btn = document.getElementById('btn-confirm-bulk-transfer');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Transfiriendo...'; }
+
+    try {
+        const res = await fetch('/api/help-desk/v2/inventory/items/bulk-transfer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_ids: ids, target_department_id: deptId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Error al transferir');
+
+        $('#bulkTransferModal').modal('hide');
+        document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
+        updateBulkBar();
+
+        const transferred = data.transferred_ids ? data.transferred_ids.length : 0;
+        const errors = data.errors ? data.errors.length : 0;
+        let msg = `${transferred} equipo(s) transferido(s) correctamente.`;
+        if (errors) msg += ` ${errors} con errores.`;
+        showToast(msg, transferred > 0 ? 'success' : 'error');
+        loadItems(currentPage);
+
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-exchange-alt"></i> Transferir'; }
+    }
+}
+
+async function executeBulkLimbo() {
+    const ids = getSelectedItemIds();
+    if (!ids.length) return;
+    if (!confirm(`¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
+
+    const btn = document.getElementById('btn-bulk-limbo');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+
+    try {
+        const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_ids: ids }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
+
+        document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
+        updateBulkBar();
+
+        const sent = data.sent_ids ? data.sent_ids.length : 0;
+        const errors = data.errors ? data.errors.length : 0;
+        let msg = `${sent} equipo(s) enviado(s) al limbo.`;
+        if (errors) msg += ` ${errors} con errores.`;
+        showToast(msg, sent > 0 ? 'success' : 'error');
+        loadItems(currentPage);
+
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-inbox"></i> Limbo'; }
+    }
+}
+
+async function sendSingleToLimbo(itemId) {
+    $('#quickActionsModal').modal('hide');
+    if (!confirm('¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
+
+    try {
+        const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_ids: [itemId] }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
+        showToast('Equipo enviado al limbo correctamente', 'success');
+        loadItems(currentPage);
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+    }
 }

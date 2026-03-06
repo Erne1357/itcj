@@ -22,7 +22,7 @@
                 </p>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <span class="badge badge-warning" id="badge-unverified">
+                <span class="badge bg-warning text-dark" id="badge-unverified">
                     <i class="fas fa-exclamation-triangle mr-1"></i>
                     <span id="count-unverified">0</span> sin verificar
                 </span>
@@ -153,6 +153,28 @@
         </div>
     </div>
 
+    <!-- Barra de acciones masivas -->
+    <div id="verif-bulk-bar" class="card shadow mb-3 border-left-primary" style="display:none;">
+        <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
+            <span class="font-weight-bold text-primary mr-2">
+                <i class="fas fa-check-square"></i>
+                <span id="verif-bulk-count">0</span> seleccionado(s)
+            </span>
+            <button class="btn btn-sm btn-outline-primary" id="btn-verif-bulk-transfer">
+                <i class="fas fa-exchange-alt"></i> Transferir depto.
+            </button>
+            <button class="btn btn-sm btn-outline-danger" id="btn-verif-bulk-baja">
+                <i class="fas fa-file-alt"></i> Solicitar Baja
+            </button>
+            <button class="btn btn-sm btn-outline-warning" id="btn-verif-bulk-limbo">
+                <i class="fas fa-inbox"></i> Limbo
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="btn-verif-bulk-deselect">
+                <i class="fas fa-times"></i> Deseleccionar
+            </button>
+        </div>
+    </div>
+
     <!-- Tabla de equipos -->
     <div class="card shadow mb-4">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -181,6 +203,7 @@
                 <table class="table table-sm table-hover mb-0" id="verif-table">
                     <thead class="thead-light">
                         <tr>
+                            <th style="width:40px;"><input type="checkbox" id="verif-select-all"></th>
                             <th class="text-nowrap">N° Inventario</th>
                             <th class="d-none d-md-table-cell">Equipo</th>
                             <th class="d-none d-lg-table-cell">Departamento</th>
@@ -207,6 +230,38 @@
 </div><!-- /container-fluid -->
 
 
+<!-- ═══════════ MODAL: Transferencia Masiva (Verificación) ═══════════ -->
+<div class="modal fade" id="modal-verif-bulk-transfer" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-exchange-alt"></i> Transferencia Masiva</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">
+                    Transferir <strong id="verif-bulk-transfer-count">0</strong> equipo(s) al departamento:
+                </p>
+                <div class="form-group mb-0">
+                    <label for="verif-bulk-transfer-dept">Departamento destino <span class="text-danger">*</span></label>
+                    <select class="form-control" id="verif-bulk-transfer-dept">
+                        <option value="">Seleccionar...</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept.id }}">{{ dept.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-confirm-verif-bulk-transfer">
+                    <i class="fas fa-exchange-alt"></i> Transferir
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ═══════════ MODAL: Verificar Equipo ═══════════ -->
 <div class="modal fade" id="modal-verify" tabindex="-1" role="dialog" aria-labelledby="modalVerifyLabel">
     <div class="modal-dialog modal-lg" role="document">
@@ -226,7 +281,7 @@
                 <!-- Identificación del equipo (solo lectura) -->
                 <div class="verif-item-header mb-3">
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge badge-secondary" id="verif-item-number">—</span>
+                        <span class="badge bg-secondary text-white" id="verif-item-number">—</span>
                         <span class="font-weight-bold" id="verif-item-name">—</span>
                     </div>
                     <small class="text-muted" id="verif-item-dept">—</small>
@@ -266,9 +321,19 @@
                                placeholder="OptiPlex 7090…" maxlength="100">
                     </div>
                     <div class="col-12 col-md-4 mb-2">
-                        <label class="small font-weight-bold">N° de serie</label>
-                        <input type="text" class="form-control form-control-sm" id="verif-serial"
-                               placeholder="SN12345…" maxlength="100">
+                        <label class="small font-weight-bold">Serie Proveedor</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-supplier-serial"
+                               placeholder="Serial del fabricante…" maxlength="150">
+                    </div>
+                    <div class="col-12 col-md-4 mb-2">
+                        <label class="small font-weight-bold">Serial ITCJ / Activo</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-itcj-serial"
+                               placeholder="ITCJ-2024-001…" maxlength="150">
+                    </div>
+                    <div class="col-12 col-md-4 mb-2">
+                        <label class="small font-weight-bold">ID TecNM</label>
+                        <input type="text" class="form-control form-control-sm" id="verif-id-tecnm"
+                               placeholder="TecNM-0001…" maxlength="100">
                     </div>
                     <div class="col-12 col-md-6 mb-2">
                         <label class="small font-weight-bold">Grupo (Salón / Lab / Oficina)</label>

@@ -13,6 +13,8 @@ from .stats import router as stats_router
 from .bulk import router as bulk_router
 from .reports import router as reports_router
 from .verification import router as verification_router
+from .bulk_transfer import router as bulk_transfer_router
+from .retirement_requests import router as retirement_router
 
 inventory_router = APIRouter(tags=["helpdesk-inventory"])
 
@@ -28,3 +30,5 @@ inventory_router.include_router(stats_router, prefix="/stats")
 inventory_router.include_router(bulk_router, prefix="/bulk")
 inventory_router.include_router(reports_router, prefix="/reports")
 inventory_router.include_router(verification_router, prefix="/verification")
+inventory_router.include_router(bulk_transfer_router, prefix="/items")
+inventory_router.include_router(retirement_router, prefix="/retirement-requests")

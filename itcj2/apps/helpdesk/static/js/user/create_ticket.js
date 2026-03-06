@@ -1117,7 +1117,9 @@ const Equipment = {
                     item.inventory_number.toLowerCase().includes(term) ||
                     (item.brand && item.brand.toLowerCase().includes(term)) ||
                     (item.model && item.model.toLowerCase().includes(term)) ||
-                    (item.serial_number && item.serial_number.toLowerCase().includes(term))
+                    (item.supplier_serial && item.supplier_serial.toLowerCase().includes(term)) ||
+                    (item.itcj_serial && item.itcj_serial.toLowerCase().includes(term)) ||
+                    (item.id_tecnm && item.id_tecnm.toLowerCase().includes(term))
                 );
             });
         }

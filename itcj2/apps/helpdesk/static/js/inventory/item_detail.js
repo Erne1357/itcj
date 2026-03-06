@@ -186,8 +186,14 @@ function renderGeneralInfo(item) {
         <div class="info-label">Modelo</div>
         <div class="info-value ${item.model ? '' : 'empty'}">${item.model || 'No especificado'}</div>
 
-        <div class="info-label">Número de Serie</div>
-        <div class="info-value ${item.serial_number ? '' : 'empty'}">${item.serial_number || 'No registrado'}</div>
+        <div class="info-label">Serial Proveedor</div>
+        <div class="info-value ${item.supplier_serial ? '' : 'empty'}">${item.supplier_serial || 'No registrado'}</div>
+
+        <div class="info-label">Serial ITCJ / Activo</div>
+        <div class="info-value ${item.itcj_serial ? '' : 'empty'}">${item.itcj_serial || 'No registrado'}</div>
+
+        <div class="info-label">ID TecNM</div>
+        <div class="info-value ${item.id_tecnm ? '' : 'empty'}">${item.id_tecnm || 'No registrado'}</div>
 
         <div class="info-label">Fecha de Adquisición</div>
         <div class="info-value ${item.acquisition_date ? '' : 'empty'}">
@@ -750,8 +756,8 @@ async function handleChangeStatus(e) {
 }
 
 function openDeactivateModal() {
-    document.getElementById('deactivation-reason').value = '';
-    $('#deactivateModal').modal('show');
+    // Redirige al flujo formal de solicitud de baja
+    window.location.href = `/help-desk/inventory/retirement-requests/create?item_id=${ITEM_ID}`;
 }
 
 async function handleDeactivate(e) {

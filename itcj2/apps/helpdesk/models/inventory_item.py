@@ -25,7 +25,9 @@ class InventoryItem(Base):
 
     brand = Column(String(100))
     model = Column(String(100))
-    serial_number = Column(String(100), unique=True, index=True)
+    supplier_serial = Column(String(150), unique=True, index=True)
+    itcj_serial = Column(String(150), unique=True, index=True)
+    id_tecnm = Column(String(100), unique=True, index=True)
 
     specifications = Column(JSON)
 
@@ -202,7 +204,9 @@ class InventoryItem(Base):
             'category_id': self.category_id,
             'brand': self.brand,
             'model': self.model,
-            'serial_number': self.serial_number,
+            'supplier_serial': self.supplier_serial,
+            'itcj_serial': self.itcj_serial,
+            'id_tecnm': self.id_tecnm,
             'specifications': self.specifications,
             'department_id': self.department_id,
             'assigned_to_user_id': self.assigned_to_user_id,

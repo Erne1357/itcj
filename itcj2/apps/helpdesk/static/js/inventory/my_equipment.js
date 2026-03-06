@@ -105,14 +105,21 @@
                         </div>
                     </div>
 
-                    ${item.serial_number ? `
+                    ${item.supplier_serial ? `
                     <div class="detail-row">
-                        <div class="info-label">Serie</div>
-                        <div class="info-value">
-                            <code>${item.serial_number}</code>
-                        </div>
-                    </div>
-                    ` : ''}
+                        <div class="info-label">Serial Proveedor</div>
+                        <div class="info-value"><code>${item.supplier_serial}</code></div>
+                    </div>` : ''}
+                    ${item.itcj_serial ? `
+                    <div class="detail-row">
+                        <div class="info-label">Serial ITCJ</div>
+                        <div class="info-value"><code>${item.itcj_serial}</code></div>
+                    </div>` : ''}
+                    ${item.id_tecnm ? `
+                    <div class="detail-row">
+                        <div class="info-label">ID TecNM</div>
+                        <div class="info-value"><code>${item.id_tecnm}</code></div>
+                    </div>` : ''}
 
                     <div class="detail-row">
                         <div class="info-label">Ubicación</div>
@@ -279,13 +286,12 @@
                 </div>
             </div>
 
-            ${item.serial_number ? `
+            ${(item.supplier_serial || item.itcj_serial || item.id_tecnm) ? `
             <div class="row mb-3">
                 <div class="col-12">
-                    <div class="detail-row">
-                        <div class="info-label">Número de Serie</div>
-                        <div class="info-value"><code>${item.serial_number}</code></div>
-                    </div>
+                    ${item.supplier_serial ? `<div class="detail-row"><div class="info-label">Serial Proveedor</div><div class="info-value"><code>${item.supplier_serial}</code></div></div>` : ''}
+                    ${item.itcj_serial    ? `<div class="detail-row"><div class="info-label">Serial ITCJ</div><div class="info-value"><code>${item.itcj_serial}</code></div></div>` : ''}
+                    ${item.id_tecnm       ? `<div class="detail-row"><div class="info-label">ID TecNM</div><div class="info-value"><code>${item.id_tecnm}</code></div></div>` : ''}
                 </div>
             </div>
             ` : ''}

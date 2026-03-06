@@ -16,6 +16,9 @@ Rutas:
   GET /help-desk/inventory/groups/{id}            → Detalle de grupo
   GET /help-desk/inventory/pending                → Equipos pendientes
   GET /help-desk/inventory/bulk-register          → Registro masivo
+  GET /help-desk/inventory/retirement-requests    → Solicitudes de baja
+  GET /help-desk/inventory/retirement-requests/create → Nueva solicitud de baja
+  GET /help-desk/inventory/retirement-requests/{id}   → Detalle de solicitud de baja
 """
 import logging
 
@@ -305,6 +308,67 @@ async def verification_report(
     """Redirige a /reports?tab=verificacion."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse("/help-desk/inventory/reports?tab=verificacion", status_code=302)
+
+
+@router.get("/retirement-requests", name="helpdesk.pages.inventory.retirement_requests_list")
+async def retirement_requests_list(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.list"])),
+):
+    """Lista de solicitudes de baja del inventario."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    _db = SessionLocal()
+    try:
+        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+        can_approve = "admin" in user_roles
+    finally:
+        _db.close()
+
+    return render_helpdesk(request, "helpdesk/inventory/retirement_requests_list.html", {
+        "user_roles": user_roles,
+        "can_view_all": can_view_all,
+        "can_approve": can_approve,
+        "active_page": "inventory_retirement_requests",
+    })
+
+
+@router.get("/retirement-requests/create", name="helpdesk.pages.inventory.retirement_request_create")
+async def retirement_request_create(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.create"])),
+):
+    """Formulario para crear nueva solicitud de baja."""
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    return render_helpdesk(request, "helpdesk/inventory/retirement_request_create.html", {
+        "user_roles": user_roles,
+        "active_page": "inventory_retirement_requests",
+    })
+
+
+@router.get("/retirement-requests/{request_id}", name="helpdesk.pages.inventory.retirement_request_detail")
+async def retirement_request_detail(
+    request: Request,
+    request_id: int,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.detail"])),
+):
+    """Detalle de una solicitud de baja."""
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+    can_approve = "admin" in user_roles
+
+    return render_helpdesk(request, "helpdesk/inventory/retirement_request_detail.html", {
+        "request_id": request_id,
+        "user_roles": user_roles,
+        "can_approve": can_approve,
+        "active_page": "inventory_retirement_requests",
+    })
 
 
 @router.get("/verification", name="helpdesk.pages.inventory.verification")

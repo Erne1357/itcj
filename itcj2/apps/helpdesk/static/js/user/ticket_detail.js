@@ -1352,9 +1352,9 @@ function renderEquipmentModalList(equipmentList) {
                             <span class="badge bg-info">
                                 <i class="fas fa-tag me-1"></i>${equipment.category?.name || 'Sin categoría'}
                             </span>
-                            ${equipment.serial_number ? `
+                            ${equipment.supplier_serial ? `
                                 <span class="badge bg-light text-dark">
-                                    <i class="fas fa-barcode me-1"></i>${equipment.serial_number}
+                                    <i class="fas fa-barcode me-1"></i>${equipment.supplier_serial}
                                 </span>
                             ` : ''}
                             ${getEquipmentStatusBadge(equipment.status)}

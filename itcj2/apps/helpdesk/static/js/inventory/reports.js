@@ -218,7 +218,7 @@
                 <td><strong>${escapeHtml(item.inventory_number || '')}</strong></td>
                 <td class="d-none d-md-table-cell"><small>${escapeHtml(cat.name || '')}</small></td>
                 <td>${escapeHtml(item.brand || '')} ${escapeHtml(item.model || '')}</td>
-                <td class="d-none d-lg-table-cell"><small class="text-muted">${escapeHtml(item.serial_number || '-')}</small></td>
+                <td class="d-none d-lg-table-cell"><small class="text-muted">${escapeHtml(item.supplier_serial || item.itcj_serial || '-')}</small></td>
                 <td><small>${escapeHtml(dept.name || 'Sin asignar')}</small></td>
                 <td class="d-none d-md-table-cell"><small>${escapeHtml(user.full_name || 'Global')}</small></td>
                 <td><span class="badge badge-status badge-status-${item.status}">${STATUS_LABELS[item.status] || item.status}</span></td>

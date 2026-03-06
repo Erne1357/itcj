@@ -70,6 +70,78 @@ function setupBulkListeners() {
     if (quantityField) {
         quantityField.addEventListener('input', updateBulkPreview);
     }
+
+    // Contadores de listas de seriales
+    document.querySelectorAll('.serial-list-input').forEach(textarea => {
+        textarea.addEventListener('input', function () {
+            updateSerialCount(this);
+            checkSerialMismatch();
+        });
+    });
+
+    // Al cambiar separador, re-contar
+    document.querySelectorAll('input[name="bulk-serial-separator"]').forEach(radio => {
+        radio.addEventListener('change', function () {
+            document.querySelectorAll('.serial-list-input').forEach(ta => updateSerialCount(ta));
+            checkSerialMismatch();
+        });
+    });
+}
+
+function getSelectedSeparator() {
+    const sel = document.querySelector('input[name="bulk-serial-separator"]:checked');
+    return sel ? sel.value : 'newline';
+}
+
+function parseSerialList(raw, separator) {
+    if (!raw || !raw.trim()) return [];
+    const text = raw.trim();
+    let parts;
+    if (separator === 'auto') {
+        const counts = { '\n': (text.match(/\n/g) || []).length, ',': (text.match(/,/g) || []).length, ';': (text.match(/;/g) || []).length };
+        const best = Object.keys(counts).reduce((a, b) => counts[a] >= counts[b] ? a : b);
+        separator = counts[best] > 0 ? ({ '\n': 'newline', ',': 'comma', ';': 'semicolon' }[best]) : 'space';
+    }
+    if (separator === 'newline') parts = text.split('\n');
+    else if (separator === 'comma') parts = text.split(',');
+    else if (separator === 'semicolon') parts = text.split(';');
+    else parts = text.split(/\s+/);
+    return parts.map(p => p.trim()).filter(Boolean);
+}
+
+function updateSerialCount(textarea) {
+    const separator = getSelectedSeparator();
+    const items = parseSerialList(textarea.value, separator);
+    const labelId = textarea.dataset.countLabel;
+    const label = document.getElementById(labelId);
+    if (label) label.textContent = items.length;
+}
+
+function checkSerialMismatch() {
+    const quantity = parseInt(document.getElementById('bulk-quantity').value) || 0;
+    const separator = getSelectedSeparator();
+    const warnings = [];
+    const configs = [
+        { id: 'bulk-supplier-serial-list', name: 'Serial proveedor' },
+        { id: 'bulk-itcj-serial-list',    name: 'Serial ITCJ' },
+        { id: 'bulk-id-tecnm-list',        name: 'ID TecNM' },
+    ];
+    configs.forEach(cfg => {
+        const ta = document.getElementById(cfg.id);
+        if (!ta || !ta.value.trim()) return;
+        const count = parseSerialList(ta.value, separator).length;
+        if (count !== quantity) {
+            warnings.push(`${cfg.name}: ${count} entradas (se esperan ${quantity})`);
+        }
+    });
+    const warnDiv = document.getElementById('serial-mismatch-warning');
+    const warnMsg = document.getElementById('serial-mismatch-msg');
+    if (warnings.length > 0) {
+        warnMsg.textContent = 'Longitudes no coinciden: ' + warnings.join(' | ') + '. Los equipos sin serial en esa posición quedarán sin ese identificador.';
+        warnDiv.classList.remove('d-none');
+    } else {
+        warnDiv.classList.add('d-none');
+    }
 }
 
 // ==================== CAMBIO DE MODO ====================
@@ -462,7 +534,9 @@ function collectFormData() {
         category_id: parseInt(form.querySelector('#category-id').value),
         brand: form.querySelector('#brand').value.trim() || null,
         model: form.querySelector('#model').value.trim() || null,
-        serial_number: form.querySelector('#serial-number').value.trim() || null,
+        supplier_serial: form.querySelector('#supplier-serial').value.trim() || null,
+        itcj_serial: form.querySelector('#itcj-serial').value.trim() || null,
+        id_tecnm: form.querySelector('#id-tecnm').value.trim() || null,
         department_id: deptValue ? parseInt(deptValue) : null,
         location_detail: form.querySelector('#location-detail').value.trim() || null,
         acquisition_date: form.querySelector('#acquisition-date').value || null,
@@ -794,6 +868,11 @@ function collectBulkFormData() {
     const quantity = parseInt(form.querySelector('#bulk-quantity').value) || 0;
     const destinationType = form.querySelector('#bulk-destination-type').value;
     
+    const separator = (form.querySelector('input[name="bulk-serial-separator"]:checked') || {}).value || 'newline';
+    const supplierRaw = (form.querySelector('#bulk-supplier-serial-list') || {}).value || '';
+    const itcjRaw    = (form.querySelector('#bulk-itcj-serial-list') || {}).value || '';
+    const tecnmRaw   = (form.querySelector('#bulk-id-tecnm-list') || {}).value || '';
+
     const baseData = {
         category_id: parseInt(form.querySelector('#bulk-category-id').value),
         brand: form.querySelector('#bulk-brand').value.trim() || null,
@@ -801,13 +880,20 @@ function collectBulkFormData() {
         acquisition_date: form.querySelector('#bulk-acquisition-date').value || null,
         warranty_expiration: form.querySelector('#bulk-warranty-expiration').value || null,
         notes: form.querySelector('#bulk-notes').value.trim() || null,
+        serial_separator: separator,
+        supplier_serial_list: supplierRaw.trim() || null,
+        itcj_serial_list: itcjRaw.trim() || null,
+        id_tecnm_list: tecnmRaw.trim() || null,
+        quantity: quantity,
         items: []
     };
     
     // Generar items individuales
     for (let i = 1; i <= quantity; i++) {
         const item = {
-            serial_number: null // Se generará automáticamente o se dejará vacío
+            supplier_serial: null,
+            itcj_serial: null,
+            id_tecnm: null
         };
         
         // Determinar destino según tipo

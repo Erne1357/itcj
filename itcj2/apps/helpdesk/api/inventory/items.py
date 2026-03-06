@@ -72,7 +72,9 @@ def get_items(
             InventoryItem.inventory_number.ilike(search_term),
             InventoryItem.brand.ilike(search_term),
             InventoryItem.model.ilike(search_term),
-            InventoryItem.serial_number.ilike(search_term),
+            InventoryItem.supplier_serial.ilike(search_term),
+            InventoryItem.itcj_serial.ilike(search_term),
+            InventoryItem.id_tecnm.ilike(search_term),
         ))
 
     page = int(params.get("page", "1"))
@@ -256,8 +258,18 @@ def create_item(
         if not is_valid:
             raise HTTPException(400, detail={"success": False, "error": message})
 
-    if data.get("serial_number"):
-        is_valid, message = InventoryValidators.validate_serial_number(data["serial_number"], db=db)
+    if data.get("supplier_serial"):
+        is_valid, message = InventoryValidators.validate_supplier_serial(data["supplier_serial"], db=db)
+        if not is_valid:
+            raise HTTPException(400, detail={"success": False, "error": message})
+
+    if data.get("itcj_serial"):
+        is_valid, message = InventoryValidators.validate_itcj_serial(data["itcj_serial"], db=db)
+        if not is_valid:
+            raise HTTPException(400, detail={"success": False, "error": message})
+
+    if data.get("id_tecnm"):
+        is_valid, message = InventoryValidators.validate_id_tecnm(data["id_tecnm"], db=db)
         if not is_valid:
             raise HTTPException(400, detail={"success": False, "error": message})
 

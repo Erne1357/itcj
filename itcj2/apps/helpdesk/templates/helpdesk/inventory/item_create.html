@@ -130,16 +130,44 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Número de Serie</label>
-                        <input 
-                            type="text" 
-                            class="form-control" 
-                            id="serial-number" 
-                            name="serial_number" 
-                            placeholder="Número de serie del fabricante"
+                        <label>Serial del Proveedor / Fabricante</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="supplier-serial"
+                            name="supplier_serial"
+                            placeholder="Número de serie grabado en el equipo o caja"
                         >
                         <small class="form-text text-muted">
-                            <i class="fas fa-info-circle"></i> Debe ser único en el sistema
+                            <i class="fas fa-info-circle"></i> Debe ser único en el sistema. Opcional.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Serial ITCJ / No. de Activo</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="itcj-serial"
+                            name="itcj_serial"
+                            placeholder="Número de activo asignado por Compras ITCJ"
+                        >
+                        <small class="form-text text-muted">
+                            <i class="fas fa-info-circle"></i> Asignado internamente por el Depto. de Compras. Debe ser único. Opcional.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>ID TecNM</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="id-tecnm"
+                            name="id_tecnm"
+                            placeholder="Identificador en el sistema nacional TecNM"
+                        >
+                        <small class="form-text text-muted">
+                            <i class="fas fa-info-circle"></i> ID con el que el equipo aparece en el TecNM. Debe ser único. Opcional.
                         </small>
                     </div>
                 </div>
@@ -455,6 +483,102 @@
                             rows="3"
                             placeholder="Notas que aplicarán a todos los equipos..."
                         ></textarea>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: Identificadores de Serie (opcional) -->
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <i class="fas fa-barcode"></i> Identificadores de Serie
+                        <span class="badge bg-secondary text-white ml-2" style="font-size:0.7rem;">Opcional</span>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        Pega listas de números de serie — uno por línea (o con el separador elegido).
+                        Se asignarán en orden: el primero de cada lista al primer equipo, el segundo al segundo, etc.
+                        Si una lista tiene menos entradas que equipos, los restantes quedan sin ese identificador.
+                    </div>
+
+                    <div class="form-group">
+                        <label>Separador de la lista</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="bulk-serial-separator" id="sep-newline" value="newline" checked>
+                                <label class="form-check-label" for="sep-newline">Enter (↵)</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="bulk-serial-separator" id="sep-comma" value="comma">
+                                <label class="form-check-label" for="sep-comma">Coma (,)</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="bulk-serial-separator" id="sep-semicolon" value="semicolon">
+                                <label class="form-check-label" for="sep-semicolon">Punto y coma (;)</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="bulk-serial-separator" id="sep-space" value="space">
+                                <label class="form-check-label" for="sep-space">Espacio</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="bulk-serial-separator" id="sep-auto" value="auto">
+                                <label class="form-check-label" for="sep-auto">Automático</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Seriales Proveedor / Fabricante</label>
+                                <textarea
+                                    class="form-control font-monospace serial-list-input"
+                                    id="bulk-supplier-serial-list"
+                                    rows="6"
+                                    placeholder="SN001&#10;SN002&#10;SN003&#10;..."
+                                    data-count-label="supplier-count"
+                                ></textarea>
+                                <small class="form-text text-muted">
+                                    <span id="supplier-count" class="text-primary fw-bold">0</span> seriales detectados
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>Seriales ITCJ / No. de Activo</label>
+                                <textarea
+                                    class="form-control font-monospace serial-list-input"
+                                    id="bulk-itcj-serial-list"
+                                    rows="6"
+                                    placeholder="ITCJ-001&#10;ITCJ-002&#10;ITCJ-003&#10;..."
+                                    data-count-label="itcj-count"
+                                ></textarea>
+                                <small class="form-text text-muted">
+                                    <span id="itcj-count" class="text-primary fw-bold">0</span> seriales detectados
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label>IDs TecNM</label>
+                                <textarea
+                                    class="form-control font-monospace serial-list-input"
+                                    id="bulk-id-tecnm-list"
+                                    rows="6"
+                                    placeholder="TEC-001&#10;TEC-002&#10;TEC-003&#10;..."
+                                    data-count-label="tecnm-count"
+                                ></textarea>
+                                <small class="form-text text-muted">
+                                    <span id="tecnm-count" class="text-primary fw-bold">0</span> IDs detectados
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="serial-mismatch-warning" class="alert alert-warning d-none">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span id="serial-mismatch-msg"></span>
                     </div>
                 </div>
 

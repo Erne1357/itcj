@@ -354,7 +354,7 @@ function renderAvailableEquipment(equipment) {
                     ${item.brand || 'N/A'} ${item.model || ''}
                 </td>
                 <td>
-                    <span class="badge bg-${statusBadge.color} text-white badge-sm">
+                    <span class="badge bg-${statusBadge.color} text-white ">
                         ${statusBadge.text}
                     </span>
                 </td>

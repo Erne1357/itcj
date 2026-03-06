@@ -229,7 +229,7 @@ def verify_item(
     changes_applied = {}
 
     # Campos básicos actualizables
-    basic_updatable = ["brand", "model", "serial_number", "location_detail"]
+    basic_updatable = ["brand", "model", "supplier_serial", "itcj_serial", "id_tecnm", "location_detail"]
     update_payload = {}
     for field in basic_updatable:
         if field in body and body[field] is not None:

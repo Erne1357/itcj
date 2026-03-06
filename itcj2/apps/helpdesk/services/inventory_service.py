@@ -70,12 +70,20 @@ class InventoryService:
         if existing:
             raise ValueError(f"El número de inventario {data['inventory_number']} ya existe")
 
-        if data.get('serial_number'):
-            existing_serial = db.query(InventoryItem).filter_by(
-                serial_number=data['serial_number']
-            ).first()
-            if existing_serial:
-                raise ValueError(f"El número de serie {data['serial_number']} ya existe")
+        if data.get('supplier_serial'):
+            existing = db.query(InventoryItem).filter_by(supplier_serial=data['supplier_serial']).first()
+            if existing:
+                raise ValueError(f"El serial de proveedor '{data['supplier_serial']}' ya existe en {existing.inventory_number}")
+
+        if data.get('itcj_serial'):
+            existing = db.query(InventoryItem).filter_by(itcj_serial=data['itcj_serial']).first()
+            if existing:
+                raise ValueError(f"El serial ITCJ '{data['itcj_serial']}' ya existe en {existing.inventory_number}")
+
+        if data.get('id_tecnm'):
+            existing = db.query(InventoryItem).filter_by(id_tecnm=data['id_tecnm']).first()
+            if existing:
+                raise ValueError(f"El ID TecNM '{data['id_tecnm']}' ya existe en {existing.inventory_number}")
 
         if data.get('maintenance_frequency_days'):
             base_date = data.get('last_maintenance_date') or data.get('acquisition_date') or date.today()
@@ -86,7 +94,9 @@ class InventoryService:
             category_id=data['category_id'],
             brand=data.get('brand'),
             model=data.get('model'),
-            serial_number=data.get('serial_number'),
+            supplier_serial=data.get('supplier_serial'),
+            itcj_serial=data.get('itcj_serial'),
+            id_tecnm=data.get('id_tecnm'),
             specifications=data.get('specifications'),
             department_id=data['department_id'],
             assigned_to_user_id=data.get('assigned_to_user_id'),
@@ -137,9 +147,25 @@ class InventoryService:
             raise ValueError("No se puede editar un equipo dado de baja")
 
         updatable_fields = [
-            'brand', 'model', 'specifications', 'location_detail',
+            'brand', 'model', 'supplier_serial', 'itcj_serial', 'id_tecnm',
+            'specifications', 'location_detail',
             'warranty_expiration', 'maintenance_frequency_days', 'notes'
         ]
+
+        serial_uniqueness = [
+            ('supplier_serial', 'serial de proveedor'),
+            ('itcj_serial', 'serial ITCJ'),
+            ('id_tecnm', 'ID TecNM'),
+        ]
+        for field, label in serial_uniqueness:
+            value = data.get(field)
+            if value and value != getattr(item, field):
+                existing = db.query(InventoryItem).filter(
+                    getattr(InventoryItem, field) == value,
+                    InventoryItem.id != item_id,
+                ).first()
+                if existing:
+                    raise ValueError(f"El {label} '{value}' ya existe en {existing.inventory_number}")
 
         changes = {}
         for field in updatable_fields:

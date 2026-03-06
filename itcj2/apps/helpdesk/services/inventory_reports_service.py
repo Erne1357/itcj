@@ -66,7 +66,9 @@ class InventoryReportsService:
                     InventoryItem.inventory_number.ilike(f"%{search}%"),
                     InventoryItem.brand.ilike(f"%{search}%"),
                     InventoryItem.model.ilike(f"%{search}%"),
-                    InventoryItem.serial_number.ilike(f"%{search}%"),
+                    InventoryItem.supplier_serial.ilike(f"%{search}%"),
+                    InventoryItem.itcj_serial.ilike(f"%{search}%"),
+                    InventoryItem.id_tecnm.ilike(f"%{search}%"),
                     InventoryItem.location_detail.ilike(f"%{search}%"),
                 )
             )
@@ -147,7 +149,7 @@ class InventoryReportsService:
                 or_(
                     InventoryHistory.notes.ilike(f"%{search}%"),
                     InventoryItem.inventory_number.ilike(f"%{search}%"),
-                    InventoryItem.serial_number.ilike(f"%{search}%"),
+                    InventoryItem.supplier_serial.ilike(f"%{search}%"),
                 )
             )
 
@@ -193,7 +195,7 @@ class InventoryReportsService:
                 cat.get("name", ""),
                 item.get("brand", ""),
                 item.get("model", ""),
-                item.get("serial_number", ""),
+                item.get("supplier_serial", ""),
                 dept.get("name", ""),
                 user.get("full_name", "Sin asignar"),
                 item.get("location_detail", ""),

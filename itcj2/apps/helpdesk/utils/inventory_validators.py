@@ -41,21 +41,65 @@ class InventoryValidators:
                 db.close()
 
     @staticmethod
-    def validate_serial_number(serial_number, exclude_id=None, db=None):
+    def validate_supplier_serial(supplier_serial, exclude_id=None, db=None):
         own_session = db is None
         if own_session:
             db = _get_db()
         try:
-            if not serial_number:
+            if not supplier_serial:
                 return True, "OK"
 
-            query = db.query(InventoryItem).filter_by(serial_number=serial_number)
+            query = db.query(InventoryItem).filter_by(supplier_serial=supplier_serial)
             if exclude_id:
                 query = query.filter(InventoryItem.id != exclude_id)
 
             existing = query.first()
             if existing:
-                return False, f"El número de serie {serial_number} ya existe en {existing.inventory_number}"
+                return False, f"El serial de proveedor '{supplier_serial}' ya existe en {existing.inventory_number}"
+
+            return True, "OK"
+        finally:
+            if own_session:
+                db.close()
+
+    @staticmethod
+    def validate_itcj_serial(itcj_serial, exclude_id=None, db=None):
+        own_session = db is None
+        if own_session:
+            db = _get_db()
+        try:
+            if not itcj_serial:
+                return True, "OK"
+
+            query = db.query(InventoryItem).filter_by(itcj_serial=itcj_serial)
+            if exclude_id:
+                query = query.filter(InventoryItem.id != exclude_id)
+
+            existing = query.first()
+            if existing:
+                return False, f"El serial ITCJ '{itcj_serial}' ya existe en {existing.inventory_number}"
+
+            return True, "OK"
+        finally:
+            if own_session:
+                db.close()
+
+    @staticmethod
+    def validate_id_tecnm(id_tecnm, exclude_id=None, db=None):
+        own_session = db is None
+        if own_session:
+            db = _get_db()
+        try:
+            if not id_tecnm:
+                return True, "OK"
+
+            query = db.query(InventoryItem).filter_by(id_tecnm=id_tecnm)
+            if exclude_id:
+                query = query.filter(InventoryItem.id != exclude_id)
+
+            existing = query.first()
+            if existing:
+                return False, f"El ID TecNM '{id_tecnm}' ya existe en {existing.inventory_number}"
 
             return True, "OK"
         finally:

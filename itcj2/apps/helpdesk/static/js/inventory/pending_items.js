@@ -183,7 +183,7 @@ function renderTable() {
                 <td>
                     <span class="font-weight-bold">${item.inventory_number}</span>
                     <br>
-                    <span class="badge badge-warning limbo-badge">
+                    <span class="badge bg-warning text-dark limbo-badge">
                         <i class="fas fa-hourglass-half"></i> Limbo
                     </span>
                 </td>
@@ -196,7 +196,7 @@ function renderTable() {
                     <small class="text-muted">${item.model || ''}</small>
                 </td>
                 <td>
-                    <small>${item.serial_number || 'N/A'}</small>
+                    <small>${item.supplier_serial || item.itcj_serial || 'N/A'}</small>
                 </td>
                 <td>
                     <small>${formatDate(item.created_at)}</small>
@@ -374,7 +374,7 @@ function openBulkAssignModal() {
                     <strong>${item.inventory_number}</strong> - 
                     ${item.brand || 'N/A'} ${item.model || ''}
                 </div>
-                <span class="badge badge-primary">
+                <span class="badge bg-primary text-white">
                     ${category?.name || 'N/A'}
                 </span>
             </div>

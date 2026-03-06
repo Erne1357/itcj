@@ -47,7 +47,9 @@
         verifStatus:     $('#verif-status'),
         verifBrand:      $('#verif-brand'),
         verifModel:      $('#verif-model'),
-        verifSerial:     $('#verif-serial'),
+        verifSupplierSerial: $('#verif-supplier-serial'),
+        verifItcjSerial:    $('#verif-itcj-serial'),
+        verifIdTecnm:       $('#verif-id-tecnm'),
         verifObs:        $('#verif-observations'),
         verifGroup:      $('#verif-group'),
         verifGroupHint:  $('#verif-group-hint'),
@@ -161,8 +163,10 @@
 
         // Badge de nunca/vencido
         const urgent = (stats.never ?? 0) + (stats.outdated ?? 0) + (stats.critical ?? 0);
-        el.badgeUnverified.classList.toggle('badge-danger',  urgent > 10);
-        el.badgeUnverified.classList.toggle('badge-warning', urgent <= 10);
+        el.badgeUnverified.classList.toggle('bg-danger',   urgent > 10);
+        el.badgeUnverified.classList.toggle('text-white',  urgent > 10);
+        el.badgeUnverified.classList.toggle('bg-warning',  urgent <= 10);
+        el.badgeUnverified.classList.toggle('text-dark',   urgent <= 10);
     }
 
     /* ═══════════════════════════════════════════════════════════════════════ */
@@ -193,6 +197,10 @@
 
         el.tableCountLabel.textContent = ` (${total} equipo${total !== 1 ? 's' : ''})`;
         el.tbody.innerHTML = state.items.map(item => buildRow(item)).join('');
+        // Reset checkboxes on page change
+        const verifSelAll = document.getElementById('verif-select-all');
+        if (verifSelAll) verifSelAll.checked = false;
+        updateVerifBulkBar();
 
         // Info de paginación (calculada desde server)
         const start = (state.currentPage - 1) * state.perPage + 1;
@@ -211,6 +219,8 @@
         const equip = [item.brand, item.model].filter(Boolean).join(' ') || '—';
 
         return `<tr class="${info.row}" data-item-id="${item.id}">
+            <td><input type="checkbox" class="verif-checkbox" data-item-id="${item.id}"
+                       onchange="updateVerifBulkBar()"></td>
             <td class="text-nowrap font-weight-bold">${escHtml(item.inventory_number)}</td>
             <td class="d-none d-md-table-cell">${escHtml(equip)}</td>
             <td class="d-none d-lg-table-cell">${escHtml(deptName)}</td>
@@ -224,11 +234,21 @@
                         title="Verificar equipo">
                     <i class="fas fa-clipboard-check"></i>
                 </button>
-                <button class="btn btn-outline-secondary btn-xs btn-history"
+                <button class="btn btn-outline-secondary btn-xs btn-history mr-1"
                         data-item-id="${item.id}"
                         data-item-name="${escAttr(item.inventory_number)}"
                         title="Ver historial de verificaciones">
                     <i class="fas fa-history"></i>
+                </button>
+                <a class="btn btn-outline-danger btn-xs btn-baja mr-1"
+                   href="/help-desk/inventory/retirement-requests/create?item_id=${item.id}"
+                   title="Solicitar Baja">
+                    <i class="fas fa-file-alt"></i>
+                </a>
+                <button class="btn btn-outline-warning btn-xs btn-limbo"
+                        data-item-id="${item.id}"
+                        title="Enviar al Limbo">
+                    <i class="fas fa-inbox"></i>
                 </button>
             </td>
         </tr>`;
@@ -283,7 +303,9 @@
         el.verifStatus.value   = item.status || 'ACTIVE';
         el.verifBrand.value    = item.brand  || '';
         el.verifModel.value    = item.model  || '';
-        el.verifSerial.value   = item.serial_number || '';
+        if (el.verifSupplierSerial) el.verifSupplierSerial.value = item.supplier_serial || '';
+        if (el.verifItcjSerial) el.verifItcjSerial.value = item.itcj_serial || '';
+        if (el.verifIdTecnm) el.verifIdTecnm.value       = item.id_tecnm || '';
         el.verifObs.value      = '';
 
         el.changesAlert.classList.add('d-none');
@@ -455,8 +477,12 @@
             changes.push('marca');
         if (el.verifModel.value !== (item.model || ''))
             changes.push('modelo');
-        if (el.verifSerial.value !== (item.serial_number || ''))
-            changes.push('n° serie');
+        if (el.verifSupplierSerial && el.verifSupplierSerial.value !== (item.supplier_serial || ''))
+            changes.push('serial proveedor');
+        if (el.verifItcjSerial && el.verifItcjSerial.value !== (item.itcj_serial || ''))
+            changes.push('serial ITCJ');
+        if (el.verifIdTecnm && el.verifIdTecnm.value !== (item.id_tecnm || ''))
+            changes.push('ID TecNM');
 
         // Especificaciones técnicas
         const specFields = el.specsContainer
@@ -503,7 +529,9 @@
             status:             el.verifStatus.value,
             brand:              el.verifBrand.value.trim()  || null,
             model:              el.verifModel.value.trim()  || null,
-            serial_number:      el.verifSerial.value.trim() || null,
+            supplier_serial:    el.verifSupplierSerial ? el.verifSupplierSerial.value.trim() || null : undefined,
+            itcj_serial:        el.verifItcjSerial ? el.verifItcjSerial.value.trim() || null : undefined,
+            id_tecnm:           el.verifIdTecnm    ? el.verifIdTecnm.value.trim()    || null : undefined,
             location_confirmed: el.verifLocation.value.trim() || null,
             observations:       el.verifObs.value.trim()    || null,
         };
@@ -621,7 +649,7 @@
                     <strong class="small">${escHtml(verifier)}</strong>
                     <span class="text-muted small ml-2">${dt}</span>
                 </div>
-                ${hasChanges ? '<span class="badge badge-info badge-sm">Con cambios</span>' : ''}
+                ${hasChanges ? '<span class="badge bg-info text-dark">Con cambios</span>' : ''}
             </div>
             <div class="small mt-1">${obs}</div>
             ${changesHtml}
@@ -648,6 +676,7 @@
         el.tbody.addEventListener('click', (e) => {
             const btnVerify  = e.target.closest('.btn-verify');
             const btnHistory = e.target.closest('.btn-history');
+            const btnLimbo   = e.target.closest('.btn-limbo');
 
             if (btnVerify) {
                 openVerifyModal(parseInt(btnVerify.dataset.itemId, 10));
@@ -656,6 +685,8 @@
                     parseInt(btnHistory.dataset.itemId, 10),
                     btnHistory.dataset.itemName
                 );
+            } else if (btnLimbo) {
+                sendVerifSingleToLimbo(parseInt(btnLimbo.dataset.itemId, 10));
             }
         });
 
@@ -670,13 +701,151 @@
         });
 
         // Detectar cambios en modal
-        [el.verifLocation, el.verifStatus, el.verifBrand, el.verifModel, el.verifSerial].forEach(input => {
+        [el.verifLocation, el.verifStatus, el.verifBrand, el.verifModel,
+         el.verifSupplierSerial, el.verifItcjSerial, el.verifIdTecnm].forEach(input => {
             if (input) input.addEventListener('input', detectChanges);
         });
         if (el.verifGroup) el.verifGroup.addEventListener('change', detectChanges);
 
         // Confirmar verificación
         el.btnConfirm.addEventListener('click', submitVerification);
+
+        // ── Bulk selection ────────────────────────────────────────────────────
+        const verifSelectAll = document.getElementById('verif-select-all');
+        if (verifSelectAll) {
+            verifSelectAll.addEventListener('change', function () {
+                document.querySelectorAll('.verif-checkbox').forEach(cb => cb.checked = this.checked);
+                updateVerifBulkBar();
+            });
+        }
+
+        const btnVerifBulkTransfer = document.getElementById('btn-verif-bulk-transfer');
+        if (btnVerifBulkTransfer) btnVerifBulkTransfer.addEventListener('click', () => {
+            const ids = getVerifSelectedIds();
+            if (!ids.length) return;
+            const cnt = document.getElementById('verif-bulk-transfer-count');
+            if (cnt) cnt.textContent = ids.length;
+            if (window.jQuery) window.jQuery('#modal-verif-bulk-transfer').modal('show');
+        });
+
+        const btnVerifBulkDeselect = document.getElementById('btn-verif-bulk-deselect');
+        if (btnVerifBulkDeselect) btnVerifBulkDeselect.addEventListener('click', () => {
+            document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => cb.checked = false);
+            updateVerifBulkBar();
+        });
+
+        const btnConfirmVerifBulk = document.getElementById('btn-confirm-verif-bulk-transfer');
+        if (btnConfirmVerifBulk) btnConfirmVerifBulk.addEventListener('click', executeVerifBulkTransfer);
+
+        const btnVerifBulkBaja = document.getElementById('btn-verif-bulk-baja');
+        if (btnVerifBulkBaja) btnVerifBulkBaja.addEventListener('click', () => {
+            const ids = getVerifSelectedIds();
+            if (!ids.length) return;
+            window.location.href = `/help-desk/inventory/retirement-requests/create?item_ids=${ids.join(',')}`;
+        });
+
+        const btnVerifBulkLimbo = document.getElementById('btn-verif-bulk-limbo');
+        if (btnVerifBulkLimbo) btnVerifBulkLimbo.addEventListener('click', executeVerifBulkLimbo);
+    }
+
+    /* ═════════════════════════ Selección masiva ════════════════════════════ */
+    function getVerifSelectedIds() {
+        return Array.from(document.querySelectorAll('.verif-checkbox:checked'))
+            .map(cb => parseInt(cb.dataset.itemId));
+    }
+
+    function updateVerifBulkBar() {
+        const ids = getVerifSelectedIds();
+        const bar = document.getElementById('verif-bulk-bar');
+        const cnt = document.getElementById('verif-bulk-count');
+        if (!bar) return;
+        if (ids.length > 0) {
+            bar.style.display = '';
+            if (cnt) cnt.textContent = ids.length;
+        } else {
+            bar.style.display = 'none';
+        }
+    }
+
+    async function executeVerifBulkTransfer() {
+        const ids = getVerifSelectedIds();
+        const deptId = parseInt(document.getElementById('verif-bulk-transfer-dept').value);
+        if (!deptId) { showToast('Selecciona un departamento destino', 'error'); return; }
+
+        const btn = document.getElementById('btn-confirm-verif-bulk-transfer');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Transfiriendo...'; }
+
+        try {
+            const res = await fetch('/api/help-desk/v2/inventory/items/bulk-transfer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ item_ids: ids, target_department_id: deptId }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Error al transferir');
+
+            if (window.jQuery) window.jQuery('#modal-verif-bulk-transfer').modal('hide');
+            document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => cb.checked = false);
+            updateVerifBulkBar();
+
+            const transferred = data.transferred_ids ? data.transferred_ids.length : 0;
+            showToast(`${transferred} equipo(s) transferido(s) correctamente.`, transferred > 0 ? 'success' : 'error');
+            loadItems();
+
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-exchange-alt"></i> Transferir'; }
+        }
+    }
+
+    async function executeVerifBulkLimbo() {
+        const ids = getVerifSelectedIds();
+        if (!ids.length) return;
+        if (!confirm(`¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
+
+        const btn = document.getElementById('btn-verif-bulk-limbo');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+
+        try {
+            const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ item_ids: ids }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
+
+            document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => cb.checked = false);
+            updateVerifBulkBar();
+
+            const sent = data.sent_ids ? data.sent_ids.length : 0;
+            showToast(`${sent} equipo(s) enviado(s) al limbo.`, sent > 0 ? 'success' : 'error');
+            loadItems();
+
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-inbox"></i> Limbo'; }
+        }
+    }
+
+    async function sendVerifSingleToLimbo(itemId) {
+        if (!confirm('¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
+
+        try {
+            const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ item_ids: [itemId] }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
+            showToast('Equipo enviado al limbo correctamente.', 'success');
+            loadItems();
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        }
     }
 
     /* ═════════════════════════════ Init ════════════════════════════════════ */

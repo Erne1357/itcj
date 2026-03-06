@@ -149,8 +149,11 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.inventory_pages.warranty_report":    "/help-desk/inventory/reports/warranty",
     "helpdesk_pages.inventory_pages.maintenance_report": "/help-desk/inventory/reports/maintenance",
     "helpdesk_pages.inventory_pages.lifecycle_report":   "/help-desk/inventory/reports/lifecycle",
-    "helpdesk_pages.inventory_pages.verification":       "/help-desk/inventory/verification",
-    "helpdesk_pages.inventory_pages.reports":            "/help-desk/inventory/reports",
+    "helpdesk_pages.inventory_pages.verification":                  "/help-desk/inventory/verification",
+    "helpdesk_pages.inventory_pages.reports":                       "/help-desk/inventory/reports",
+    "helpdesk_pages.inventory_pages.retirement_requests_list":      "/help-desk/inventory/retirement-requests",
+    "helpdesk_pages.inventory_pages.retirement_request_create":     "/help-desk/inventory/retirement-requests/create",
+    "helpdesk_pages.inventory_pages.retirement_request_detail":     "/help-desk/inventory/retirement-requests/{request_id}",
 
     # ── AgendaTec: Páginas ───────────────────────────────────────────────────
     # Student

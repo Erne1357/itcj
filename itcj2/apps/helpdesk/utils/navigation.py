@@ -153,6 +153,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "endpoint": "helpdesk_pages.inventory_pages.reports",
                     "icon": "fa-chart-bar",
                     "permission": "helpdesk.inventory.page.reports"
+                },
+                {
+                    "label": "Solicitudes de Baja",
+                    "endpoint": "helpdesk_pages.inventory_pages.retirement_requests_list",
+                    "icon": "fa-file-alt",
+                    "permission": "helpdesk.inventory.retirement.page.list"
                 }
             ]
         }
