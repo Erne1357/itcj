@@ -562,6 +562,9 @@ function openEditModal() {
     // Prellenar formulario
     document.getElementById('edit-brand').value = currentItem.brand || '';
     document.getElementById('edit-model').value = currentItem.model || '';
+    document.getElementById('edit-supplier-serial').value = currentItem.supplier_serial || '';
+    document.getElementById('edit-itcj-serial').value = currentItem.itcj_serial || '';
+    document.getElementById('edit-id-tecnm').value = currentItem.id_tecnm || '';
     document.getElementById('edit-location').value = currentItem.location_detail || '';
     document.getElementById('edit-warranty').value = currentItem.warranty_expiration || '';
     document.getElementById('edit-maintenance-freq').value = currentItem.maintenance_frequency_days || '';
@@ -576,6 +579,9 @@ async function handleEditBasic(e) {
     const formData = {
         brand: document.getElementById('edit-brand').value.trim() || null,
         model: document.getElementById('edit-model').value.trim() || null,
+        supplier_serial: document.getElementById('edit-supplier-serial').value.trim() || null,
+        itcj_serial: document.getElementById('edit-itcj-serial').value.trim() || null,
+        id_tecnm: document.getElementById('edit-id-tecnm').value.trim() || null,
         location_detail: document.getElementById('edit-location').value.trim() || null,
         warranty_expiration: document.getElementById('edit-warranty').value || null,
         maintenance_frequency_days: parseInt(document.getElementById('edit-maintenance-freq').value) || null,

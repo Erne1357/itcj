@@ -45,6 +45,7 @@ def bulk_transfer_items(
     target_dept = db.get(Department, int(target_department_id))
     if not target_dept:
         raise HTTPException(400, detail={"success": False, "error": "Departamento destino no encontrado"})
+    target_department_id = target_dept.id  # garantizar int desde objeto ORM
 
     transferred = []
     errors = []

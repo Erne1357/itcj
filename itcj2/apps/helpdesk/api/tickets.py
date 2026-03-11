@@ -269,7 +269,35 @@ def get_ticket(
         user_id=user_id,
         check_permissions=True,
     )
-    return {"ticket": ticket.to_dict(include_relations=True)}
+
+    ticket_dict = ticket.to_dict(include_relations=True)
+
+    # Incluir materiales de almacén usados en este ticket (sin requerir permisos de warehouse)
+    try:
+        from itcj2.apps.warehouse.models.ticket_material import WarehouseTicketMaterial
+        from itcj2.apps.warehouse.models.product import WarehouseProduct
+
+        mats = (
+            db.query(WarehouseTicketMaterial)
+            .filter_by(source_app="helpdesk", source_ticket_id=ticket_id)
+            .all()
+        )
+        materials_used = []
+        for m in mats:
+            product = db.get(WarehouseProduct, m.product_id)
+            materials_used.append({
+                "product_id": m.product_id,
+                "product_code": product.code if product else None,
+                "product_name": product.name if product else None,
+                "unit_of_measure": product.unit_of_measure if product else None,
+                "quantity_used": float(m.quantity_used),
+                "added_at": m.added_at.isoformat(),
+            })
+        ticket_dict["materials_used"] = materials_used
+    except Exception:
+        ticket_dict["materials_used"] = []
+
+    return {"ticket": ticket_dict}
 
 
 # ==================== INICIAR TRABAJO EN TICKET ====================

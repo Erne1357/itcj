@@ -256,6 +256,7 @@ function renderTable(items) {
                     <div class="font-weight-bold">${item.brand || 'N/A'}</div>
                     <small class="text-muted">${item.model || ''}</small>
                 </td>
+                <td>${buildSerialsCell(item)}</td>
                 <td>
                     <small>${item.department?.name || 'N/A'}</small>
                 </td>
@@ -602,6 +603,25 @@ function getWarrantyIndicator(item) {
 
 function getCategoryIcon(icon) {
     return icon || 'fas fa-box';
+}
+
+function buildSerialsCell(item) {
+    const parts = [];
+    if (item.supplier_serial) {
+        parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="Serial Proveedor: ${escapeHtml(item.supplier_serial)}"><span class="text-muted">Prov:</span> ${escapeHtml(item.supplier_serial)}</small>`);
+    }
+    if (item.itcj_serial) {
+        parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="Serial ITCJ: ${escapeHtml(item.itcj_serial)}"><span class="text-muted">ITCJ:</span> ${escapeHtml(item.itcj_serial)}</small>`);
+    }
+    if (item.id_tecnm) {
+        parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="ID TecNM: ${escapeHtml(item.id_tecnm)}"><span class="text-muted">TecNM:</span> ${escapeHtml(item.id_tecnm)}</small>`);
+    }
+    return parts.length ? parts.join('') : '<small class="text-muted">—</small>';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return String(text).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 }
 
 function showLoading() {
