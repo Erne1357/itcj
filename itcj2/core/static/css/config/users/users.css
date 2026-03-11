@@ -36,6 +36,10 @@
     background-color: #e61d1d !important;
 }
 
+.bg-warehouse {
+    background-color: #fd7e14 !important;
+}
+
 /* ===== Responsive para Users ===== */
 @media (max-width: 768px) {
     /* Filtros en columna */

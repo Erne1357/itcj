@@ -110,10 +110,24 @@ async def ticket_detail(
     finally:
         _db.close()
 
+    can_consume_warehouse = False
+    if user.get("role") == "admin":
+        can_consume_warehouse = True
+    else:
+        from itcj2.apps.helpdesk.utils.warehouse_auth import get_warehouse_perms_via_helpdesk
+        from itcj2.database import SessionLocal as _SL
+        _wdb = _SL()
+        try:
+            w_perms = get_warehouse_perms_via_helpdesk(_wdb, user_id)
+            can_consume_warehouse = "warehouse.api.consume" in w_perms
+        finally:
+            _wdb.close()
+
     return render_helpdesk(request, "helpdesk/user/ticket_detail.html", {
         "title": f"Ticket #{ticket_id}",
         "ticket_id": ticket_id,
         "user_id": user_id,
         "user_roles": user_roles,
         "active_page": "my_tickets",
+        "can_consume_warehouse": can_consume_warehouse,
     })

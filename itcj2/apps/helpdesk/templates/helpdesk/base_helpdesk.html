@@ -26,15 +26,12 @@
     {% block extra_css %}{% endblock %}
 </head>
 
-{% set nav_count = helpdesk_nav_items|length if helpdesk_nav_items else 0 %}
-{% set use_topbar = nav_count < 7 %}
-
-<body class="bg-light{% if use_topbar %} nav-topbar-mode{% endif %}">
+<body class="bg-light">
 
     <!-- Header con Navegación -->
     <header class="sitec-header-nav sticky-top shadow-sm mb-2 mb-md-4">
         <div class="container-fluid px-2 px-md-3">
-            <nav class="navbar {% if use_topbar %}navbar-expand-lg {% endif %}navbar-dark py-1 py-md-2">
+            <nav class="navbar navbar-expand-lg navbar-dark py-1 py-md-2">
                 <div class="container-fluid px-0">
                     <!-- Botón de regreso al dashboard (solo visible en iframe móvil) -->
                     <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
@@ -58,22 +55,12 @@
                         {% block header_actions %} {% endblock %}
                     </div>
 
-                    {% if use_topbar %}
-                    <!-- Topbar mode: Standard Bootstrap toggler (mobile only) -->
-                    <button class="navbar-toggler border-0 ms-2" type="button"
-                            data-bs-toggle="collapse" data-bs-target="#navbarContent"
-                            aria-controls="navbarContent" aria-expanded="false">
-                        <span class="navbar-toggler-icon"></span>
-                    </button>
-                    {% else %}
-                    <!-- Sidebar mode: Hamburger que abre sidebar -->
+                    <!-- Hamburger: siempre abre sidebar (visible solo en móvil por navbar-expand-lg) -->
                     <button class="navbar-toggler border-0 ms-2 sidebar-trigger" type="button" id="sidebarTrigger">
                         <span class="navbar-toggler-icon"></span>
                     </button>
-                    {% endif %}
 
-                    {% if use_topbar %}
-                    <!-- Desktop horizontal nav (collapses vertically on mobile) -->
+                    <!-- Nav items: auto-expandidos en desktop (lg+), ocultos en móvil -->
                     <div class="collapse navbar-collapse" id="navbarContent">
                         <ul class="navbar-nav ms-auto">
                             {% if helpdesk_nav_items %}
@@ -109,7 +96,6 @@
                             </li>
                         </ul>
                     </div>
-                    {% endif %}
                 </div>
             </nav>
         </div>
@@ -134,12 +120,29 @@
                 {% if helpdesk_nav_items %}
                     {% for item in helpdesk_nav_items %}
                         {% if item.dropdown %}
-                            {% for sub_item in item.dropdown %}
-                            <a href="{{ sub_item.url }}" class="app-sidebar-item {% if current_route == sub_item.endpoint %}active{% endif %}">
-                                <i class="fas {{ sub_item.icon }}"></i>
-                                <span>{{ sub_item.label }}</span>
-                            </a>
-                            {% endfor %}
+                            {% set group_active = current_route in item.dropdown | map(attribute='endpoint') | list %}
+                            <div class="app-sidebar-group {% if group_active %}has-active{% endif %}">
+                                <button class="app-sidebar-group-toggle"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#sidebarGroup{{ loop.index }}"
+                                        aria-expanded="{{ 'true' if group_active else 'false' }}"
+                                        aria-controls="sidebarGroup{{ loop.index }}">
+                                    <i class="fas {{ item.icon }}"></i>
+                                    <span>{{ item.label }}</span>
+                                    <i class="fas fa-chevron-down app-sidebar-group-arrow"></i>
+                                </button>
+                                <div class="collapse {% if group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
+                                    <div class="app-sidebar-sub-items">
+                                        {% for sub_item in item.dropdown %}
+                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub_item.endpoint %}active{% endif %}">
+                                            <i class="fas {{ sub_item.icon }}"></i>
+                                            <span>{{ sub_item.label }}</span>
+                                        </a>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
                         {% else %}
                             <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}">
                                 <i class="fas {{ item.icon }}"></i>

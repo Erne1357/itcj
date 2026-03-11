@@ -13,6 +13,7 @@ from .landing import router as landing_router
 from .secretary import router as secretary_router
 from .technician import router as technician_router
 from .user import router as user_router
+from .warehouse import router as warehouse_router
 
 helpdesk_pages_router = APIRouter(prefix="/help-desk", tags=["helpdesk-pages"])
 
@@ -23,3 +24,4 @@ helpdesk_pages_router.include_router(technician_router)
 helpdesk_pages_router.include_router(department_router)
 helpdesk_pages_router.include_router(inventory_router)
 helpdesk_pages_router.include_router(admin_router)
+helpdesk_pages_router.include_router(warehouse_router)

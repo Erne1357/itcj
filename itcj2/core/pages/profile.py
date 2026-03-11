@@ -18,10 +18,15 @@ async def profile(
     user: dict = Depends(require_page_login),
 ):
     """Página de perfil del usuario autenticado."""
+    from itcj2.database import SessionLocal
     from itcj2.core.services.profile_service import get_user_profile_data
 
     user_id = int(user["sub"])
-    profile_data = get_user_profile_data(user_id)
+    db = SessionLocal()
+    try:
+        profile_data = get_user_profile_data(db, user_id)
+    finally:
+        db.close()
 
     if not profile_data:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")

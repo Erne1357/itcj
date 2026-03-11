@@ -36,6 +36,8 @@ def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
         try:
             user_perms = get_user_permissions_for_app(_db, user_id, "helpdesk")
             user_roles = set(user_roles_in_app(_db, user_id, "helpdesk"))
+            from itcj2.apps.helpdesk.utils.warehouse_auth import get_warehouse_perms_via_helpdesk
+            user_perms = user_perms | get_warehouse_perms_via_helpdesk(_db, user_id)
         finally:
             _db.close()
         nav_items = get_helpdesk_navigation(user_perms, user_roles)

@@ -121,10 +121,15 @@ def get_current_user_info(user: CurrentUser, db: DbSession):
 @router.get("/me/profile", response_model=FullProfileResponse)
 def get_full_profile(user: CurrentUser):
     """Perfil completo con desglose de permisos."""
+    from itcj2.database import SessionLocal
     from itcj2.core.services.profile_service import get_user_profile_data
 
     user_id = int(user["sub"])
-    profile = get_user_profile_data(user_id)
+    db = SessionLocal()
+    try:
+        profile = get_user_profile_data(db, user_id)
+    finally:
+        db.close()
     if not profile:
         raise HTTPException(404, detail="user_not_found")
 
@@ -134,10 +139,15 @@ def get_full_profile(user: CurrentUser):
 @router.get("/me/activity")
 def get_activity(user: CurrentUser, limit: int = Query(10, ge=1, le=50)):
     """Actividad reciente del usuario."""
+    from itcj2.database import SessionLocal
     from itcj2.core.services.profile_service import get_user_activity
 
     user_id = int(user["sub"])
-    return {"status": "ok", "data": get_user_activity(user_id, limit=limit)}
+    db = SessionLocal()
+    try:
+        return {"status": "ok", "data": get_user_activity(db, user_id, limit=limit)}
+    finally:
+        db.close()
 
 
 @router.get("/me/notifications")
@@ -147,10 +157,15 @@ def get_notifications(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Notificaciones del usuario (acceso rápido desde perfil)."""
+    from itcj2.database import SessionLocal
     from itcj2.core.services.profile_service import get_user_notifications
 
     user_id = int(user["sub"])
-    return {"status": "ok", "data": get_user_notifications(user_id, unread_only, limit)}
+    db = SessionLocal()
+    try:
+        return {"status": "ok", "data": get_user_notifications(db, user_id, unread_only, limit)}
+    finally:
+        db.close()
 
 
 @router.patch("/me/profile")
