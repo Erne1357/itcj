@@ -163,6 +163,17 @@ function renderTicketDetail(ticket) {
         document.getElementById('resolvedAt').textContent = HelpdeskUtils.formatDate(ticket.resolved_at);
     }
 
+    // Materials Used (if exists)
+    if (ticket.materials_used && ticket.materials_used.length > 0) {
+        document.getElementById('materialsUsedContainer').classList.remove('d-none');
+        document.getElementById('materialsUsedList').innerHTML = ticket.materials_used.map(m => `
+            <tr>
+                <td><code class="small">${m.product_code || '—'}</code></td>
+                <td class="small">${m.product_name || '—'}</td>
+                <td class="small text-end">${m.quantity_used} ${m.unit_of_measure || ''}</td>
+            </tr>`).join('');
+    }
+
     // Collaborators (if exist)
     if (ticket.collaborators && ticket.collaborators.length > 0) {
         document.getElementById('collaboratorsContainer').classList.remove('d-none');
@@ -692,40 +703,59 @@ function openResolveModal() {
         <p class="mb-0 small text-muted">${currentTicket.description.substring(0, 200)}...</p>
     `;
 
+    // Fill reference panel (right column)
+    const refTitle = document.getElementById('resolveRefTitle');
+    const refDesc = document.getElementById('resolveRefDesc');
+    const refMeta = document.getElementById('resolveRefMeta');
+    if (refTitle) refTitle.textContent = `${currentTicket.ticket_number}: ${currentTicket.title}`;
+    if (refDesc) refDesc.textContent = currentTicket.description || '-';
+    if (refMeta) refMeta.innerHTML = `
+        ${HelpdeskUtils.getStatusBadge(currentTicket.status)}
+        ${HelpdeskUtils.getPriorityBadge(currentTicket.priority)}
+    `;
+
     // Reset form
     const notesField = document.getElementById('resolutionNotes');
     notesField.value = '';
     notesField.classList.remove('is-invalid', 'is-valid');
-    
+
     document.getElementById('resolutionSuccess').checked = true;
     document.getElementById('timeInvested').value = '';
     document.getElementById('timeUnit').value = 'minutes';
-    
-    // Reset contador
+
     updateNotesCounter();
 
-    // Reiniciar estado del botón
     const btn = document.getElementById('btnConfirmResolve');
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Resolver Ticket';
 
-    // Reset resolution files count
     updateResolutionFilesCount(0);
 
-    // Mostrar/ocultar campos exclusivos de Soporte
+    // Show/hide soporte fields
     const isSoporte = currentTicket.area === 'SOPORTE';
     const soporteFields = document.getElementById('soporteOnlyFields');
     const observationsField = document.getElementById('observationsField');
     if (soporteFields) soporteFields.style.display = isSoporte ? '' : 'none';
     if (observationsField) observationsField.style.display = isSoporte ? '' : 'none';
 
-    // Cargar técnicos disponibles
+    // Reset warehouse materials if present
+    if (typeof TicketWarehouse !== 'undefined') TicketWarehouse.reset();
+
     loadAvailableTechnicians(currentTicket);
 
-    const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
-    modal.show();
+    // Show panel, hide main content
+    document.getElementById('mainContent').classList.add('d-none');
+    document.getElementById('resolvePanel').classList.remove('d-none');
+    window.scrollTo(0, 0);
 }
 window.openResolveModal = openResolveModal;
+
+function closeResolvePanel() {
+    document.getElementById('resolvePanel').classList.add('d-none');
+    document.getElementById('mainContent').classList.remove('d-none');
+    window.scrollTo(0, 0);
+}
+window.closeResolvePanel = closeResolvePanel;
 
 // Actualizar contador de caracteres de las notas
 function updateNotesCounter() {
@@ -897,6 +927,11 @@ async function confirmResolve() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Resolviendo...';
 
     try {
+        // 0. Consumir materiales del almacen (si aplica)
+        if (typeof TicketWarehouse !== 'undefined') {
+            await TicketWarehouse.consumeAll(currentTicket.id);
+        }
+
         // 1. Resolver el ticket
         await HelpdeskUtils.api.resolveTicket(currentTicket.id, {
             success: resolutionType === 'success',
@@ -961,9 +996,8 @@ async function confirmResolve() {
             'success'
         );
 
-        // 5. Cerrar modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('resolveModal'));
-        modal.hide();
+        // 5. Cerrar panel
+        closeResolvePanel();
 
         // 6. Recargar el ticket
         await loadTicketDetail();

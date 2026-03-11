@@ -1,0 +1,317 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Almacén - Entradas de Stock{% endblock %}
+{% block header_title %}Entradas de Stock{% endblock %}
+{% block header_subtitle %}Registro de Lotes FIFO{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#entryModal">
+    <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline">Nueva Entrada</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filters -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+                <select class="form-select form-select-sm" id="productFilter">
+                    <option value="">Todos los productos</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="form-check ms-1">
+                    <input class="form-check-input" type="checkbox" id="includeVoided">
+                    <label class="form-check-label small" for="includeVoided">Incluir anuladas</label>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <button class="btn btn-primary btn-sm w-100" onclick="WarehouseEntries.load()">
+                    <i class="fas fa-search me-1"></i>Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Entries Table -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div id="entriesContainer">
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2">Cargando entradas...</p>
+            </div>
+        </div>
+        <div id="pagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top d-none">
+            <span class="text-muted small" id="paginationInfo"></span>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="WarehouseEntries.prevPage()">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="WarehouseEntries.nextPage()">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+<!-- New Entry Modal -->
+<div class="modal fade" id="entryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-truck-loading me-2"></i>Registrar Entrada de Stock</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Producto <span class="text-danger">*</span></label>
+                        <select class="form-select" id="entryProduct"></select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Cantidad <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="entryQty" min="0.01" step="0.01">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Costo Unitario</label>
+                        <input type="number" class="form-control" id="entryCost" min="0" step="0.01" value="0">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Folio de Compra</label>
+                        <input type="text" class="form-control" id="entryFolio" maxlength="100">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Proveedor</label>
+                        <input type="text" class="form-control" id="entrySupplier" maxlength="200">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Fecha de Compra <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" id="entryDate">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notas</label>
+                        <textarea class="form-control" id="entryNotes" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-primary" onclick="WarehouseEntries.save()">
+                    <i class="fas fa-save me-1"></i>Registrar Entrada
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Void Entry Modal -->
+<div class="modal fade" id="voidModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="fas fa-ban me-2"></i>Anular Entrada</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="voidEntryId">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Solo puedes anular entradas que no hayan sido parcialmente consumidas.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Razón de anulación <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="voidReason" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-danger" onclick="WarehouseEntries.confirmVoid()">
+                    <i class="fas fa-ban me-1"></i>Anular
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const WarehouseEntries = (function () {
+    'use strict';
+
+    const API = '/api/warehouse/v2';
+    let currentPage = 1;
+    let totalPages = 1;
+
+    async function loadProducts() {
+        try {
+            const res = await fetch(`${API}/products?per_page=200`);
+            const d = await res.json();
+            const opts = (d.products || []).map(p =>
+                `<option value="${p.id}">${p.code} — ${p.name}</option>`).join('');
+            document.getElementById('productFilter').insertAdjacentHTML('beforeend', opts);
+            document.getElementById('entryProduct').innerHTML =
+                '<option value="">Selecciona un producto...</option>' + opts;
+        } catch (e) { console.error(e); }
+    }
+
+    async function load(page) {
+        page = page || currentPage;
+        currentPage = page;
+
+        const productId = document.getElementById('productFilter').value;
+        const includeVoided = document.getElementById('includeVoided').checked;
+
+        const params = new URLSearchParams({ page, per_page: 20 });
+        if (productId) params.set('product_id', productId);
+        if (includeVoided) params.set('include_voided', 'true');
+
+        document.getElementById('entriesContainer').innerHTML =
+            '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>';
+
+        try {
+            const res = await fetch(`${API}/stock-entries?${params}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const d = await res.json();
+            totalPages = d.pages || 1;
+            renderEntries(d.entries || []);
+            renderPagination(d.total || 0, d.page || 1, d.pages || 1);
+        } catch (err) {
+            document.getElementById('entriesContainer').innerHTML =
+                '<div class="alert alert-danger m-3">Error al cargar las entradas.</div>';
+        }
+    }
+
+    function renderEntries(entries) {
+        if (!entries.length) {
+            document.getElementById('entriesContainer').innerHTML =
+                '<div class="text-center py-5 text-muted"><i class="fas fa-inbox fa-3x mb-3"></i><p>Sin entradas.</p></div>';
+            return;
+        }
+        const rows = entries.map(e => {
+            const pct = e.quantity_original > 0
+                ? Math.round((e.quantity_remaining / e.quantity_original) * 100) : 0;
+            let statusBadge = '<span class="badge bg-success">Disponible</span>';
+            if (e.voided) statusBadge = '<span class="badge bg-secondary">Anulada</span>';
+            else if (e.is_exhausted) statusBadge = '<span class="badge bg-dark">Agotada</span>';
+            else if (pct < 30) statusBadge = '<span class="badge bg-warning text-dark">Bajo</span>';
+
+            return `
+                <tr class="${e.voided ? 'table-secondary text-muted' : ''}">
+                    <td><code>${e.purchase_folio || '—'}</code></td>
+                    <td><small>${e.purchase_date}</small></td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="progress flex-grow-1" style="height:8px; min-width:60px;">
+                                <div class="progress-bar" style="width:${pct}%"></div>
+                            </div>
+                            <small>${e.quantity_remaining}/${e.quantity_original}</small>
+                        </div>
+                    </td>
+                    <td>$${parseFloat(e.unit_cost || 0).toFixed(2)}</td>
+                    <td>${e.supplier || '—'}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        ${!e.voided && !e.is_exhausted
+                            ? `<button class="btn btn-sm btn-outline-danger" onclick="WarehouseEntries.voidEntry(${e.id})">
+                                <i class="fas fa-ban"></i>
+                               </button>`
+                            : ''}
+                    </td>
+                </tr>`;
+        }).join('');
+
+        document.getElementById('entriesContainer').innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Folio</th><th>Fecha</th><th>Restante/Original</th>
+                            <th>Costo Unit.</th><th>Proveedor</th><th>Estado</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
+    }
+
+    function renderPagination(total, page, pages) {
+        const pag = document.getElementById('pagination');
+        pag.classList.remove('d-none');
+        document.getElementById('paginationInfo').textContent =
+            `Página ${page} de ${pages} (${total} entradas)`;
+        document.getElementById('btnPrev').disabled = page <= 1;
+        document.getElementById('btnNext').disabled = page >= pages;
+    }
+
+    function prevPage() { if (currentPage > 1) load(currentPage - 1); }
+    function nextPage() { if (currentPage < totalPages) load(currentPage + 1); }
+
+    async function save() {
+        const body = {
+            product_id: parseInt(document.getElementById('entryProduct').value),
+            quantity: parseFloat(document.getElementById('entryQty').value),
+            unit_cost: parseFloat(document.getElementById('entryCost').value) || 0,
+            purchase_folio: document.getElementById('entryFolio').value.trim() || null,
+            supplier: document.getElementById('entrySupplier').value.trim() || null,
+            purchase_date: document.getElementById('entryDate').value,
+            notes: document.getElementById('entryNotes').value.trim() || null,
+        };
+        if (!body.product_id || !body.quantity || !body.purchase_date) {
+            HelpdeskUtils.showToast('Completa los campos obligatorios.', 'warning');
+            return;
+        }
+        try {
+            const res = await fetch(`${API}/stock-entries`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) throw new Error((await res.json()).detail?.message || 'Error');
+            bootstrap.Modal.getInstance(document.getElementById('entryModal')).hide();
+            HelpdeskUtils.showToast('Entrada registrada exitosamente.', 'success');
+            load(1);
+        } catch (err) { HelpdeskUtils.showToast(err.message, 'danger'); }
+    }
+
+    function voidEntry(id) {
+        document.getElementById('voidEntryId').value = id;
+        document.getElementById('voidReason').value = '';
+        new bootstrap.Modal(document.getElementById('voidModal')).show();
+    }
+
+    async function confirmVoid() {
+        const id = document.getElementById('voidEntryId').value;
+        const reason = document.getElementById('voidReason').value.trim();
+        if (!reason) { HelpdeskUtils.showToast('La razón es obligatoria.', 'warning'); return; }
+        try {
+            const res = await fetch(`${API}/stock-entries/${id}/void`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            });
+            if (!res.ok) throw new Error((await res.json()).detail?.message || 'Error al anular');
+            bootstrap.Modal.getInstance(document.getElementById('voidModal')).hide();
+            HelpdeskUtils.showToast('Entrada anulada.', 'success');
+            load(currentPage);
+        } catch (err) { HelpdeskUtils.showToast(err.message, 'danger'); }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.getElementById('entryDate').value = new Date().toISOString().split('T')[0];
+        loadProducts();
+        load(1);
+    });
+
+    return { load, prevPage, nextPage, save, voidEntry, confirmVoid };
+})();
+</script>
+{% endblock %}

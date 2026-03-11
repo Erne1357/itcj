@@ -348,6 +348,11 @@ function setupModals() {
     document.getElementById('btnConfirmStart').addEventListener('click', confirmStartWork);
     document.getElementById('btnConfirmResolve').addEventListener('click', confirmResolve);
     document.getElementById('btnConfirmSelfAssign').addEventListener('click', confirmSelfAssign);
+    const resolutionNotes = document.getElementById('resolutionNotes');
+    if (resolutionNotes) {
+        resolutionNotes.addEventListener('input', updateNotesCounter);
+        resolutionNotes.addEventListener('blur', updateNotesCounter);
+    }
 }
 
 function openStartWorkModal(ticketId) {
@@ -406,11 +411,11 @@ async function confirmStartWork() {
     }
 }
 
-// ==================== RESOLVE MODAL ====================
+// ==================== RESOLVE TAB ====================
 function openResolveModal(ticketId) {
     ticketToResolve = myTickets.inProgress.find(t => t.id === ticketId);
     if (!ticketToResolve) return;
-    
+
     document.getElementById('resolveTicketInfo').innerHTML = `
         <h6 class="mb-2">${ticketToResolve.ticket_number}: ${ticketToResolve.title}</h6>
         <div class="d-flex gap-2 mb-2">
@@ -419,34 +424,83 @@ function openResolveModal(ticketId) {
         </div>
         <p class="mb-0 small text-muted">${truncateText(ticketToResolve.description, 200)}</p>
     `;
-    
+
+    // Fill reference panel
+    const refTitle = document.getElementById('resolveRefTitle');
+    const refDesc = document.getElementById('resolveRefDesc');
+    const refMeta = document.getElementById('resolveRefMeta');
+    if (refTitle) refTitle.textContent = `${ticketToResolve.ticket_number}: ${ticketToResolve.title}`;
+    if (refDesc) refDesc.textContent = ticketToResolve.description || '-';
+    if (refMeta) refMeta.innerHTML = `
+        ${HelpdeskUtils.getStatusBadge(ticketToResolve.status)}
+        ${HelpdeskUtils.getPriorityBadge(ticketToResolve.priority)}
+    `;
+
     // Reset form
+    const notesField = document.getElementById('resolutionNotes');
+    notesField.value = '';
+    notesField.classList.remove('is-invalid', 'is-valid');
     document.getElementById('resolutionSuccess').checked = true;
-    document.getElementById('resolutionNotes').value = '';
     document.getElementById('timeInvested').value = '';
     document.getElementById('timeUnit').value = 'minutes';
-    
-    // Reiniciar estado del botón
+    updateNotesCounter();
+
     const btn = document.getElementById('btnConfirmResolve');
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-check-circle me-2"></i>Resolver Ticket';
 
-    // Reset resolution files count
     updateResolutionFilesCount(0);
 
-    // Mostrar/ocultar campos exclusivos de Soporte
     const isSoporte = ticketToResolve.area === 'SOPORTE';
     const soporteFields = document.getElementById('soporteOnlyFields');
     const observationsField = document.getElementById('observationsField');
     if (soporteFields) soporteFields.style.display = isSoporte ? '' : 'none';
     if (observationsField) observationsField.style.display = isSoporte ? '' : 'none';
 
-    const modal = new bootstrap.Modal(document.getElementById('resolveModal'));
-    modal.show();
+    // Reset warehouse materials if present
+    if (typeof TicketWarehouse !== 'undefined') TicketWarehouse.reset();
+
+    // Update tab label and show resolve tab
+    const tabLabel = document.getElementById('resolveTabLabel');
+    if (tabLabel) tabLabel.textContent = ticketToResolve.ticket_number;
+    const tabItem = document.getElementById('resolveTabItem');
+    if (tabItem) tabItem.classList.remove('d-none');
+    const resolveTab = new bootstrap.Tab(document.getElementById('resolve-tab'));
+    resolveTab.show();
 
     loadAvailableTechnicians(ticketToResolve);
 }
 window.openResolveModal = openResolveModal;
+
+function closeResolveTab() {
+    const tabItem = document.getElementById('resolveTabItem');
+    if (tabItem) tabItem.classList.add('d-none');
+    const workingTabEl = document.getElementById('working-tab');
+    if (workingTabEl) new bootstrap.Tab(workingTabEl).show();
+}
+window.closeResolveTab = closeResolveTab;
+
+function updateNotesCounter() {
+    const notesField = document.getElementById('resolutionNotes');
+    const counter = document.getElementById('resolutionNotesCounter');
+    if (!notesField || !counter) return;
+    const length = notesField.value.trim().length;
+    counter.textContent = `${length} / 10 caracteres mínimo`;
+    if (length >= 10) {
+        notesField.classList.remove('is-invalid');
+        notesField.classList.add('is-valid');
+        counter.classList.remove('text-danger');
+        counter.classList.add('text-success');
+    } else if (length > 0) {
+        notesField.classList.remove('is-valid');
+        notesField.classList.add('is-invalid');
+        counter.classList.remove('text-success');
+        counter.classList.add('text-danger');
+    } else {
+        notesField.classList.remove('is-invalid', 'is-valid');
+        counter.classList.remove('text-success', 'text-danger');
+    }
+}
 
 async function loadAvailableTechnicians(ticket) {
     const container = document.getElementById('collaboratorsList');
@@ -560,9 +614,21 @@ async function confirmResolve() {
 
     // Validar notas
     if (!notes || notes.length < 10) {
-        HelpdeskUtils.showToast('Las notas deben tener al menos 10 caracteres', 'warning');
-        document.getElementById('resolutionNotes').focus();
+        HelpdeskUtils.showToast('Las notas de resolución deben tener al menos 10 caracteres', 'warning');
+        const notesEl = document.getElementById('resolutionNotes');
+        if (notesEl) {
+            notesEl.focus();
+            notesEl.classList.add('is-invalid');
+            notesEl.classList.remove('is-valid');
+            updateNotesCounter();
+        }
         return;
+    }
+    // Marcar notas como válidas
+    const notesEl = document.getElementById('resolutionNotes');
+    if (notesEl) {
+        notesEl.classList.remove('is-invalid');
+        notesEl.classList.add('is-valid');
     }
 
     // Validar tiempo invertido (requerido)
@@ -579,6 +645,11 @@ async function confirmResolve() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Resolviendo...';
 
     try {
+        // 0. Consumir materiales del almacén (si aplica)
+        if (typeof TicketWarehouse !== 'undefined') {
+            await TicketWarehouse.consumeAll(ticketToResolve.id);
+        }
+
         // 1. Resolver el ticket
         await HelpdeskUtils.api.resolveTicket(ticketToResolve.id, {
             success: resolutionType === 'success',
@@ -645,9 +716,8 @@ async function confirmResolve() {
             'success'
         );
         
-        // 5. Cerrar modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('resolveModal'));
-        modal.hide();
+        // 5. Cerrar panel
+        closeResolveTab();
         
         // 6. Refrescar listas
         await Promise.all([

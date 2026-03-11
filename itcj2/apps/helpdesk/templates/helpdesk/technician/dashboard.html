@@ -107,6 +107,11 @@
                 <i class="fas fa-history me-1 me-md-2"></i><span class="d-none d-sm-inline">Historial</span><span class="d-sm-none">Hist.</span>
             </button>
         </li>
+        <li class="nav-item d-none" id="resolveTabItem" role="presentation">
+            <button class="nav-link px-2 px-md-3 text-success" id="resolve-tab" data-bs-toggle="tab" data-bs-target="#resolve" type="button">
+                <i class="fas fa-check-circle me-1 me-md-2"></i><span class="d-none d-sm-inline" id="resolveTabLabel">Resolver</span>
+            </button>
+        </li>
     </ul>
 </div>
 
@@ -208,6 +213,196 @@
             </div>
         </div>
     </div>
+
+    <!-- Resolve Tab (shown dynamically when resolving a ticket) -->
+    <div class="tab-pane fade" id="resolve" role="tabpanel">
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <button class="btn btn-outline-secondary btn-sm" onclick="closeResolveTab()">
+                <i class="fas fa-arrow-left me-1"></i>Volver
+            </button>
+            <h5 class="mb-0 fw-bold text-success">
+                <i class="fas fa-check-circle me-2"></i>Resolver Ticket
+            </h5>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold"><i class="fas fa-clipboard-check me-2 text-success"></i>Información de Resolución</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="resolveTicketInfo" class="p-3 bg-light rounded mb-4"></div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">¿Cómo se resolvió el ticket?</label>
+                            <div class="d-grid gap-2">
+                                <div class="form-check p-3 border rounded">
+                                    <input class="form-check-input" type="radio" name="resolutionType" id="resolutionSuccess" value="success" checked>
+                                    <label class="form-check-label w-100" for="resolutionSuccess">
+                                        <i class="fas fa-check-circle text-success me-2"></i>
+                                        <strong>Resuelto Exitosamente</strong>
+                                        <small class="d-block text-muted">La solicitud fue solucionada completamente</small>
+                                    </label>
+                                </div>
+                                <div class="form-check p-3 border rounded">
+                                    <input class="form-check-input" type="radio" name="resolutionType" id="resolutionFailed" value="failed">
+                                    <label class="form-check-label w-100" for="resolutionFailed">
+                                        <i class="fas fa-times-circle text-warning me-2"></i>
+                                        <strong>Atendido pero No Resuelto</strong>
+                                        <small class="d-block text-muted">Se intentó resolver pero no fue posible</small>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="soporteOnlyFields">
+                            <div class="mb-4">
+                                <label class="form-label fw-bold">Tipo de Mantenimiento <span class="text-danger">*</span></label>
+                                <div class="d-flex gap-3">
+                                    <div class="form-check p-3 border rounded flex-fill">
+                                        <input class="form-check-input" type="radio" name="maintenanceType" id="maintenancePreventivo" value="PREVENTIVO">
+                                        <label class="form-check-label w-100" for="maintenancePreventivo">
+                                            <i class="fas fa-calendar-check text-info me-2"></i><strong>Preventivo</strong>
+                                        </label>
+                                    </div>
+                                    <div class="form-check p-3 border rounded flex-fill">
+                                        <input class="form-check-input" type="radio" name="maintenanceType" id="maintenanceCorrectivo" value="CORRECTIVO" checked>
+                                        <label class="form-check-label w-100" for="maintenanceCorrectivo">
+                                            <i class="fas fa-wrench text-warning me-2"></i><strong>Correctivo</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <label class="form-label fw-bold">Origen del Equipo <span class="text-danger">*</span></label>
+                                <div class="d-flex gap-3">
+                                    <div class="form-check p-3 border rounded flex-fill">
+                                        <input class="form-check-input" type="radio" name="serviceOrigin" id="serviceInterno" value="INTERNO" checked>
+                                        <label class="form-check-label w-100" for="serviceInterno">
+                                            <i class="fas fa-building text-primary me-2"></i><strong>Interno</strong>
+                                            <small class="d-block text-muted">Equipo del Tec</small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check p-3 border rounded flex-fill">
+                                        <input class="form-check-input" type="radio" name="serviceOrigin" id="serviceExterno" value="EXTERNO">
+                                        <label class="form-check-label w-100" for="serviceExterno">
+                                            <i class="fas fa-external-link-alt text-secondary me-2"></i><strong>Externo</strong>
+                                            <small class="d-block text-muted">Equipo personal</small>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if can_consume_warehouse %}
+                        <div class="mb-4" id="warehouseMaterialsSection">
+                            <hr>
+                            <label class="form-label fw-bold">
+                                <i class="fas fa-boxes me-2 text-success"></i>Materiales Utilizados del Almacén
+                                <span class="text-muted small fw-normal">(Opcional)</span>
+                            </label>
+                            <small class="d-block text-muted mb-2">Los materiales seleccionados se descontarán automáticamente del inventario al resolver.</small>
+                            <div class="input-group mb-2">
+                                <input type="text" class="form-control form-control-sm" id="warehouseProductSearch"
+                                    placeholder="Buscar producto por nombre o código..."
+                                    oninput="TicketWarehouse.searchProducts(this.value)">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                            </div>
+                            <div id="warehouseProductSuggestions" class="list-group mb-3" style="max-height:200px;overflow-y:auto;display:none;"></div>
+                            <div id="warehouseMaterialsList" class="border rounded p-2" style="min-height:70px;">
+                                <div class="text-center text-muted py-2 small" id="noMaterialsMsg">
+                                    <i class="fas fa-plus-circle me-1"></i>Sin materiales agregados
+                                </div>
+                            </div>
+                            <hr>
+                        </div>
+                        {% endif %}
+
+                        <div class="mb-4">
+                            <label for="resolutionNotes" class="form-label fw-bold">
+                                Notas de Resolución <span class="text-danger">*</span>
+                            </label>
+                            <textarea class="form-control" id="resolutionNotes" rows="6"
+                                placeholder="Describe detalladamente el trabajo realizado, pasos seguidos, soluciones aplicadas..."
+                                required></textarea>
+                            <div class="invalid-feedback">Las notas deben tener al menos 10 caracteres</div>
+                            <small class="form-text text-muted" id="resolutionNotesCounter">0 / 10 caracteres mínimo</small>
+                        </div>
+
+                        <div class="mb-2" id="observationsField">
+                            <label for="observations" class="form-label fw-bold">
+                                Observaciones <span class="text-muted small fw-normal">(Opcional)</span>
+                            </label>
+                            <textarea class="form-control" id="observations" rows="3"
+                                placeholder="Observaciones adicionales, pendientes, o información relevante..."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold"><i class="fas fa-paperclip me-2 text-primary"></i>Archivos, Tiempo y Colaboradores</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-4">
+                            <button type="button" class="btn btn-outline-primary w-100" onclick="openResolutionFilesModal()">
+                                <i class="fas fa-paperclip me-2"></i>Adjuntar Archivos
+                                <span class="badge bg-primary ms-2" id="resolutionFilesCount">0</span>
+                            </button>
+                            <small class="form-text text-muted"><i class="fas fa-info-circle me-1"></i>Puedes adjuntar hasta 10 archivos (Excel, PDF, Word, imágenes)</small>
+                        </div>
+                        <div class="mb-4">
+                            <label for="timeInvested" class="form-label fw-bold">
+                                <i class="fas fa-clock me-2"></i>Tiempo Invertido <span class="text-danger">*</span>
+                            </label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="timeInvested" min="0" step="1" placeholder="30">
+                                <select class="form-select" id="timeUnit" style="max-width: 120px;">
+                                    <option value="minutes" selected>Minutos</option>
+                                    <option value="hours">Horas</option>
+                                    <option value="days">Días</option>
+                                </select>
+                            </div>
+                            <small class="form-text text-muted">Tiempo real de trabajo (se guarda en minutos). 1 día = 8 horas laborales.</small>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-bold"><i class="fas fa-users me-2"></i>¿Quién trabajó en este ticket?</label>
+                            <small class="d-block text-muted mb-2">Selecciona a los técnicos que colaboraron en la resolución (opcional)</small>
+                            <div id="collaboratorsList" class="border rounded p-3" style="max-height: 250px; overflow-y: auto;">
+                                <div class="text-center text-muted py-2">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>Cargando técnicos disponibles...
+                                </div>
+                            </div>
+                            <small class="form-text text-muted"><i class="fas fa-info-circle me-1"></i>El técnico asignado siempre se registra automáticamente como principal</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2 pb-5">
+                    <button type="button" class="btn btn-secondary btn-lg" onclick="closeResolveTab()">Cancelar</button>
+                    <button type="button" class="btn btn-success btn-lg" id="btnConfirmResolve">
+                        <i class="fas fa-check-circle me-2"></i>Resolver Ticket
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right: ticket reference -->
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm sticky-top" style="top: 80px;">
+                    <div class="card-header bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold"><i class="fas fa-ticket-alt me-2 text-primary"></i>Referencia del Ticket</h6>
+                    </div>
+                    <div class="card-body">
+                        <h6 id="resolveRefTitle" class="fw-bold mb-2 text-primary">-</h6>
+                        <p id="resolveRefDesc" class="text-muted small mb-3" style="white-space: pre-wrap; max-height: 250px; overflow-y: auto;">-</p>
+                        <hr>
+                        <div id="resolveRefMeta"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 {% endblock %}
@@ -244,185 +439,6 @@
             </div>
         </div>
     </div>
-</div>
-
-<!-- Resolve Ticket Modal -->
-<div class="modal fade" id="resolveModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="fas fa-check-circle me-2"></i>Resolver Ticket
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div id="resolveTicketInfo" class="p-3 bg-light rounded mb-4"></div>
-
-                <!-- Resolution Type -->
-                <div class="mb-4">
-                    <label class="form-label fw-bold">¿Cómo se resolvió el ticket?</label>
-                    <div class="d-grid gap-2">
-                        <div class="form-check p-3 border rounded">
-                            <input class="form-check-input" type="radio" name="resolutionType" id="resolutionSuccess"
-                                value="success" checked>
-                            <label class="form-check-label w-100" for="resolutionSuccess">
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                <strong>Resuelto Exitosamente</strong>
-                                <small class="d-block text-muted">La solicitud fue solucionada completamente</small>
-                            </label>
-                        </div>
-                        <div class="form-check p-3 border rounded">
-                            <input class="form-check-input" type="radio" name="resolutionType" id="resolutionFailed"
-                                value="failed">
-                            <label class="form-check-label w-100" for="resolutionFailed">
-                                <i class="fas fa-times-circle text-warning me-2"></i>
-                                <strong>Atendido pero No Resuelto</strong>
-                                <small class="d-block text-muted">Se intentó resolver pero no fue posible</small>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Campos exclusivos de Soporte (se ocultan para Desarrollo) -->
-                <div id="soporteOnlyFields">
-                    <!-- Maintenance Type (REQUIRED for SOPORTE) -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">
-                            Tipo de Mantenimiento <span class="text-danger">*</span>
-                        </label>
-                        <div class="d-flex gap-3">
-                            <div class="form-check p-3 border rounded flex-fill">
-                                <input class="form-check-input" type="radio" name="maintenanceType"
-                                    id="maintenancePreventivo" value="PREVENTIVO">
-                                <label class="form-check-label w-100" for="maintenancePreventivo">
-                                    <i class="fas fa-calendar-check text-info me-2"></i>
-                                    <strong>Preventivo</strong>
-                                </label>
-                            </div>
-                            <div class="form-check p-3 border rounded flex-fill">
-                                <input class="form-check-input" type="radio" name="maintenanceType"
-                                    id="maintenanceCorrectivo" value="CORRECTIVO" checked>
-                                <label class="form-check-label w-100" for="maintenanceCorrectivo">
-                                    <i class="fas fa-wrench text-warning me-2"></i>
-                                    <strong>Correctivo</strong>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Service Origin (REQUIRED for SOPORTE) -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">
-                            Origen del Equipo <span class="text-danger">*</span>
-                        </label>
-                        <div class="d-flex gap-3">
-                            <div class="form-check p-3 border rounded flex-fill">
-                                <input class="form-check-input" type="radio" name="serviceOrigin"
-                                    id="serviceInterno" value="INTERNO" checked>
-                                <label class="form-check-label w-100" for="serviceInterno">
-                                    <i class="fas fa-building text-primary me-2"></i>
-                                    <strong>Interno</strong>
-                                    <small class="d-block text-muted">Equipo del Tec</small>
-                                </label>
-                            </div>
-                            <div class="form-check p-3 border rounded flex-fill">
-                                <input class="form-check-input" type="radio" name="serviceOrigin"
-                                    id="serviceExterno" value="EXTERNO">
-                                <label class="form-check-label w-100" for="serviceExterno">
-                                    <i class="fas fa-external-link-alt text-secondary me-2"></i>
-                                    <strong>Externo</strong>
-                                    <small class="d-block text-muted">Equipo personal</small>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Resolution Notes -->
-                <div class="mb-4">
-                    <label for="resolutionNotes" class="form-label fw-bold">
-                        Notas de Resolución <span class="text-danger">*</span>
-                    </label>
-                    <textarea class="form-control" id="resolutionNotes" rows="5"
-                        placeholder="Describe detalladamente el trabajo realizado, pasos seguidos, soluciones aplicadas..."
-                        required></textarea>
-                    <small class="form-text text-muted">Mínimo 10 caracteres</small>
-                </div>
-
-                <!-- Observations (OPTIONAL - solo SOPORTE) -->
-                <div class="mb-4" id="observationsField">
-                    <label for="observations" class="form-label fw-bold">
-                        Observaciones <span class="text-muted small fw-normal">(Opcional)</span>
-                    </label>
-                    <textarea class="form-control" id="observations" rows="3"
-                        placeholder="Observaciones adicionales, pendientes, o información relevante..."></textarea>
-                </div>
-
-                <!-- Resolution Files Button -->
-                <div class="mb-4">
-                    <button type="button" class="btn btn-outline-primary w-100" onclick="openResolutionFilesModal()">
-                        <i class="fas fa-paperclip me-2"></i>Adjuntar Archivos
-                        <span class="badge bg-primary ms-2" id="resolutionFilesCount">0</span>
-                    </button>
-                    <small class="form-text text-muted">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Puedes adjuntar hasta 10 archivos (Excel, PDF, Word, imágenes)
-                    </small>
-                </div>
-
-                <!-- Time Invested (REQUIRED) -->
-                <div class="mb-3">
-                    <label for="timeInvested" class="form-label">
-                        <i class="fas fa-clock me-2"></i>Tiempo Invertido <span class="text-danger">*</span>
-                    </label>
-                    <div class="input-group">
-                        <input type="number" class="form-control" id="timeInvested" min="0" step="1" placeholder="30">
-                        <select class="form-select" id="timeUnit" style="max-width: 120px;">
-                            <option value="minutes" selected>Minutos</option>
-                            <option value="hours">Horas</option>
-                            <option value="days">Dias</option>
-                        </select>
-                    </div>
-                    <small class="form-text text-muted">
-                        Tiempo real de trabajo (se guarda en minutos). 1 dia = 8 horas laborales.
-                    </small>
-                </div>
-                <!-- Collaborators Section (NUEVO) -->
-                <div class="mb-3">
-                    <label class="form-label">
-                        <i class="fas fa-users me-2"></i>
-                        ¿Quién trabajó en este ticket?
-                    </label>
-                    <small class="d-block text-muted mb-2">
-                        Selecciona a los técnicos que colaboraron en la resolución (opcional)
-                    </small>
-
-                    <div id="collaboratorsList" class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
-                        <div class="text-center text-muted py-2">
-                            <span class="spinner-border spinner-border-sm me-2"></span>
-                            Cargando técnicos disponibles...
-                        </div>
-                    </div>
-
-                    <small class="form-text text-muted">
-                        <i class="fas fa-info-circle me-1"></i>
-                        El técnico asignado siempre se registra automáticamente como principal
-                    </small>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                    Cancelar
-                </button>
-                <button type="button" class="btn btn-success" id="btnConfirmResolve">
-                    <i class="fas fa-check-circle me-2"></i>Resolver Ticket
-                </button>
-            </div>
-
-        </div>
-    </div>
-
 </div>
 
 <!-- Self-Assign Modal -->
@@ -523,5 +539,108 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if can_consume_warehouse %}
+<script>
+const TicketWarehouse = (function () {
+    'use strict';
+    const API_W = '/api/warehouse/v2';
+    let _materials = [];
+    let _debounceTimer = null;
+
+    function searchProducts(query) {
+        clearTimeout(_debounceTimer);
+        const sugg = document.getElementById('warehouseProductSuggestions');
+        if (!query || query.length < 2) { sugg.style.display = 'none'; return; }
+        _debounceTimer = setTimeout(async () => {
+            try {
+                const res = await fetch(`${API_W}/products/available?search=${encodeURIComponent(query)}&per_page=10`);
+                const d = await res.json();
+                const products = d.products || [];
+                if (!products.length) { sugg.style.display = 'none'; return; }
+                sugg.innerHTML = products.map(p =>
+                    `<a href="#" class="list-group-item list-group-item-action py-2"
+                       onclick="TicketWarehouse.selectProduct(${p.id}, '${(p.code||'').replace(/'/g,"\\'")}', '${p.name.replace(/'/g,"\\'")}', '${(p.unit_of_measure||'').replace(/'/g,"\\'")}', ${p.total_stock||0}); return false;">
+                        <strong>${p.code || ''}</strong> — ${p.name}
+                        <span class="badge bg-success float-end">${p.total_stock} ${p.unit_of_measure}</span>
+                    </a>`
+                ).join('');
+                sugg.style.display = 'block';
+            } catch (e) { console.error(e); }
+        }, 300);
+    }
+
+    function selectProduct(id, code, name, unit, stock) {
+        document.getElementById('warehouseProductSearch').value = '';
+        document.getElementById('warehouseProductSuggestions').style.display = 'none';
+        if (_materials.find(m => m.product_id === id)) return;
+        _materials.push({ product_id: id, code, product_name: name, unit_of_measure: unit, quantity: 1, available: stock });
+        renderMaterials();
+    }
+
+    function renderMaterials() {
+        const list = document.getElementById('warehouseMaterialsList');
+        const noMsg = document.getElementById('noMaterialsMsg');
+        if (!_materials.length) {
+            if (noMsg) noMsg.style.display = '';
+            list.innerHTML = '<div class="text-center text-muted py-2 small" id="noMaterialsMsg"><i class="fas fa-plus-circle me-1"></i>Sin materiales agregados</div>';
+            return;
+        }
+        if (noMsg) noMsg.style.display = 'none';
+        list.innerHTML = _materials.map((m, i) => `
+            <div class="d-flex align-items-center gap-2 mb-2 p-2 border rounded">
+                <div class="flex-grow-1">
+                    <strong>${m.code || ''}</strong> ${m.product_name}
+                    <small class="text-muted d-block">Disponible: ${m.available} ${m.unit_of_measure}</small>
+                </div>
+                <input type="number" class="form-control form-control-sm" style="width:80px;"
+                    value="${m.quantity}" min="0.01" step="0.01"
+                    onchange="TicketWarehouse.updateQty(${i}, this.value)">
+                <span class="text-muted small">${m.unit_of_measure}</span>
+                <button class="btn btn-sm btn-outline-danger py-0" onclick="TicketWarehouse.removeMaterial(${m.product_id})">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>`).join('');
+    }
+
+    function updateQty(index, value) {
+        if (_materials[index]) _materials[index].quantity = parseFloat(value) || 1;
+    }
+
+    function removeMaterial(productId) {
+        _materials = _materials.filter(m => m.product_id !== productId);
+        renderMaterials();
+    }
+
+    async function consumeAll(ticketId) {
+        if (!_materials.length) return;
+        for (const m of _materials) {
+            try {
+                const res = await fetch(`${API_W}/consume`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        product_id: m.product_id,
+                        quantity: m.quantity,
+                        source_app: 'helpdesk',
+                        source_ticket_id: ticketId,
+                        notes: 'Consumo al resolver ticket',
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    const msg = err.detail?.message || err.detail || 'Error';
+                    HelpdeskUtils.showToast(`Advertencia almacén: ${m.product_name} - ${msg}`, 'warning');
+                }
+            } catch (e) { console.error('Error consumiendo material:', e); }
+        }
+    }
+
+    function getMaterials() { return [..._materials]; }
+    function reset() { _materials = []; renderMaterials(); }
+
+    return { searchProducts, selectProduct, updateQty, removeMaterial, consumeAll, getMaterials, reset };
+})();
+</script>
+{% endif %}
 <script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ sv('helpdesk', 'js/technician/dashboard.js') }}"></script>
 {% endblock %}

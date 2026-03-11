@@ -29,40 +29,44 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "permission": "helpdesk.inventory.page.my_equipment"
         },
 
-        # ==================== DASHBOARDS ====================
+        # ==================== GESTIÓN (DROPDOWN) ====================
+        # Sin permiso de grupo: visible si al menos un sub-item pasa el filtro
         {
-            "label": "Dashboard Secretaría",
-            "endpoint": "helpdesk_pages.secretary_pages.dashboard",
-            "icon": "fa-building",
-            "permission": "helpdesk.dashboard.secretary"
-        },
-        {
-            "label": "Dashboard Técnicos",
-            "endpoint": "helpdesk_pages.technician_pages.dashboard",
-            "icon": "fa-clipboard-list",
-            "permission": "helpdesk.dashboard.technician"
-        },
-        {
-            "label": "Dashboard Departamento",
-            "endpoint": "helpdesk_pages.department_pages.tickets",
-            "icon": "fa-users-cog",
-            "permission": "helpdesk.dashboard.department"
-        },
-
-        # ==================== ASIGNACIÓN ====================
-        {
-            "label": "Asignar Tickets",
-            "endpoint": "helpdesk_pages.admin_pages.assign_tickets",
-            "icon": "fa-user-plus",
-            "permission": "helpdesk.assignments.page.list"
-        },
-
-        # ==================== LISTA DE TICKETS (ADMIN) ====================
-        {
-            "label": "Lista de Tickets",
-            "endpoint": "helpdesk_pages.admin_pages.tickets_list",
-            "icon": "fa-list-ul",
-            "permission": "helpdesk.tickets.page.list_all"
+            "label": "Gestión",
+            "endpoint": "#",
+            "icon": "fa-cogs",
+            "dropdown": [
+                {
+                    "label": "Dashboard Secretaría",
+                    "endpoint": "helpdesk_pages.secretary_pages.dashboard",
+                    "icon": "fa-building",
+                    "permission": "helpdesk.dashboard.secretary"
+                },
+                {
+                    "label": "Dashboard Técnicos",
+                    "endpoint": "helpdesk_pages.technician_pages.dashboard",
+                    "icon": "fa-clipboard-list",
+                    "permission": "helpdesk.dashboard.technician"
+                },
+                {
+                    "label": "Dashboard Departamento",
+                    "endpoint": "helpdesk_pages.department_pages.tickets",
+                    "icon": "fa-users-cog",
+                    "permission": "helpdesk.dashboard.department"
+                },
+                {
+                    "label": "Asignar Tickets",
+                    "endpoint": "helpdesk_pages.admin_pages.assign_tickets",
+                    "icon": "fa-user-plus",
+                    "permission": "helpdesk.assignments.page.list"
+                },
+                {
+                    "label": "Lista de Tickets",
+                    "endpoint": "helpdesk_pages.admin_pages.tickets_list",
+                    "icon": "fa-list-ul",
+                    "permission": "helpdesk.tickets.page.list_all"
+                },
+            ]
         },
 
         # ==================== REPORTES (DROPDOWN) ====================
@@ -89,6 +93,52 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "endpoint": "helpdesk_pages.admin_pages.documents",
                     "icon": "fa-file-pdf",
                     "permission": "helpdesk.documents.page.list"
+                },
+            ]
+        },
+
+        # ==================== ALMACÉN (WAREHOUSE GLOBAL) ====================
+        {
+            "label": "Almacén",
+            "endpoint": "#",
+            "icon": "fa-boxes",
+            "permission": "warehouse.page.dashboard",
+            "dropdown": [
+                {
+                    "label": "Dashboard Almacén",
+                    "endpoint": "helpdesk_pages.warehouse_pages.dashboard",
+                    "icon": "fa-tachometer-alt",
+                    "permission": "warehouse.page.dashboard"
+                },
+                {
+                    "label": "Productos",
+                    "endpoint": "helpdesk_pages.warehouse_pages.products",
+                    "icon": "fa-cube",
+                    "permission": "warehouse.page.products"
+                },
+                {
+                    "label": "Categorías",
+                    "endpoint": "helpdesk_pages.warehouse_pages.categories",
+                    "icon": "fa-folder-open",
+                    "permission": "warehouse.page.categories"
+                },
+                {
+                    "label": "Entradas de Stock",
+                    "endpoint": "helpdesk_pages.warehouse_pages.entries",
+                    "icon": "fa-truck-loading",
+                    "permission": "warehouse.page.entries"
+                },
+                {
+                    "label": "Movimientos",
+                    "endpoint": "helpdesk_pages.warehouse_pages.movements",
+                    "icon": "fa-exchange-alt",
+                    "permission": "warehouse.page.movements"
+                },
+                {
+                    "label": "Reportes Almacén",
+                    "endpoint": "helpdesk_pages.warehouse_pages.reports",
+                    "icon": "fa-chart-line",
+                    "permission": "warehouse.page.reports"
                 },
             ]
         },
