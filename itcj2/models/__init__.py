@@ -33,3 +33,9 @@ from itcj2.apps.vistetec.models import (  # noqa: F401
     VTAppointment, VTDonation, Garment, VTLocation,
     PantryCampaign, PantryItem, SlotVolunteer, VTTimeSlot,
 )
+
+# Warehouse
+from itcj2.apps.warehouse.models import (  # noqa: F401
+    WarehouseCategory, WarehouseSubcategory, WarehouseProduct,
+    WarehouseStockEntry, WarehouseMovement, WarehouseTicketMaterial,
+)

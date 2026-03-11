@@ -138,6 +138,14 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.admin_pages.analysis":               "/help-desk/admin/analysis",
     "helpdesk_pages.admin_pages.documents":              "/help-desk/admin/documents",
 
+    # ── Help-Desk: Almacén (Warehouse) ──────────────────────────────────────
+    "helpdesk_pages.warehouse_pages.dashboard":          "/help-desk/warehouse/dashboard",
+    "helpdesk_pages.warehouse_pages.products":           "/help-desk/warehouse/products",
+    "helpdesk_pages.warehouse_pages.categories":         "/help-desk/warehouse/categories",
+    "helpdesk_pages.warehouse_pages.entries":            "/help-desk/warehouse/entries",
+    "helpdesk_pages.warehouse_pages.movements":          "/help-desk/warehouse/movements",
+    "helpdesk_pages.warehouse_pages.reports":            "/help-desk/warehouse/reports",
+
     # ── Help-Desk: Inventario ────────────────────────────────────────────────
     "helpdesk_pages.inventory_pages.dashboard":          "/help-desk/inventory/dashboard",
     "helpdesk_pages.inventory_pages.items_list":         "/help-desk/inventory/items",

@@ -18,6 +18,7 @@ from itcj2.cli.core import core_cli
 from itcj2.cli.helpdesk import helpdesk_cli
 from itcj2.cli.agendatec import agendatec_cli
 from itcj2.cli.vistetec import vistetec_cli
+from itcj2.cli.warehouse import warehouse_cli
 
 
 def _register_all_models():
@@ -40,6 +41,7 @@ cli.add_command(core_cli)
 cli.add_command(helpdesk_cli)
 cli.add_command(agendatec_cli)
 cli.add_command(vistetec_cli)
+cli.add_command(warehouse_cli)
 
 
 if __name__ == "__main__":

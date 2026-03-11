@@ -21,6 +21,10 @@ def register_routers(app: FastAPI):
     from itcj2.apps.vistetec.router import vistetec_router
     app.include_router(vistetec_router)
 
+    # Warehouse API v1 (almacén global compartido entre helpdesk y maint)
+    from itcj2.apps.warehouse.router import warehouse_router
+    app.include_router(warehouse_router)
+
     # ── Fase 4: Page routers ─────────────────────────────────────────────────
     # Core pages (prefix /itcj): login, dashboard, perfil, config, móvil
     from itcj2.core.pages.router import core_pages_router

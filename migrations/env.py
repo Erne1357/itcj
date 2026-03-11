@@ -24,6 +24,7 @@ import itcj2.core.models  # noqa: F401, E402
 import itcj2.apps.helpdesk.models  # noqa: F401, E402
 import itcj2.apps.agendatec.models  # noqa: F401, E402
 import itcj2.apps.vistetec.models  # noqa: F401, E402
+import itcj2.apps.warehouse.models  # noqa: F401, E402
 
 target_metadata = Base.metadata
 
