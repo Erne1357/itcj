@@ -1965,29 +1965,37 @@ const CustomFields = {
                 return;
             }
 
-            // Skip if not required
-            if (!field.required) {
+            // Radio Button Validation (Special case)
+            if (field.type === 'radio') {
+                if (field.required) {
+                    const checked = document.querySelector(`[name="custom_${field.key}"]:checked`);
+                    if (!checked) {
+                        errors.push(`El campo "${field.label}" es obligatorio`);
+                    }
+                }
                 return;
             }
 
             const input = document.getElementById(`custom_${field.key}`);
             if (!input) return;
 
-            let isEmpty = false;
-
-            if (field.type === 'checkbox') {
-                isEmpty = !input.checked;
-            } else if (field.type === 'radio') {
-                const checked = document.querySelector(`[name="custom_${field.key}"]:checked`);
-                isEmpty = !checked;
-            } else if (field.type === 'file') {
-                isEmpty = !input.files || !input.files[0];
-            } else {
-                isEmpty = !input.value || input.value.trim() === '';
-            }
-
-            if (isEmpty) {
-                errors.push(`El campo "${field.label}" es obligatorio`);
+            // Use native validity check
+            if (!input.checkValidity()) {
+                if (input.validity.valueMissing) {
+                    errors.push(`El campo "${field.label}" es obligatorio`);
+                } else if (input.validity.tooShort) {
+                    const minLength = input.getAttribute('minlength') || field.validation?.minLength;
+                    errors.push(`El campo "${field.label}" debe tener al menos ${minLength} caracteres.`);
+                } else if (input.validity.tooLong) {
+                    const maxLength = input.getAttribute('maxlength') || field.validation?.maxLength;
+                    errors.push(`El campo "${field.label}" no debe exceder ${maxLength} caracteres.`);
+                } else if (input.validity.patternMismatch) {
+                    errors.push(`El campo "${field.label}" no tiene el formato correcto.`);
+                } else if (input.validity.typeMismatch && field.type === 'email') {
+                    errors.push(`El campo "${field.label}" debe ser un email válido.`);
+                } else {
+                    errors.push(`El campo "${field.label}" contiene un valor inválido (${input.validationMessage}).`);
+                }
             }
         });
 
