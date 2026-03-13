@@ -15,6 +15,7 @@ from .theme import Theme
 from .department import Department
 from .notification import Notification
 from .position import Position, UserPosition, PositionAppRole, PositionAppPerm, ProgramPosition
+from .task_models import TaskDefinition, PeriodicTask, TaskRun
 
 __all__ = [
     "Role", "User", "App", "Permission", "RolePermission",
@@ -22,4 +23,5 @@ __all__ = [
     "ProgramCoordinator", "AcademicPeriod", "Theme", "Department",
     "Notification", "Position", "UserPosition", "PositionAppRole",
     "PositionAppPerm", "ProgramPosition",
+    "TaskDefinition", "PeriodicTask", "TaskRun",
 ]

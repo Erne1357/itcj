@@ -71,3 +71,46 @@
     background: #dc3545;
     width: 90%;
 }
+
+/* ==================== TECH PILLS (Active tickets filter) ==================== */
+
+/* Scrollable wrapper - oculta scrollbar visualmente pero mantiene funcionalidad */
+.tech-pills-wrapper {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: #dee2e6 transparent;
+}
+
+.tech-pills-wrapper::-webkit-scrollbar {
+    height: 4px;
+}
+
+.tech-pills-wrapper::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tech-pills-wrapper::-webkit-scrollbar-thumb {
+    background: #dee2e6;
+    border-radius: 2px;
+}
+
+/* Avatar pequeño dentro del pill */
+.tech-pill-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    font-size: 0.6rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* Transición suave al cambiar pills */
+#techPills .btn {
+    transition: all 0.15s ease;
+}

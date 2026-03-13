@@ -12,6 +12,10 @@ let allTechnicians = [];
 let ticketToAssign = null;
 let ticketToReassign = null;
 
+// Active tickets filter state
+let activeAreaFilter = '';
+let activeTechFilter = null;
+
 // Edit modal state
 let ticketToEdit = null;
 let categoriesCache = { DESARROLLO: [], SOPORTE: [] };
@@ -36,7 +40,10 @@ async function initializeDashboard() {
             loadActiveTickets(),
             loadTechnicians()
         ]);
-        
+
+        // Render tech pills now that both tickets and technicians are loaded
+        renderTechPills(activeAreaFilter);
+
         // Load stats tab (lazy load)
         document.getElementById('stats-tab').addEventListener('shown.bs.tab', loadStatistics);
         
@@ -286,18 +293,18 @@ async function loadActiveTickets() {
         });
         
         allActiveTickets = response.tickets || [];
-        
+
         // Update badge
         document.getElementById('activeBadge').textContent = allActiveTickets.length;
-        
-        renderActiveTickets(allActiveTickets);
-        
-        // Render by area
-        const desarrollo = allActiveTickets.filter(t => t.area === 'DESARROLLO');
-        const soporte = allActiveTickets.filter(t => t.area === 'SOPORTE');
-        
-        renderActiveTickets(desarrollo, 'activeDesarrolloList');
-        renderActiveTickets(soporte, 'activeSoporteList');
+
+        // Update area counts
+        document.getElementById('areaCountAll').textContent = allActiveTickets.length;
+        document.getElementById('areaCountDesarrollo').textContent =
+            allActiveTickets.filter(t => t.area === 'DESARROLLO').length;
+        document.getElementById('areaCountSoporte').textContent =
+            allActiveTickets.filter(t => t.area === 'SOPORTE').length;
+
+        filterActiveTickets();
         
     } catch (error) {
         console.error('Error loading active tickets:', error);
@@ -367,6 +374,92 @@ function renderActiveTickets(tickets, containerId = 'activeList') {
             </div>
         </div>
     `).join('');
+}
+
+// ==================== ACTIVE TICKETS FILTER ====================
+function setActiveArea(area) {
+    activeAreaFilter = area;
+    activeTechFilter = null;
+
+    // Update area pill active states
+    document.querySelectorAll('#areaPills .nav-link').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.area === area);
+    });
+
+    renderTechPills(area);
+    filterActiveTickets();
+}
+window.setActiveArea = setActiveArea;
+
+function setActiveTech(techId) {
+    activeTechFilter = techId;
+    renderTechPills(activeAreaFilter);
+    filterActiveTickets();
+}
+window.setActiveTech = setActiveTech;
+
+function filterActiveTickets() {
+    let tickets = allActiveTickets;
+
+    if (activeAreaFilter !== '') {
+        tickets = tickets.filter(t => t.area === activeAreaFilter);
+    }
+    if (activeTechFilter !== null) {
+        tickets = tickets.filter(t => t.assigned_to_user_id === activeTechFilter);
+    }
+
+    renderActiveTickets(tickets);
+}
+
+function renderTechPills(area) {
+    const container = document.getElementById('techPills');
+    if (!container) return;
+
+    // Technicians for the selected area (or all if area is '')
+    const techs = area === ''
+        ? allTechnicians
+        : allTechnicians.filter(t => t.area === area);
+
+    // Count active tickets per technician from current data
+    const techTicketCounts = {};
+    allActiveTickets.forEach(ticket => {
+        if (ticket.assigned_to_user_id) {
+            techTicketCounts[ticket.assigned_to_user_id] =
+                (techTicketCounts[ticket.assigned_to_user_id] || 0) + 1;
+        }
+    });
+
+    const isAllActive = activeTechFilter === null;
+    let html = `
+        <small class="text-muted fw-semibold text-nowrap">Técnico:</small>
+        <button class="btn btn-sm rounded-pill ${isAllActive ? 'btn-primary' : 'btn-outline-secondary'} text-nowrap"
+                onclick="setActiveTech(null)">
+            <i class="fas fa-users me-1"></i>Todos
+        </button>
+    `;
+
+    if (techs.length === 0) {
+        html += '<span class="text-muted small fst-italic">Sin técnicos en esta área</span>';
+    } else {
+        techs.forEach(tech => {
+            const initials = tech.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            const ticketCount = techTicketCounts[tech.id] || 0;
+            const isActive = activeTechFilter === tech.id;
+            const areaColor = tech.area === 'DESARROLLO' ? 'primary' : 'info';
+            const badgeClass = isActive ? `bg-white text-${areaColor}` : `bg-${areaColor} text-white`;
+
+            html += `
+                <button class="btn btn-sm rounded-pill ${isActive ? 'btn-' + areaColor : 'btn-outline-secondary'} d-inline-flex align-items-center gap-1 text-nowrap"
+                        onclick="setActiveTech(${tech.id})">
+                    <span class="tech-pill-avatar">${initials}</span>
+                    <span>${tech.name.split(' ')[0]}</span>
+                    ${ticketCount > 0 ? `<span class="badge ${badgeClass} rounded-pill">${ticketCount}</span>` : ''}
+                </button>
+            `;
+        });
+    }
+
+    container.innerHTML = html;
 }
 
 // ==================== TECHNICIANS ====================
@@ -440,13 +533,23 @@ function renderTechniciansList(technicians, containerId) {
 }
 
 function filterByTechnician(technicianId) {
-    // Switch to active tab and filter
+    // Switch to active tab
     const activeTab = new bootstrap.Tab(document.getElementById('active-tab'));
     activeTab.show();
-    
-    const filtered = allActiveTickets.filter(t => t.assigned_to_user_id === technicianId);
-    renderActiveTickets(filtered);
-    
+
+    // Set area filter to the technician's area for context
+    const tech = allTechnicians.find(t => t.id === technicianId);
+    if (tech) {
+        activeAreaFilter = tech.area;
+        document.querySelectorAll('#areaPills .nav-link').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.area === tech.area);
+        });
+    }
+
+    activeTechFilter = technicianId;
+    renderTechPills(activeAreaFilter);
+    filterActiveTickets();
+
     HelpdeskUtils.showToast(`Mostrando tickets del técnico seleccionado`, 'info');
 }
 window.filterByTechnician = filterByTechnician;

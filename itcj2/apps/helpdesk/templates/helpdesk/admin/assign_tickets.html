@@ -199,44 +199,49 @@
     
     <!-- Active Tickets Tab -->
     <div class="tab-pane fade" id="active" role="tabpanel">
-        
-        <!-- Sub-tabs for areas -->
-        <ul class="nav nav-pills mb-3" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#active-all">
-                    Todos
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" data-bs-toggle="pill" data-bs-target="#active-desarrollo">
-                    Desarrollo
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" data-bs-toggle="pill" data-bs-target="#active-soporte">
-                    Soporte
-                </button>
-            </li>
-        </ul>
-        
-        <div class="tab-content">
-            <div class="tab-pane fade show active" id="active-all">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body p-0">
-                        <div id="activeList">
-                            <div class="text-center py-5">
-                                <div class="spinner-border text-primary" role="status"></div>
-                                <p class="text-muted mt-3">Cargando tickets activos...</p>
-                            </div>
-                        </div>
+
+        <!-- Nivel 1: Filtro por área -->
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <small class="text-muted fw-semibold text-nowrap">Área:</small>
+            <ul class="nav nav-pills" id="areaPills">
+                <li class="nav-item">
+                    <button class="nav-link active py-1 px-3" data-area="" onclick="setActiveArea('')">
+                        <i class="fas fa-layer-group me-1"></i>Todos
+                        <span class="badge bg-white text-primary ms-1" id="areaCountAll">0</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link py-1 px-3" data-area="DESARROLLO" onclick="setActiveArea('DESARROLLO')">
+                        <i class="fas fa-laptop-code me-1"></i>Desarrollo
+                        <span class="badge bg-white text-primary ms-1" id="areaCountDesarrollo">0</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link py-1 px-3" data-area="SOPORTE" onclick="setActiveArea('SOPORTE')">
+                        <i class="fas fa-wrench me-1"></i>Soporte
+                        <span class="badge bg-white text-primary ms-1" id="areaCountSoporte">0</span>
+                    </button>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Nivel 2: Filtro por técnico (scrollable) -->
+        <div class="tech-pills-wrapper mb-3">
+            <div class="d-flex align-items-center gap-2 flex-nowrap" id="techPills">
+                <small class="text-muted fw-semibold text-nowrap">Técnico:</small>
+                <span class="text-muted small fst-italic">Cargando...</span>
+            </div>
+        </div>
+
+        <!-- Lista de tickets activos -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-0">
+                <div id="activeList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-3">Cargando tickets activos...</p>
                     </div>
                 </div>
-            </div>
-            <div class="tab-pane fade" id="active-desarrollo">
-                <div id="activeDesarrolloList"></div>
-            </div>
-            <div class="tab-pane fade" id="active-soporte">
-                <div id="activeSoporteList"></div>
             </div>
         </div>
     </div>

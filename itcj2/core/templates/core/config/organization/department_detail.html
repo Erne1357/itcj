@@ -24,14 +24,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
-    @media (min-width: 576px) {
-        .btn-sm { font-size: 1rem; padding: 0.375rem 0.75rem; }
-    }
-    @media (max-width: 576px) {
-        #positionsContainer .col-md-6 { width: 100%; }
-    }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/organization/department_detail.css') }}?v={{ sv('core', 'css/config/organization/department_detail.css') }}">
 {% endblock %}
 
 {% block content %}

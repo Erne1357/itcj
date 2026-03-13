@@ -3,16 +3,7 @@
 {% block title %}Nueva Solicitud de Baja - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<style>
-.item-row { border: 1px solid #e3e6f0; border-radius: 0.35rem; padding: 0.75rem; margin-bottom: 0.5rem; background: #fff; }
-.item-row:hover { background: #f8f9fc; }
-.item-row .remove-btn { cursor: pointer; color: #dc3545; }
-.search-result-item { cursor: pointer; padding: 0.5rem 0.75rem; border-bottom: 1px solid #f0f0f0; }
-.search-result-item:hover { background: #f8f9fc; }
-.search-result-item:last-child { border-bottom: none; }
-#items-search-results { max-height: 280px; overflow-y: auto; border: 1px solid #e3e6f0; border-radius: 0 0 0.35rem 0.35rem; border-top: none; }
-#selected-items-list:empty::after { content: 'No hay equipos seleccionados aún.'; color: #6c757d; font-size: 0.875rem; font-style: italic; }
-</style>
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/retirement_request_create.css') }}?v={{ sv('helpdesk', 'css/inventory/retirement_request_create.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}

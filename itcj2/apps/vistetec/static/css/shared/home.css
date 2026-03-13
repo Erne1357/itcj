@@ -1,0 +1,76 @@
+.vistetec-hero {
+    background: linear-gradient(135deg, #8B1538 0%, #5C0E24 100%);
+    border-radius: 1.5rem;
+    color: white;
+    padding: 2.5rem 2rem;
+    margin-bottom: 2rem;
+}
+.vistetec-hero-icon {
+    width: 80px;
+    height: 80px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+}
+.vistetec-main-btn {
+    background: white;
+    color: #8B1538;
+    border: none;
+    padding: 1rem 2.5rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border-radius: 50px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+.vistetec-main-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    background: #f8f9fa;
+    color: #5C0E24;
+}
+.vistetec-feature-card {
+    border: none;
+    border-radius: 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+}
+.vistetec-feature-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(139, 21, 56, 0.15);
+}
+.vistetec-feature-icon {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1rem;
+}
+.vistetec-stat {
+    text-align: center;
+    padding: 1rem;
+}
+.vistetec-stat-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #8B1538;
+}
+@media (max-width: 576px) {
+    .vistetec-hero {
+        padding: 2rem 1.5rem;
+        border-radius: 1rem;
+    }
+    .vistetec-hero-icon {
+        width: 60px;
+        height: 60px;
+    }
+    .vistetec-main-btn {
+        padding: 0.875rem 2rem;
+        font-size: 1rem;
+    }
+}

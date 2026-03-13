@@ -3,15 +3,7 @@
 {% block title %}Solicitudes de Baja - Inventario Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<style>
-.status-badge { font-size: 0.75rem; padding: 0.3em 0.6em; }
-.status-DRAFT     { background:#6c757d; color:#fff; }
-.status-PENDING   { background:#ffc107; color:#212529; }
-.status-APPROVED  { background:#28a745; color:#fff; }
-.status-REJECTED  { background:#dc3545; color:#fff; }
-.status-CANCELLED { background:#6c757d; color:#fff; }
-.folio-cell { font-family: monospace; font-weight: 600; }
-</style>
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/retirement_requests_list.css') }}?v={{ sv('helpdesk', 'css/inventory/retirement_requests_list.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}

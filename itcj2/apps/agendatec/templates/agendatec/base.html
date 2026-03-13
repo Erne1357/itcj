@@ -14,13 +14,6 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}">
   <link rel="shortcut icon" href="{{url_for('static', filename='agendatec/icon/favicon.ico') }}?v={{ sv('agendatec', 'icon/favicon.ico') }}" type="image/x-icon">
   
-  <style>
-    :root {
-      --app-primary: #0d6efd;
-      --app-primary-dark: #0a58ca;
-      --app-primary-light: #cfe2ff;
-    }
-  </style>
   {% block extra_css %}{% endblock %}
 </head>
 
@@ -140,22 +133,7 @@
     <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ sv('core', 'js/notifications/app-fab-widget.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/update-checker.js') }}?v={{ sv('core', 'js/update-checker.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
-    <script>
-      // Sidebar logout handler
-      document.getElementById('sidebarLogout')?.addEventListener('click', function() {
-        document.getElementById('btnLogout')?.click();
-      });
-
-      // Initialize AgendaTec Notification FAB Widget
-      document.addEventListener('DOMContentLoaded', () => {
-          if (window.AppNotificationFAB) {
-              new AppNotificationFAB('agendatec', '/api/core/v2', {
-                  color: '#0d6efd',
-                  colorDark: '#0a58ca'
-              });
-          }
-      });
-    </script>
+    <script src="{{ url_for('static', filename='agendatec/js/shared/base.js') }}?v={{ sv('agendatec', 'js/shared/base.js') }}"></script>
     {% block extra_js %}{% endblock %}
   </body>
 

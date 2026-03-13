@@ -29,6 +29,10 @@ python-docx>=1.0.0
 pandas>=2.0.0
 xlsxwriter>=3.0.0
 
+# Celery
+celery[redis]>=5.3.6
+croniter>=2.0.0
+
 # Utils
 redis>=5.0.0
 requests>=2.31.0

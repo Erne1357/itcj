@@ -1,5 +1,13 @@
 /* Help-Desk - Centro de Cómputo ITCJ */
 /* Nota: Las variables y clases CSS mantienen el prefijo "sitec" por compatibilidad */
+
+/* App-level color vars (extracted from base_helpdesk.html) */
+:root {
+    --app-primary: #059669;
+    --app-primary-dark: #047857;
+    --app-primary-light: #ecfdf5;
+}
+
 :root {
   --sitec-primary: #059669;
   --sitec-secondary: #10b981;

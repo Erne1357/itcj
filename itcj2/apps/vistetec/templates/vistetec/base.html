@@ -13,13 +13,7 @@
     <link href="{{ url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}" rel="stylesheet">
     
-    <style>
-        :root {
-            --app-primary: #8B1538;
-            --app-primary-dark: #5C0E24;
-            --app-primary-light: #fdf2f4;
-        }
-    </style>
+    <link href="{{ url_for('static', filename='vistetec/css/shared/base.css') }}?v={{ sv('vistetec', 'css/shared/base.css') }}" rel="stylesheet">
     {% block extra_css %}{% endblock %}
 </head>
 
@@ -166,7 +160,6 @@
 
     <!-- VisteTec utilities (must load before page-specific scripts) -->
     <script src="{{ url_for('static', filename='vistetec/js/shared/vistetec-utils.js') }}?v={{ sv('vistetec', 'js/shared/vistetec-utils.js') }}"></script>
-    <script src="{{ url_for('static', filename='vistetec/js/shared/base.js') }}?v={{ sv('vistetec', 'js/shared/base.js') }}"></script>
 
     <!-- Notification System (WebSocket-based) -->
     <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ sv('core', 'js/notifications/app-fab-widget.js') }}"></script>
@@ -174,22 +167,7 @@
     <!-- Mobile App Shell (sidebar & back button) -->
     <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
 
-    <script>
-        // Sidebar logout handler
-        document.getElementById('sidebarLogout')?.addEventListener('click', function() {
-            document.getElementById('btnLogout')?.click();
-        });
-
-        // Initialize VisteTec Notification FAB Widget
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.AppNotificationFAB) {
-                new AppNotificationFAB('vistetec', '/api/core/v2', {
-                    color: '#8B1538',
-                    colorDark: '#5C0E24'
-                });
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='vistetec/js/shared/base.js') }}?v={{ sv('vistetec', 'js/shared/base.js') }}"></script>
 
     {% block extra_js %}{% endblock %}
 </body>

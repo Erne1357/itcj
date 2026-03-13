@@ -24,27 +24,7 @@
 {% endblock %}
 
 {% block extra_css %}
-<style>
-    /* Tabs scrolleables en mobile */
-    @media (max-width: 768px) {
-        #permissionsTabs {
-            overflow-x: auto;
-            flex-wrap: nowrap;
-            -webkit-overflow-scrolling: touch;
-        }
-        #permissionsTabs .nav-link {
-            white-space: nowrap;
-            font-size: 0.85rem;
-            padding: 0.5rem 0.75rem;
-        }
-        #permissionsTable th:nth-child(3),
-        #permissionsTable td:nth-child(3) {
-            display: none;
-        }
-        #permissionsTable { min-width: 350px; }
-        #roleSelect { width: 100% !important; }
-    }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/config/system/permissions.css') }}?v={{ sv('core', 'css/config/system/permissions.css') }}">
 {% endblock %}
 
 {% block content %}

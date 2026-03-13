@@ -27,4 +27,19 @@
         }
     });
 
+    // Sidebar logout handler
+    document.getElementById('sidebarLogout')?.addEventListener('click', function () {
+        document.getElementById('btnLogout')?.click();
+    });
+
+    // Initialize VisteTec Notification FAB Widget
+    document.addEventListener('DOMContentLoaded', function () {
+        if (window.AppNotificationFAB) {
+            new AppNotificationFAB('vistetec', '/api/core/v2', {
+                color: '#8B1538',
+                colorDark: '#5C0E24'
+            });
+        }
+    });
+
 })();

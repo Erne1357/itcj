@@ -1,0 +1,137 @@
+:root {
+    --app-primary: #667eea;
+    --app-primary-dark: #5a67d8;
+    --app-primary-light: #e0e7ff;
+}
+
+/* Header móvil con flecha de regreso (solo visible en iframe) */
+.profile-mobile-header {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    z-index: 1050;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+}
+
+body.in-mobile-iframe .profile-mobile-header {
+    display: flex;
+}
+
+body.in-mobile-iframe {
+    padding-top: 56px;
+}
+
+.profile-mobile-header .profile-mobile-title {
+    color: white;
+    font-weight: 600;
+    font-size: 18px;
+    flex: 1;
+}
+
+/* Ocultar tab de notificaciones en móvil cuando está en iframe */
+body.in-mobile-iframe #notifications-tab-wrapper {
+    display: none !important;
+}
+
+/* En desktop siempre visible */
+@media (min-width: 992px) {
+    body.in-mobile-iframe #notifications-tab-wrapper {
+        display: block !important;
+    }
+}
+
+/* Ajustes responsivos mejorados */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 0.75rem;
+    }
+
+    .profile-header-card .card-body {
+        padding: 1rem !important;
+    }
+
+    .nav-tabs {
+        padding: 0.25rem;
+    }
+
+    .nav-tabs .nav-link {
+        padding: 0.5rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .profile-avatar {
+        width: 56px;
+        height: 56px;
+        font-size: 1.75rem;
+    }
+
+    .profile-header-card h3 {
+        font-size: 1.1rem;
+    }
+
+    .card-header h5 {
+        font-size: 0.95rem;
+    }
+}
+
+/* Estilos para información de estudiante */
+.student-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+@media (max-width: 576px) {
+    .student-stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.student-stat-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    transition: transform 0.2s ease;
+}
+
+.student-stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.student-stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 0.75rem;
+    font-size: 1.25rem;
+    color: white;
+}
+
+.student-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #212529;
+}
+
+.student-stat-label {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+}
+
+.last-login-info {
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+    border-radius: 10px;
+    padding: 1rem;
+    border-left: 4px solid #0d6efd;
+}
