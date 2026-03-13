@@ -272,6 +272,54 @@ def init_themes_command():
         raise
 
 
+@click.command("init-tasks")
+def init_tasks_command():
+    """Inserta permisos del módulo de tareas programadas y los asigna a los roles admin y super_admin."""
+    click.echo("⚙️  Inicializando permisos de Tareas Programadas...")
+
+    tasks_dml = PROJECT_ROOT / "database" / "DML" / "core" / "tasks"
+    sql_files = [
+        "01_insert_permissions.sql",
+        "02_insert_role_permissions.sql",
+        "03_insert_task_catalog.sql",
+    ]
+
+    if not tasks_dml.exists():
+        click.echo(f"❌ Directorio no encontrado: {tasks_dml}")
+        raise SystemExit(1)
+
+    try:
+        for sql_file in sql_files:
+            file_path = tasks_dml / sql_file
+            if not file_path.exists():
+                click.echo(f"⚠️  Archivo no encontrado: {sql_file}")
+                continue
+            click.echo(f"   🔄 Ejecutando: {sql_file}")
+            execute_sql_file(str(file_path))
+            click.echo(f"   ✅ Completado: {sql_file}")
+
+        engine = _get_engine()
+        with engine.connect() as connection:
+            perms = connection.execute(
+                text("SELECT COUNT(*) as count FROM core_permissions WHERE code LIKE 'core.tasks.%' OR code = 'core.config.admin'")
+            ).fetchone()
+            defs = connection.execute(
+                text("SELECT COUNT(*) as count FROM core_task_definitions")
+            ).fetchone()
+            periodic = connection.execute(
+                text("SELECT COUNT(*) as count FROM core_periodic_tasks WHERE is_active = TRUE")
+            ).fetchone()
+            click.echo(f"\n   📊 Permisos de tasks en DB:  {perms.count}")
+            click.echo(f"   📋 Tareas en catálogo:        {defs.count}")
+            click.echo(f"   🕐 Schedules activos:         {periodic.count}")
+
+        click.echo("\n🎉 Tareas Programadas inicializadas correctamente!")
+
+    except Exception as e:
+        click.echo(f"\n💥 Error durante la inicialización: {str(e)}")
+        raise
+
+
 @click.group("core")
 def core_cli():
     """Comandos CLI del módulo core."""
@@ -282,3 +330,4 @@ core_cli.add_command(reset_database_command)
 core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
 core_cli.add_command(init_themes_command)
+core_cli.add_command(init_tasks_command)

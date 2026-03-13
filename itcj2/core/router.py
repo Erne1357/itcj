@@ -41,3 +41,7 @@ core_router.include_router(deploy_router, prefix="/deploy")
 # Mobile: apps y tipo de usuario para el dashboard móvil
 from .api.mobile import router as mobile_router
 core_router.include_router(mobile_router, prefix="/mobile")
+
+# Tasks: gestión de tareas Celery (catálogo, schedules, historial)
+from .api.tasks import router as tasks_router
+core_router.include_router(tasks_router, prefix="/tasks")

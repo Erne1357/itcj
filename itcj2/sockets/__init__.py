@@ -17,8 +17,10 @@ from .helpdesk import register_helpdesk_namespace          # noqa: E402
 from .notifications import register_notification_namespace  # noqa: E402
 from .requests import register_request_namespace            # noqa: E402
 from .slots import register_slot_namespace                  # noqa: E402
+from .system import register_system_namespace               # noqa: E402
 
 register_helpdesk_namespace(sio)
 register_notification_namespace(sio)
 register_request_namespace(sio)
 register_slot_namespace(sio)
+register_system_namespace(sio)

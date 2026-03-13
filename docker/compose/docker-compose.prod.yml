@@ -82,6 +82,7 @@ services:
       - ../../asgi.py:/app/asgi.py:ro
       - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
+      - ../../instance:/app/instance  # rw: sirve exports generados por Celery
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -121,6 +122,7 @@ services:
       - ../../asgi.py:/app/asgi.py:ro
       - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
+      - ../../instance:/app/instance  # rw: sirve exports generados por Celery
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -143,6 +145,59 @@ services:
         max-file: "3"
     profiles:
       - green
+
+  # ============================================
+  # CELERY WORKER
+  # ============================================
+  celery-worker:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env.prod
+    volumes:
+      - ../../itcj2:/app/itcj2:ro
+      - ../../docker/backend/celery:/app/docker/backend/celery:ro
+      - ../../instance:/app/instance  # rw: workers leen/escriben archivos
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # CELERY BEAT (una sola instancia, sin perfil blue/green)
+  # ============================================
+  celery-beat:
+    restart: always
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env.prod
+    volumes:
+      - ../../itcj2:/app/itcj2:ro
+      - ../../docker/backend/celery:/app/docker/backend/celery:ro
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-beat.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ============================================
   # NGINX

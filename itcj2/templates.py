@@ -107,7 +107,13 @@ ENDPOINT_MAP: dict[str, str] = {
     "pages_core.pages_config.users_management":          "/itcj/config/users",
     "pages_core.pages_config.themes_management":         "/itcj/config/themes",
     "pages_core.pages_config.positions_management":      "/itcj/config/departments",
+    "pages_core.pages_config.app_permissions":           "/itcj/config/apps/{app_key}/permissions",
+    "pages_core.pages_config.user_detail":               "/itcj/config/users/{user_id}",
+    "pages_core.pages_config.department_detail":         "/itcj/config/departments/{department_id}",
+    "pages_core.pages_config.position_detail":           "/itcj/config/positions/{position_id}",
     "pages_core.pages_config.email_management":          "/itcj/config/email",
+    "pages_core.pages_config.email_auth_login":          "/itcj/config/email/auth/login",
+    "pages_core.pages_config.tasks_management":          "/itcj/config/system/tasks",
 
     # ── Core: Móvil ─────────────────────────────────────────────────────────
     "pages_core.pages_mobile.mobile_dashboard":          "/itcj/m/",

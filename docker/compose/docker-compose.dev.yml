@@ -57,10 +57,44 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-    # --reload para hot-reload en desarrollo
-    command: uvicorn asgi:app --host 0.0.0.0 --port 8001 --reload --log-level info
+    # Override ENTRYPOINT para dev: uvicorn con hot-reload (sin script de producción)
+    entrypoint: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--log-level", "info"]
     #ports:
     #  - "8001:8001"  # Para desarrollo directo sin nginx
+
+  # ============================================
+  # CELERY WORKER
+  # ============================================
+  celery-worker:
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env
+    volumes:
+      - ../../:/app
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # ============================================
+  # CELERY BEAT (scheduler)
+  # ============================================
+  celery-beat:
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env
+    volumes:
+      - ../../:/app
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-beat.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   nginx:
     restart: always

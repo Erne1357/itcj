@@ -12,6 +12,7 @@ from itcj2.core.models import (  # noqa: F401
     ProgramCoordinator, AcademicPeriod, Theme, Department,
     Notification, Position, UserPosition, PositionAppRole,
     PositionAppPerm, ProgramPosition,
+    TaskDefinition, PeriodicTask, TaskRun,
 )
 
 # Helpdesk

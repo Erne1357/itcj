@@ -469,6 +469,19 @@ async def email_auth_logout(
     return JSONResponse({"ok": True})
 
 
+@router.get("/config/system/tasks", name="core.pages.config.tasks_management")
+async def tasks_management(
+    request: Request,
+    user: dict = Depends(require_page_login),
+):
+    """Página de gestión de tareas programadas (catálogo, schedules, historial)."""
+    _assert_admin(user)
+
+    from itcj2.templates import render
+
+    return render(request, "core/config/system/tasks.html")
+
+
 @router.get("/config/email/auth/status", name="core.pages.config.email_auth_status")
 async def email_auth_status(
     request: Request,

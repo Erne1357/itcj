@@ -98,6 +98,12 @@ for i in $(seq 1 $PGB_RETRIES); do
     sleep 2
 done
 
+# -- NOTA: En el PRIMER deploy, ejecutar manualmente DESPUÉS de levantar la infraestructura:
+#    docker compose -f "$COMPOSE_FILE" --profile blue run --rm backend-blue \
+#        python -m itcj2.cli.main core init-tasks
+# Esto inserta permisos y definiciones de tareas en la DB. Solo se necesita una vez.
+# -----------------------------------------------------------------------------------------
+
 # -- 4. Ejecutar migraciones ANTES de levantar el nuevo backend --
 echo ">>> Ejecutando migraciones de base de datos..."
 # Si hay un backend activo, ejecutar migraciones en el
@@ -185,7 +191,7 @@ echo ">>> Verificando que backend-$NEW es alcanzable desde Nginx..."
 DNS_RETRIES=10
 DNS_OK=false
 for i in $(seq 1 $DNS_RETRIES); do
-    if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q --spider --timeout=3 "http://backend-${NEW}:8001/health" 2>/dev/null; then
+    if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q --spider -T 3 "http://backend-${NEW}:8001/health" 2>/dev/null; then
         DNS_OK=true
         echo "    backend-$NEW es alcanzable."
         break
@@ -279,6 +285,11 @@ fi
 # -- 11. Guardar estado y limpiar --
 echo "$NEW" > "$STATE_FILE"
 docker image prune -f
+
+# -- 11.1 Reconstruir y reiniciar Celery worker/beat (código actualizado) --
+echo ">>> Actualizando Celery worker y beat..."
+docker compose -f "$COMPOSE_FILE" up -d --build celery-worker celery-beat
+echo ">>> Celery worker y beat actualizados."
 
 # -- 12. Notificar cambios de estaticos via WebSocket (Pilar 3) --
 if [ -n "$OLD_MANIFEST" ]; then
