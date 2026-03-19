@@ -163,13 +163,18 @@ class DatabaseScheduler(Scheduler):
     def apply_entry(self, entry: ScheduleEntry, producer=None):
         """Override para crear un TaskRun antes de encolar cada tarea programada."""
         import uuid
-        from itcj2.database import SessionLocal
-        from itcj2.core.models.task_models import TaskDefinition, TaskRun, PeriodicTask
+        try:
+            from itcj2.database import SessionLocal
+            from itcj2.core.models.task_models import TaskDefinition, TaskRun, PeriodicTask
+        except ImportError as e:
+            logger.error("[DatabaseScheduler] Error importando modelos en apply_entry: %s", e)
+            return super().apply_entry(entry, producer=producer)
 
         task_run_id = None
-        celery_id = str(uuid.uuid4())
-
+        
         try:
+            celery_id = str(uuid.uuid4())
+            
             with SessionLocal() as db:
                 periodic_task_id = entry.options.get("periodic_task_id")
 
@@ -193,17 +198,29 @@ class DatabaseScheduler(Scheduler):
 
                 # Actualizar last_run_at en el PeriodicTask
                 if periodic_task_id:
-                    pt = db.get(PeriodicTask, periodic_task_id)
-                    if pt:
-                        pt.last_run_at = _utcnow()
-                        db.commit()
+                    # Usar update() para evitar lock/refresh issues
+                    db.query(PeriodicTask).filter(PeriodicTask.id == periodic_task_id).update(
+                        {"last_run_at": _utcnow()}
+                    )
+                    db.commit()
 
         except Exception as e:
             logger.error("[DatabaseScheduler] Error creando TaskRun para '%s': %s", entry.task, e)
+            # No re-lanzamos la excepción para permitir que la tarea se intente encolar de todos modos
+            # (aunque sin tracking en TaskRun)
 
-        # Inyectar task_run_id en kwargs antes de encolar
+        # Inyectar task_run_id en kwargs antes de encolar si se creó exitosamente
         if task_run_id:
-            entry = entry.update(kwargs={**dict(entry.kwargs or {}), "task_run_id": task_run_id})
+            try:
+                # Usar entry.update() es más seguro que modificar entry.kwargs directamente
+                entry = entry.update(kwargs={**dict(entry.kwargs or {}), "task_run_id": task_run_id})
+            except Exception as e:
+                logger.error("[DatabaseScheduler] Error inyectando task_run_id: %s", e)
 
         # Llamar al método original de Celery Beat para encolar la tarea
-        return super().apply_entry(entry, producer=producer)
+        try:
+            return super().apply_entry(entry, producer=producer)
+        except Exception as e:
+            logger.critical("[DatabaseScheduler] CRITICAL error en super().apply_entry para '%s': %s", entry.task, e)
+            # Capturamos para no matar el proceso Beat
+

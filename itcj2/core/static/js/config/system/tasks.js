@@ -84,8 +84,12 @@ const Tasks = (() => {
         `).join('');
     };
 
-    const syncDefinitions = async () => {
-        if (!confirm('¿Sincronizar las definiciones de tareas con el código registrado?')) return;
+    const syncDefinitions = () => {
+        new bootstrap.Modal(document.getElementById('confirmSyncModal')).show();
+    };
+
+    const _doSyncDefinitions = async () => {
+        bootstrap.Modal.getInstance(document.getElementById('confirmSyncModal')).hide();
         try {
             const res = await api('POST', '/definitions/sync');
             showSuccess(`Sincronización completa: ${res.data.created} creadas, ${res.data.updated} actualizadas`);
@@ -684,7 +688,7 @@ const Tasks = (() => {
                         Ver
                     </button>
                     ${(r.status === 'PENDING' || r.status === 'RUNNING')
-                        ? `<button class="btn btn-sm btn-outline-danger" onclick="Tasks.revokeRun(${r.id})">
+                        ? `<button class="btn btn-sm btn-outline-danger" onclick="Tasks.confirmRevokeRun(${r.id})">
                                <i class="bi bi-x-circle"></i>
                            </button>`
                         : ''}
@@ -791,10 +795,16 @@ const Tasks = (() => {
         `;
     };
 
-    const revokeRun = async (id) => {
-        if (!confirm('¿Cancelar esta tarea? La ejecución se detendrá.')) return;
+    const confirmRevokeRun = (id) => {
+        _currentRunId = id;
+        new bootstrap.Modal(document.getElementById('confirmRevokeModal')).show();
+    };
+
+    const _doRevokeRun = async () => {
+        if (!_currentRunId) return;
+        bootstrap.Modal.getInstance(document.getElementById('confirmRevokeModal'))?.hide();
         try {
-            const res = await api('DELETE', `/runs/${id}/revoke`);
+            const res = await api('DELETE', `/runs/${_currentRunId}/revoke`);
             if (res.status === 'ok') {
                 showSuccess('Tarea cancelada');
                 bootstrap.Modal.getInstance(document.getElementById('runDetailModal'))?.hide();
@@ -823,8 +833,10 @@ const Tasks = (() => {
         });
 
         // Botones de modales
+        document.getElementById('confirmSyncBtn').addEventListener('click', _doSyncDefinitions);
         document.getElementById('confirmDeletePeriodic').addEventListener('click', deletePeriodic);
-        document.getElementById('revokeRunBtn').addEventListener('click', () => revokeRun(_currentRunId));
+        document.getElementById('revokeRunBtn').addEventListener('click', () => confirmRevokeRun(_currentRunId));
+        document.getElementById('confirmRevokeBtn').addEventListener('click', _doRevokeRun);
 
         // Filtros de historial
         document.getElementById('filterStatus').addEventListener('change', () => loadRuns());
@@ -848,7 +860,7 @@ const Tasks = (() => {
         dispatchTask,
         loadRuns,
         viewRun,
-        revokeRun,
+        confirmRevokeRun,
         _onTargetTypeChange,
     };
 })();

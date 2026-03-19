@@ -271,6 +271,52 @@
     </div>
 </div>
 
+<!-- ======== Modal: Confirmar sincronizar definiciones ======== -->
+<div class="modal fade" id="confirmSyncModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-arrow-clockwise me-2"></i>Sincronizar tareas
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">¿Sincronizar las definiciones de tareas con el código registrado?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="confirmSyncBtn">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Sincronizar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ======== Modal: Confirmar cancelar TaskRun ======== -->
+<div class="modal fade" id="confirmRevokeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">
+                    <i class="bi bi-x-circle me-2"></i>Cancelar tarea
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">¿Cancelar esta tarea? La ejecución se detendrá.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">No, mantener</button>
+                <button type="button" class="btn btn-danger" id="confirmRevokeBtn">
+                    <i class="bi bi-x-circle me-1"></i>Sí, cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ======== Modal: Confirmar eliminar PeriodicTask ======== -->
 <div class="modal fade" id="deletePeriodicModal" tabindex="-1">
     <div class="modal-dialog">
