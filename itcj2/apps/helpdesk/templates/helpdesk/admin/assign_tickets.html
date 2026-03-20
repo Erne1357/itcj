@@ -118,9 +118,15 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link px-2 px-md-3" id="active-tab" data-bs-toggle="tab" data-bs-target="#active" type="button">
+            <button class="nav-link px-2 px-md-3" id="assigned-tab" data-bs-toggle="tab" data-bs-target="#assigned" type="button">
+                <i class="fas fa-user-check me-1 me-md-2"></i>Asignado
+                <span class="badge bg-warning ms-1 ms-md-2" id="assignedBadge">0</span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link px-2 px-md-3" id="inprogress-tab" data-bs-toggle="tab" data-bs-target="#inprogress" type="button">
                 <i class="fas fa-tasks me-1 me-md-2"></i><span class="d-none d-sm-inline">En </span>Proceso
-                <span class="badge bg-primary ms-1 ms-md-2" id="activeBadge">0</span>
+                <span class="badge bg-primary ms-1 ms-md-2" id="inprogressBadge">0</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -197,49 +203,110 @@
         </div>
     </div>
     
-    <!-- Active Tickets Tab -->
-    <div class="tab-pane fade" id="active" role="tabpanel">
+    <!-- Tab: Asignado -->
+    <div class="tab-pane fade" id="assigned" role="tabpanel">
 
         <!-- Nivel 1: Filtro por área -->
         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
             <small class="text-muted fw-semibold text-nowrap">Área:</small>
-            <ul class="nav nav-pills" id="areaPills">
+            <ul class="nav nav-pills" id="areaPillsAssigned">
                 <li class="nav-item">
-                    <button class="nav-link active py-1 px-3" data-area="" onclick="setActiveArea('')">
+                    <button class="nav-link active py-1 px-3" data-area="" onclick="setAssignedArea('')">
                         <i class="fas fa-layer-group me-1"></i>Todos
-                        <span class="badge bg-white text-primary ms-1" id="areaCountAll">0</span>
+                        <span class="badge bg-white text-primary ms-1" id="areaCountAllAssigned">0</span>
                     </button>
                 </li>
                 <li class="nav-item">
-                    <button class="nav-link py-1 px-3" data-area="DESARROLLO" onclick="setActiveArea('DESARROLLO')">
+                    <button class="nav-link py-1 px-3" data-area="DESARROLLO" onclick="setAssignedArea('DESARROLLO')">
                         <i class="fas fa-laptop-code me-1"></i>Desarrollo
-                        <span class="badge bg-white text-primary ms-1" id="areaCountDesarrollo">0</span>
+                        <span class="badge bg-white text-primary ms-1" id="areaCountDesarrolloAssigned">0</span>
                     </button>
                 </li>
                 <li class="nav-item">
-                    <button class="nav-link py-1 px-3" data-area="SOPORTE" onclick="setActiveArea('SOPORTE')">
+                    <button class="nav-link py-1 px-3" data-area="SOPORTE" onclick="setAssignedArea('SOPORTE')">
                         <i class="fas fa-wrench me-1"></i>Soporte
-                        <span class="badge bg-white text-primary ms-1" id="areaCountSoporte">0</span>
+                        <span class="badge bg-white text-primary ms-1" id="areaCountSoporteAssigned">0</span>
                     </button>
                 </li>
             </ul>
         </div>
 
-        <!-- Nivel 2: Filtro por técnico (scrollable) -->
-        <div class="tech-pills-wrapper mb-3">
-            <div class="d-flex align-items-center gap-2 flex-nowrap" id="techPills">
+        <!-- Nivel 2: Filtro por técnico -->
+        <div class="tech-pills-wrapper mb-2">
+            <div class="d-flex align-items-center gap-2 flex-nowrap" id="techPillsAssigned">
                 <small class="text-muted fw-semibold text-nowrap">Técnico:</small>
                 <span class="text-muted small fst-italic">Cargando...</span>
             </div>
         </div>
 
-        <!-- Lista de tickets activos -->
+        <!-- Búsqueda -->
+        <div class="mb-3">
+            <input type="text" class="form-control form-control-sm" id="searchAssigned"
+                   placeholder="Buscar por título, técnico o solicitante...">
+        </div>
+
+        <!-- Lista -->
         <div class="card border-0 shadow-sm">
             <div class="card-body p-0">
-                <div id="activeList">
+                <div id="assignedList">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-warning" role="status"></div>
+                        <p class="text-muted mt-3">Cargando tickets asignados...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab: En Proceso -->
+    <div class="tab-pane fade" id="inprogress" role="tabpanel">
+
+        <!-- Nivel 1: Filtro por área -->
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <small class="text-muted fw-semibold text-nowrap">Área:</small>
+            <ul class="nav nav-pills" id="areaPillsInprogress">
+                <li class="nav-item">
+                    <button class="nav-link active py-1 px-3" data-area="" onclick="setInprogressArea('')">
+                        <i class="fas fa-layer-group me-1"></i>Todos
+                        <span class="badge bg-white text-primary ms-1" id="areaCountAllInprogress">0</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link py-1 px-3" data-area="DESARROLLO" onclick="setInprogressArea('DESARROLLO')">
+                        <i class="fas fa-laptop-code me-1"></i>Desarrollo
+                        <span class="badge bg-white text-primary ms-1" id="areaCountDesarrolloInprogress">0</span>
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link py-1 px-3" data-area="SOPORTE" onclick="setInprogressArea('SOPORTE')">
+                        <i class="fas fa-wrench me-1"></i>Soporte
+                        <span class="badge bg-white text-primary ms-1" id="areaCountSoporteInprogress">0</span>
+                    </button>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Nivel 2: Filtro por técnico -->
+        <div class="tech-pills-wrapper mb-2">
+            <div class="d-flex align-items-center gap-2 flex-nowrap" id="techPillsInprogress">
+                <small class="text-muted fw-semibold text-nowrap">Técnico:</small>
+                <span class="text-muted small fst-italic">Cargando...</span>
+            </div>
+        </div>
+
+        <!-- Búsqueda -->
+        <div class="mb-3">
+            <input type="text" class="form-control form-control-sm" id="searchInprogress"
+                   placeholder="Buscar por título, técnico o solicitante...">
+        </div>
+
+        <!-- Lista -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-0">
+                <div id="inprogressList">
                     <div class="text-center py-5">
                         <div class="spinner-border text-primary" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets activos...</p>
+                        <p class="text-muted mt-3">Cargando tickets en proceso...</p>
                     </div>
                 </div>
             </div>

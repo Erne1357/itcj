@@ -7,14 +7,19 @@
 
 // ==================== GLOBAL STATE ====================
 let allPendingTickets = [];
-let allActiveTickets = [];
+let allAssignedTickets = [];    // status = ASSIGNED
+let allInProgressTickets = [];  // status = IN_PROGRESS
 let allTechnicians = [];
 let ticketToAssign = null;
 let ticketToReassign = null;
 
-// Active tickets filter state
-let activeAreaFilter = '';
-let activeTechFilter = null;
+// Filter state — tab Asignado
+let assignedAreaFilter = '';
+let assignedTechFilter = null;
+
+// Filter state — tab En Proceso
+let inprogressAreaFilter = '';
+let inprogressTechFilter = null;
 
 // Edit modal state
 let ticketToEdit = null;
@@ -42,7 +47,8 @@ async function initializeDashboard() {
         ]);
 
         // Render tech pills now that both tickets and technicians are loaded
-        renderTechPills(activeAreaFilter);
+        _renderTechPillsForTab('assigned');
+        _renderTechPillsForTab('inprogress');
 
         // Load stats tab (lazy load)
         document.getElementById('stats-tab').addEventListener('shown.bs.tab', loadStatistics);
@@ -70,7 +76,7 @@ async function loadDashboardStats() {
         
         // Count by status
         const pending = allTickets.filter(t => t.status === 'PENDING').length;
-        const unassigned = allTickets.filter(t => t.status === 'PENDING' && !t.assigned_to_user_id).length;
+        const unassigned = allTickets.filter(t => t.status === 'PENDING' && !t.assigned_to?.id).length;
         const inProgress = allTickets.filter(t => t.status === 'IN_PROGRESS').length;
         
         // Count today's tickets
@@ -281,41 +287,173 @@ function createPendingTicketCard(ticket) {
     `;
 }
 
-// ==================== ACTIVE TICKETS ====================
+// ==================== ACTIVE TICKETS (ASSIGNED + IN_PROGRESS) ====================
 async function loadActiveTickets() {
-    const container = document.getElementById('activeList');
-    HelpdeskUtils.showLoading('activeList');
-    
+    HelpdeskUtils.showLoading('assignedList');
+    HelpdeskUtils.showLoading('inprogressList');
+
     try {
-        const response = await HelpdeskUtils.api.getTickets({ 
+        const response = await HelpdeskUtils.api.getTickets({
             status: 'ASSIGNED,IN_PROGRESS',
-            per_page: 100 
+            per_page: 100
         });
-        
-        allActiveTickets = response.tickets || [];
 
-        // Update badge
-        document.getElementById('activeBadge').textContent = allActiveTickets.length;
+        const tickets = response.tickets || [];
+        allAssignedTickets   = tickets.filter(t => t.status === 'ASSIGNED');
+        allInProgressTickets = tickets.filter(t => t.status === 'IN_PROGRESS');
 
-        // Update area counts
-        document.getElementById('areaCountAll').textContent = allActiveTickets.length;
-        document.getElementById('areaCountDesarrollo').textContent =
-            allActiveTickets.filter(t => t.area === 'DESARROLLO').length;
-        document.getElementById('areaCountSoporte').textContent =
-            allActiveTickets.filter(t => t.area === 'SOPORTE').length;
+        // Update tab badges
+        document.getElementById('assignedBadge').textContent   = allAssignedTickets.length;
+        document.getElementById('inprogressBadge').textContent = allInProgressTickets.length;
 
-        filterActiveTickets();
-        
+        // Update area pill counts for both tabs
+        _updateTabAreaCounts('assigned');
+        _updateTabAreaCounts('inprogress');
+
+        // Render both lists
+        _filterTab('assigned');
+        _filterTab('inprogress');
+
     } catch (error) {
         console.error('Error loading active tickets:', error);
-        container.innerHTML = `
+        const errHtml = `
             <div class="text-center py-5">
                 <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
                 <p class="text-danger">Error al cargar tickets activos</p>
             </div>
         `;
+        document.getElementById('assignedList').innerHTML   = errHtml;
+        document.getElementById('inprogressList').innerHTML = errHtml;
     }
 }
+
+// ---- Helpers internos de tabs ----
+
+function _updateTabAreaCounts(tab) {
+    const tickets = tab === 'assigned' ? allAssignedTickets : allInProgressTickets;
+    const sfx     = tab === 'assigned' ? 'Assigned' : 'Inprogress';
+    document.getElementById(`areaCountAll${sfx}`).textContent =
+        tickets.length;
+    document.getElementById(`areaCountDesarrollo${sfx}`).textContent =
+        tickets.filter(t => t.area === 'DESARROLLO').length;
+    document.getElementById(`areaCountSoporte${sfx}`).textContent =
+        tickets.filter(t => t.area === 'SOPORTE').length;
+}
+
+function _filterTab(tab) {
+    const isAssigned  = tab === 'assigned';
+    const tickets     = isAssigned ? allAssignedTickets   : allInProgressTickets;
+    const areaFilter  = isAssigned ? assignedAreaFilter   : inprogressAreaFilter;
+    const techFilter  = isAssigned ? assignedTechFilter   : inprogressTechFilter;
+    const searchEl    = document.getElementById(isAssigned ? 'searchAssigned' : 'searchInprogress');
+    const search      = searchEl ? searchEl.value.toLowerCase().trim() : '';
+    const containerId = isAssigned ? 'assignedList' : 'inprogressList';
+
+    let filtered = [...tickets];
+    if (areaFilter)        filtered = filtered.filter(t => t.area === areaFilter);
+    if (techFilter !== null) filtered = filtered.filter(t => t.assigned_to?.id === techFilter);
+    if (search)            filtered = filtered.filter(t =>
+        t.title.toLowerCase().includes(search)          ||
+        t.ticket_number.toLowerCase().includes(search)  ||
+        t.requester?.name?.toLowerCase().includes(search) ||
+        t.location?.toLowerCase().includes(search)
+    );
+
+    renderActiveTickets(filtered, containerId);
+}
+
+function _renderTechPillsForTab(tab) {
+    const isAssigned = tab === 'assigned';
+    const container  = document.getElementById(isAssigned ? 'techPillsAssigned' : 'techPillsInprogress');
+    if (!container) return;
+
+    const tickets    = isAssigned ? allAssignedTickets   : allInProgressTickets;
+    const areaFilter = isAssigned ? assignedAreaFilter   : inprogressAreaFilter;
+    const techFilter = isAssigned ? assignedTechFilter   : inprogressTechFilter;
+    const setFn      = isAssigned ? 'setAssignedTech'    : 'setInprogressTech';
+
+    const techs = areaFilter === ''
+        ? allTechnicians
+        : allTechnicians.filter(t => t.area === areaFilter);
+
+    // Contar tickets por técnico para ESTE tab
+    const counts = {};
+    tickets.forEach(ticket => {
+        if (ticket.assigned_to?.id) {
+            counts[ticket.assigned_to.id] = (counts[ticket.assigned_to.id] || 0) + 1;
+        }
+    });
+
+    let html = `
+        <small class="text-muted fw-semibold text-nowrap">Técnico:</small>
+        <button class="btn btn-sm rounded-pill ${techFilter === null ? 'btn-primary' : 'btn-outline-secondary'} text-nowrap"
+                onclick="${setFn}(null)">
+            <i class="fas fa-users me-1"></i>Todos
+            <span class="badge ${techFilter === null ? 'bg-white text-primary' : 'bg-primary text-white'} rounded-pill">
+                ${tickets.length}
+            </span>
+        </button>
+    `;
+
+    if (techs.length === 0) {
+        html += '<span class="text-muted small fst-italic">Sin técnicos en esta área</span>';
+    } else {
+        techs.forEach(tech => {
+            const initials  = tech.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            const count     = counts[tech.id] || 0;
+            const isActive  = techFilter === tech.id;
+            const color     = tech.area === 'DESARROLLO' ? 'primary' : 'info';
+            html += `
+                <button class="btn btn-sm rounded-pill ${isActive ? `btn-${color}` : 'btn-outline-secondary'} d-inline-flex align-items-center gap-1 text-nowrap"
+                        onclick="${setFn}(${tech.id})">
+                    <span class="tech-pill-avatar">${initials}</span>
+                    <span>${tech.name.split(' ')[0]}</span>
+                    <span class="badge ${isActive ? `bg-white text-${color}` : `bg-${color} text-white`} rounded-pill">${count}</span>
+                </button>
+            `;
+        });
+    }
+
+    container.innerHTML = html;
+}
+
+// ---- API pública para los onclick del HTML ----
+
+function setAssignedArea(area) {
+    assignedAreaFilter = area;
+    assignedTechFilter = null;
+    document.querySelectorAll('#areaPillsAssigned .nav-link').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.area === area);
+    });
+    _renderTechPillsForTab('assigned');
+    _filterTab('assigned');
+}
+window.setAssignedArea = setAssignedArea;
+
+function setInprogressArea(area) {
+    inprogressAreaFilter = area;
+    inprogressTechFilter = null;
+    document.querySelectorAll('#areaPillsInprogress .nav-link').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.area === area);
+    });
+    _renderTechPillsForTab('inprogress');
+    _filterTab('inprogress');
+}
+window.setInprogressArea = setInprogressArea;
+
+function setAssignedTech(techId) {
+    assignedTechFilter = techId;
+    _renderTechPillsForTab('assigned');
+    _filterTab('assigned');
+}
+window.setAssignedTech = setAssignedTech;
+
+function setInprogressTech(techId) {
+    inprogressTechFilter = techId;
+    _renderTechPillsForTab('inprogress');
+    _filterTab('inprogress');
+}
+window.setInprogressTech = setInprogressTech;
 
 function renderActiveTickets(tickets, containerId = 'activeList') {
     const container = document.getElementById(containerId);
@@ -376,91 +514,6 @@ function renderActiveTickets(tickets, containerId = 'activeList') {
     `).join('');
 }
 
-// ==================== ACTIVE TICKETS FILTER ====================
-function setActiveArea(area) {
-    activeAreaFilter = area;
-    activeTechFilter = null;
-
-    // Update area pill active states
-    document.querySelectorAll('#areaPills .nav-link').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.area === area);
-    });
-
-    renderTechPills(area);
-    filterActiveTickets();
-}
-window.setActiveArea = setActiveArea;
-
-function setActiveTech(techId) {
-    activeTechFilter = techId;
-    renderTechPills(activeAreaFilter);
-    filterActiveTickets();
-}
-window.setActiveTech = setActiveTech;
-
-function filterActiveTickets() {
-    let tickets = allActiveTickets;
-
-    if (activeAreaFilter !== '') {
-        tickets = tickets.filter(t => t.area === activeAreaFilter);
-    }
-    if (activeTechFilter !== null) {
-        tickets = tickets.filter(t => t.assigned_to_user_id === activeTechFilter);
-    }
-
-    renderActiveTickets(tickets);
-}
-
-function renderTechPills(area) {
-    const container = document.getElementById('techPills');
-    if (!container) return;
-
-    // Technicians for the selected area (or all if area is '')
-    const techs = area === ''
-        ? allTechnicians
-        : allTechnicians.filter(t => t.area === area);
-
-    // Count active tickets per technician from current data
-    const techTicketCounts = {};
-    allActiveTickets.forEach(ticket => {
-        if (ticket.assigned_to_user_id) {
-            techTicketCounts[ticket.assigned_to_user_id] =
-                (techTicketCounts[ticket.assigned_to_user_id] || 0) + 1;
-        }
-    });
-
-    const isAllActive = activeTechFilter === null;
-    let html = `
-        <small class="text-muted fw-semibold text-nowrap">Técnico:</small>
-        <button class="btn btn-sm rounded-pill ${isAllActive ? 'btn-primary' : 'btn-outline-secondary'} text-nowrap"
-                onclick="setActiveTech(null)">
-            <i class="fas fa-users me-1"></i>Todos
-        </button>
-    `;
-
-    if (techs.length === 0) {
-        html += '<span class="text-muted small fst-italic">Sin técnicos en esta área</span>';
-    } else {
-        techs.forEach(tech => {
-            const initials = tech.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-            const ticketCount = techTicketCounts[tech.id] || 0;
-            const isActive = activeTechFilter === tech.id;
-            const areaColor = tech.area === 'DESARROLLO' ? 'primary' : 'info';
-            const badgeClass = isActive ? `bg-white text-${areaColor}` : `bg-${areaColor} text-white`;
-
-            html += `
-                <button class="btn btn-sm rounded-pill ${isActive ? 'btn-' + areaColor : 'btn-outline-secondary'} d-inline-flex align-items-center gap-1 text-nowrap"
-                        onclick="setActiveTech(${tech.id})">
-                    <span class="tech-pill-avatar">${initials}</span>
-                    <span>${tech.name.split(' ')[0]}</span>
-                    ${ticketCount > 0 ? `<span class="badge ${badgeClass} rounded-pill">${ticketCount}</span>` : ''}
-                </button>
-            `;
-        });
-    }
-
-    container.innerHTML = html;
-}
 
 // ==================== TECHNICIANS ====================
 async function loadTechnicians() {
@@ -533,24 +586,34 @@ function renderTechniciansList(technicians, containerId) {
 }
 
 function filterByTechnician(technicianId) {
-    // Switch to active tab
-    const activeTab = new bootstrap.Tab(document.getElementById('active-tab'));
-    activeTab.show();
-
-    // Set area filter to the technician's area for context
     const tech = allTechnicians.find(t => t.id === technicianId);
+
+    // Aplicar filtro de área en ambos tabs
     if (tech) {
-        activeAreaFilter = tech.area;
-        document.querySelectorAll('#areaPills .nav-link').forEach(btn => {
+        assignedAreaFilter   = tech.area;
+        inprogressAreaFilter = tech.area;
+        document.querySelectorAll('#areaPillsAssigned .nav-link').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.area === tech.area);
+        });
+        document.querySelectorAll('#areaPillsInprogress .nav-link').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.area === tech.area);
         });
     }
 
-    activeTechFilter = technicianId;
-    renderTechPills(activeAreaFilter);
-    filterActiveTickets();
+    // Aplicar filtro de técnico en ambos tabs
+    assignedTechFilter   = technicianId;
+    inprogressTechFilter = technicianId;
+    _renderTechPillsForTab('assigned');
+    _renderTechPillsForTab('inprogress');
+    _filterTab('assigned');
+    _filterTab('inprogress');
 
-    HelpdeskUtils.showToast(`Mostrando tickets del técnico seleccionado`, 'info');
+    // Cambiar al tab que tenga más tickets para este técnico
+    const hasInprogress = allInProgressTickets.some(t => t.assigned_to?.id === technicianId);
+    const targetTabId   = hasInprogress ? 'inprogress-tab' : 'assigned-tab';
+    new bootstrap.Tab(document.getElementById(targetTabId)).show();
+
+    HelpdeskUtils.showToast('Mostrando tickets del técnico seleccionado', 'info');
 }
 window.filterByTechnician = filterByTechnician;
 
@@ -733,7 +796,8 @@ function setupReassignmentModal() {
 }
 
 function openReassignmentModal(ticketId) {
-    ticketToReassign = allActiveTickets.find(t => t.id === ticketId);
+    ticketToReassign = allAssignedTickets.find(t => t.id === ticketId) ||
+                       allInProgressTickets.find(t => t.id === ticketId);
     if (!ticketToReassign) {
         HelpdeskUtils.showToast('Ticket no encontrado', 'error');
         return;
@@ -844,6 +908,20 @@ function setupFilters() {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(applyFilters, 300);
     });
+
+    // Búsqueda en tab Asignado
+    let searchAssignedTimeout;
+    document.getElementById('searchAssigned')?.addEventListener('input', () => {
+        clearTimeout(searchAssignedTimeout);
+        searchAssignedTimeout = setTimeout(() => _filterTab('assigned'), 300);
+    });
+
+    // Búsqueda en tab En Proceso
+    let searchInprogressTimeout;
+    document.getElementById('searchInprogress')?.addEventListener('input', () => {
+        clearTimeout(searchInprogressTimeout);
+        searchInprogressTimeout = setTimeout(() => _filterTab('inprogress'), 300);
+    });
 }
 
 function applyFilters() {
@@ -917,9 +995,9 @@ async function loadStatistics() {
 
 // ==================== QUICK VIEW ====================
 function showTicketQuickView(ticketId) {
-    // For now, just show toast with ticket number
-    const ticket = allPendingTickets.find(t => t.id === ticketId) || 
-                   allActiveTickets.find(t => t.id === ticketId);
+    const ticket = allPendingTickets.find(t => t.id === ticketId)    ||
+                   allAssignedTickets.find(t => t.id === ticketId)   ||
+                   allInProgressTickets.find(t => t.id === ticketId);
     
     window.location.href = `/help-desk/user/tickets/${ticketId}`;
 }
