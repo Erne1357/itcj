@@ -1,6 +1,10 @@
 import logging
 import os
+import sys
 from logging.config import fileConfig
+
+# Add the project root to the python path so imports works
+sys.path.insert(0, os.getcwd())
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
