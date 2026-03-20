@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("")
+@router.get("/")  # Permitir también GET a /inventory/groups/ (con barra al final) para mayor compatibilidad con clientes REST genéricos
 def get_all_groups(
     include_inactive: str = "false",
     department_id: int | None = None,
@@ -39,6 +40,7 @@ def get_all_groups(
 
 
 @router.get("/department/{department_id}")
+@router.get("/department/{department_id}/")  # Permitir también GET a /inventory/groups/department/{department_id}/ (con barra al final) para mayor compatibilidad con clientes REST genéricos
 def get_groups_by_department(
     department_id: int,
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== CREAR TICKET ====================
 @router.post("", status_code=201)
+@router.post("/")  # Permitir también POST a /tickets/ (con barra al final) para mayor compatibilidad con clientes REST genéricos
 async def create_ticket(
     request: Request,
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.create"]),
@@ -195,6 +196,7 @@ async def create_ticket(
 
 # ==================== LISTAR TICKETS ====================
 @router.get("")
+@router.get("/")
 def list_tickets(
     request: Request,
     user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
