@@ -71,7 +71,7 @@ TASK_DEFINITIONS = [
     soft_time_limit=120,
     time_limit=150,
 )
-def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
+def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = False):
     """
     Tarea de mantenimiento: limpia adjuntos del helpdesk.
 
@@ -83,10 +83,12 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
 
     Args:
         task_run_id: ID del TaskRun creado por la API antes de encolar esta tarea.
+                     Puede ser None si el scheduler no pudo inyectarlo (modo degradado).
         dry_run: Si True, solo cuenta lo que haría sin modificar nada.
 
     Returns:
-        dict con claves: marked_for_delete, deleted_files, freed_bytes, errors, dry_run
+        dict con claves: marked_for_delete, deleted_files, freed_bytes, errors, dry_run,
+                         by_ticket (desglose por número de ticket)
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.helpdesk.services.attachment_cleanup import (
@@ -99,6 +101,7 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
     marked = 0
     deleted = 0
     freed_bytes = 0
+    by_ticket: dict = {}
 
     try:
         with SessionLocal() as db:
@@ -121,7 +124,7 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
             # Paso 2: eliminar expirados
             self.update_progress(task_run_id, current=1, total=2, message="Eliminando adjuntos expirados...")
             if not dry_run:
-                deleted, freed_bytes = _cleanup_with_metrics(db, errors)
+                deleted, freed_bytes, by_ticket = _cleanup_with_metrics(db, errors)
             else:
                 from itcj2.apps.helpdesk.models.attachment import Attachment
                 from itcj2.apps.helpdesk.models.ticket import Ticket
@@ -147,6 +150,7 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
                     for a in expired
                     if a.filepath and os.path.exists(a.filepath)
                 )
+                by_ticket = _build_ticket_breakdown(expired)
 
     except Exception as exc:
         logger.exception(f"[cleanup_attachments] Error inesperado: {exc}")
@@ -159,8 +163,9 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
         "freed_mb": round(freed_bytes / (1024 * 1024), 2),
         "errors": errors,
         "dry_run": dry_run,
+        "by_ticket": by_ticket,
     }
-    logger.info(f"[cleanup_attachments] Completado: {result}")
+    _log_cleanup_result(result)
     return result
 
 
@@ -211,7 +216,7 @@ def _push_user_notification(user_id: int, title: str, body: str, link: str | Non
 
 
 def _cleanup_with_metrics(db, errors: list) -> tuple:
-    """Elimina adjuntos expirados y devuelve (deleted_count, freed_bytes).
+    """Elimina adjuntos expirados y devuelve (deleted_count, freed_bytes, by_ticket).
 
     Doble condición de seguridad:
       1. auto_delete_at está fijado y ya venció.
@@ -259,7 +264,87 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
     if deleted > 0:
         db.commit()
 
-    return deleted, freed_bytes
+    by_ticket = _build_ticket_breakdown(expired)
+    return deleted, freed_bytes, by_ticket
+
+
+def _build_ticket_breakdown(attachments: list) -> dict:
+    """Agrupa los adjuntos eliminados por número de ticket.
+
+    Returns:
+        dict[ticket_number, {ticket_image, resolution, comment, total, freed_bytes}]
+    """
+    import os
+    breakdown: dict = {}
+
+    for att in attachments:
+        ticket = att.ticket
+        key = ticket.ticket_number if ticket else f"ticket_{att.ticket_id}"
+
+        if key not in breakdown:
+            breakdown[key] = {
+                "ticket_image": 0,
+                "resolution": 0,
+                "comment": 0,
+                "total": 0,
+                "freed_bytes": 0,
+            }
+
+        att_type = att.attachment_type
+        if att_type == "ticket":
+            breakdown[key]["ticket_image"] += 1
+        elif att_type == "resolution":
+            breakdown[key]["resolution"] += 1
+        elif att_type == "comment":
+            breakdown[key]["comment"] += 1
+
+        breakdown[key]["total"] += 1
+
+        if att.filepath and os.path.exists(att.filepath):
+            try:
+                breakdown[key]["freed_bytes"] += os.path.getsize(att.filepath)
+            except OSError:
+                pass
+
+    return breakdown
+
+
+def _log_cleanup_result(result: dict) -> None:
+    """Emite un log detallado del resultado de la limpieza de adjuntos."""
+    prefix = "[cleanup_attachments][DRY RUN]" if result.get("dry_run") else "[cleanup_attachments]"
+
+    logger.info(
+        "%s Completado — marcados: %d | eliminados: %d | liberados: %.2f MB | errores: %d",
+        prefix,
+        result["marked_for_delete"],
+        result["deleted_files"],
+        result["freed_mb"],
+        len(result["errors"]),
+    )
+
+    by_ticket: dict = result.get("by_ticket") or {}
+    if not by_ticket:
+        logger.info("%s Sin adjuntos eliminados en esta ejecución.", prefix)
+        return
+
+    logger.info("%s Desglose por ticket (%d tickets afectados):", prefix, len(by_ticket))
+    for ticket_number, data in sorted(by_ticket.items()):
+        freed_mb = round(data["freed_bytes"] / (1024 * 1024), 2)
+        parts = []
+        if data["ticket_image"]:
+            parts.append(f"imagen_ticket={data['ticket_image']}")
+        if data["resolution"]:
+            parts.append(f"resolución={data['resolution']}")
+        if data["comment"]:
+            parts.append(f"comentario={data['comment']}")
+        logger.info(
+            "%s   %s → total=%d (%s) | %.2f MB",
+            prefix,
+            ticket_number,
+            data["total"],
+            ", ".join(parts) if parts else "sin tipo clasificado",
+            freed_mb,
+        )
 
 
 def _append_deletion_audit_note(db, attachment, deletion_date: str) -> None:

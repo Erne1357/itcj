@@ -39,8 +39,10 @@ def _require_department_head(user: dict) -> None:
 def _get_managed_department(user_id: int) -> dict:
     """Obtiene el departamento gestionado por el usuario o lanza 403."""
     from itcj2.core.services import positions_service
+    from itcj2.database import SessionLocal
 
-    managed = positions_service.get_user_primary_managed_department(user_id)
+    with SessionLocal() as db:
+        managed = positions_service.get_user_primary_managed_department(db, user_id)
     if not managed:
         raise HTTPException(status_code=403, detail="No tienes un departamento asignado como jefe")
     return managed

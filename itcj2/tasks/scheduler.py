@@ -71,14 +71,14 @@ class DatabaseScheduler(Scheduler):
         """Llamado al arrancar Beat. Carga schedules iniciales desde la DB."""
         self._reload_from_db()
 
-    def tick(self, event_t=None, min=min, heappop=None, heappush=None):
+    def tick(self, *args, **kwargs):
         """Override del loop de tick para recargar schedules periódicamente."""
         now = _utcnow()
         if self._last_db_reload is None or (now - self._last_db_reload).total_seconds() >= self.sync_every:
             self._reload_from_db()
             self._last_db_reload = now
 
-        return super().tick(event_t=event_t)
+        return super().tick(*args, **kwargs)
 
     @property
     def schedule(self) -> dict:
@@ -212,8 +212,18 @@ class DatabaseScheduler(Scheduler):
         # Inyectar task_run_id en kwargs antes de encolar si se creó exitosamente
         if task_run_id:
             try:
-                # Usar entry.update() es más seguro que modificar entry.kwargs directamente
-                entry = entry.update(kwargs={**dict(entry.kwargs or {}), "task_run_id": task_run_id})
+                new_kwargs = {**dict(entry.kwargs or {}), "task_run_id": task_run_id}
+                entry = ScheduleEntry(
+                    name=entry.name,
+                    task=entry.task,
+                    schedule=entry.schedule,
+                    args=entry.args,
+                    kwargs=new_kwargs,
+                    options=entry.options,
+                    last_run_at=entry.last_run_at,
+                    total_run_count=entry.total_run_count,
+                    app=self.app,
+                )
             except Exception as e:
                 logger.error("[DatabaseScheduler] Error inyectando task_run_id: %s", e)
 
