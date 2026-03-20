@@ -145,11 +145,13 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
                 from itcj2.apps.helpdesk.models.attachment import Attachment
                 from itcj2.apps.helpdesk.models.ticket import Ticket
                 from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
+                from sqlalchemy.orm import joinedload
                 from datetime import datetime, timedelta
                 _now = datetime.utcnow()
                 _cutoff = _now - timedelta(days=AUTO_DELETE_DAYS)
                 expired = (
                     db.query(Attachment)
+                    .options(joinedload(Attachment.ticket))
                     .join(Ticket, Ticket.id == Attachment.ticket_id)
                     .filter(
                         Attachment.auto_delete_at.isnot(None),
@@ -245,12 +247,14 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
     from itcj2.apps.helpdesk.models.attachment import Attachment
     from itcj2.apps.helpdesk.models.ticket import Ticket
     from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
+    from sqlalchemy.orm import joinedload
 
     now = datetime.utcnow()
     cutoff = now - timedelta(days=AUTO_DELETE_DAYS)
 
     expired = (
         db.query(Attachment)
+        .options(joinedload(Attachment.ticket))
         .join(Ticket, Ticket.id == Attachment.ticket_id)
         .filter(
             Attachment.auto_delete_at.isnot(None),
@@ -265,6 +269,10 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
     freed_bytes = 0
     from datetime import timezone
     deletion_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Construir el desglose ANTES de borrar: después del commit los objetos
+    # se desvinculan de la sesión y att.ticket ya no puede hacer lazy load.
+    by_ticket = _build_ticket_breakdown(expired)
 
     successfully_deleted = []
     for attachment in expired:
@@ -284,7 +292,6 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
         _batch_audit_notes(db, successfully_deleted, deletion_date)
         db.commit()
 
-    by_ticket = _build_ticket_breakdown(expired)
     return deleted, freed_bytes, by_ticket
 
 
