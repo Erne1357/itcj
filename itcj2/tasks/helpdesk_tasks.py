@@ -102,6 +102,7 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
     deleted = 0
     freed_bytes = 0
     by_ticket: dict = {}
+    marked_by_ticket: dict = {}   # dry-run: qué SERÍA marcado (step 1)
 
     try:
         with SessionLocal() as db:
@@ -110,8 +111,7 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
             if not dry_run:
                 marked = set_auto_delete_on_closed_tickets(db)
             else:
-                # En dry_run solo contar, sin commit
-                from itcj2.apps.helpdesk.models.attachment import Attachment
+                # En dry_run solo contar sin commit, pero SÍ construir desglose
                 from itcj2.apps.helpdesk.models.ticket import Ticket
                 closed_tickets = db.query(Ticket).filter(
                     Ticket.status == "CLOSED",
@@ -120,6 +120,22 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
                     for att in ticket.attachments:
                         if att.auto_delete_at is None:
                             marked += 1
+                            key = ticket.ticket_number
+                            if key not in marked_by_ticket:
+                                marked_by_ticket[key] = {
+                                    "ticket_image": 0,
+                                    "resolution": 0,
+                                    "comment": 0,
+                                    "total": 0,
+                                }
+                            att_type = att.attachment_type
+                            if att_type == "ticket":
+                                marked_by_ticket[key]["ticket_image"] += 1
+                            elif att_type == "resolution":
+                                marked_by_ticket[key]["resolution"] += 1
+                            elif att_type == "comment":
+                                marked_by_ticket[key]["comment"] += 1
+                            marked_by_ticket[key]["total"] += 1
 
             # Paso 2: eliminar expirados
             self.update_progress(task_run_id, current=1, total=2, message="Eliminando adjuntos expirados...")
@@ -164,6 +180,7 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
         "errors": errors,
         "dry_run": dry_run,
         "by_ticket": by_ticket,
+        "marked_by_ticket": marked_by_ticket,
     }
     _log_cleanup_result(result)
     return result
@@ -249,19 +266,22 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
     from datetime import timezone
     deletion_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    successfully_deleted = []
     for attachment in expired:
         try:
-            _append_deletion_audit_note(db, attachment, deletion_date)
             if attachment.filepath and os.path.exists(attachment.filepath):
                 freed_bytes += os.path.getsize(attachment.filepath)
                 os.remove(attachment.filepath)
             db.delete(attachment)
+            successfully_deleted.append(attachment)
             deleted += 1
         except Exception as e:
             errors.append({"attachment_id": attachment.id, "error": str(e)})
             logger.error(f"Error eliminando attachment {attachment.id}: {e}")
 
-    if deleted > 0:
+    # Notas de auditoría agrupadas por entidad padre (un solo mensaje por ticket/comentario)
+    if successfully_deleted:
+        _batch_audit_notes(db, successfully_deleted, deletion_date)
         db.commit()
 
     by_ticket = _build_ticket_breakdown(expired)
@@ -311,7 +331,8 @@ def _build_ticket_breakdown(attachments: list) -> dict:
 
 def _log_cleanup_result(result: dict) -> None:
     """Emite un log detallado del resultado de la limpieza de adjuntos."""
-    prefix = "[cleanup_attachments][DRY RUN]" if result.get("dry_run") else "[cleanup_attachments]"
+    dry_run = result.get("dry_run", False)
+    prefix = "[cleanup_attachments][DRY RUN]" if dry_run else "[cleanup_attachments]"
 
     logger.info(
         "%s Completado — marcados: %d | eliminados: %d | liberados: %.2f MB | errores: %d",
@@ -322,74 +343,111 @@ def _log_cleanup_result(result: dict) -> None:
         len(result["errors"]),
     )
 
+    # En dry-run: mostrar qué tickets SERÍAN marcados para eliminación futura (step 1)
+    if dry_run:
+        marked_by_ticket: dict = result.get("marked_by_ticket") or {}
+        if marked_by_ticket:
+            logger.info(
+                "%s Adjuntos que SERÍAN marcados para eliminación futura (%d tickets):",
+                prefix, len(marked_by_ticket),
+            )
+            for ticket_number, data in sorted(marked_by_ticket.items()):
+                parts = []
+                if data["ticket_image"]:
+                    parts.append(f"imagen_ticket={data['ticket_image']}")
+                if data["resolution"]:
+                    parts.append(f"resolución={data['resolution']}")
+                if data["comment"]:
+                    parts.append(f"comentario={data['comment']}")
+                logger.info(
+                    "%s   %s → total=%d (%s)",
+                    prefix, ticket_number, data["total"],
+                    ", ".join(parts) if parts else "sin tipo clasificado",
+                )
+        else:
+            logger.info("%s No hay adjuntos pendientes de marcar.", prefix)
+
+    # Desglose de adjuntos ya expirados (eliminados en ejecución real, o que SERÍAN eliminados en dry-run)
     by_ticket: dict = result.get("by_ticket") or {}
-    if not by_ticket:
-        logger.info("%s Sin adjuntos eliminados en esta ejecución.", prefix)
-        return
-
-    logger.info("%s Desglose por ticket (%d tickets afectados):", prefix, len(by_ticket))
-    for ticket_number, data in sorted(by_ticket.items()):
-        freed_mb = round(data["freed_bytes"] / (1024 * 1024), 2)
-        parts = []
-        if data["ticket_image"]:
-            parts.append(f"imagen_ticket={data['ticket_image']}")
-        if data["resolution"]:
-            parts.append(f"resolución={data['resolution']}")
-        if data["comment"]:
-            parts.append(f"comentario={data['comment']}")
+    if by_ticket:
+        label = "que SERÍAN eliminados" if dry_run else "eliminados"
         logger.info(
-            "%s   %s → total=%d (%s) | %.2f MB",
-            prefix,
-            ticket_number,
-            data["total"],
-            ", ".join(parts) if parts else "sin tipo clasificado",
-            freed_mb,
+            "%s Adjuntos %s (%d tickets afectados):",
+            prefix, label, len(by_ticket),
         )
+        for ticket_number, data in sorted(by_ticket.items()):
+            freed_mb = round(data["freed_bytes"] / (1024 * 1024), 2)
+            parts = []
+            if data["ticket_image"]:
+                parts.append(f"imagen_ticket={data['ticket_image']}")
+            if data["resolution"]:
+                parts.append(f"resolución={data['resolution']}")
+            if data["comment"]:
+                parts.append(f"comentario={data['comment']}")
+            logger.info(
+                "%s   %s → total=%d (%s) | %.2f MB",
+                prefix, ticket_number, data["total"],
+                ", ".join(parts) if parts else "sin tipo clasificado",
+                freed_mb,
+            )
+    elif not dry_run:
+        logger.info("%s Sin adjuntos expirados en esta ejecución.", prefix)
+    else:
+        logger.info("%s Sin adjuntos actualmente expirados (ejecutar modo normal para marcarlos).", prefix)
 
 
-def _append_deletion_audit_note(db, attachment, deletion_date: str) -> None:
+def _batch_audit_notes(db, successfully_deleted: list, deletion_date: str) -> None:
+    """Registra notas de auditoría agrupadas por entidad padre.
+
+    Un solo mensaje por ticket (imágenes), un solo mensaje por ticket (resolución),
+    y un solo mensaje por comentario — listando todos los archivos en cada caso.
+    Evita el ruido de N mensajes separados cuando un ticket tiene N archivos.
     """
-    Antes de borrar un adjunto, deja rastro en el texto de su registro padre:
-      - 'ticket'     → ticket.description       (solo indica que había una imagen)
-      - 'resolution' → ticket.resolution_notes  (incluye el nombre del archivo)
-      - 'comment'    → comment.content          (incluye el nombre del archivo)
-    """
+    from collections import defaultdict
     from datetime import datetime, timezone
     from itcj2.apps.helpdesk.models.ticket import Ticket
     from itcj2.apps.helpdesk.models.comment import Comment
 
-    try:
-        att_type = attachment.attachment_type
+    ticket_images: dict = defaultdict(int)           # ticket_id → cantidad de imágenes
+    ticket_resolutions: dict = defaultdict(list)     # ticket_id → [filenames]
+    comment_files: dict = defaultdict(list)          # comment_id → [filenames]
 
+    for att in successfully_deleted:
+        att_type = att.attachment_type
         if att_type == "ticket":
-            ticket = db.get(Ticket, attachment.ticket_id)
+            ticket_images[att.ticket_id] += 1
+        elif att_type == "resolution":
+            ticket_resolutions[att.ticket_id].append(att.original_filename)
+        elif att_type == "comment" and att.comment_id:
+            comment_files[att.comment_id].append(att.original_filename)
+
+    try:
+        for ticket_id, count in ticket_images.items():
+            ticket = db.get(Ticket, ticket_id)
             if ticket is not None:
                 ticket.description = (ticket.description or "") + (
-                    f"\n\nSe adjuntó una imagen. (eliminado el {deletion_date})"
+                    f"\n\n[{deletion_date}] Se eliminaron {count} imagen(es) adjunta(s) automáticamente."
                 )
 
-        elif att_type == "resolution":
-            ticket = db.get(Ticket, attachment.ticket_id)
+        for ticket_id, filenames in ticket_resolutions.items():
+            ticket = db.get(Ticket, ticket_id)
             if ticket is not None:
+                files_list = "".join(f"\n  - {f}" for f in filenames)
                 ticket.resolution_notes = (ticket.resolution_notes or "") + (
-                    f"\n\nSe adjuntó archivo: {attachment.original_filename}"
-                    f" (eliminado el {deletion_date})"
+                    f"\n\n[{deletion_date}] Archivos de resolución eliminados automáticamente:{files_list}"
                 )
 
-        elif att_type == "comment" and attachment.comment_id:
-            comment = db.get(Comment, attachment.comment_id)
+        for comment_id, filenames in comment_files.items():
+            comment = db.get(Comment, comment_id)
             if comment is not None:
+                files_list = "".join(f"\n  - {f}" for f in filenames)
                 comment.content = (comment.content or "") + (
-                    f"\n\nSe adjuntó archivo: {attachment.original_filename}"
-                    f" (eliminado el {deletion_date})"
+                    f"\n\n[{deletion_date}] Archivos eliminados automáticamente:{files_list}"
                 )
                 comment.updated_at = datetime.now(timezone.utc)
 
     except Exception as e:
-        logger.warning(
-            f"[cleanup] No se pudo registrar nota de auditoría para "
-            f"attachment {attachment.id}: {e}"
-        )
+        logger.warning("[cleanup] Error al registrar notas de auditoría en batch: %s", e)
 
 
 # ---------------------------------------------------------------------------
