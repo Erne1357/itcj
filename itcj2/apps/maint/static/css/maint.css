@@ -1,0 +1,266 @@
+/*
+ * MAINT — Estilos globales de la app de Mantenimiento
+ * Paleta: Steel Blue-Gray (#546E7A) — industrial, metálico, moderno
+ * Prefijo de clases propias: .mn-
+ */
+
+/* ══════════════════════════════════════════════
+   VARIABLES DE MARCA
+   ══════════════════════════════════════════════ */
+:root {
+    --maint-primary:        #546E7A;   /* Blue Grey 600 — color de marca */
+    --maint-primary-dark:   #37474F;   /* Blue Grey 800 — hover / sidebar activo */
+    --maint-primary-darker: #263238;   /* Blue Grey 900 — texto sobre fondo claro */
+    --maint-primary-light:  #ECEFF1;   /* Blue Grey 50  — fondos suaves */
+    --maint-accent:         #78909C;   /* Blue Grey 400 — bordes, muted */
+    --maint-accent-light:   #B0BEC5;   /* Blue Grey 300 — placeholders */
+
+    /* Semánticos reutilizados de Bootstrap + override de marca */
+    --maint-success:  #10b981;   /* verde resolución exitosa */
+    --maint-danger:   #dc2626;   /* rojo cancelado / falla */
+    --maint-warning:  #f59e0b;   /* amarillo urgente / alerta */
+    --maint-info:     #0891b2;   /* cyan en proceso */
+    --maint-muted:    #607D8B;   /* Blue Grey 500 — texto secundario */
+}
+
+/* ══════════════════════════════════════════════
+   LAYOUT BASE
+   ══════════════════════════════════════════════ */
+.mn-app-wrapper {
+    background-color: var(--maint-primary-light);
+    min-height: 100vh;
+}
+
+/* ══════════════════════════════════════════════
+   SIDEBAR / NAVEGACIÓN
+   ══════════════════════════════════════════════ */
+.mn-sidebar {
+    background-color: var(--maint-primary-darker);
+    color: #ECEFF1;
+}
+
+.mn-sidebar .nav-link {
+    color: var(--maint-accent-light);
+    border-radius: 6px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mn-sidebar .nav-link:hover {
+    background-color: rgba(84, 110, 122, 0.35);
+    color: #fff;
+}
+
+.mn-sidebar .nav-link.active {
+    background-color: var(--maint-primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+/* ══════════════════════════════════════════════
+   HEADER / TOP BAR
+   ══════════════════════════════════════════════ */
+.mn-topbar {
+    background-color: var(--maint-primary);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(55, 71, 79, 0.3);
+}
+
+/* Efecto metálico sutil en el brand */
+.mn-brand {
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    background: linear-gradient(135deg, #ECEFF1 0%, #B0BEC5 60%, #78909C 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ══════════════════════════════════════════════
+   TARJETAS DE TICKET
+   ══════════════════════════════════════════════ */
+.mn-ticket-card {
+    border: 1px solid #CFD8DC;
+    border-radius: 8px;
+    background: #fff;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.mn-ticket-card:hover {
+    box-shadow: 0 4px 16px rgba(84, 110, 122, 0.18);
+    border-color: var(--maint-accent);
+}
+
+.mn-ticket-card.mn-overdue {
+    border-left: 4px solid var(--maint-danger);
+}
+
+.mn-ticket-card.mn-due-soon {
+    border-left: 4px solid var(--maint-warning);
+}
+
+/* Número de ticket */
+.mn-ticket-number {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: var(--maint-muted);
+    letter-spacing: 0.05em;
+}
+
+/* ══════════════════════════════════════════════
+   BADGES DE ESTADO
+   ══════════════════════════════════════════════ */
+.mn-badge-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.3em 0.7em;
+    border-radius: 20px;
+    letter-spacing: 0.03em;
+}
+
+.mn-status-pending       { background-color: #E3F2FD; color: #1565C0; }
+.mn-status-assigned      { background-color: #E8EAF6; color: #3730a3; }
+.mn-status-in-progress   { background-color: #E0F2F1; color: #00695C; }
+.mn-status-resolved-ok   { background-color: #d1fae5; color: #065f46; }
+.mn-status-resolved-fail { background-color: #FFF3E0; color: #E65100; }
+.mn-status-closed        { background-color: #ECEFF1; color: var(--maint-primary-dark); }
+.mn-status-canceled      { background-color: #FFEBEE; color: #C62828; }
+
+/* ══════════════════════════════════════════════
+   BADGES DE PRIORIDAD
+   ══════════════════════════════════════════════ */
+.mn-priority-baja    { background-color: #F3F4F6; color: #6B7280; }
+.mn-priority-media   { background-color: #DBEAFE; color: #1E40AF; }
+.mn-priority-alta    { background-color: #FEF3C7; color: #D97706; }
+.mn-priority-urgente { background-color: #FEE2E2; color: #DC2626; }
+
+/* ══════════════════════════════════════════════
+   BADGES DE CATEGORÍA
+   ══════════════════════════════════════════════ */
+.mn-category-badge {
+    font-size: 0.75rem;
+    background-color: var(--maint-primary-light);
+    color: var(--maint-primary-dark);
+    border: 1px solid var(--maint-accent-light);
+    border-radius: 4px;
+    padding: 0.2em 0.6em;
+}
+
+/* ══════════════════════════════════════════════
+   BARRA DE PROGRESO DEL TICKET
+   ══════════════════════════════════════════════ */
+.mn-progress-bar {
+    height: 6px;
+    border-radius: 3px;
+    background-color: var(--maint-primary-light);
+}
+
+.mn-progress-bar .mn-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--maint-primary) 0%, var(--maint-accent) 100%);
+    transition: width 0.4s ease;
+}
+
+/* ══════════════════════════════════════════════
+   INDICADORES DE TÉCNICOS ASIGNADOS
+   ══════════════════════════════════════════════ */
+.mn-technician-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background-color: var(--maint-primary-light);
+    border: 1px solid var(--maint-accent-light);
+    border-radius: 20px;
+    padding: 0.25em 0.75em;
+    font-size: 0.8rem;
+    color: var(--maint-primary-dark);
+}
+
+.mn-technician-chip .mn-area-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--maint-primary);
+}
+
+/* ══════════════════════════════════════════════
+   INDICADORES DE ÁREA DE TÉCNICO
+   ══════════════════════════════════════════════ */
+.mn-area-transport   { background-color: #E3F2FD; color: #1565C0; border-color: #90CAF9; }
+.mn-area-electrical  { background-color: #FFF9C4; color: #F57F17; border-color: #FDD835; }
+.mn-area-carpentry   { background-color: #EFEBE9; color: #4E342E; border-color: #BCAAA4; }
+.mn-area-ac          { background-color: #E0F7FA; color: #006064; border-color: #80DEEA; }
+.mn-area-gardening   { background-color: #F1F8E9; color: #33691E; border-color: #AED581; }
+.mn-area-general     { background-color: var(--maint-primary-light); color: var(--maint-primary-dark); border-color: var(--maint-accent-light); }
+.mn-area-painting    { background-color: #FCE4EC; color: #880E4F; border-color: #F48FB1; }
+
+/* ══════════════════════════════════════════════
+   BOTONES DE MARCA
+   ══════════════════════════════════════════════ */
+.btn-maint {
+    background-color: var(--maint-primary);
+    border-color: var(--maint-primary);
+    color: #fff;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-maint:hover {
+    background-color: var(--maint-primary-dark);
+    border-color: var(--maint-primary-dark);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(55, 71, 79, 0.35);
+}
+
+.btn-maint:focus-visible {
+    outline: 3px solid var(--maint-accent);
+    outline-offset: 2px;
+}
+
+.btn-outline-maint {
+    border: 2px solid var(--maint-primary);
+    color: var(--maint-primary);
+    background-color: transparent;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-outline-maint:hover {
+    background-color: var(--maint-primary);
+    color: #fff;
+}
+
+/* ══════════════════════════════════════════════
+   BARRA DE SLA / DUE_AT
+   ══════════════════════════════════════════════ */
+.mn-sla-indicator {
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.mn-sla-ok      { color: var(--maint-success); }
+.mn-sla-warning { color: var(--maint-warning); }
+.mn-sla-overdue { color: var(--maint-danger);  font-weight: 600; }
+
+/* ══════════════════════════════════════════════
+   SKELETON LOADER (consistente con helpdesk)
+   ══════════════════════════════════════════════ */
+.mn-skeleton {
+    background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
+    background-size: 200% 100%;
+    animation: mn-shimmer 1.5s infinite;
+    border-radius: 4px;
+}
+
+@keyframes mn-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ══════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    .mn-ticket-card { border-radius: 6px; }
+    .mn-brand { font-size: 1rem; }
+}

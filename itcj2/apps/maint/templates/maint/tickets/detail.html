@@ -1,0 +1,17 @@
+{% extends "maint/base_maint.html" %}
+
+{% block title %}Ticket #{{ ticket_id }}{% endblock %}
+
+{% block content %}
+<div class="row mt-3">
+    <div class="col">
+        <h2 class="mb-4" style="color: var(--maint-primary-dark);">
+            <i class="fas fa-clipboard me-2"></i>Detalle del Ticket
+        </h2>
+        <div class="alert alert-info">
+            <i class="fas fa-hard-hat me-2"></i>
+            <strong>En construcción.</strong> El detalle del ticket estará disponible próximamente.
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -25,6 +25,10 @@ def register_routers(app: FastAPI):
     from itcj2.apps.warehouse.router import warehouse_router
     app.include_router(warehouse_router)
 
+    # Maint API v1 (app de Mantenimiento de Equipo — /api/maint/v1)
+    from itcj2.apps.maint.router import maint_router
+    app.include_router(maint_router)
+
     # ── Fase 4: Page routers ─────────────────────────────────────────────────
     # Core pages (prefix /itcj): login, dashboard, perfil, config, móvil
     from itcj2.core.pages.router import core_pages_router
@@ -42,6 +46,10 @@ def register_routers(app: FastAPI):
     # VisteTec pages (prefix /vistetec): landing, student, volunteer, admin
     from itcj2.apps.vistetec.pages.router import vistetec_pages_router
     app.include_router(vistetec_pages_router)
+
+    # Maint pages (prefix /mantenimiento): dashboard, tickets, admin
+    from itcj2.apps.maint.pages.router import maint_pages_router
+    app.include_router(maint_pages_router)
 
     # Redirect raíz: autenticado → dashboard o móvil, no autenticado → login
     @app.get("/", include_in_schema=False)

@@ -11,6 +11,8 @@ Comandos disponibles:
     agendatec seed-periods, agendatec activate-period, agendatec list-periods,
               agendatec import-students, agendatec sync-students-agendatec
     vistetec init-vistetec
+    warehouse init-warehouse, warehouse-helpdesk, warehouse-maint
+    maint init-maint
     celery sync-tasks, celery run <task-slug>, celery status
 """
 import click
@@ -20,6 +22,7 @@ from itcj2.cli.helpdesk import helpdesk_cli
 from itcj2.cli.agendatec import agendatec_cli
 from itcj2.cli.vistetec import vistetec_cli
 from itcj2.cli.warehouse import warehouse_cli
+from itcj2.cli.maint import maint_cli
 from itcj2.cli.celery import celery_cli
 
 
@@ -44,6 +47,7 @@ cli.add_command(helpdesk_cli)
 cli.add_command(agendatec_cli)
 cli.add_command(vistetec_cli)
 cli.add_command(warehouse_cli)
+cli.add_command(maint_cli)
 cli.add_command(celery_cli)
 
 

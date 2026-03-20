@@ -1,0 +1,165 @@
+{% extends "maint/base_maint.html" %}
+
+{% block title %}Bienvenido{% endblock %}
+
+{% block extra_css %}
+<link href="/static/maint/css/home_landing.css?v={{ sv('css/home_landing.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<div class="mn-landing-hero">
+    <h1>
+        <i class="fas fa-wrench me-2"></i>
+        Mantenimiento de Equipo
+    </h1>
+    <p>{{ welcome_msg }}</p>
+
+    <a href="{{ cta_url }}" class="btn btn-light btn-lg px-4 py-2 fw-semibold shadow-sm">
+        <i class="fas {{ cta_icon }} me-2"></i>{{ cta_label }}
+    </a>
+</div>
+
+<!-- Contenido principal -->
+<div class="container pb-5">
+
+    <!-- Servicios que ofrece la app -->
+    <h3 class="text-center mb-4" style="color: var(--maint-primary-dark); font-weight: 600;">
+        Servicios disponibles
+    </h3>
+
+    <div class="row g-3 g-md-4 justify-content-center mb-5">
+
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="mn-service-card h-100">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="mn-service-icon me-3">
+                            <i class="fas fa-bolt"></i>
+                        </div>
+                        <h5 class="mb-0">Eléctrico</h5>
+                    </div>
+                    <p class="card-text small text-muted mb-0">
+                        Fallas eléctricas, cambio de lámparas, instalaciones y mantenimiento de contactos o tableros.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="mn-service-card h-100">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="mn-service-icon me-3">
+                            <i class="fas fa-snowflake"></i>
+                        </div>
+                        <h5 class="mb-0">Climatización</h5>
+                    </div>
+                    <p class="card-text small text-muted mb-0">
+                        Mantenimiento y reparación de aires acondicionados, ventiladores y sistemas de ventilación.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="mn-service-card h-100">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="mn-service-icon me-3">
+                            <i class="fas fa-hammer"></i>
+                        </div>
+                        <h5 class="mb-0">Carpintería</h5>
+                    </div>
+                    <p class="card-text small text-muted mb-0">
+                        Reparación de puertas, ventanas, mobiliario y trabajos de madera en general.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="mn-service-card h-100">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="mn-service-icon me-3">
+                            <i class="fas fa-paint-roller"></i>
+                        </div>
+                        <h5 class="mb-0">Pintura</h5>
+                    </div>
+                    <p class="card-text small text-muted mb-0">
+                        Trabajos de pintura en aulas, pasillos, oficinas y áreas externas del campus.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="mn-service-card h-100">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="mn-service-icon me-3">
+                            <i class="fas fa-leaf"></i>
+                        </div>
+                        <h5 class="mb-0">Jardinería</h5>
+                    </div>
+                    <p class="card-text small text-muted mb-0">
+                        Podas, limpieza de áreas verdes y mantenimiento de jardines en el plantel.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="mn-service-card h-100">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="mn-service-icon me-3">
+                            <i class="fas fa-tools"></i>
+                        </div>
+                        <h5 class="mb-0">General</h5>
+                    </div>
+                    <p class="card-text small text-muted mb-0">
+                        Reparaciones menores, traslado de mobiliario y otros servicios de mantenimiento en campus.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Cómo funciona -->
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm" style="border-radius: 16px; background: linear-gradient(135deg, var(--maint-primary-darker) 0%, var(--maint-primary) 100%);">
+                <div class="card-body p-3 p-md-4 text-white">
+                    <h5 class="fw-bold mb-3">
+                        <i class="fas fa-info-circle me-2"></i>¿Cómo funciona?
+                    </h5>
+                    <div class="row g-3 text-center">
+                        <div class="col-4">
+                            <div class="mb-2">
+                                <span class="badge bg-white text-dark rounded-pill px-3 py-2 fw-bold fs-6">1</span>
+                            </div>
+                            <small>Crea una <strong>solicitud</strong> describiendo el problema</small>
+                        </div>
+                        <div class="col-4">
+                            <div class="mb-2">
+                                <span class="badge bg-white text-dark rounded-pill px-3 py-2 fw-bold fs-6">2</span>
+                            </div>
+                            <small>Se <strong>asigna</strong> al técnico según el área</small>
+                        </div>
+                        <div class="col-4">
+                            <div class="mb-2">
+                                <span class="badge bg-white text-dark rounded-pill px-3 py-2 fw-bold fs-6">3</span>
+                            </div>
+                            <small>Recibe <strong>notificaciones</strong> del avance</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
