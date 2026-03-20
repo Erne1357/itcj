@@ -1,7 +1,7 @@
 """
 Servicio para limpieza automática de attachments
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import logging
 
@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from itcj2.apps.helpdesk.models.attachment import Attachment
 
 logger = logging.getLogger(__name__)
+
+AUTO_DELETE_DAYS = 7
 
 
 def cleanup_expired_attachments(db: Session) -> int:
@@ -46,25 +48,29 @@ def cleanup_expired_attachments(db: Session) -> int:
     return deleted_count
 
 
-def set_auto_delete_on_resolved_tickets(db: Session) -> int:
+def set_auto_delete_on_closed_tickets(db: Session) -> int:
     """
-    Marca attachments para auto-delete cuando su ticket se resuelve.
+    Marca attachments para auto-delete en tickets con status CLOSED.
+
+    Calcula: auto_delete_at = ticket.updated_at + AUTO_DELETE_DAYS días.
+    Se usa updated_at porque una vez cerrado el ticket ya no recibe más
+    cambios, por lo que updated_at equivale a la fecha de cierre.
 
     Ejecutar periódicamente con cron o celery.
     """
     from itcj2.apps.helpdesk.models.ticket import Ticket
 
-    resolved_tickets = db.query(Ticket).filter(
-        Ticket.status.in_(['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED']),
-        Ticket.resolved_at.isnot(None)
+    closed_tickets = db.query(Ticket).filter(
+        Ticket.status == 'CLOSED',
     ).all()
 
     updated_count = 0
 
-    for ticket in resolved_tickets:
+    for ticket in closed_tickets:
+        delete_at = ticket.updated_at + timedelta(days=AUTO_DELETE_DAYS)
         for attachment in ticket.attachments:
             if attachment.auto_delete_at is None:
-                attachment.set_auto_delete(days=7)
+                attachment.auto_delete_at = delete_at
                 updated_count += 1
 
     if updated_count > 0:

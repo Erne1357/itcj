@@ -467,12 +467,9 @@ def resolve_ticket(
     )
     db.add(status_log)
 
-    try:
-        for attachment in ticket.attachments:
-            if not attachment.auto_delete_at:
-                attachment.set_auto_delete(days=2)
-    except Exception as e:
-        logger.warning(f"Error al marcar attachments para eliminación: {e}")
+    # Los adjuntos se marcan para borrado solo cuando el ticket pasa a CLOSED
+    # (cuando el solicitante lo evalúa), no en la resolución.
+    # Eso lo maneja set_auto_delete_on_closed_tickets() en la tarea periódica.
 
     try:
         db.commit()

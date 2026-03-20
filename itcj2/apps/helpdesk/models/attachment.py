@@ -60,7 +60,7 @@ class Attachment(Base):
             return False
         return datetime.now() >= self.auto_delete_at
 
-    def set_auto_delete(self, days=2):
+    def set_auto_delete(self, days=7):
         """Establece la fecha de auto-eliminación (llamar cuando se resuelve el ticket)"""
         self.auto_delete_at = datetime.now() + timedelta(days=days)
 

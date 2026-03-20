@@ -75,10 +75,11 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
     """
     Tarea de mantenimiento: limpia adjuntos del helpdesk.
 
-    Paso 1 — Marcar para borrado: recorre tickets RESOLVED/CLOSED sin fecha
-              de auto-delete y les asigna auto_delete_at = ahora + 7 días.
+    Paso 1 — Marcar para borrado: recorre tickets en status CLOSED sin fecha
+              de auto-delete y asigna auto_delete_at = ticket.updated_at + 7 días
+              (updated_at es la fecha de cierre, ya que un ticket cerrado no cambia más).
     Paso 2 — Eliminar expirados: borra archivos del disco y registros de DB
-              donde auto_delete_at <= ahora.
+              donde auto_delete_at <= ahora Y el ticket lleva >= 7 días cerrado.
 
     Args:
         task_run_id: ID del TaskRun creado por la API antes de encolar esta tarea.
@@ -89,8 +90,7 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.helpdesk.services.attachment_cleanup import (
-        cleanup_expired_attachments,
-        set_auto_delete_on_resolved_tickets,
+        set_auto_delete_on_closed_tickets,
     )
 
     logger.info(f"[cleanup_attachments] Iniciando (dry_run={dry_run}, task_run_id={task_run_id})")
@@ -105,17 +105,15 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
             # Paso 1: marcar tickets resueltos
             self.update_progress(task_run_id, current=0, total=2, message="Marcando adjuntos de tickets cerrados...")
             if not dry_run:
-                marked = set_auto_delete_on_resolved_tickets(db)
+                marked = set_auto_delete_on_closed_tickets(db)
             else:
                 # En dry_run solo contar, sin commit
                 from itcj2.apps.helpdesk.models.attachment import Attachment
                 from itcj2.apps.helpdesk.models.ticket import Ticket
-                from datetime import datetime
-                resolved_tickets = db.query(Ticket).filter(
-                    Ticket.status.in_(["RESOLVED_SUCCESS", "RESOLVED_FAILED", "CLOSED"]),
-                    Ticket.resolved_at.isnot(None),
+                closed_tickets = db.query(Ticket).filter(
+                    Ticket.status == "CLOSED",
                 ).all()
-                for ticket in resolved_tickets:
+                for ticket in closed_tickets:
                     for att in ticket.attachments:
                         if att.auto_delete_at is None:
                             marked += 1
@@ -126,11 +124,22 @@ def cleanup_attachments(self, task_run_id: int, dry_run: bool = False):
                 deleted, freed_bytes = _cleanup_with_metrics(db, errors)
             else:
                 from itcj2.apps.helpdesk.models.attachment import Attachment
-                from datetime import datetime
-                expired = db.query(Attachment).filter(
-                    Attachment.auto_delete_at.isnot(None),
-                    Attachment.auto_delete_at <= datetime.utcnow(),
-                ).all()
+                from itcj2.apps.helpdesk.models.ticket import Ticket
+                from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
+                from datetime import datetime, timedelta
+                _now = datetime.utcnow()
+                _cutoff = _now - timedelta(days=AUTO_DELETE_DAYS)
+                expired = (
+                    db.query(Attachment)
+                    .join(Ticket, Ticket.id == Attachment.ticket_id)
+                    .filter(
+                        Attachment.auto_delete_at.isnot(None),
+                        Attachment.auto_delete_at <= _now,
+                        Ticket.status == "CLOSED",
+                        Ticket.updated_at <= _cutoff,
+                    )
+                    .all()
+                )
                 deleted = len(expired)
                 import os
                 freed_bytes = sum(
@@ -202,21 +211,42 @@ def _push_user_notification(user_id: int, title: str, body: str, link: str | Non
 
 
 def _cleanup_with_metrics(db, errors: list) -> tuple:
-    """Elimina adjuntos expirados y devuelve (deleted_count, freed_bytes)."""
-    import os
-    from datetime import datetime
-    from itcj2.apps.helpdesk.models.attachment import Attachment
+    """Elimina adjuntos expirados y devuelve (deleted_count, freed_bytes).
 
-    expired = db.query(Attachment).filter(
-        Attachment.auto_delete_at.isnot(None),
-        Attachment.auto_delete_at <= datetime.utcnow(),
-    ).all()
+    Doble condición de seguridad:
+      1. auto_delete_at está fijado y ya venció.
+      2. El ticket está CLOSED y ticket.updated_at tiene >= 7 días (guarda
+         contra fechas mal calculadas que pudieran adelantar el borrado).
+    """
+    import os
+    from datetime import datetime, timedelta
+    from itcj2.apps.helpdesk.models.attachment import Attachment
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
+
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=AUTO_DELETE_DAYS)
+
+    expired = (
+        db.query(Attachment)
+        .join(Ticket, Ticket.id == Attachment.ticket_id)
+        .filter(
+            Attachment.auto_delete_at.isnot(None),
+            Attachment.auto_delete_at <= now,
+            Ticket.status == "CLOSED",
+            Ticket.updated_at <= cutoff,
+        )
+        .all()
+    )
 
     deleted = 0
     freed_bytes = 0
+    from datetime import timezone
+    deletion_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     for attachment in expired:
         try:
+            _append_deletion_audit_note(db, attachment, deletion_date)
             if attachment.filepath and os.path.exists(attachment.filepath):
                 freed_bytes += os.path.getsize(attachment.filepath)
                 os.remove(attachment.filepath)
@@ -230,6 +260,51 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
         db.commit()
 
     return deleted, freed_bytes
+
+
+def _append_deletion_audit_note(db, attachment, deletion_date: str) -> None:
+    """
+    Antes de borrar un adjunto, deja rastro en el texto de su registro padre:
+      - 'ticket'     → ticket.description       (solo indica que había una imagen)
+      - 'resolution' → ticket.resolution_notes  (incluye el nombre del archivo)
+      - 'comment'    → comment.content          (incluye el nombre del archivo)
+    """
+    from datetime import datetime, timezone
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.models.comment import Comment
+
+    try:
+        att_type = attachment.attachment_type
+
+        if att_type == "ticket":
+            ticket = db.get(Ticket, attachment.ticket_id)
+            if ticket is not None:
+                ticket.description = (ticket.description or "") + (
+                    f"\n\nSe adjuntó una imagen. (eliminado el {deletion_date})"
+                )
+
+        elif att_type == "resolution":
+            ticket = db.get(Ticket, attachment.ticket_id)
+            if ticket is not None:
+                ticket.resolution_notes = (ticket.resolution_notes or "") + (
+                    f"\n\nSe adjuntó archivo: {attachment.original_filename}"
+                    f" (eliminado el {deletion_date})"
+                )
+
+        elif att_type == "comment" and attachment.comment_id:
+            comment = db.get(Comment, attachment.comment_id)
+            if comment is not None:
+                comment.content = (comment.content or "") + (
+                    f"\n\nSe adjuntó archivo: {attachment.original_filename}"
+                    f" (eliminado el {deletion_date})"
+                )
+                comment.updated_at = datetime.now(timezone.utc)
+
+    except Exception as e:
+        logger.warning(
+            f"[cleanup] No se pudo registrar nota de auditoría para "
+            f"attachment {attachment.id}: {e}"
+        )
 
 
 # ---------------------------------------------------------------------------
