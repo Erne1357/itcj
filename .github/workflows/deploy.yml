@@ -19,7 +19,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT }}
-          command_timeout: 10m
+          command_timeout: 20m
           script: |
             set -e
             echo ">>> Iniciando deploy blue-green..."

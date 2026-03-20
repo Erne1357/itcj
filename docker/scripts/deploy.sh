@@ -106,16 +106,22 @@ done
 
 # -- 4. Ejecutar migraciones ANTES de levantar el nuevo backend --
 echo ">>> Ejecutando migraciones de base de datos..."
-# Si hay un backend activo, ejecutar migraciones en el
+# Si hay un backend activo, ejecutar migraciones en él
 if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
-    docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" exec -T "backend-$ACTIVE" \
-        alembic upgrade head 2>/dev/null || echo ">>> Migraciones ya aplicadas o sin cambios."
+    echo "    Ejecutando alembic upgrade head en backend-$ACTIVE (activo)..."
+    if ! docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" exec -T "backend-$ACTIVE" \
+        alembic -c migrations/alembic.ini upgrade head; then
+        echo "    WARN: alembic en backend activo retornó error (puede ser normal si ya están aplicadas)."
+    fi
 else
     # Si no hay backend activo (primer deploy), construir y ejecutar en el nuevo
     echo ">>> Primer deploy detectado, construyendo imagen para migraciones..."
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" build "backend-$NEW"
-    docker compose -f "$COMPOSE_FILE" --profile "$NEW" run --rm "backend-$NEW" \
-        alembic upgrade head
+    docker compose -f "$COMPOSE_FILE" --profile "$NEW" run --rm \
+        --entrypoint "" \
+        -e PYTHONPATH=/app \
+        "backend-$NEW" \
+        bash -c "cd /app && alembic -c migrations/alembic.ini upgrade head"
 fi
 
 # -- 5. Construir y levantar nuevo backend --
@@ -186,23 +192,31 @@ docker compose -f "$COMPOSE_FILE" up -d nginx
 # Esperar un momento para que Nginx inicie
 sleep 3
 
-# -- 7.2. Verificar que el nuevo backend es alcanzable desde nginx --
-echo ">>> Verificando que backend-$NEW es alcanzable desde Nginx..."
-DNS_RETRIES=10
-DNS_OK=false
-for i in $(seq 1 $DNS_RETRIES); do
-    if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q --spider -T 3 "http://backend-${NEW}:8001/health" 2>/dev/null; then
-        DNS_OK=true
-        echo "    backend-$NEW es alcanzable."
-        break
+# -- 7.2. Verificar que el nuevo backend es alcanzable en la red Docker --
+# Usamos la IP interna del contenedor desde el host, evitando dependencias de DNS
+# dentro del contenedor nginx (que acaba de recrearse y puede tener lag DNS).
+echo ">>> Verificando que backend-$NEW es alcanzable en la red Docker..."
+REACH_RETRIES=15
+REACH_OK=false
+CONTAINER_ID=$(docker compose -f "$COMPOSE_FILE" --profile "$NEW" ps -q "backend-$NEW" 2>/dev/null | head -1)
+for i in $(seq 1 $REACH_RETRIES); do
+    if [ -n "$CONTAINER_ID" ]; then
+        BACKEND_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_ID" 2>/dev/null | head -1)
+        if [ -n "$BACKEND_IP" ] && curl -sf --max-time 3 "http://$BACKEND_IP:8001/health" > /dev/null 2>&1; then
+            REACH_OK=true
+            echo "    backend-$NEW es alcanzable (IP: $BACKEND_IP)."
+            break
+        fi
     fi
-    echo "    Intento $i/$DNS_RETRIES - Esperando resolución DNS de backend-$NEW..."
+    echo "    Intento $i/$REACH_RETRIES - Esperando conectividad con backend-$NEW..."
     sleep 2
 done
 
-if [ "$DNS_OK" != "true" ]; then
-    echo "ERROR: Nginx no puede alcanzar backend-$NEW. Abortando cambio de upstream."
+if [ "$REACH_OK" != "true" ]; then
+    echo "ERROR: backend-$NEW no es alcanzable en la red Docker. Abortando cambio de upstream."
     echo ">>> El backend viejo ($ACTIVE) sigue sirviendo trafico."
+    echo ">>> Logs del backend fallido:"
+    docker compose -f "$COMPOSE_FILE" --profile "$NEW" logs --tail=30 "backend-$NEW"
     # Limpiamos el nuevo backend fallido
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" stop "backend-$NEW"
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" rm -f "backend-$NEW"
