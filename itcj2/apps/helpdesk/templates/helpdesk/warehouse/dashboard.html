@@ -1,0 +1,97 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Almacén - Dashboard{% endblock %}
+{% block header_title %}Almacén{% endblock %}
+{% block header_subtitle %}Dashboard General{% endblock %}
+
+{% block header_actions %}
+<a href="{{ url_for('helpdesk_pages.warehouse_pages.entries') }}" class="btn btn-light btn-sm">
+    <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline">Nueva Entrada</span>
+</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- KPI Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-2">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-cube fa-2x text-primary mb-2"></i>
+                <h3 class="mb-1" id="kpiProducts">-</h3>
+                <p class="text-muted mb-0 small">Productos</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-tags fa-2x text-info mb-2"></i>
+                <h3 class="mb-1" id="kpiCategories">-</h3>
+                <p class="text-muted mb-0 small">Categorías</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-2"></i>
+                <h3 class="mb-1" id="kpiLowStock">-</h3>
+                <p class="text-muted mb-0 small">Stock Bajo</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-dollar-sign fa-2x text-success mb-2"></i>
+                <h3 class="mb-1 fs-5" id="kpiValue">-</h3>
+                <p class="text-muted mb-0 small">Valor Total</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-exchange-alt fa-2x text-secondary mb-2"></i>
+                <h3 class="mb-1" id="kpiMovements">-</h3>
+                <p class="text-muted mb-0 small">Mov. Hoy</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="fas fa-truck-loading fa-2x text-primary mb-2"></i>
+                <h3 class="mb-1" id="kpiEntries">-</h3>
+                <p class="text-muted mb-0 small">Entradas Mes</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Low Stock Alert -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex align-items-center justify-content-between">
+        <h5 class="mb-0 text-warning">
+            <i class="fas fa-exclamation-triangle me-2"></i>Productos con Stock Bajo
+        </h5>
+        <a href="{{ url_for('helpdesk_pages.warehouse_pages.products') }}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-list me-1"></i>Ver todos
+        </a>
+    </div>
+    <div class="card-body p-0">
+        <div id="lowStockTable">
+            <div class="text-center py-5">
+                <div class="spinner-border text-warning" role="status"></div>
+                <p class="text-muted mt-2">Cargando...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/warehouse/dashboard.js') }}?v={{ sv('helpdesk', 'js/warehouse/dashboard.js') }}"></script>
+{% endblock %}

@@ -98,18 +98,24 @@ for i in $(seq 1 $PGB_RETRIES); do
     sleep 2
 done
 
+# -- NOTA: En el PRIMER deploy, ejecutar manualmente DESPUÉS de levantar la infraestructura:
+#    docker compose -f "$COMPOSE_FILE" --profile blue run --rm backend-blue \
+#        python -m itcj2.cli.main core init-tasks
+# Esto inserta permisos y definiciones de tareas en la DB. Solo se necesita una vez.
+# -----------------------------------------------------------------------------------------
+
 # -- 4. Ejecutar migraciones ANTES de levantar el nuevo backend --
 echo ">>> Ejecutando migraciones de base de datos..."
 # Si hay un backend activo, ejecutar migraciones en el
 if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
     docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" exec -T "backend-$ACTIVE" \
-        flask db upgrade 2>/dev/null || echo ">>> Migraciones ya aplicadas o sin cambios."
+        alembic upgrade head 2>/dev/null || echo ">>> Migraciones ya aplicadas o sin cambios."
 else
     # Si no hay backend activo (primer deploy), construir y ejecutar en el nuevo
     echo ">>> Primer deploy detectado, construyendo imagen para migraciones..."
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" build "backend-$NEW"
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" run --rm "backend-$NEW" \
-        flask db upgrade
+        alembic upgrade head
 fi
 
 # -- 5. Construir y levantar nuevo backend --
@@ -166,7 +172,7 @@ if [ ! -f "$UPSTREAM_FILE" ]; then
 
 upstream backend {
     ip_hash;
-    server backend-${INITIAL_BACKEND}:8000 max_fails=3 fail_timeout=30s;
+    server backend-${INITIAL_BACKEND}:8001 max_fails=3 fail_timeout=30s;
     keepalive 32;
 }
 NGINX_EOF
@@ -185,7 +191,7 @@ echo ">>> Verificando que backend-$NEW es alcanzable desde Nginx..."
 DNS_RETRIES=10
 DNS_OK=false
 for i in $(seq 1 $DNS_RETRIES); do
-    if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q --spider --timeout=3 "http://backend-${NEW}:8000/health" 2>/dev/null; then
+    if docker compose -f "$COMPOSE_FILE" exec -T nginx wget -q --spider -T 3 "http://backend-${NEW}:8001/health" 2>/dev/null; then
         DNS_OK=true
         echo "    backend-$NEW es alcanzable."
         break
@@ -214,7 +220,7 @@ cat > "$UPSTREAM_FILE" <<NGINX_EOF
 
 upstream backend {
     ip_hash;
-    server backend-${NEW}:8000 max_fails=3 fail_timeout=30s;
+    server backend-${NEW}:8001 max_fails=3 fail_timeout=30s;
     keepalive 32;
 }
 NGINX_EOF
@@ -229,7 +235,7 @@ if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -t > /dev/null 2>&1; 
 
 upstream backend {
     ip_hash;
-    server backend-${ACTIVE}:8000 max_fails=3 fail_timeout=30s;
+    server backend-${ACTIVE}:8001 max_fails=3 fail_timeout=30s;
     keepalive 32;
 }
 NGINX_EOF
@@ -280,13 +286,18 @@ fi
 echo "$NEW" > "$STATE_FILE"
 docker image prune -f
 
+# -- 11.1 Reconstruir y reiniciar Celery worker/beat (código actualizado) --
+echo ">>> Actualizando Celery worker y beat..."
+docker compose -f "$COMPOSE_FILE" up -d --build celery-worker celery-beat
+echo ">>> Celery worker y beat actualizados."
+
 # -- 12. Notificar cambios de estaticos via WebSocket (Pilar 3) --
 if [ -n "$OLD_MANIFEST" ]; then
     echo ">>> Comparando manifiestos de estaticos..."
     python3 docker/scripts/diff-static-manifest.py \
         --old-manifest <(echo "$OLD_MANIFEST") \
         --new-manifest static-manifest.json \
-        --notify-url "http://localhost:8080/api/core/v1/deploy/static-update" \
+        --notify-url "http://localhost:8080/api/core/v2/deploy/static-update" \
         || echo "WARN: No se pudo notificar cambios de estaticos (el deploy continua)."
 else
     echo ">>> Primer deploy, no hay manifiesto anterior para comparar."

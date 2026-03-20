@@ -1,0 +1,216 @@
+<!-- itcj/apps/helpdesk/templates/base_helpdesk.html -->
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Help-Desk{% endblock %} - ITCJ</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}">
+
+    <!-- CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link href="{{ url_for('static', filename='helpdesk/css/helpdesk.css') }}?v={{ sv('helpdesk', 'css/helpdesk.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}" rel="stylesheet">
+    
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body class="bg-light">
+
+    <!-- Header con Navegación -->
+    <header class="sitec-header-nav sticky-top shadow-sm mb-2 mb-md-4">
+        <div class="container-fluid px-2 px-md-3">
+            <nav class="navbar navbar-expand-lg navbar-dark py-1 py-md-2">
+                <div class="container-fluid px-0">
+                    <!-- Botón de regreso al dashboard (solo visible en iframe móvil) -->
+                    <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+                        <i class="bi bi-arrow-left"></i>
+                    </button>
+
+                    <!-- Logo y Título -->
+                    <a class="navbar-brand d-flex align-items-center gap-1 gap-md-2" href="{{ url_for('helpdesk_pages.home') }}">
+                        <div class="sitec-logo-small">
+                            <span class="fw-bold text-white">CC</span>
+                        </div>
+                        <div class="d-none d-md-block">
+                            <div class="fw-bold text-white" style="font-size: 1.1rem;">{% block header_title %}Help-Desk{% endblock %}</div>
+                            <small class="text-white-50" style="font-size: 0.75rem;">{% block header_subtitle %}Centro de Cómputo{% endblock %}</small>
+                        </div>
+                    </a>
+
+                    <!-- Header Actions (visible on all sizes) -->
+                    <div class="d-flex align-items-center gap-1 gap-md-2">
+                        {% block header_back %} {% endblock %}
+                        {% block header_actions %} {% endblock %}
+                    </div>
+
+                    <!-- Hamburger: siempre abre sidebar (visible solo en móvil por navbar-expand-lg) -->
+                    <button class="navbar-toggler border-0 ms-2 sidebar-trigger" type="button" id="sidebarTrigger">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+
+                    <!-- Nav items: auto-expandidos en desktop (lg+), ocultos en móvil -->
+                    <div class="collapse navbar-collapse" id="navbarContent">
+                        <ul class="navbar-nav ms-auto">
+                            {% if helpdesk_nav_items %}
+                                {% for item in helpdesk_nav_items %}
+                                    {% if item.dropdown %}
+                                    <li class="nav-item dropdown">
+                                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                            <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
+                                        </a>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            {% for sub_item in item.dropdown %}
+                                            <li>
+                                                <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" href="{{ sub_item.url }}">
+                                                    <i class="fas {{ sub_item.icon }} me-1"></i>{{ sub_item.label }}
+                                                </a>
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </li>
+                                    {% else %}
+                                    <li class="nav-item">
+                                        <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" href="{{ item.url }}">
+                                            <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
+                                        </a>
+                                    </li>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                            <li class="nav-item">
+                                <a class="nav-link" role="button" style="cursor: pointer;" onclick="performLogout()">
+                                    <i class="fas fa-sign-out-alt me-1"></i>Salir
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Sidebar de navegaci?n -->
+    <div class="app-sidebar-overlay" id="appSidebarOverlay"></div>
+    <aside class="app-sidebar" id="appSidebar">
+        <div class="app-sidebar-header">
+            <h5 class="app-sidebar-title">
+                <i class="fas fa-headset"></i>
+                Help-Desk
+            </h5>
+            <button type="button" class="app-sidebar-close" id="sidebarClose">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        
+        <nav class="app-sidebar-nav">
+            <div class="app-sidebar-section">
+                <div class="app-sidebar-section-title">Navegación</div>
+                {% if helpdesk_nav_items %}
+                    {% for item in helpdesk_nav_items %}
+                        {% if item.dropdown %}
+                            {% set group_active = current_route in item.dropdown | map(attribute='endpoint') | list %}
+                            <div class="app-sidebar-group {% if group_active %}has-active{% endif %}">
+                                <button class="app-sidebar-group-toggle"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#sidebarGroup{{ loop.index }}"
+                                        aria-expanded="{{ 'true' if group_active else 'false' }}"
+                                        aria-controls="sidebarGroup{{ loop.index }}">
+                                    <i class="fas {{ item.icon }}"></i>
+                                    <span>{{ item.label }}</span>
+                                    <i class="fas fa-chevron-down app-sidebar-group-arrow"></i>
+                                </button>
+                                <div class="collapse {% if group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
+                                    <div class="app-sidebar-sub-items">
+                                        {% for sub_item in item.dropdown %}
+                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub_item.endpoint %}active{% endif %}">
+                                            <i class="fas {{ sub_item.icon }}"></i>
+                                            <span>{{ sub_item.label }}</span>
+                                        </a>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}">
+                                <i class="fas {{ item.icon }}"></i>
+                                <span>{{ item.label }}</span>
+                            </a>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </nav>
+        
+        <div class="app-sidebar-footer">
+            <div class="app-sidebar-user">
+                <div class="app-sidebar-user-avatar">
+                    {{ current_user.name[:1]|upper if current_user and current_user.name else 'U' }}
+                </div>
+                <div class="app-sidebar-user-info">
+                    <div class="app-sidebar-user-name">{{ current_user.name if current_user else 'Usuario' }}</div>
+                    <div class="app-sidebar-user-role">Centro de Cómputo</div>
+                </div>
+            </div>
+            <button type="button" class="app-sidebar-logout" id="sidebarLogout">
+                <i class="bi bi-box-arrow-right"></i>
+                Cerrar sesión
+            </button>
+        </div>
+    </aside>
+
+    <!-- Breadcrumb (Opcional) -->
+    {% if show_breadcrumb %}
+    <nav aria-label="breadcrumb" class="bg-white border-bottom">
+        <div class="container py-2">
+            <ol class="breadcrumb mb-0">
+                {% block breadcrumb %}
+                <li class="breadcrumb-item"><a href="{{ url_for('helpdesk_pages.home') }}">Help-Desk</a></li>
+                {% endblock %}
+            </ol>
+        </div>
+    </nav>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="container-fluid px-3 px-md-4 px-lg-5">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 9999;"></div>
+    
+    {% block modals %}{% endblock %}
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
+
+    <!-- WebSocket - Socket.IO + Helpdesk Client -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ sv('core', 'js/socket-base.js') }}"></script>
+    <script src="{{ url_for('static', filename='helpdesk/js/sockets/helpdesk_client.js') }}?v={{ sv('helpdesk', 'js/sockets/helpdesk_client.js') }}"></script>
+
+    <!-- Notification System (WebSocket-based) -->
+    <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ sv('core', 'js/notifications/app-fab-widget.js') }}"></script>
+
+    <!-- iframe bridge for logout detection -->
+    <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
+
+    <!-- Update checker for zero-downtime deployment notifications -->
+    <script src="{{ url_for('static', filename='core/js/update-checker.js') }}?v={{ sv('core', 'js/update-checker.js') }}"></script>
+
+    <!-- Mobile App Shell (sidebar & back button) -->
+    <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
+
+    <script src="{{ url_for('static', filename='helpdesk/js/shared/base.js') }}?v={{ sv('helpdesk', 'js/shared/base.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+
+</html>

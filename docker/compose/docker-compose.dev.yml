@@ -45,18 +45,56 @@ services:
       start_period: 5s
 
   backend:
-    restart: always
+    #restart: always
     build:
       context: ../..
-      dockerfile: docker/backend/Dockerfile
+      dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env
     volumes:
       - ../../:/app
     depends_on:
-      - pgbouncer
-      - redis
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    # Override ENTRYPOINT para dev: uvicorn con hot-reload (sin script de producción)
+    entrypoint: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--log-level", "info"]
     #ports:
-    #  - "8000:8000"  # Para desarrollo directo
+    #  - "8001:8001"  # Para desarrollo directo sin nginx
+
+  # ============================================
+  # CELERY WORKER
+  # ============================================
+  celery-worker:
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env
+    volumes:
+      - ../../:/app
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # ============================================
+  # CELERY BEAT (scheduler)
+  # ============================================
+  celery-beat:
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env
+    volumes:
+      - ../../:/app
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-beat.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   nginx:
     restart: always
@@ -65,13 +103,11 @@ services:
       TZ: America/Ciudad_Juarez
     volumes:
       - ../nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
-      # Monta todos los directorios static de las apps
-      - ../../itcj/core/static:/www/static/core:ro
-      - ../../itcj/apps/agendatec/static:/www/static/agendatec:ro
-      - ../../itcj/apps/helpdesk/static:/www/static/helpdesk:ro
-      - ../../itcj/apps/vistetec/static:/www/static/vistetec:ro
-      # Para futuras apps:
-      # - ../../itcj/apps/tickets/static:/www/static/tickets:ro
+      # Archivos estáticos de las apps
+      - ../../itcj2/core/static:/www/static/core:ro
+      - ../../itcj2/apps/agendatec/static:/www/static/agendatec:ro
+      - ../../itcj2/apps/helpdesk/static:/www/static/helpdesk:ro
+      - ../../itcj2/apps/vistetec/static:/www/static/vistetec:ro
     depends_on:
       - backend
     ports:

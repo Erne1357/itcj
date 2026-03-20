@@ -1,0 +1,95 @@
+{% extends "vistetec/base.html" %}
+
+{% block title %}VisteTec - Inicio{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='vistetec/css/shared/home.css') }}?v={{ sv('vistetec', 'css/shared/home.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Hero Section -->
+    <div class="vistetec-hero text-center">
+        <div class="vistetec-hero-icon">
+            <i class="bi bi-bag-heart" style="font-size: 2.5rem;"></i>
+        </div>
+        <h1 class="fw-bold mb-2">VisteTec</h1>
+        <p class="mb-4 opacity-75">Reciclaje de Ropa y Despensa del ITCJ</p>
+        
+        <button class="vistetec-main-btn" id="btnEntrar">
+            <i class="bi bi-box-arrow-in-right me-2"></i>Entrar
+        </button>
+        
+        <p class="mt-3 mb-0 small opacity-75">
+            <i class="bi bi-heart-fill me-1"></i>
+            Ropa gratis para estudiantes que la necesiten
+        </p>
+    </div>
+
+    <!-- Features -->
+    <h5 class="text-center text-muted mb-4">¿Qué puedes hacer aquí?</h5>
+    
+    <div class="row g-4 justify-content-center mb-4">
+        <!-- Explorar Catálogo -->
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="card vistetec-feature-card shadow-sm h-100" onclick="window.location.href='{{ url_for('vistetec_pages.student_pages.catalog') }}'">
+                <div class="card-body text-center p-4">
+                    <div class="vistetec-feature-icon" style="background-color: #fdf2f4;">
+                        <i class="bi bi-grid-3x3-gap" style="font-size: 1.75rem; color: #8B1538;"></i>
+                    </div>
+                    <h5 class="fw-bold">Explorar Ropa</h5>
+                    <p class="text-muted small mb-0">Encuentra prendas disponibles y apártalas gratis</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Donar -->
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="card vistetec-feature-card shadow-sm h-100">
+                <div class="card-body text-center p-4">
+                    <div class="vistetec-feature-icon" style="background-color: #e8f5e9;">
+                        <i class="bi bi-gift" style="font-size: 1.75rem; color: #2e7d32;"></i>
+                    </div>
+                    <h5 class="fw-bold">Donar</h5>
+                    <p class="text-muted small mb-0">Dona ropa o despensa y ayuda a otros estudiantes</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mis Apartados -->
+        <div class="col-12 col-sm-6 col-lg-4">
+            <div class="card vistetec-feature-card shadow-sm h-100" onclick="window.location.href='{{ url_for('vistetec_pages.student_pages.my_appointments') }}'">
+                <div class="card-body text-center p-4">
+                    <div class="vistetec-feature-icon" style="background-color: #e3f2fd;">
+                        <i class="bi bi-bag-check" style="font-size: 1.75rem; color: #1976d2;"></i>
+                    </div>
+                    <h5 class="fw-bold">Mis Apartados</h5>
+                    <p class="text-muted small mb-0">Revisa las prendas que tienes reservadas</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info adicional -->
+    <div class="text-center mt-4">
+        <p class="text-muted small mb-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Toda la ropa es donada por la comunidad del ITCJ
+        </p>
+        <p class="text-muted small mb-0">
+            <i class="bi bi-clock me-1"></i>
+            Aparta tu prenda y pasa a recogerla en el horario que elijas
+        </p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.__homeCfg = {
+    entrarUrl: "{% if 'admin' in user_roles %}{{ url_for('vistetec_pages.admin_pages.dashboard') }}{% elif 'volunteer' in user_roles %}{{ url_for('vistetec_pages.volunteer_pages.dashboard') }}{% else %}{{ url_for('vistetec_pages.student_pages.catalog') }}{% endif %}"
+  };
+</script>
+<script src="{{ url_for('static', filename='vistetec/js/shared/home.js') }}?v={{ sv('vistetec', 'js/shared/home.js') }}"></script>
+{% endblock %}

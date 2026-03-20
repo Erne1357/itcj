@@ -1,0 +1,141 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Almacén - Productos{% endblock %}
+{% block header_title %}Productos{% endblock %}
+{% block header_subtitle %}Catálogo de Materiales del Almacén{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-light btn-sm" id="btnNewProduct" data-bs-toggle="modal" data-bs-target="#productModal">
+    <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline">Nuevo Producto</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filters -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+                <input type="text" class="form-control form-control-sm" id="searchInput"
+                    placeholder="Buscar por nombre o código...">
+            </div>
+            <div class="col-6 col-md-3">
+                <select class="form-select form-select-sm" id="categoryFilter">
+                    <option value="">Todas las categorías</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <select class="form-select form-select-sm" id="stockFilter">
+                    <option value="">Todo el stock</option>
+                    <option value="low">Stock bajo</option>
+                    <option value="ok">Stock OK</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-2 d-flex gap-2">
+                <button class="btn btn-primary btn-sm flex-fill" onclick="WarehouseProducts.load()">
+                    <i class="fas fa-search me-1"></i>Buscar
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="WarehouseProducts.reset()">
+                    <i class="fas fa-undo"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Products Table -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div id="productsContainer">
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2">Cargando productos...</p>
+            </div>
+        </div>
+        <!-- Pagination -->
+        <div id="pagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top d-none">
+            <span class="text-muted small" id="paginationInfo"></span>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="WarehouseProducts.prevPage()">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="WarehouseProducts.nextPage()">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+<!-- Product Detail / Create Modal -->
+<div class="modal fade" id="productModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="productModalTitle">
+                    <i class="fas fa-cube me-2"></i>Nuevo Producto
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="prodName" maxlength="200">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Unidad de Medida <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="prodUnit" placeholder="pza, ml, kg...">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Lead Time (días)</label>
+                        <input type="number" class="form-control" id="prodLeadTime" min="0" value="7">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Subcategoría <span class="text-danger">*</span></label>
+                        <select class="form-select" id="prodSubcategory">
+                            <option value="">Selecciona...</option>
+                        </select>
+                    </div>
+                    <input type="hidden" id="prodDept" value="comp_center">
+                    <div class="col-12">
+                        <label class="form-label">Descripción</label>
+                        <textarea class="form-control" id="prodDesc" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btnSaveProduct" onclick="WarehouseProducts.save()">
+                    <i class="fas fa-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stock Detail Modal -->
+<div class="modal fade" id="stockDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-boxes me-2"></i>Detalle de Stock</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="stockDetailBody">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/warehouse/products.js') }}?v={{ sv('helpdesk', 'js/warehouse/products.js') }}"></script>
+{% endblock %}

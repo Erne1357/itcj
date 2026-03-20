@@ -1,0 +1,118 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Almacén - Categorías{% endblock %}
+{% block header_title %}Categorías{% endblock %}
+{% block header_subtitle %}Gestión de Categorías y Subcategorías del Almacén{% endblock %}
+
+{% block header_actions %}
+<button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#categoryModal">
+    <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline">Nueva Categoría</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<div class="row">
+    <!-- Categories list -->
+    <div class="col-md-4 mb-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom">
+                <h6 class="mb-0 fw-bold"><i class="fas fa-folder me-2 text-primary"></i>Categorías</h6>
+            </div>
+            <div class="list-group list-group-flush" id="categoriesList">
+                <div class="text-center py-4">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subcategories panel -->
+    <div class="col-md-8 mb-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <h6 class="mb-0 fw-bold">
+                    <i class="fas fa-folder-open me-2 text-info"></i>
+                    Subcategorías de: <span id="selectedCatName" class="text-primary">—</span>
+                </h6>
+                <button class="btn btn-sm btn-outline-info" id="btnNewSubcat" disabled
+                    data-bs-toggle="modal" data-bs-target="#subcategoryModal">
+                    <i class="fas fa-plus me-1"></i>Nueva
+                </button>
+            </div>
+            <div class="card-body p-0" id="subcategoriesList">
+                <div class="text-center py-5 text-muted">
+                    <i class="fas fa-arrow-left fa-2x mb-2"></i>
+                    <p>Selecciona una categoría</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block modals %}
+<!-- Category Modal -->
+<div class="modal fade" id="categoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-folder me-2"></i>Categoría</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="catId">
+                <div class="mb-3">
+                    <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="catName" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Descripción</label>
+                    <textarea class="form-control" id="catDesc" rows="2"></textarea>
+                </div>
+                <input type="hidden" id="catDept" value="comp_center">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-primary" onclick="WarehouseCategories.saveCategory()">
+                    <i class="fas fa-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Subcategory Modal -->
+<div class="modal fade" id="subcategoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-folder-open me-2"></i>Subcategoría</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="subcatId">
+                <div class="mb-3">
+                    <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="subcatName" maxlength="100">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Descripción</label>
+                    <textarea class="form-control" id="subcatDesc" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-primary" onclick="WarehouseCategories.saveSubcategory()">
+                    <i class="fas fa-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/warehouse/categories.js') }}?v={{ sv('helpdesk', 'js/warehouse/categories.js') }}"></script>
+{% endblock %}

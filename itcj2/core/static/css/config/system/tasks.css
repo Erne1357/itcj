@@ -1,0 +1,14 @@
+.status-badge { font-size: 0.78rem; font-weight: 600; }
+.status-PENDING   { background: #fef3c7; color: #92400e; }
+.status-RUNNING   { background: #dbeafe; color: #1e40af; }
+.status-SUCCESS   { background: #d1fae5; color: #065f46; }
+.status-FAILURE   { background: #fee2e2; color: #991b1b; }
+.status-REVOKED   { background: #f3f4f6; color: #374151; }
+.active-dot   { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-right: 5px; }
+.inactive-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; margin-right: 5px; }
+.progress-bar-animated { animation: progress-bar-stripes .75s linear infinite; }
+.cron-desc { font-size: 0.82rem; color: #6366f1; margin-top: 4px; min-height: 1.2em; }
+.cron-fields input { width: 58px; text-align: center; }
+.table-runs td { vertical-align: middle; }
+.runs-filters .form-select, .runs-filters .form-control { font-size: 0.875rem; }
+pre.result-json { font-size: 0.8rem; max-height: 300px; overflow-y: auto; background: #f8f9fa; border-radius: 4px; padding: 10px; }

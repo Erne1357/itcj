@@ -1,0 +1,305 @@
+/* ===== Estadisticas rapidas ===== */
+.stat-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem;
+    background: #fff;
+    border-radius: var(--config-radius);
+    box-shadow: var(--config-shadow);
+    transition: var(--config-transition);
+}
+
+.stat-card:hover {
+    box-shadow: var(--config-shadow-hover);
+}
+
+.stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    flex-shrink: 0;
+}
+
+.stat-number {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--config-dark);
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--config-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ===== Titulo de seccion ===== */
+.section-title {
+    color: var(--config-dark);
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+/* ===== Tarjetas de navegacion ===== */
+.nav-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.nav-card-link:hover {
+    color: inherit;
+}
+
+.nav-card {
+    border: 1px solid var(--config-border);
+    transition: var(--config-transition);
+    cursor: pointer;
+}
+
+.nav-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--config-shadow-hover);
+    border-color: transparent;
+}
+
+.nav-card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.nav-card h6 {
+    font-weight: 600;
+    margin-bottom: 0;
+}
+
+/* ===== Icono de app pequeno ===== */
+.app-icon-sm {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(13, 110, 253, 0.1);
+    color: var(--config-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+/* ===== Indicador de tematica ===== */
+.theme-active-indicator {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e91e63, #c2185b);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    animation: themePulse 2s ease-in-out infinite;
+}
+
+.theme-inactive-indicator {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--config-light);
+    color: var(--config-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+}
+
+@keyframes themePulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(233, 30, 99, 0.3); }
+    50% { box-shadow: 0 0 0 12px rgba(233, 30, 99, 0); }
+}
+
+/* ===== Card header ===== */
+.card-header {
+    border-bottom: 1px solid var(--config-border);
+    padding: 0.875rem 1.25rem;
+}
+
+/* ===== List group items hover ===== */
+.list-group-item {
+    transition: background-color 0.15s ease;
+}
+
+.list-group-item:hover {
+    background-color: var(--config-light);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+    .stat-card {
+        padding: 0.875rem;
+        gap: 0.75rem;
+    }
+
+    .stat-icon {
+        width: 42px;
+        height: 42px;
+        font-size: 1.1rem;
+        border-radius: 10px;
+    }
+
+    .stat-number {
+        font-size: 1.25rem;
+    }
+
+    .stat-label {
+        font-size: 0.7rem;
+    }
+
+    /* Nav cards mas compactos */
+    .nav-card .card-body {
+        padding: 0.875rem;
+    }
+
+    .nav-card-icon {
+        width: 38px;
+        height: 38px;
+        font-size: 1rem;
+    }
+
+    .nav-card h6 {
+        font-size: 0.9rem;
+    }
+
+    .nav-card .small {
+        font-size: 0.75rem;
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    /* Apps list compacto */
+    .list-group-item {
+        padding: 0.75rem 1rem;
+    }
+
+    .app-icon-sm {
+        width: 32px;
+        height: 32px;
+        font-size: 0.875rem;
+    }
+
+    /* Theme indicators */
+    .theme-active-indicator,
+    .theme-inactive-indicator {
+        width: 48px;
+        height: 48px;
+        font-size: 1.5rem;
+    }
+
+    /* Section title */
+    .section-title {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .stat-card {
+        padding: 0.75rem;
+        gap: 0.5rem;
+    }
+
+    .stat-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 1rem;
+        border-radius: 8px;
+    }
+
+    .stat-number {
+        font-size: 1.1rem;
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+    }
+
+    /* Nav cards en columna con menos gap */
+    .nav-card .card-body {
+        padding: 0.75rem;
+        gap: 0.5rem !important;
+    }
+
+    .nav-card-icon {
+        width: 32px;
+        height: 32px;
+        font-size: 0.9rem;
+        border-radius: 8px;
+    }
+
+    .nav-card h6 {
+        font-size: 0.85rem;
+    }
+
+    /* Ocultar descripcion en extra small */
+    .nav-card .small.text-muted {
+        display: none;
+    }
+
+    /* Apps section */
+    .card-header {
+        padding: 0.75rem;
+        flex-direction: column;
+        gap: 0.5rem;
+        text-align: center;
+    }
+
+    .card-header .btn-sm {
+        width: 100%;
+    }
+
+    /* Theme card */
+    .theme-active-indicator,
+    .theme-inactive-indicator {
+        width: 40px;
+        height: 40px;
+        font-size: 1.25rem;
+    }
+}
+
+/* ===== Pulso de usuarios activos ===== */
+.active-pulse {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #ff5722;
+    border-radius: 50%;
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(255,87,34,0.5); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(255,87,34,0); }
+}
+
+.stat-detail {
+    font-size: 0.7rem;
+    color: #6c757d;
+    margin-top: 2px;
+    line-height: 1.2;
+}

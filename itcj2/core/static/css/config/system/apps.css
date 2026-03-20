@@ -1,0 +1,24 @@
+@media (min-width: 576px) {
+    .btn-sm { font-size: 1rem; padding: 0.375rem 0.75rem; }
+}
+
+/* Ocultar columnas en mobile para apps */
+@media (max-width: 768px) {
+    #appsTable th:nth-child(4),
+    #appsTable td:nth-child(4),
+    #appsTable th:nth-child(5),
+    #appsTable td:nth-child(5),
+    #appsTable th:nth-child(6),
+    #appsTable td:nth-child(6) {
+        display: none;
+    }
+
+    #appsTable { min-width: 400px; }
+}
+
+@media (max-width: 576px) {
+    #appsTable th:nth-child(3),
+    #appsTable td:nth-child(3) {
+        display: none;
+    }
+}

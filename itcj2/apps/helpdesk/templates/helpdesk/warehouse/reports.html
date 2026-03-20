@@ -1,0 +1,119 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Almacén - Reportes{% endblock %}
+{% block header_title %}Reportes del Almacén{% endblock %}
+{% block header_subtitle %}Consumo, Movimientos y Valoración{% endblock %}
+
+{% block content %}
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-4" id="reportTabs" role="tablist">
+    <li class="nav-item">
+        <a class="nav-link active" id="tab-valuation" data-bs-toggle="tab" href="#tabValuation" role="tab">
+            <i class="fas fa-dollar-sign me-1"></i>Valoración
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="tab-consumption" data-bs-toggle="tab" href="#tabConsumption" role="tab">
+            <i class="fas fa-fire me-1"></i>Consumo
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="tab-movements" data-bs-toggle="tab" href="#tabMovements" role="tab">
+            <i class="fas fa-exchange-alt me-1"></i>Movimientos
+        </a>
+    </li>
+</ul>
+
+<div class="tab-content">
+
+    <!-- Valoración de Inventario -->
+    <div class="tab-pane fade show active" id="tabValuation" role="tabpanel">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body py-2 d-flex justify-content-between align-items-center">
+                <span class="fw-bold text-muted">Valoración actual del inventario (FIFO)</span>
+                <button class="btn btn-primary btn-sm" onclick="WarehouseReports.loadValuation()">
+                    <i class="fas fa-sync me-1"></i>Actualizar
+                </button>
+            </div>
+        </div>
+        <div id="valuationContainer">
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Consumo por período -->
+    <div class="tab-pane fade" id="tabConsumption" role="tabpanel">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-1">Desde</label>
+                        <input type="date" class="form-control form-control-sm" id="conFromDate">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-1">Hasta</label>
+                        <input type="date" class="form-control form-control-sm" id="conToDate">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button class="btn btn-primary btn-sm w-100" onclick="WarehouseReports.loadConsumption()">
+                            <i class="fas fa-search me-1"></i>Consultar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="consumptionContainer">
+            <div class="text-center py-5 text-muted">
+                <i class="fas fa-fire fa-3x mb-3"></i>
+                <p>Selecciona el período y presiona Consultar.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Movimientos por período -->
+    <div class="tab-pane fade" id="tabMovements" role="tabpanel">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-1">Desde</label>
+                        <input type="date" class="form-control form-control-sm" id="movFromDate">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-1">Hasta</label>
+                        <input type="date" class="form-control form-control-sm" id="movToDate">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <select class="form-select form-select-sm" id="movTypeFilter">
+                            <option value="">Todos los tipos</option>
+                            <option value="ENTRY">Entrada</option>
+                            <option value="CONSUMED">Consumo</option>
+                            <option value="ADJUSTED_IN">Ajuste +</option>
+                            <option value="ADJUSTED_OUT">Ajuste -</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <button class="btn btn-primary btn-sm w-100" onclick="WarehouseReports.loadMovements()">
+                            <i class="fas fa-search me-1"></i>Consultar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="movementsReportContainer">
+            <div class="text-center py-5 text-muted">
+                <i class="fas fa-exchange-alt fa-3x mb-3"></i>
+                <p>Selecciona el período y presiona Consultar.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/warehouse/reports.js') }}?v={{ sv('helpdesk', 'js/warehouse/reports.js') }}"></script>
+{% endblock %}

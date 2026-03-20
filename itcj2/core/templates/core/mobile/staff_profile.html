@@ -1,0 +1,23 @@
+{% extends "core/mobile/base_mobile.html" %}
+
+{% block title %}ITCJ - Mi Perfil{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='core/css/mobile/staff_profile.css') }}?v={{ sv('core', 'css/mobile/staff_profile.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="mobile-profile-iframe-container">
+    <iframe src="{{ url_for('pages_core.pages_profile.profile') }}"
+        title="Mi Perfil" loading="eager"></iframe>
+</div>
+
+<!-- Boton flotante de logout -->
+<button class="mobile-profile-fab-logout" id="logoutBtn" title="Cerrar sesion">
+    <i class="bi bi-box-arrow-right"></i>
+</button>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='core/js/mobile/staff_profile.js') }}?v={{ sv('core', 'js/mobile/staff_profile.js') }}"></script>
+{% endblock %}

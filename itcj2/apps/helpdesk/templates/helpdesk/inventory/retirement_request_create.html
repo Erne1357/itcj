@@ -1,0 +1,146 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Nueva Solicitud de Baja - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/retirement_request_create.css') }}?v={{ sv('helpdesk', 'css/inventory/retirement_request_create.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-center mb-3 mb-md-4 flex-wrap gap-2">
+        <div>
+            <h1 class="h4 h3-md mb-0 text-gray-800">
+                <i class="fas fa-file-plus fa-fw"></i> Nueva Solicitud de Baja
+            </h1>
+            <p class="text-muted mb-0 small">
+                Crea una solicitud formal de baja para uno o más equipos
+            </p>
+        </div>
+        <a href="{{ url_for('helpdesk_pages.inventory_pages.retirement_requests_list') }}"
+           class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <div class="row">
+        <div class="col-12 col-lg-8">
+
+            <!-- Paso 1: Motivo -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-pencil-alt"></i> Paso 1 &ndash; Motivo de Baja
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="reason-input" class="form-label">
+                            Motivo <span class="text-danger">*</span>
+                        </label>
+                        <textarea class="form-control" id="reason-input" rows="3"
+                                  placeholder="Describe el motivo por el que se solicita la baja de los equipos (obsolescencia, daño irreparable, robo, etc.)"
+                                  maxlength="2000"></textarea>
+                        <small class="form-text text-muted">
+                            <span id="reason-chars">0</span>/2000 caracteres
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Paso 2: Equipos -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-desktop"></i> Paso 2 &ndash; Equipos a dar de Baja
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <!-- Buscador de equipos -->
+                    <div class="mb-3">
+                        <label class="form-label small">Buscar equipo por número, marca, modelo o serial</label>
+                        <div class="position-relative">
+                            <input type="text" class="form-control form-control-sm" id="item-search-input"
+                                   placeholder="Ej: LAP-001, Dell, ITCJ-2024-001..."
+                                   autocomplete="off">
+                            <div id="items-search-results" class="position-absolute w-100 bg-white" style="z-index:1000; display:none;"></div>
+                        </div>
+                        <small class="form-text text-muted">Solo equipos activos disponibles para baja</small>
+                    </div>
+
+                    <!-- Lista de equipos seleccionados -->
+                    <div id="selected-items-list" class="mb-2"></div>
+
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                            <span id="items-count">0</span> equipo(s) seleccionado(s)
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Paso 3: Documento adjunto (opcional) -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-paperclip"></i> Paso 3 &ndash; Documento Adjunto (Opcional)
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="form-group mb-0">
+                        <label class="form-label small">Archivo de respaldo (PDF, DOCX)</label>
+                        <input type="file" class="form-control-file" id="document-input"
+                               accept=".pdf,.doc,.docx">
+                        <small class="form-text text-muted">Máximo 10 MB. Puede adjuntarse más tarde.</small>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Panel lateral -->
+        <div class="col-12 col-lg-4">
+            <div class="card shadow mb-3" style="position: sticky; top: 1rem;">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-secondary" style="font-size:.85rem;">
+                        <i class="fas fa-info-circle"></i> Resumen
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <dl class="mb-0" style="font-size:.875rem;">
+                        <dt class="text-muted small">Equipos seleccionados</dt>
+                        <dd class="font-weight-bold" id="summary-items-count">0</dd>
+                        <dt class="text-muted small">Estado inicial</dt>
+                        <dd><span class="badge bg-secondary text-white">BORRADOR</span></dd>
+                        <dt class="text-muted small">Flujo de aprobación</dt>
+                        <dd class="small text-muted">Borrador → Pendiente → Aprobada</dd>
+                    </dl>
+
+                    <hr>
+                    <div class="alert alert-info py-2 mb-3" style="font-size:.8rem;">
+                        <i class="fas fa-lightbulb"></i>
+                        La solicitud se crea como <strong>Borrador</strong>.
+                        Debes enviarla a revisión para que el administrador pueda aprobarla.
+                    </div>
+
+                    <!-- Guardar como borrador -->
+                    <button class="btn btn-secondary btn-sm btn-block mb-2" id="btn-save-draft" disabled>
+                        <i class="fas fa-save"></i> Guardar como Borrador
+                    </button>
+                    <!-- Guardar y enviar -->
+                    <button class="btn btn-primary btn-sm btn-block" id="btn-save-submit" disabled>
+                        <i class="fas fa-paper-plane"></i> Guardar y Enviar a Revisión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement_request_create.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement_request_create.js') }}"></script>
+{% endblock %}

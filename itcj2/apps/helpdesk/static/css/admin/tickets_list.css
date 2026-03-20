@@ -1,0 +1,69 @@
+/* itcj2/apps/helpdesk/static/css/admin/tickets_list.css */
+/* Estilos específicos para la lista de tickets */
+.ticket-card {
+    transition: all 0.2s ease;
+    border-left: 4px solid transparent;
+    cursor: pointer;
+}
+
+.ticket-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.ticket-card.status-PENDING {
+    border-left-color: #ffc107;
+}
+
+.ticket-card.status-ASSIGNED {
+    border-left-color: #17a2b8;
+}
+
+.ticket-card.status-IN_PROGRESS {
+    border-left-color: #007bff;
+}
+
+.ticket-card.status-RESOLVED_SUCCESS {
+    border-left-color: #28a745;
+}
+
+.ticket-card.status-RESOLVED_FAILED {
+    border-left-color: #6c757d;
+}
+
+.ticket-card.status-CLOSED {
+    border-left-color: #6c757d;
+}
+
+.ticket-card.status-CANCELED {
+    border-left-color: #dc3545;
+}
+
+.badge-priority-URGENTE {
+    background-color: #dc3545;
+}
+
+.badge-priority-ALTA {
+    background-color: #fd7e14;
+}
+
+.badge-priority-MEDIA {
+    background-color: #ffc107;
+}
+
+.badge-priority-BAJA {
+    background-color: #17a2b8;
+}
+
+.ticket-info-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.ticket-info-value {
+    font-size: 0.875rem;
+    color: #212529;
+}
