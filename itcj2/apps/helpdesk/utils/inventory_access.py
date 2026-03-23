@@ -68,6 +68,21 @@ def has_full_inventory_access(
     return False
 
 
+def is_comp_center_user(db, user_id: int) -> bool:
+    """
+    Determina si el usuario pertenece actualmente al Centro de Cómputo.
+
+    Equivalente al check is_comp_center en pages/inventory.py:
+      dept.code == 'comp_center' or dept.name == 'CENTRO DE COMPUTO'
+    """
+    from itcj2.core.models.user import User
+    user = db.get(User, user_id)
+    if not user:
+        return False
+    dept = user.get_current_department()
+    return bool(dept and (dept.code == "comp_center" or dept.name == "CENTRO DE COMPUTO"))
+
+
 def has_dept_inventory_access(
     db,
     user_id: int,
