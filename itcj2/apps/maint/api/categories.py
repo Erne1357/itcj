@@ -27,7 +27,21 @@ async def list_categories(
     db: DbSession = None,
 ):
     categories = category_service.list_categories(db, only_active=only_active)
-    return {"categories": categories}
+    return {
+        "categories": [
+            {
+                "id": c.id,
+                "code": c.code,
+                "name": c.name,
+                "description": c.description,
+                "icon": c.icon,
+                "field_template": c.field_template or [],
+                "is_active": c.is_active,
+                "display_order": c.display_order,
+            }
+            for c in categories
+        ]
+    }
 
 
 @router.post("", status_code=201)

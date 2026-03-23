@@ -8,7 +8,7 @@ from itcj2.apps.maint.pages.nav import render_maint
 router = APIRouter(tags=["maint-pages"])
 
 
-@router.get("/admin/categorias", name="maint_pages.admin.categories")
+@router.get("/admin/categories", name="maint_pages.admin.categories")
 async def admin_categories(
     request: Request,
     user: dict = Depends(require_page_app("maint", perms=["maint.admin.page.categories"])),
@@ -24,7 +24,7 @@ async def admin_areas(
     return render_maint(request, "maint/admin/areas.html", {"active_page": "admin_areas"})
 
 
-@router.get("/admin/reportes", name="maint_pages.admin.reports")
+@router.get("/admin/reports", name="maint_pages.admin.reports")
 async def admin_reports(
     request: Request,
     user: dict = Depends(require_page_app("maint", perms=["maint.admin.page.reports"])),

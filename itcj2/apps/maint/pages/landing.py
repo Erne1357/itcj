@@ -28,22 +28,22 @@ async def home_landing(
     # Determinar el CTA principal según rol
     if roles & {"admin", "dispatcher"}:
         cta_label = "Abrir Panel"
-        cta_url = "/mantenimiento/tickets"
+        cta_url = "/maintenance/tickets"
         cta_icon = "fa-tachometer-alt"
         welcome_msg = "Gestiona y coordina las solicitudes del departamento."
     elif "tech_maint" in roles:
         cta_label = "Ver Mis Asignaciones"
-        cta_url = "/mantenimiento/tickets"
+        cta_url = "/maintenance/tickets"
         cta_icon = "fa-tools"
         welcome_msg = "Consulta los tickets asignados a ti."
     elif roles & {"department_head", "secretary"}:
         cta_label = "Solicitudes del Departamento"
-        cta_url = "/mantenimiento/tickets"
+        cta_url = "/maintenance/tickets"
         cta_icon = "fa-clipboard-list"
         welcome_msg = "Revisa el estado de las solicitudes de tu departamento."
     else:
         cta_label = "Crear Solicitud"
-        cta_url = "/mantenimiento/tickets/crear"
+        cta_url = "/maintenance/tickets/create"
         cta_icon = "fa-plus-circle"
         welcome_msg = "Reporta un problema o solicita un servicio de mantenimiento."
 

@@ -59,6 +59,18 @@ def create_ticket(
     except Exception as e:
         logger.warning(f"No se pudo obtener departamento del usuario {requester_id}: {e}")
 
+    # Restricción: máximo 3 tickets sin calificar
+    unrated = db.query(MaintTicket).filter(
+        MaintTicket.requester_id == requester_id,
+        MaintTicket.status.in_(['RESOLVED_SUCCESS', 'RESOLVED_FAILED']),
+        MaintTicket.rating_attention.is_(None),
+    ).count()
+    if unrated >= 3:
+        raise HTTPException(
+            status_code=400,
+            detail='Tienes 3 o más solicitudes resueltas sin calificar. Por favor califica tus solicitudes anteriores antes de crear una nueva.',
+        )
+
     ticket_number = generate_ticket_number(db)
     created_by = created_by_id or requester_id
     now = now_local()
@@ -410,19 +422,33 @@ def rate_ticket(
 
 # ==================== CANCELAR TICKET ====================
 
-def cancel_ticket(db: Session, ticket_id: int, user_id: int, reason: str = None) -> MaintTicket:
+def cancel_ticket(
+    db: Session,
+    ticket_id: int,
+    user_id: int,
+    reason: str = None,
+    user_roles: list = None,
+) -> MaintTicket:
     ticket = db.get(MaintTicket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail='Ticket no encontrado')
 
-    if ticket.requester_id != user_id:
-        raise HTTPException(status_code=403, detail='Solo el solicitante puede cancelar')
+    roles = set(user_roles or [])
+    is_privileged = bool(roles & {'admin', 'dispatcher'})
+
+    # Verificar permiso para cancelar
+    if not is_privileged and ticket.requester_id != user_id:
+        raise HTTPException(status_code=403, detail='No tienes permiso para cancelar este ticket')
 
     if not ticket.is_open:
         raise HTTPException(status_code=400, detail='No se puede cancelar un ticket ya cerrado o cancelado')
 
     if ticket.status in ('RESOLVED_SUCCESS', 'RESOLVED_FAILED'):
         raise HTTPException(status_code=400, detail='No se puede cancelar un ticket ya resuelto')
+
+    # Solicitante solo puede cancelar tickets PENDING
+    if not is_privileged and ticket.status != 'PENDING':
+        raise HTTPException(status_code=400, detail='Solo puedes cancelar tus solicitudes en estado Pendiente')
 
     old_status = ticket.status
     now = now_local()
@@ -531,3 +557,209 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
             pass
 
     return False
+
+
+# ==================== INICIAR PROGRESO ====================
+
+def start_progress(
+    db: Session,
+    ticket_id: int,
+    user_id: int,
+    user_roles: list = None,
+) -> MaintTicket:
+    """Cambia el estado de ASSIGNED → IN_PROGRESS."""
+    ticket = db.get(MaintTicket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail='Ticket no encontrado')
+
+    if ticket.status != 'ASSIGNED':
+        raise HTTPException(status_code=400, detail='Solo se puede iniciar progreso desde el estado Asignado')
+
+    roles = set(user_roles or [])
+    is_active_tech = any(t.user_id == user_id and t.unassigned_at is None for t in ticket.technicians)
+    can_start = is_active_tech or bool(roles & {'dispatcher', 'admin'})
+    if not can_start:
+        raise HTTPException(status_code=403, detail='Solo los técnicos asignados o dispatchers pueden iniciar progreso')
+
+    old_status = ticket.status
+    now = now_local()
+    ticket.status = 'IN_PROGRESS'
+    ticket.updated_at = now
+    ticket.updated_by_id = user_id
+
+    db.add(MaintStatusLog(
+        ticket_id=ticket_id,
+        from_status=old_status,
+        to_status='IN_PROGRESS',
+        changed_by_id=user_id,
+    ))
+    db.add(MaintTicketActionLog(
+        ticket_id=ticket_id,
+        action='STATUS_CHANGED',
+        performed_by_id=user_id,
+        detail={'from_status': old_status, 'to_status': 'IN_PROGRESS'},
+    ))
+
+    try:
+        db.commit()
+        logger.info(f"Ticket {ticket.ticket_number} → IN_PROGRESS por usuario {user_id}")
+        return ticket
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error al iniciar progreso: {e}")
+        raise HTTPException(status_code=500, detail='Error al actualizar estado')
+
+
+# ==================== SERIALIZACIÓN ====================
+
+def _dt(val):
+    """Serializa un datetime a string ISO, o None."""
+    return val.isoformat() if val else None
+
+
+def serialize_ticket_summary(ticket: MaintTicket) -> dict:
+    """Datos mínimos para la lista de tickets."""
+    try:
+        cat = {
+            "id": ticket.category.id,
+            "code": ticket.category.code,
+            "name": ticket.category.name,
+            "icon": ticket.category.icon,
+            "field_template": ticket.category.field_template or [],
+        } if ticket.category else None
+    except Exception:
+        cat = None
+
+    try:
+        req = {"id": ticket.requester.id, "name": ticket.requester.full_name}
+    except Exception:
+        req = {"id": ticket.requester_id, "name": "—"}
+
+    try:
+        active_techs = [
+            {"id": t.user_id, "name": t.user.full_name if t.user else str(t.user_id)}
+            for t in ticket.active_technicians
+        ]
+    except Exception:
+        active_techs = []
+
+    return {
+        "id": ticket.id,
+        "ticket_number": ticket.ticket_number,
+        "title": ticket.title,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "progress_pct": ticket.progress_pct,
+        "location": ticket.location,
+        "due_at": _dt(ticket.due_at),
+        "created_at": _dt(ticket.created_at),
+        "category": cat,
+        "requester": req,
+        "active_technicians": active_techs,
+    }
+
+
+def serialize_ticket_detail(ticket: MaintTicket) -> dict:
+    """Datos completos para la vista de detalle, incluyendo relaciones."""
+    data = serialize_ticket_summary(ticket)
+
+    try:
+        resolved_by = {"id": ticket.resolved_by.id, "name": ticket.resolved_by.full_name}
+    except Exception:
+        resolved_by = None
+
+    try:
+        created_by = {"id": ticket.created_by_user.id, "name": ticket.created_by_user.full_name}
+    except Exception:
+        created_by = None
+
+    try:
+        canceled_by = {"id": ticket.canceled_by_user.id, "name": ticket.canceled_by_user.full_name}
+    except Exception:
+        canceled_by = None
+
+    try:
+        dept = ticket.requester_department.name if ticket.requester_department else None
+    except Exception:
+        dept = None
+
+    try:
+        technicians = [
+            {
+                "id": t.id,
+                "user_id": t.user_id,
+                "user_name": t.user.full_name if t.user else str(t.user_id),
+                "assigned_at": _dt(t.assigned_at),
+                "unassigned_at": _dt(t.unassigned_at),
+                "notes": t.notes,
+                "is_active": t.unassigned_at is None,
+            }
+            for t in ticket.technicians
+        ]
+    except Exception:
+        technicians = []
+
+    try:
+        comments = [
+            {
+                "id": c.id,
+                "content": c.content,
+                "is_internal": c.is_internal,
+                "created_at": _dt(c.created_at),
+                "author": {
+                    "id": c.author_id,
+                    "name": c.author.full_name if c.author else str(c.author_id),
+                },
+            }
+            for c in sorted(ticket.comments, key=lambda x: x.created_at or 0)
+        ]
+    except Exception:
+        comments = []
+
+    try:
+        status_logs = [
+            {
+                "id": sl.id,
+                "from_status": sl.from_status,
+                "to_status": sl.to_status,
+                "notes": sl.notes,
+                "created_at": _dt(sl.created_at),
+                "changed_by": {
+                    "id": sl.changed_by_id,
+                    "name": sl.changed_by.full_name if sl.changed_by else str(sl.changed_by_id),
+                },
+            }
+            for sl in sorted(ticket.status_logs, key=lambda x: x.created_at or 0)
+        ]
+    except Exception:
+        status_logs = []
+
+    data.update({
+        "description": ticket.description,
+        "custom_fields": ticket.custom_fields or {},
+        "requester_department": dept,
+        "maintenance_type": ticket.maintenance_type,
+        "service_origin": ticket.service_origin,
+        "resolution_notes": ticket.resolution_notes,
+        "time_invested_minutes": ticket.time_invested_minutes,
+        "observations": ticket.observations,
+        "resolved_at": _dt(ticket.resolved_at),
+        "resolved_by": resolved_by,
+        "rating_attention": ticket.rating_attention,
+        "rating_speed": ticket.rating_speed,
+        "rating_efficiency": ticket.rating_efficiency,
+        "rating_comment": ticket.rating_comment,
+        "rated_at": _dt(ticket.rated_at),
+        "closed_at": _dt(ticket.closed_at),
+        "canceled_at": _dt(ticket.canceled_at),
+        "cancel_reason": ticket.cancel_reason,
+        "canceled_by": canceled_by,
+        "created_by": created_by,
+        "can_be_rated": ticket.can_be_rated,
+        "is_open": ticket.is_open,
+        "is_resolved": ticket.is_resolved,
+        "technicians": technicians,
+        "comments": comments,
+        "status_logs": status_logs,
+    })
+    return data

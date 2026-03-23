@@ -83,7 +83,7 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
     items.append({
         "label": "Tickets",
         "icon": "fa-clipboard-list",
-        "url": "/mantenimiento/tickets",
+        "url": "/maintenance/tickets",
     })
 
     # ── Nueva Solicitud ───────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
         items.append({
             "label": "Nueva Solicitud",
             "icon": "fa-plus-circle",
-            "url": "/mantenimiento/tickets/crear",
+            "url": "/maintenance/tickets/create",
         })
 
     # ── Administración (dropdown) ─────────────────────────────────────────────
@@ -101,17 +101,17 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             dropdown.append({
                 "label": "Categorías",
                 "icon": "fa-tags",
-                "url": "/mantenimiento/admin/categorias",
+                "url": "/maintenance/admin/categories",
             })
             dropdown.append({
                 "label": "Áreas Técnicas",
                 "icon": "fa-users-cog",
-                "url": "/mantenimiento/admin/areas",
+                "url": "/maintenance/admin/areas",
             })
         dropdown.append({
             "label": "Reportes",
             "icon": "fa-chart-bar",
-            "url": "/mantenimiento/admin/reportes",
+            "url": "/maintenance/admin/reports",
         })
         items.append({
             "label": "Administración",
@@ -122,6 +122,7 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
     return {
         "maint_nav_items": items,
         "current_route": current_path,
+        "user_roles": list(roles),
     }
 
 

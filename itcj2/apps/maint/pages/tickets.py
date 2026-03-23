@@ -16,7 +16,7 @@ async def ticket_list(
     return render_maint(request, "maint/tickets/list.html", {"active_page": "tickets"})
 
 
-@router.get("/tickets/crear", name="maint_pages.tickets.create")
+@router.get("/tickets/create", name="maint_pages.tickets.create")
 async def ticket_create(
     request: Request,
     user: dict = Depends(require_page_app("maint", perms=["maint.tickets.page.create"])),

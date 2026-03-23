@@ -49,7 +49,10 @@ document.getElementById('navbarLogout')?.addEventListener('click', performLogout
 
 document.addEventListener('DOMContentLoaded', function () {
     if (window.AppNotificationFAB) {
-        new AppNotificationFAB('maint');
+        new AppNotificationFAB('maint', '/api/core/v2', {
+            color:     '#546E7A',   // --maint-primary
+            colorDark: '#37474F',   // --maint-primary-dark
+        });
     } else {
         console.warn('[Maint] AppNotificationFAB no cargado');
     }

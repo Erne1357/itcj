@@ -2,7 +2,6 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
-from sqlalchemy.orm import Session
 
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.maint.schemas.tickets import (
@@ -13,6 +12,7 @@ from itcj2.apps.maint.schemas.tickets import (
     CancelTicketRequest,
 )
 from itcj2.apps.maint.services import ticket_service
+from itcj2.apps.maint.services.notification_helper import MaintNotificationHelper
 
 router = APIRouter(tags=["maint-tickets"])
 logger = logging.getLogger(__name__)
@@ -50,7 +50,10 @@ async def list_tickets(
         page=page,
         per_page=per_page,
     )
-    return result
+    return {
+        **{k: v for k, v in result.items() if k != "tickets"},
+        "tickets": [ticket_service.serialize_ticket_summary(t) for t in result["tickets"]],
+    }
 
 
 # ==================== CREAR TICKET ====================
@@ -73,7 +76,8 @@ async def create_ticket(
         custom_fields=body.custom_fields,
         created_by_id=user_id,
     )
-    return {"ticket_id": ticket.id, "ticket_number": ticket.ticket_number, "due_at": ticket.due_at}
+    MaintNotificationHelper.notify_ticket_created(db, ticket)
+    return {"ticket_id": ticket.id, "ticket_number": ticket.ticket_number, "due_at": ticket.due_at.isoformat() if ticket.due_at else None}
 
 
 # ==================== VER DETALLE ====================
@@ -89,7 +93,7 @@ async def get_ticket(
 ):
     user_id = int(user["sub"])
     ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id=user_id)
-    return ticket
+    return ticket_service.serialize_ticket_detail(ticket)
 
 
 # ==================== EDITAR TICKET ====================
@@ -100,13 +104,15 @@ async def update_ticket(
     user: dict = require_perms("maint", ["maint.tickets.api.edit"]),
     db: DbSession = None,
 ):
+    from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id=user_id)
 
-    if ticket.requester_id != user_id and user.get("role") != "admin":
+    user_roles = set(user_roles_in_app(db, user_id, "maint"))
+    if ticket.requester_id != user_id and not (user_roles & {"admin", "dispatcher"}):
         raise HTTPException(status_code=403, detail="Solo el solicitante puede editar su ticket")
 
-    return ticket_service.update_pending_ticket(
+    updated = ticket_service.update_pending_ticket(
         db=db,
         ticket_id=ticket_id,
         updated_by_id=user_id,
@@ -117,6 +123,21 @@ async def update_ticket(
         location=body.location,
         custom_fields=body.custom_fields,
     )
+    return ticket_service.serialize_ticket_summary(updated)
+
+
+# ==================== INICIAR PROGRESO ====================
+@router.post("/{ticket_id}/start")
+async def start_ticket(
+    ticket_id: int,
+    user: dict = require_perms("maint", ["maint.tickets.api.resolve"]),
+    db: DbSession = None,
+):
+    from itcj2.core.services.authz_service import user_roles_in_app
+    user_id = int(user["sub"])
+    user_roles = list(user_roles_in_app(db, user_id, "maint"))
+    ticket = ticket_service.start_progress(db, ticket_id, user_id, user_roles)
+    return {"status": ticket.status, "ticket_number": ticket.ticket_number}
 
 
 # ==================== RESOLVER TICKET ====================
@@ -133,23 +154,18 @@ async def resolve_ticket(
 
     ticket = ticket_service.get_ticket_by_id(db, ticket_id)
 
-    # Técnico: solo si está activamente asignado al ticket
-    # Dispatcher: puede resolver cualquier ticket (sin restricción de asignación)
     is_active_tech = any(
         t.user_id == user_id and t.unassigned_at is None
         for t in ticket.technicians
     )
-    can_resolve = (
-        is_active_tech
-        or bool(user_roles & {'dispatcher', 'admin'})
-    )
+    can_resolve = is_active_tech or bool(user_roles & {'dispatcher', 'admin'})
     if not can_resolve:
         raise HTTPException(
             status_code=403,
             detail="Solo los técnicos asignados o dispatchers pueden resolver tickets",
         )
 
-    return ticket_service.resolve_ticket(
+    resolved = ticket_service.resolve_ticket(
         db=db,
         ticket_id=ticket_id,
         resolved_by_id=user_id,
@@ -160,6 +176,8 @@ async def resolve_ticket(
         time_invested_minutes=body.time_invested_minutes,
         observations=body.observations,
     )
+    MaintNotificationHelper.notify_ticket_resolved(db, resolved)
+    return {"status": resolved.status, "ticket_number": resolved.ticket_number}
 
 
 # ==================== CALIFICAR TICKET ====================
@@ -171,7 +189,7 @@ async def rate_ticket(
     db: DbSession = None,
 ):
     user_id = int(user["sub"])
-    return ticket_service.rate_ticket(
+    ticket = ticket_service.rate_ticket(
         db=db,
         ticket_id=ticket_id,
         requester_id=user_id,
@@ -180,6 +198,7 @@ async def rate_ticket(
         rating_efficiency=body.rating_efficiency,
         comment=body.comment,
     )
+    return {"status": ticket.status, "ticket_number": ticket.ticket_number}
 
 
 # ==================== CANCELAR TICKET ====================
@@ -190,10 +209,15 @@ async def cancel_ticket(
     user: dict = require_perms("maint", ["maint.tickets.api.cancel"]),
     db: DbSession = None,
 ):
+    from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
-    return ticket_service.cancel_ticket(
+    user_roles = list(user_roles_in_app(db, user_id, "maint"))
+    ticket = ticket_service.cancel_ticket(
         db=db,
         ticket_id=ticket_id,
         user_id=user_id,
         reason=body.reason,
+        user_roles=user_roles,
     )
+    MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+    return {"status": ticket.status, "ticket_number": ticket.ticket_number}

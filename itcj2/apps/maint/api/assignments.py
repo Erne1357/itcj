@@ -13,6 +13,8 @@ from itcj2.apps.maint.schemas.technician_areas import (
     RemoveTechnicianAreaRequest,
 )
 from itcj2.apps.maint.services import assignment_service
+from itcj2.apps.maint.services.notification_helper import MaintNotificationHelper
+from itcj2.apps.maint.services import ticket_service
 
 router = APIRouter(tags=["maint-assignments"])
 logger = logging.getLogger(__name__)
@@ -34,6 +36,9 @@ async def assign_technicians(
         user_ids=body.user_ids,
         notes=body.notes,
     )
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id)
+    for tech_id in body.user_ids:
+        MaintNotificationHelper.notify_technician_assigned(db, ticket, tech_id)
     return {"assigned_count": len(result)}
 
 

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.maint.schemas.comments import CreateCommentRequest
 from itcj2.apps.maint.services import ticket_service
+from itcj2.apps.maint.services.notification_helper import MaintNotificationHelper
 
 router = APIRouter(tags=["maint-comments"])
 logger = logging.getLogger(__name__)
@@ -38,4 +39,6 @@ async def add_comment(
         content=body.content,
         is_internal=body.is_internal,
     )
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id)
+    MaintNotificationHelper.notify_comment_added(db, ticket, comment, user_id)
     return {"comment_id": comment.id, "ok": True}
