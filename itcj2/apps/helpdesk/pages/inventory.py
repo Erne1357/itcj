@@ -109,6 +109,7 @@ async def item_detail(
 ):
     """Detalle completo de un equipo con historial."""
     from itcj2.core.services.authz_service import _get_users_with_position
+    from itcj2.core.models.user import User
     from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
@@ -116,14 +117,20 @@ async def item_detail(
 
     _db = SessionLocal()
     try:
-        secretary_comp_center = _get_users_with_position(_db, ["secretary_comp_center"])
+        current_user = _db.get(User, user_id)
+        current_dept = current_user.get_current_department() if current_user else None
+        is_comp_center = current_dept and (current_dept.code == 'comp_center' or current_dept.name == 'CENTRO DE COMPUTO')
+
+        secretary_comp_center_ids = _get_users_with_position(_db, ["secretary_comp_center"])
     finally:
         _db.close()
+
     can_edit = (
         "admin" in user_roles
         or "tech_soporte" in user_roles
         or "tech_desarrollo" in user_roles
-        or user_id in secretary_comp_center
+        or user_id in secretary_comp_center_ids
+        or is_comp_center
     )
 
     return render_helpdesk(request, "helpdesk/inventory/item_detail.html", {

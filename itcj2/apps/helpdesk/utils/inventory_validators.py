@@ -203,8 +203,11 @@ class InventoryValidators:
             if field_config.get('required', False):
                 if not specifications or field_name not in specifications:
                     errors.append(f"Campo requerido: {field_config.get('label', field_name)}")
-                elif not specifications[field_name]:
-                    errors.append(f"Campo requerido: {field_config.get('label', field_name)}")
+                else:
+                    value = specifications[field_name]
+                    # Permitir False (boolean) y 0 (number) como valores válidos
+                    if value is None or (isinstance(value, str) and not value.strip()):
+                         errors.append(f"Campo requerido: {field_config.get('label', field_name)}")
 
         if errors:
             return False, "Especificaciones incompletas", errors

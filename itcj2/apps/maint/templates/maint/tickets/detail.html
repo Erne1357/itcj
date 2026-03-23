@@ -1,0 +1,255 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Ticket #{{ ticket_id }}{% endblock %}
+
+{# Datos accesibles desde JS #}
+{% block extra_css %}
+<style>
+.mn-tab-nav .nav-link { color: var(--maint-muted); border-radius: 6px 6px 0 0; font-size: 0.88rem; }
+.mn-tab-nav .nav-link.active { color: var(--maint-primary-dark); font-weight: 600; border-bottom: 2px solid var(--maint-primary); }
+.mn-detail-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--maint-muted); }
+.mn-detail-value { color: var(--maint-primary-darker); }
+.mn-comment-bubble { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 0.75rem 1rem; }
+.mn-comment-bubble.internal { background: #FFFDE7; border-color: #FDD835; }
+.mn-history-item { border-left: 3px solid var(--maint-accent-light); padding-left: 1rem; margin-bottom: 1rem; position: relative; }
+.mn-history-item::before { content: ''; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--maint-primary); }
+.mn-star { font-size: 1.3rem; cursor: pointer; color: #CFD8DC; transition: color 0.1s; }
+.mn-star.filled, .mn-star:hover ~ .mn-star, .mn-stars:hover .mn-star { color: #CFD8DC; }
+.mn-stars:hover .mn-star:hover ~ .mn-star { color: #CFD8DC; }
+.mn-stars .mn-star:hover,
+.mn-stars .mn-star:hover ~ .mn-star + .mn-star { color: #CFD8DC; }
+.mn-stars[data-value] .mn-star.filled { color: #F59E0B; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Datos de sesión para el JS -->
+<script>
+var TICKET_CTX = {
+    ticketId: {{ ticket_id }},
+    currentUserId: {{ current_user.sub if current_user else 0 }},
+    userRoles: {{ user_roles | tojson }},
+    isAdmin:      {{ ('admin' in user_roles) | lower }},
+    isDispatcher: {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
+    canResolve:   {{ ('tech_maint' in user_roles or 'dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    canAssign:    {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    canRate:      {{ ('department_head' in user_roles or 'secretary' in user_roles or 'staff' in user_roles) | lower }},
+};
+</script>
+
+<!-- Cabecera del ticket (skeleton hasta que cargue el JS) -->
+<div class="mt-3 mb-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <a href="/maintenance/tickets" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <div id="headerSkeleton">
+            <div class="mn-skeleton rounded" style="height:24px; width:250px;"></div>
+        </div>
+        <div id="headerContent" style="display:none;" class="d-flex align-items-center gap-2 flex-wrap">
+            <span id="ticketNumber" class="mn-ticket-number"></span>
+            <span id="statusBadge" class="mn-badge-status"></span>
+            <span id="priorityBadge" class="mn-badge-status"></span>
+            <span id="categoryBadge" class="mn-category-badge"></span>
+        </div>
+    </div>
+    <div id="ticketTitle" class="fw-bold fs-5" style="color:var(--maint-primary-darker); padding-left: 2.5rem;"></div>
+    <div class="mn-progress-bar mt-2" style="margin-left:2.5rem; margin-right:0;">
+        <div class="mn-progress-fill" id="progressBar" style="width:0%"></div>
+    </div>
+</div>
+
+<!-- Botones de acción -->
+<div id="actionButtons" class="d-flex flex-wrap gap-2 mb-3" style="padding-left:2.5rem;"></div>
+
+<!-- Tabs -->
+<ul class="nav mn-tab-nav border-bottom mb-3" id="detailTabs">
+    <li class="nav-item"><button class="nav-link active" data-tab="info"><i class="bi bi-info-circle me-1"></i>Información</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="technicians"><i class="bi bi-people me-1"></i>Técnicos <span class="badge bg-secondary ms-1" id="techCount"></span></button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="comments"><i class="bi bi-chat-left-text me-1"></i>Comentarios <span class="badge bg-secondary ms-1" id="commentCount"></span></button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="resolution"><i class="bi bi-check-circle me-1"></i>Resolución</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="history"><i class="bi bi-clock-history me-1"></i>Historial</button></li>
+</ul>
+
+<div id="tabContent">
+    <div class="text-center py-5">
+        <div class="spinner-border text-secondary" role="status"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Asignar técnico -->
+<div class="modal fade" id="assignTechModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-semibold">Asignar Técnico</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-0">
+                <div class="mb-3">
+                    <input type="text" class="form-control form-control-sm" id="techSearchInput" placeholder="Buscar técnico...">
+                </div>
+                <div id="technicianList" style="max-height:300px; overflow-y:auto;"></div>
+                <div class="mt-3">
+                    <label class="form-label small">Notas de asignación (opcional)</label>
+                    <textarea id="assignNotes" class="form-control form-control-sm" rows="2" placeholder="Instrucciones o contexto para el técnico..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-maint btn-sm" id="confirmAssignBtn">
+                    <i class="bi bi-person-plus me-1"></i>Asignar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Resolver -->
+<div class="modal fade" id="resolveModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-semibold"><i class="bi bi-check-circle me-2 text-success"></i>Resolver Ticket</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Resultado <span class="text-danger">*</span></label>
+                        <div class="d-flex gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="resolveOutcome" id="outcomeSucess" value="true" checked>
+                                <label class="form-check-label text-success fw-medium" for="outcomeSucess">
+                                    <i class="bi bi-check-circle-fill me-1"></i>Resuelto
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="resolveOutcome" id="outcomeFail" value="false">
+                                <label class="form-check-label text-warning fw-medium" for="outcomeFail">
+                                    <i class="bi bi-exclamation-circle-fill me-1"></i>Atendido (sin resolución)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium">Tipo <span class="text-danger">*</span></label>
+                        <select class="form-select form-select-sm" id="maintenanceType">
+                            <option value="">Selecciona...</option>
+                            <option value="CORRECTIVO">Correctivo</option>
+                            <option value="PREVENTIVO">Preventivo</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium">Origen <span class="text-danger">*</span></label>
+                        <select class="form-select form-select-sm" id="serviceOrigin">
+                            <option value="">Selecciona...</option>
+                            <option value="INTERNO">Interno</option>
+                            <option value="EXTERNO">Externo</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium">Notas de resolución <span class="text-danger">*</span></label>
+                        <textarea id="resolutionNotes" class="form-control" rows="3"
+                                  placeholder="Describe el trabajo realizado, materiales usados, etc."></textarea>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-medium">Tiempo invertido (min) <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control form-control-sm" id="timeInvested" min="1" placeholder="60">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label fw-medium">Observaciones adicionales</label>
+                        <input type="text" class="form-control form-control-sm" id="resolutionObservations"
+                               placeholder="Recomendaciones, seguimiento, etc.">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success btn-sm" id="confirmResolveBtn">
+                    <i class="bi bi-check-lg me-1"></i>Confirmar Resolución
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Calificar -->
+<div class="modal fade" id="rateModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-semibold"><i class="bi bi-star me-2" style="color:#F59E0B"></i>Calificar Servicio</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Atención del técnico <span class="text-danger">*</span></label>
+                    <div class="mn-stars d-flex gap-1" id="starsAttention" data-target="ratingAttention"></div>
+                    <input type="hidden" id="ratingAttention" value="0">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Rapidez de respuesta <span class="text-danger">*</span></label>
+                    <div class="mn-stars d-flex gap-1" id="starsSpeed" data-target="ratingSpeed"></div>
+                    <input type="hidden" id="ratingSpeed" value="0">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">¿El problema fue resuelto eficientemente?</label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="efficiencyRating" id="effYes" value="true" checked>
+                            <label class="form-check-label" for="effYes">Sí</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="efficiencyRating" id="effNo" value="false">
+                            <label class="form-check-label" for="effNo">No</label>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="form-label fw-medium">Comentario (opcional)</label>
+                    <textarea class="form-control form-control-sm" id="ratingComment" rows="2"
+                              placeholder="¿Algún comentario adicional sobre el servicio?"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning btn-sm" id="confirmRateBtn">
+                    <i class="bi bi-star-fill me-1"></i>Enviar Calificación
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Cancelar -->
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <h5 class="modal-title fw-semibold text-danger"><i class="bi bi-x-circle me-2"></i>Cancelar Solicitud</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Esta acción no se puede deshacer. El ticket quedará en estado <strong>Cancelado</strong>.</p>
+                <label class="form-label fw-medium">Motivo de cancelación (opcional)</label>
+                <textarea class="form-control" id="cancelReason" rows="2" placeholder="¿Por qué se cancela esta solicitud?"></textarea>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Volver</button>
+                <button type="button" class="btn btn-danger btn-sm" id="confirmCancelBtn">
+                    <i class="bi bi-x-lg me-1"></i>Cancelar Solicitud
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/ticket-assignment.js?v={{ sv('js/ticket-assignment.js') }}"></script>
+<script src="/static/maint/js/ticket-resolution.js?v={{ sv('js/ticket-resolution.js') }}"></script>
+<script src="/static/maint/js/ticket-detail.js?v={{ sv('js/ticket-detail.js') }}"></script>
+{% endblock %}

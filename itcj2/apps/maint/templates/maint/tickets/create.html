@@ -1,0 +1,162 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Nueva Solicitud{% endblock %}
+
+{% block extra_css %}
+<style>
+.mn-category-card {
+    border: 2px solid #CFD8DC;
+    border-radius: 10px;
+    background: #fff;
+    padding: 1rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    text-align: center;
+}
+.mn-category-card:hover {
+    border-color: var(--maint-accent);
+    background: var(--maint-primary-light);
+}
+.mn-category-card.selected {
+    border-color: var(--maint-primary);
+    background: #EDF2F5;
+}
+.mn-category-card .cat-icon { font-size: 1.8rem; color: var(--maint-primary); margin-bottom: 0.4rem; }
+.mn-category-card .cat-name { font-weight: 600; font-size: 0.85rem; color: var(--maint-primary-dark); }
+
+.mn-priority-card {
+    border: 2px solid #CFD8DC;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.mn-priority-card:hover { border-color: var(--maint-accent); }
+.mn-priority-card.selected { border-color: var(--maint-primary); }
+.mn-priority-baja.selected   { border-color: #6B7280; background: #F3F4F6; }
+.mn-priority-media.selected  { border-color: #1E40AF; background: #DBEAFE; }
+.mn-priority-alta.selected   { border-color: #D97706; background: #FEF3C7; }
+.mn-priority-urgente.selected{ border-color: #DC2626; background: #FEE2E2; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+    <div class="col-lg-8 col-xl-7">
+
+        <!-- Header -->
+        <div class="d-flex align-items-center mb-4 gap-2">
+            <a href="/maintenance/tickets" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i>
+            </a>
+            <h4 class="mb-0" style="color: var(--maint-primary-dark); font-weight: 700;">
+                <i class="bi bi-plus-circle me-2"></i>Nueva Solicitud
+            </h4>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form id="createTicketForm" novalidate>
+
+                    <!-- Categoría -->
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">
+                            <i class="bi bi-tags me-1" style="color:var(--maint-primary)"></i>
+                            ¿Qué tipo de servicio necesitas? <span class="text-danger">*</span>
+                        </label>
+                        <div id="categorySkeleton" class="row g-2">
+                            <div class="col-4 col-md-2"><div class="mn-skeleton rounded" style="height:90px;"></div></div>
+                            <div class="col-4 col-md-2"><div class="mn-skeleton rounded" style="height:90px;"></div></div>
+                            <div class="col-4 col-md-2"><div class="mn-skeleton rounded" style="height:90px;"></div></div>
+                        </div>
+                        <div id="categoryCards" class="row g-2" style="display:none;"></div>
+                        <input type="hidden" id="categoryId" required>
+                        <div class="invalid-feedback" id="categoryError">Selecciona una categoría</div>
+                    </div>
+
+                    <!-- Campos dinámicos -->
+                    <div id="customFieldsSection" class="mb-4" style="display:none;">
+                        <label class="form-label fw-semibold">
+                            <i class="bi bi-list-check me-1" style="color:var(--maint-primary)"></i>
+                            Información adicional
+                        </label>
+                        <div id="customFieldsBody" class="row g-3"></div>
+                    </div>
+
+                    <!-- Prioridad -->
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">
+                            <i class="bi bi-flag me-1" style="color:var(--maint-primary)"></i>
+                            Prioridad
+                        </label>
+                        <div class="d-flex flex-wrap gap-2" id="priorityCards">
+                            <div class="mn-priority-card mn-priority-baja" data-priority="BAJA">
+                                <i class="bi bi-arrow-down-circle me-1"></i>Baja
+                            </div>
+                            <div class="mn-priority-card mn-priority-media selected" data-priority="MEDIA">
+                                <i class="bi bi-dash-circle me-1"></i>Media
+                            </div>
+                            <div class="mn-priority-card mn-priority-alta" data-priority="ALTA">
+                                <i class="bi bi-arrow-up-circle me-1"></i>Alta
+                            </div>
+                            <div class="mn-priority-card mn-priority-urgente" data-priority="URGENTE">
+                                <i class="bi bi-exclamation-circle me-1"></i>Urgente
+                            </div>
+                        </div>
+                        <input type="hidden" id="priorityId" value="MEDIA">
+                    </div>
+
+                    <!-- Título -->
+                    <div class="mb-3">
+                        <label for="titleInput" class="form-label fw-semibold">
+                            <i class="bi bi-type me-1" style="color:var(--maint-primary)"></i>
+                            Título breve <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" id="titleInput" class="form-control" maxlength="200"
+                               placeholder="Describe brevemente el problema (ej: Fuga de agua en baño 2)">
+                        <div class="invalid-feedback">El título debe tener al menos 5 caracteres</div>
+                    </div>
+
+                    <!-- Descripción -->
+                    <div class="mb-3">
+                        <label for="descriptionInput" class="form-label fw-semibold">
+                            <i class="bi bi-text-paragraph me-1" style="color:var(--maint-primary)"></i>
+                            Descripción detallada <span class="text-danger">*</span>
+                        </label>
+                        <textarea id="descriptionInput" class="form-control" rows="4"
+                                  placeholder="Describe con detalle el problema, cuándo ocurrió, y cualquier información relevante..."></textarea>
+                        <div class="invalid-feedback">La descripción debe tener al menos 10 caracteres</div>
+                    </div>
+
+                    <!-- Ubicación -->
+                    <div class="mb-4">
+                        <label for="locationInput" class="form-label fw-semibold">
+                            <i class="bi bi-geo-alt me-1" style="color:var(--maint-primary)"></i>
+                            Ubicación específica
+                        </label>
+                        <input type="text" id="locationInput" class="form-control" maxlength="300"
+                               placeholder="Edificio, aula, área o descripción de dónde ocurre el problema">
+                    </div>
+
+                    <!-- Botones -->
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="/maintenance/tickets" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-lg me-1"></i>Cancelar
+                        </a>
+                        <button type="submit" class="btn btn-maint" id="submitBtn">
+                            <i class="bi bi-send me-1"></i>Enviar Solicitud
+                        </button>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/ticket-create.js?v={{ sv('js/ticket-create.js') }}"></script>
+{% endblock %}
