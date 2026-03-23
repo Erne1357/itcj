@@ -22,11 +22,14 @@ def get_all_groups(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryGroup
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver todos los grupos"})
 
     query = db.query(InventoryGroup)
@@ -49,11 +52,14 @@ def get_groups_by_department(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != department_id:

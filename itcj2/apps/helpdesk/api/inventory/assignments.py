@@ -20,9 +20,12 @@ def assign_to_user(
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
     from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     assigned_by_id = int(user["sub"])
     user_roles = user_roles_in_app(db, assigned_by_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, assigned_by_id)
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
@@ -33,7 +36,7 @@ def assign_to_user(
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and assigned_by_id not in secretary_comp_center:
+    if "admin" not in user_roles and assigned_by_id not in secretary_comp_center and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, assigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
@@ -69,9 +72,12 @@ def unassign_from_user(
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     unassigned_by_id = int(user["sub"])
     user_roles = user_roles_in_app(db, unassigned_by_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, unassigned_by_id)
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
@@ -83,7 +89,7 @@ def unassign_from_user(
     if not item.is_assigned_to_user:
         raise HTTPException(400, detail={"success": False, "error": "El equipo no está asignado a ningún usuario"})
 
-    if "admin" not in user_roles and unassigned_by_id not in secretary_comp_center:
+    if "admin" not in user_roles and unassigned_by_id not in secretary_comp_center and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, unassigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
@@ -220,9 +226,12 @@ def update_location(
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.services import InventoryHistoryService
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
@@ -233,7 +242,7 @@ def update_location(
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != item.department_id:

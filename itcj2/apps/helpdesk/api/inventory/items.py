@@ -22,15 +22,18 @@ def get_items(
     from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import or_
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
     user_dept = None
     params = request.query_params
 
     query = db.query(InventoryItem).filter_by(is_active=True)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)
@@ -117,11 +120,14 @@ def get_user_equipment(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     current_user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, current_user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, current_user_id)
 
-    if "admin" not in user_roles and current_user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and current_user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para consultar equipos de otros usuarios"})
 
     items = InventoryService.get_items_for_user(db, target_user_id, category_id)
@@ -138,11 +144,14 @@ def get_department_equipment(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != department_id:
@@ -160,16 +169,18 @@ def get_item(
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)
@@ -191,16 +202,18 @@ def get_item_tickets(
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem, Ticket, TicketInventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)

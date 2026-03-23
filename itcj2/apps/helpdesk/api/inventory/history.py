@@ -19,16 +19,18 @@ def get_item_history(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     item = db.get(InventoryItem, item_id)
     if not item:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)
@@ -58,13 +60,15 @@ def get_recent_events(
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     dept_filter = department_id
-    if "admin" not in user_roles and user_id not in secretary_comp_center:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)
@@ -121,16 +125,18 @@ def get_maintenance_history(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     item = db.get(InventoryItem, item_id)
     if not item:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)

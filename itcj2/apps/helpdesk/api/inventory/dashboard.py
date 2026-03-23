@@ -17,12 +17,14 @@ def get_quick_stats(
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
-    if "admin" in user_roles or user_id in secretary_comp_center:
+    if "admin" in user_roles or user_id in secretary_comp_center or is_comp_center:
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         stats = InventoryStatsService.get_overview_stats(db)
         return {
@@ -130,13 +132,15 @@ def get_recent_activity(
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     department_id = None
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
             from itcj2.core.services.departments_service import get_user_department
             user_dept = get_user_department(db, user_id)
@@ -173,12 +177,14 @@ def get_category_chart(
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     from itcj2.apps.helpdesk.models import InventoryItem, InventoryCategory
     from sqlalchemy import func, and_
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
-    if "admin" in user_roles or user_id in secretary_comp_center:
+    if "admin" in user_roles or user_id in secretary_comp_center or is_comp_center:
         stats = InventoryStatsService.get_by_category(db)
     else:
         from itcj2.core.services.departments_service import get_user_department
@@ -223,16 +229,18 @@ def get_status_chart(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import func
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    is_comp_center = is_comp_center_user(db, user_id)
 
     results_query = db.query(
         InventoryItem.status, func.count(InventoryItem.id)
     ).filter(InventoryItem.is_active == True)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, user_id)
         if user_dept:

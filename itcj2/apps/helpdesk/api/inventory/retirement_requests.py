@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 
 def _is_admin(db, user_id):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
     roles = user_roles_in_app(db, user_id, "helpdesk")
     sec = _get_users_with_position(db, ["secretary_comp_center"])
-    return "admin" in roles or user_id in sec
+    return "admin" in roles or user_id in sec or is_comp_center_user(db, user_id)
 
 
 # ── Listado ────────────────────────────────────────────────────────────────────

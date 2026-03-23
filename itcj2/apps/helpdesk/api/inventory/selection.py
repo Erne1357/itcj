@@ -121,9 +121,12 @@ def get_items_by_group(
     if not group or not group.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado"})
 
+    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles:
+    is_comp_center = is_comp_center_user(db, user_id)
+    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, user_id)
         if not user_dept or user_dept.id != group.department_id:
