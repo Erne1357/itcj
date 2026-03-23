@@ -172,7 +172,7 @@ def get_category_chart(
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     from itcj2.apps.helpdesk.models import InventoryItem, InventoryCategory
-    from sqlalchemy import func
+    from sqlalchemy import func, and_
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
@@ -190,7 +190,7 @@ def get_category_chart(
             InventoryCategory.name, func.count(InventoryItem.id)
         ).outerjoin(
             InventoryItem,
-            db.and_(
+            and_(
                 InventoryItem.category_id == InventoryCategory.id,
                 InventoryItem.department_id == user_dept.id,
                 InventoryItem.is_active == True,

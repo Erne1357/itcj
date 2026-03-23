@@ -70,6 +70,8 @@ async function loadItemDetail() {
 // ==================== RENDERIZADO PRINCIPAL ====================
 function renderItemDetail(item) {
     // Header
+    const categoryIcon = item.category?.icon || 'fas fa-desktop';
+    document.getElementById('header-icon').className = categoryIcon;
     document.getElementById('header-inventory-number').textContent = item.inventory_number;
     document.getElementById('header-description').textContent = 
         `${item.brand || ''} ${item.model || ''}`.trim() || 'Sin información de marca/modelo';

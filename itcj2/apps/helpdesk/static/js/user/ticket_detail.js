@@ -1202,14 +1202,16 @@ async function renderEquipmentInfo(equipmentData) {
     card.style.display = 'block';
 
     // Determinar si son múltiples equipos o uno solo
-    const isMultiple = Array.isArray(equipmentData);
+    // Si es un array con un solo elemento, lo tratamos como individual
+    const isMultiple = Array.isArray(equipmentData) && equipmentData.length > 1;
 
     if (isMultiple) {
         // Múltiples equipos (de un grupo)
         renderMultipleEquipmentPreview(equipmentData, container);
     } else {
-        // Equipo individual
-        renderSingleEquipmentPreview(equipmentData, container);
+        // Equipo individual - extraer si viene en array
+        const item = Array.isArray(equipmentData) ? equipmentData[0] : equipmentData;
+        renderSingleEquipmentPreview(item, container);
     }
 }
 
