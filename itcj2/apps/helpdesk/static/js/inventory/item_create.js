@@ -506,8 +506,24 @@ async function handleSubmit(e) {
 
         if (!response.ok) {
             const error = await response.json();
-            const detail = error.detail || error;
-            const msg = (typeof detail === 'string') ? detail : (detail.error || detail.message || 'Error al registrar equipo');
+            console.error('API Error:', error);
+            
+            let msg = 'Error al registrar equipo';
+            const detail = error.detail || error.message || error;
+
+            if (typeof detail === 'string') {
+                msg = detail;
+            } else if (Array.isArray(detail)) {
+                // Errores de validación de FastAPI o lista de errores
+                msg = detail.map(e => {
+                    if (typeof e === 'object' && e.msg) return e.msg;
+                    if (typeof e === 'string') return e;
+                    return JSON.stringify(e);
+                }).join(', ');
+            } else if (typeof detail === 'object') {
+                msg = getErrorMessageFromObject(detail);
+            }
+            
             throw new Error(msg);
         }
 
@@ -593,6 +609,37 @@ function showSuccessModal(item) {
     document.getElementById('view-item-link').href = `/help-desk/inventory/items/${item.id}`;
     
     $('#successModal').modal('show');
+}
+
+function getErrorMessageFromObject(obj) {
+    let msg = obj.message || obj.error || '';
+    
+    // Si hay errores de validación, agregarlos
+    if (obj.validation_errors && Array.isArray(obj.validation_errors)) {
+        if (msg) msg += ': ';
+        msg += obj.validation_errors.join(', ');
+    } else if (obj.errors && Array.isArray(obj.errors)) {
+        if (msg) msg += ': ';
+        msg += obj.errors.join(', ');
+    }
+
+    if (msg) return msg;
+
+    if (obj.detail) {
+        if (typeof obj.detail === 'string') return obj.detail;
+        if (Array.isArray(obj.detail)) return obj.detail.map(e => e.msg || e).join(', ');
+        return JSON.stringify(obj.detail);
+    }
+    
+    // Buscar cualquier string que parezca un mensaje
+    const keys = Object.keys(obj);
+    if (keys.length > 0) {
+        // Si tiene clave 'loc' y 'msg', es error de validación
+        if (obj.loc && obj.msg) return `${obj.loc.join('.')}: ${obj.msg}`;
+        return JSON.stringify(obj);
+    }
+    
+    return 'Error desconocido';
 }
 
 // ==================== HELPERS ====================
