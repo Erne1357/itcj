@@ -1,6 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship, object_session
-from sqlalchemy.sql import text
+from sqlalchemy.sql import func, text
 
 from itcj2.models.base import Base
 
@@ -15,7 +15,7 @@ class Department(Base):
     icon_class = Column(String(50), nullable=True)
     parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, server_default=text("NOW()"), nullable=False)
+    created_at = Column(DateTime, default=func.now(), server_default=text("NOW()"), nullable=False)
 
     positions = relationship("Position", back_populates="department", lazy="dynamic")
     parent = relationship("Department", remote_side=[id], backref="subdepartments")
