@@ -1,17 +1,68 @@
 {% extends "maint/base_maint.html" %}
-
 {% block title %}Áreas Técnicas{% endblock %}
 
 {% block content %}
-<div class="row mt-3">
+<div class="row mt-3 mb-3">
     <div class="col">
-        <h2 class="mb-4" style="color: var(--maint-primary-dark);">
-            <i class="fas fa-users-cog me-2"></i>Áreas Técnicas
-        </h2>
-        <div class="alert alert-info">
-            <i class="fas fa-hard-hat me-2"></i>
-            <strong>En construcción.</strong> La administración de áreas técnicas estará disponible próximamente.
+        <div>
+            <h2 class="mb-0" style="color: var(--maint-primary-dark);">
+                <i class="fas fa-users-cog me-2"></i>Áreas Técnicas
+            </h2>
+            <p class="text-muted small mb-0 mt-1">
+                Asigna áreas de especialidad a los técnicos. Esto es informativo y
+                no restringe qué tickets puede recibir cada técnico.
+            </p>
         </div>
     </div>
 </div>
+
+<!-- Leyenda de áreas -->
+<div class="d-flex flex-wrap gap-2 mb-3" id="areaLegend"></div>
+
+<!-- Tabla de técnicos -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-0">
+        <div id="technicianTableContainer">
+            <div class="text-center py-5 text-muted">
+                <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+                Cargando técnicos...
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal asignar área ─────────────────────────────────────────────────── -->
+<div class="modal fade" id="assignAreaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:380px;">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header" style="background:var(--maint-primary-light);">
+                <h5 class="modal-title fw-semibold" style="color:var(--maint-primary-dark);">
+                    <i class="bi bi-plus-circle me-2"></i>Asignar Área
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="assignUserId">
+                <p class="small text-muted mb-3">
+                    Técnico: <strong id="assignUserName"></strong>
+                </p>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Área <span class="text-danger">*</span></label>
+                    <select class="form-select" id="assignAreaCode"></select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm fw-semibold" id="btnSaveArea"
+                        style="background:var(--maint-primary);border-color:var(--maint-primary);color:#fff;">
+                    <i class="bi bi-check-lg me-1"></i>Asignar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/admin/areas.js?v={{ sv('js/admin/areas.js') }}"></script>
 {% endblock %}

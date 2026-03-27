@@ -109,9 +109,10 @@
          */
         getAppName() {
             const path = window.location.pathname;
-            if (path.includes('/agendatec')) return 'agendatec';
-            if (path.includes('/helpdesk')) return 'helpdesk';
-            if (path.includes('/vistetec')) return 'vistetec';
+            if (path.includes('/agendatec'))   return 'agendatec';
+            if (path.includes('/helpdesk'))    return 'helpdesk';
+            if (path.includes('/vistetec'))    return 'vistetec';
+            if (path.includes('/maintenance')) return 'maint';
             return 'app';
         }
 

@@ -79,7 +79,7 @@ async def items_list(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/items_list.html", {
+    return render_helpdesk(request, "helpdesk/inventory/items/items_list.html", {
         "user_roles": user_roles,
         "can_view_all": can_view_all,
         "active_page": "inventory_items",
@@ -95,7 +95,7 @@ async def item_create(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/item_create.html", {
+    return render_helpdesk(request, "helpdesk/inventory/items/item_create.html", {
         "user_roles": user_roles,
         "active_page": "inventory_items",
     })
@@ -133,7 +133,7 @@ async def item_detail(
         or is_comp_center
     )
 
-    return render_helpdesk(request, "helpdesk/inventory/item_detail.html", {
+    return render_helpdesk(request, "helpdesk/inventory/items/item_detail.html", {
         "item_id": item_id,
         "user_roles": user_roles,
         "can_edit": can_edit,
@@ -150,7 +150,7 @@ async def my_equipment(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/my_equipment.html", {
+    return render_helpdesk(request, "helpdesk/inventory/assignment/my_equipment.html", {
         "user_roles": user_roles,
         "active_page": "inventory_my_equipment",
     })
@@ -165,7 +165,7 @@ async def assign_equipment(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/assign_equipment.html", {
+    return render_helpdesk(request, "helpdesk/inventory/assignment/assign_equipment.html", {
         "user_roles": user_roles,
         "active_page": "inventory_assign",
     })
@@ -191,7 +191,7 @@ async def groups_list(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/groups_list.html", {
+    return render_helpdesk(request, "helpdesk/inventory/groups/groups_list.html", {
         "user_roles": user_roles,
         "can_view_all": can_view_all,
         "department_id": department_id,
@@ -218,7 +218,7 @@ async def group_detail(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/group_detail.html", {
+    return render_helpdesk(request, "helpdesk/inventory/groups/group_detail.html", {
         "group_id": group_id,
         "user_roles": user_roles,
         "department_id": department_id,
@@ -235,7 +235,7 @@ async def pending_items(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/pending_items.html", {
+    return render_helpdesk(request, "helpdesk/inventory/items/pending_items.html", {
         "user_roles": user_roles,
         "active_page": "inventory_pending",
     })
@@ -250,7 +250,7 @@ async def bulk_register(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/item_create.html", {
+    return render_helpdesk(request, "helpdesk/inventory/items/item_create.html", {
         "bulk_mode": True,
         "user_roles": user_roles,
         "active_page": "inventory_items",
@@ -270,7 +270,7 @@ async def reports(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/reports.html", {
+    return render_helpdesk(request, "helpdesk/inventory/reports/reports.html", {
         "user_roles": user_roles,
         "active_page": "inventory_reports",
         "active_tab": tab,
@@ -336,7 +336,7 @@ async def retirement_requests_list(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/retirement_requests_list.html", {
+    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_requests_list.html", {
         "user_roles": user_roles,
         "can_view_all": can_view_all,
         "can_approve": can_approve,
@@ -353,7 +353,7 @@ async def retirement_request_create(
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/inventory/retirement_request_create.html", {
+    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_request_create.html", {
         "user_roles": user_roles,
         "active_page": "inventory_retirement_requests",
     })
@@ -370,7 +370,7 @@ async def retirement_request_detail(
     user_roles = _helpdesk_roles(user_id)
     can_approve = "admin" in user_roles
 
-    return render_helpdesk(request, "helpdesk/inventory/retirement_request_detail.html", {
+    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_request_detail.html", {
         "request_id": request_id,
         "user_roles": user_roles,
         "can_approve": can_approve,
@@ -407,7 +407,7 @@ async def verification(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/verification.html", {
+    return render_helpdesk(request, "helpdesk/inventory/reports/verification.html", {
         "user_roles": user_roles,
         "can_view_all": can_view_all,
         "departments": departments_data,

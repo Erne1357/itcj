@@ -2,28 +2,7 @@
 {% block title %}Tickets de Mantenimiento{% endblock %}
 
 {% block extra_css %}
-<style>
-.mn-status-filter {
-    border: 1px solid #CFD8DC;
-    background-color: #fff;
-    color: var(--maint-muted);
-    font-size: 0.8rem;
-    padding: 0.3rem 0.75rem;
-    border-radius: 20px;
-    transition: all 0.15s ease;
-}
-.mn-status-filter:hover {
-    background-color: var(--maint-primary-light);
-    border-color: var(--maint-accent);
-    color: var(--maint-primary-dark);
-}
-.mn-status-filter.active {
-    background-color: var(--maint-primary);
-    border-color: var(--maint-primary);
-    color: #fff;
-    font-weight: 600;
-}
-</style>
+<link href="/static/maint/css/tickets/list.css?v={{ sv('css/tickets/list.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -99,5 +78,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/maint/js/tickets-list.js?v={{ sv('js/tickets-list.js') }}"></script>
+<script src="/static/maint/js/tickets/list.js?v={{ sv('js/tickets/list.js') }}"></script>
 {% endblock %}

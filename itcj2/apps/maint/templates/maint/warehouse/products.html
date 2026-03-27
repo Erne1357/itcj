@@ -1,0 +1,133 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Almacén — Productos{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 mt-2">
+    <h5 class="mb-0 fw-bold" style="color:var(--maint-primary-dark);">
+        <i class="bi bi-box-seam me-2"></i>Productos del Almacén
+    </h5>
+    <button class="btn btn-maint btn-sm" data-bs-toggle="modal" data-bs-target="#productModal">
+        <i class="bi bi-plus-lg me-1"></i>Nuevo Producto
+    </button>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+                <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Buscar por nombre o código...">
+            </div>
+            <div class="col-6 col-md-3">
+                <select class="form-select form-select-sm" id="categoryFilter">
+                    <option value="">Todas las categorías</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <select class="form-select form-select-sm" id="stockFilter">
+                    <option value="">Todo el stock</option>
+                    <option value="low">Stock bajo</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-2 d-flex gap-2">
+                <button class="btn btn-maint btn-sm flex-fill" onclick="MaintWarehouseProducts.load()">
+                    <i class="bi bi-search me-1"></i>Buscar
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="MaintWarehouseProducts.reset()">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div id="productsContainer">
+            <div class="text-center py-5">
+                <div class="spinner-border" style="color:var(--maint-primary);" role="status"></div>
+            </div>
+        </div>
+        <div id="pagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top d-none">
+            <span class="text-muted small" id="paginationInfo"></span>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="MaintWarehouseProducts.prevPage()">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="MaintWarehouseProducts.nextPage()">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="productModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0" style="background:var(--maint-primary-light);">
+                <h5 class="modal-title fw-semibold" id="productModalTitle" style="color:var(--maint-primary-dark);">
+                    <i class="bi bi-box-seam me-2"></i>Nuevo Producto
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="productId">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Nombre <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="prodName" maxlength="200">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium">Unidad <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="prodUnit" placeholder="pza, ml, kg...">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium">Lead Time (días)</label>
+                        <input type="number" class="form-control" id="prodLeadTime" min="0" value="7">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Subcategoría <span class="text-danger">*</span></label>
+                        <select class="form-select" id="prodSubcategory">
+                            <option value="">Selecciona...</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium">Descripción</label>
+                        <textarea class="form-control" id="prodDesc" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-maint btn-sm" onclick="MaintWarehouseProducts.save()">
+                    <i class="bi bi-check-lg me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="stockDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0" style="background:var(--maint-primary-light);">
+                <h5 class="modal-title fw-semibold" style="color:var(--maint-primary-dark);">
+                    <i class="bi bi-boxes me-2"></i>Detalle de Stock
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="stockDetailBody">
+                <div class="text-center py-4">
+                    <div class="spinner-border" style="color:var(--maint-primary);" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/warehouse/products.js?v={{ sv('js/warehouse/products.js') }}"></script>
+{% endblock %}

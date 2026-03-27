@@ -1,0 +1,245 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Solicitud de Baja - Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/retirement/retirement_request_detail.css') }}?v={{ sv('helpdesk', 'css/inventory/retirement/retirement_request_detail.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Encabezado skeleton / real -->
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <span class="folio-display" id="folio-display">...</span>
+                <span class="status-badge-lg" id="status-badge">&nbsp;</span>
+            </div>
+            <p class="text-muted mb-0 small mt-1" id="header-meta">Cargando...</p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.retirement_requests_list') }}"
+               class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left"></i> Volver
+            </a>
+            <!-- Acciones dinámicas se insertan aquí por JS -->
+            <div id="action-buttons"></div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Columna principal -->
+        <div class="col-12 col-lg-8">
+
+            <!-- Detalle de la solicitud -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-info-circle"></i> Información de la Solicitud
+                    </h6>
+                </div>
+                <div class="card-body" style="font-size:.875rem;">
+                    <div class="row">
+                        <div class="col-sm-6 mb-2">
+                            <span class="text-muted">Solicitante:</span>
+                            <span class="ml-1 font-weight-bold" id="detail-requested-by">...</span>
+                        </div>
+                        <div class="col-sm-6 mb-2">
+                            <span class="text-muted">Fecha de creación:</span>
+                            <span class="ml-1" id="detail-created-at">...</span>
+                        </div>
+                        <div class="col-12 mb-2">
+                            <span class="text-muted">Motivo:</span>
+                            <p class="mb-0 mt-1" id="detail-reason" style="white-space:pre-wrap;">...</p>
+                        </div>
+                        <div class="col-sm-6 mb-2" id="reviewed-by-row" style="display:none;">
+                            <span class="text-muted">Revisado por:</span>
+                            <span class="ml-1 font-weight-bold" id="detail-reviewed-by">...</span>
+                        </div>
+                        <div class="col-sm-6 mb-2" id="reviewed-at-row" style="display:none;">
+                            <span class="text-muted">Fecha de revisión:</span>
+                            <span class="ml-1" id="detail-reviewed-at">...</span>
+                        </div>
+                        <div class="col-12" id="review-notes-row" style="display:none;">
+                            <span class="text-muted">Notas de revisión:</span>
+                            <p class="mb-0 mt-1 text-info" id="detail-review-notes" style="white-space:pre-wrap;">...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Equipos en la solicitud -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-desktop"></i> Equipos en esta Solicitud
+                        <span class="badge bg-secondary text-white ml-2" id="items-count-badge">0</span>
+                    </h6>
+                    <!-- Add item button (only DRAFT) -->
+                    <button class="btn btn-sm btn-outline-primary" id="btn-add-item" style="display:none;"
+                            data-toggle="collapse" data-target="#add-item-panel">
+                        <i class="fas fa-plus"></i> Agregar equipo
+                    </button>
+                </div>
+
+                <!-- Panel agregar equipo (DRAFT only) -->
+                <div class="collapse" id="add-item-panel">
+                    <div class="card-body border-bottom py-2">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12 col-md-8">
+                                <label class="form-label small mb-1">Buscar equipo</label>
+                                <div class="position-relative">
+                                    <input type="text" class="form-control form-control-sm"
+                                           id="add-item-search" placeholder="Número, marca, modelo, serial..."
+                                           autocomplete="off">
+                                    <div id="add-item-results" class="position-absolute w-100 bg-white"
+                                         style="z-index:1000; display:none; border:1px solid #e3e6f0; border-top:none; max-height:220px; overflow-y:auto; border-radius:0 0 .35rem .35rem;"></div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <label class="form-label small mb-1">Notas (opcional)</label>
+                                <input type="text" class="form-control form-control-sm" id="add-item-notes"
+                                       placeholder="Observaciones...">
+                            </div>
+                        </div>
+                        <div id="add-item-selected" class="mt-2 d-none">
+                            <span class="badge bg-info text-dark" id="add-item-selected-label"></span>
+                            <button class="btn btn-sm btn-primary ml-2" id="btn-confirm-add-item">
+                                <i class="fas fa-plus"></i> Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th class="pl-3">Equipo</th>
+                                    <th class="d-none d-md-table-cell">Serial Proveedor</th>
+                                    <th class="d-none d-md-table-cell">Serial ITCJ</th>
+                                    <th class="d-none d-sm-table-cell">Departamento</th>
+                                    <th>Notas</th>
+                                    <th id="col-actions" style="display:none;">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="items-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center py-3">
+                                        <i class="fas fa-spinner fa-spin text-primary"></i>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Documento adjunto -->
+            <div class="card shadow mb-3" id="document-card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-paperclip"></i> Documento Adjunto
+                    </h6>
+                    <button class="btn btn-sm btn-outline-secondary" id="btn-attach-doc" style="display:none;"
+                            data-toggle="collapse" data-target="#attach-doc-panel">
+                        <i class="fas fa-upload"></i> Subir documento
+                    </button>
+                </div>
+                <div class="collapse" id="attach-doc-panel">
+                    <div class="card-body border-bottom py-2">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12 col-md-8">
+                                <input type="file" class="form-control-file" id="doc-file-input"
+                                       accept=".pdf,.doc,.docx">
+                                <small class="text-muted">PDF o DOCX, máx. 10 MB</small>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <button class="btn btn-sm btn-primary" id="btn-upload-doc">
+                                    <i class="fas fa-upload"></i> Subir
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body py-2" id="doc-info">
+                    <p class="text-muted small mb-0">
+                        <i class="fas fa-file-alt mr-1"></i>
+                        <span id="doc-name">Sin documento adjunto</span>
+                    </p>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Panel lateral: acciones de revisión -->
+        <div class="col-12 col-lg-4">
+            <!-- Acciones de admin -->
+            {% if can_approve %}
+            <div class="card shadow mb-3" id="review-panel" style="display:none!important;">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-warning" style="font-size:.85rem;">
+                        <i class="fas fa-gavel"></i> Revisión
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label class="form-label small">Notas de revisión (opcional)</label>
+                        <textarea class="form-control form-control-sm" id="review-notes-input" rows="3"
+                                  placeholder="Comentarios para el solicitante..."></textarea>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-success flex-fill" id="btn-approve">
+                            <i class="fas fa-check"></i> Aprobar
+                        </button>
+                        <button class="btn btn-sm btn-danger flex-fill" id="btn-reject">
+                            <i class="fas fa-times"></i> Rechazar
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Estado / historial -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-secondary" style="font-size:.85rem;">
+                        <i class="fas fa-history"></i> Estado
+                    </h6>
+                </div>
+                <div class="card-body" id="status-timeline" style="font-size:.8rem;">
+                    <p class="text-muted">Cargando...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Modal confirmación -->
+<div class="modal fade" id="confirm-modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="confirm-modal-title">Confirmar</h6>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body" id="confirm-modal-body">¿Confirmas esta acción?</div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-primary" id="confirm-modal-ok">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const REQUEST_ID = {{ request_id }};
+    const CAN_APPROVE = {{ 'true' if can_approve else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_request_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_request_detail.js') }}"></script>
+{% endblock %}

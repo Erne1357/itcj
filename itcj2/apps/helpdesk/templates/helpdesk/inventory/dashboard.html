@@ -2,6 +2,10 @@
 
 {% block title %}Dashboard de Inventario - Help-Desk ITCJ{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/dashboard.css') }}?v={{ sv('helpdesk', 'css/inventory/dashboard.css') }}">
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <!-- Encabezado -->

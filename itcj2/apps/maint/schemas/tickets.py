@@ -1,5 +1,12 @@
+from decimal import Decimal
 from pydantic import BaseModel, Field
 from typing import Optional
+
+
+class MaterialUseRequest(BaseModel):
+    product_id: int
+    quantity: Decimal = Field(gt=0)
+    notes: Optional[str] = None
 
 
 class CreateTicketRequest(BaseModel):
@@ -33,6 +40,7 @@ class ResolveTicketRequest(BaseModel):
     resolution_notes: str = Field(min_length=10)
     time_invested_minutes: int = Field(ge=1)
     observations: Optional[str] = None
+    materials_used: Optional[list[MaterialUseRequest]] = None
 
 
 class RateTicketRequest(BaseModel):

@@ -1,33 +1,16 @@
 {% extends "maint/base_maint.html" %}
 {% block title %}Ticket #{{ ticket_id }}{% endblock %}
 
-{# Datos accesibles desde JS #}
 {% block extra_css %}
-<style>
-.mn-tab-nav .nav-link { color: var(--maint-muted); border-radius: 6px 6px 0 0; font-size: 0.88rem; }
-.mn-tab-nav .nav-link.active { color: var(--maint-primary-dark); font-weight: 600; border-bottom: 2px solid var(--maint-primary); }
-.mn-detail-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--maint-muted); }
-.mn-detail-value { color: var(--maint-primary-darker); }
-.mn-comment-bubble { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 0.75rem 1rem; }
-.mn-comment-bubble.internal { background: #FFFDE7; border-color: #FDD835; }
-.mn-history-item { border-left: 3px solid var(--maint-accent-light); padding-left: 1rem; margin-bottom: 1rem; position: relative; }
-.mn-history-item::before { content: ''; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--maint-primary); }
-.mn-star { font-size: 1.3rem; cursor: pointer; color: #CFD8DC; transition: color 0.1s; }
-.mn-star.filled, .mn-star:hover ~ .mn-star, .mn-stars:hover .mn-star { color: #CFD8DC; }
-.mn-stars:hover .mn-star:hover ~ .mn-star { color: #CFD8DC; }
-.mn-stars .mn-star:hover,
-.mn-stars .mn-star:hover ~ .mn-star + .mn-star { color: #CFD8DC; }
-.mn-stars[data-value] .mn-star.filled { color: #F59E0B; }
-</style>
+<link href="/static/maint/css/tickets/detail.css?v={{ sv('css/tickets/detail.css') }}" rel="stylesheet">
 {% endblock %}
 
-{% block content %}
-<!-- Datos de sesión para el JS -->
+{% block page_vars %}
 <script>
 var TICKET_CTX = {
-    ticketId: {{ ticket_id }},
+    ticketId:     {{ ticket_id }},
     currentUserId: {{ current_user.sub if current_user else 0 }},
-    userRoles: {{ user_roles | tojson }},
+    userRoles:    {{ user_roles | tojson }},
     isAdmin:      {{ ('admin' in user_roles) | lower }},
     isDispatcher: {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
     isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
@@ -36,6 +19,9 @@ var TICKET_CTX = {
     canRate:      {{ ('department_head' in user_roles or 'secretary' in user_roles or 'staff' in user_roles) | lower }},
 };
 </script>
+{% endblock %}
+
+{% block content %}
 
 <!-- Cabecera del ticket (skeleton hasta que cargue el JS) -->
 <div class="mt-3 mb-3">
@@ -117,9 +103,9 @@ var TICKET_CTX = {
             </div>
             <div class="modal-body">
                 <div class="row g-3">
-                    <div class="col-md-6">
+                    <div class="col-12 col-md-6">
                         <label class="form-label fw-medium">Resultado <span class="text-danger">*</span></label>
-                        <div class="d-flex gap-2">
+                        <div class="d-flex flex-wrap gap-2">
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="resolveOutcome" id="outcomeSucess" value="true" checked>
                                 <label class="form-check-label text-success fw-medium" for="outcomeSucess">
@@ -134,7 +120,7 @@ var TICKET_CTX = {
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-6 col-md-3">
                         <label class="form-label fw-medium">Tipo <span class="text-danger">*</span></label>
                         <select class="form-select form-select-sm" id="maintenanceType">
                             <option value="">Selecciona...</option>
@@ -142,7 +128,7 @@ var TICKET_CTX = {
                             <option value="PREVENTIVO">Preventivo</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-6 col-md-3">
                         <label class="form-label fw-medium">Origen <span class="text-danger">*</span></label>
                         <select class="form-select form-select-sm" id="serviceOrigin">
                             <option value="">Selecciona...</option>
@@ -155,14 +141,27 @@ var TICKET_CTX = {
                         <textarea id="resolutionNotes" class="form-control" rows="3"
                                   placeholder="Describe el trabajo realizado, materiales usados, etc."></textarea>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-12 col-md-4">
                         <label class="form-label fw-medium">Tiempo invertido (min) <span class="text-danger">*</span></label>
                         <input type="number" class="form-control form-control-sm" id="timeInvested" min="1" placeholder="60">
                     </div>
-                    <div class="col-md-8">
+                    <div class="col-12 col-md-8">
                         <label class="form-label fw-medium">Observaciones adicionales</label>
                         <input type="text" class="form-control form-control-sm" id="resolutionObservations"
                                placeholder="Recomendaciones, seguimiento, etc.">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium">Materiales del almacén <span class="text-muted fw-normal small">(opcional)</span></label>
+                        <div class="position-relative mb-2">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control" id="materialSearchInput"
+                                       placeholder="Buscar producto en almacén..." autocomplete="off">
+                            </div>
+                            <div id="materialSearchResults" class="list-group shadow-sm"
+                                 style="display:none; position:absolute; z-index:1050; width:100%; max-height:180px; overflow-y:auto;"></div>
+                        </div>
+                        <div id="materialsList" class="d-flex flex-column gap-1"></div>
                     </div>
                 </div>
             </div>
@@ -249,7 +248,7 @@ var TICKET_CTX = {
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/maint/js/ticket-assignment.js?v={{ sv('js/ticket-assignment.js') }}"></script>
-<script src="/static/maint/js/ticket-resolution.js?v={{ sv('js/ticket-resolution.js') }}"></script>
-<script src="/static/maint/js/ticket-detail.js?v={{ sv('js/ticket-detail.js') }}"></script>
+<script src="/static/maint/js/tickets/assignment.js?v={{ sv('js/tickets/assignment.js') }}"></script>
+<script src="/static/maint/js/tickets/resolution.js?v={{ sv('js/tickets/resolution.js') }}"></script>
+<script src="/static/maint/js/tickets/detail.js?v={{ sv('js/tickets/detail.js') }}"></script>
 {% endblock %}

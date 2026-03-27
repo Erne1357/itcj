@@ -40,6 +40,10 @@
     background-color: #fd7e14 !important;
 }
 
+.bg-maint {
+    background-color: #546E7A !important;
+}
+
 /* ===== Responsive para Users ===== */
 @media (max-width: 768px) {
     /* Filtros en columna */

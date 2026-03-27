@@ -1,0 +1,27 @@
+/*
+ * tickets/list.css — Estilos de la lista de tickets
+ * Prefijo: .mn-
+ */
+
+.mn-status-filter {
+    border: 1px solid #CFD8DC;
+    background-color: #fff;
+    color: var(--maint-muted);
+    font-size: 0.8rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    transition: all 0.15s ease;
+}
+
+.mn-status-filter:hover {
+    background-color: var(--maint-primary-light);
+    border-color: var(--maint-accent);
+    color: var(--maint-primary-dark);
+}
+
+.mn-status-filter.active {
+    background-color: var(--maint-primary);
+    border-color: var(--maint-primary);
+    color: #fff;
+    font-weight: 600;
+}

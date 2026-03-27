@@ -285,7 +285,8 @@ def resolve_ticket(
     resolution_notes: str,
     time_invested_minutes: int,
     observations: str = None,
-) -> MaintTicket:
+    materials_used: list = None,
+) -> tuple:
     """
     Resuelve el ticket. El resolutor puede ser:
     - Un técnico activamente asignado → acción RESOLVED_BY_ASSIGNED
@@ -345,10 +346,47 @@ def resolve_ticket(
         },
     ))
 
+    # ── Consumo de materiales del almacén (soft-fail) ─────────────────────
+    warehouse_warnings = []
+    if materials_used:
+        from itcj2.apps.warehouse.services import fifo_service
+        for mat in materials_used:
+            sp = db.begin_nested()
+            try:
+                fifo_service.consume(
+                    db=db,
+                    product_id=mat.product_id,
+                    quantity=mat.quantity,
+                    source_app='maint',
+                    source_ticket_id=ticket_id,
+                    performed_by_id=resolved_by_id,
+                    notes=mat.notes,
+                )
+                db.add(MaintTicketActionLog(
+                    ticket_id=ticket_id,
+                    action='WAREHOUSE_MATERIAL_ADDED',
+                    performed_by_id=resolved_by_id,
+                    detail={'product_id': mat.product_id, 'quantity': str(mat.quantity)},
+                ))
+                sp.commit()
+            except Exception as mat_err:
+                sp.rollback()
+                if hasattr(mat_err, 'detail') and isinstance(mat_err.detail, dict):
+                    msg = mat_err.detail.get('message', str(mat_err))
+                elif hasattr(mat_err, 'detail') and isinstance(mat_err.detail, str):
+                    msg = mat_err.detail
+                else:
+                    msg = str(mat_err)
+                warehouse_warnings.append(msg)
+                logger.warning(
+                    "[maint] Warehouse consume failed for ticket %s product %s: %s",
+                    ticket_id, mat.product_id, msg,
+                )
+
     try:
         db.commit()
         logger.info(f"Ticket {ticket.ticket_number} resuelto ({action}) por usuario {resolved_by_id}")
-        return ticket
+        return ticket, warehouse_warnings
     except Exception as e:
         db.rollback()
         logger.error(f"Error al resolver ticket maint: {e}")

@@ -1,0 +1,142 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Almacén — Entradas de Stock{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 mt-2">
+    <h5 class="mb-0 fw-bold" style="color:var(--maint-primary-dark);">
+        <i class="bi bi-truck me-2"></i>Entradas de Stock
+    </h5>
+    <button class="btn btn-maint btn-sm" data-bs-toggle="modal" data-bs-target="#entryModal">
+        <i class="bi bi-plus-lg me-1"></i>Nueva Entrada
+    </button>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+                <select class="form-select form-select-sm" id="productFilter">
+                    <option value="">Todos los productos</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="form-check ms-1 mt-1">
+                    <input class="form-check-input" type="checkbox" id="includeVoided">
+                    <label class="form-check-label small" for="includeVoided">Incluir anuladas</label>
+                </div>
+            </div>
+            <div class="col-6 col-md-2">
+                <button class="btn btn-maint btn-sm w-100" onclick="MaintWarehouseEntries.load()">
+                    <i class="bi bi-search me-1"></i>Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div id="entriesContainer">
+            <div class="text-center py-5">
+                <div class="spinner-border" style="color:var(--maint-primary);" role="status"></div>
+            </div>
+        </div>
+        <div id="pagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top d-none">
+            <span class="text-muted small" id="paginationInfo"></span>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="MaintWarehouseEntries.prevPage()">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="MaintWarehouseEntries.nextPage()">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="entryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0" style="background:var(--maint-primary-light);">
+                <h5 class="modal-title fw-semibold" style="color:var(--maint-primary-dark);">
+                    <i class="bi bi-truck me-2"></i>Registrar Entrada de Stock
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Producto <span class="text-danger">*</span></label>
+                        <select class="form-select" id="entryProduct">
+                            <option value="">Selecciona un producto...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium">Cantidad <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="entryQty" min="0.01" step="0.01">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-medium">Costo Unitario</label>
+                        <input type="number" class="form-control" id="entryCost" min="0" step="0.01" value="0">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Folio de Compra</label>
+                        <input type="text" class="form-control" id="entryFolio" maxlength="100">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-medium">Proveedor</label>
+                        <input type="text" class="form-control" id="entrySupplier" maxlength="200">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-medium">Fecha de Compra <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" id="entryDate">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-medium">Notas</label>
+                        <textarea class="form-control" id="entryNotes" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-maint btn-sm" onclick="MaintWarehouseEntries.save()">
+                    <i class="bi bi-check-lg me-1"></i>Registrar Entrada
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="voidModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 bg-danger text-white">
+                <h5 class="modal-title fw-semibold"><i class="bi bi-ban me-2"></i>Anular Entrada</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="voidEntryId">
+                <div class="alert alert-warning small">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Solo puedes anular entradas que no hayan sido consumidas.
+                </div>
+                <label class="form-label fw-medium">Razón <span class="text-danger">*</span></label>
+                <textarea class="form-control" id="voidReason" rows="3"></textarea>
+            </div>
+            <div class="modal-footer border-0">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-danger btn-sm" onclick="MaintWarehouseEntries.confirmVoid()">
+                    <i class="bi bi-ban me-1"></i>Anular
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/warehouse/entries.js?v={{ sv('js/warehouse/entries.js') }}"></script>
+{% endblock %}

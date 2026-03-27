@@ -119,6 +119,40 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "dropdown": dropdown,
         })
 
+    # ── Almacén (dropdown — solo admin) ──────────────────────────────────────
+    if "admin" in roles:
+        items.append({
+            "label": "Almacén",
+            "icon": "fa-boxes",
+            "dropdown": [
+                {
+                    "label": "Dashboard",
+                    "icon": "fa-tachometer-alt",
+                    "url": "/maintenance/warehouse/dashboard",
+                },
+                {
+                    "label": "Productos",
+                    "icon": "fa-cube",
+                    "url": "/maintenance/warehouse/products",
+                },
+                {
+                    "label": "Categorías",
+                    "icon": "fa-folder-open",
+                    "url": "/maintenance/warehouse/categories",
+                },
+                {
+                    "label": "Entradas de Stock",
+                    "icon": "fa-truck-loading",
+                    "url": "/maintenance/warehouse/entries",
+                },
+                {
+                    "label": "Movimientos",
+                    "icon": "fa-exchange-alt",
+                    "url": "/maintenance/warehouse/movements",
+                },
+            ],
+        })
+
     return {
         "maint_nav_items": items,
         "current_route": current_path,
