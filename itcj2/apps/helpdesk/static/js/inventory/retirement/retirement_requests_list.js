@@ -81,7 +81,9 @@
         </td></tr>`;
 
         try {
-            const res = await fetch(`/api/help-desk/v2/inventory/retirement-requests?${params}`);
+            const res = await fetch(`/api/help-desk/v2/inventory/retirement-requests?${params}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            });
             if (!res.ok) throw new Error(await res.text());
             const data = await res.json();
 

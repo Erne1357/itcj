@@ -47,7 +47,9 @@
 
     async function searchItems(q) {
         try {
-            const res = await fetch(`${API_BASE}/items?search=${encodeURIComponent(q)}&per_page=10`);
+            const res = await fetch(`${API_BASE}/items?search=${encodeURIComponent(q)}&per_page=10`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            });
             if (!res.ok) return;
             const json = await res.json();
             const items = json.data || [];
@@ -183,7 +185,7 @@
             // Single POST: create request with items included
             const createRes = await fetch(`${API_BASE}/retirement-requests`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
                 body: JSON.stringify({
                     reason,
                     item_ids: Array.from(selectedItems.keys()),
@@ -203,7 +205,9 @@
                 const fd = new FormData();
                 fd.append('file', docFile);
                 await fetch(`${API_BASE}/retirement-requests/${reqId}/attach`, {
-                    method: 'POST', body: fd,
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                    body: fd,
                 });
             }
 
@@ -211,6 +215,7 @@
             if (andSubmit) {
                 const submitRes = await fetch(`${API_BASE}/retirement-requests/${reqId}/submit`, {
                     method: 'POST',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
                 });
                 if (!submitRes.ok) {
                     const err = await submitRes.json();
@@ -245,7 +250,9 @@
 
         await Promise.all(ids.map(async (itemId) => {
             try {
-                const res = await fetch(`${API_BASE}/items/${itemId}`);
+                const res = await fetch(`${API_BASE}/items/${itemId}`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+                });
                 if (!res.ok) return;
                 const json = await res.json();
                 const item = json.data;

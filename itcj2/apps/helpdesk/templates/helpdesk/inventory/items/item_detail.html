@@ -3,7 +3,7 @@
 {% block title %}Detalle de Equipo - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/item_detail.css') }}?v={{ sv('helpdesk', 'css/inventory/item_detail.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/items/item_detail.css') }}?v={{ sv('helpdesk', 'css/inventory/items/item_detail.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -323,6 +323,33 @@
     </div>
 </div>
 
+<!-- Modal: Editar Especificaciones -->
+<div class="modal fade" id="editSpecsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-microchip"></i> Editar Especificaciones
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="edit-specs-form">
+                <div class="modal-body" id="specs-form-container">
+                    <!-- Se llenará dinámicamente con JavaScript -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Guardar Especificaciones
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Dar de Baja -->
 <div class="modal fade" id="deactivateModal" tabindex="-1">
     <div class="modal-dialog">
@@ -399,5 +426,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/item_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/item_detail.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/item_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/items/item_detail.js') }}"></script>
 {% endblock %}

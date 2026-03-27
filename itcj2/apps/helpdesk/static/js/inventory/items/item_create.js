@@ -11,6 +11,30 @@ let departmentUsers = [];
 let currentMode = 'individual';
 let bulkItems = [];
 
+// ==================== ERROR HELPERS ====================
+function extractErrorMessage(data, fallback = 'Error desconocido') {
+    if (typeof data === 'string') return data || fallback;
+    if (!data || typeof data !== 'object') return fallback;
+    const val = data.error || data.message || data.detail;
+    if (typeof val === 'string') return val || fallback;
+    if (Array.isArray(val)) {
+        return val.map(e => (typeof e === 'object' && e.msg) ? e.msg : String(e)).join('; ') || fallback;
+    }
+    if (typeof val === 'object' && val !== null) {
+        return extractErrorMessage(val, fallback);
+    }
+    return fallback;
+}
+
+async function fetchApiError(response, fallback) {
+    try {
+        const data = await response.json();
+        return extractErrorMessage(data, fallback);
+    } catch (_) {
+        return `${fallback} (HTTP ${response.status})`;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
     loadDepartments();
@@ -206,8 +230,7 @@ async function loadCategories() {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+            throw new Error(await fetchApiError(response, 'Error al cargar categorías'));
         }
 
         const result = await response.json();
@@ -240,8 +263,7 @@ async function loadDepartments() {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+            throw new Error(await fetchApiError(response, 'Error al cargar departamentos'));
         }
 
         const result = await response.json();
@@ -279,8 +301,7 @@ async function loadDepartmentUsers(departmentId) {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar usuarios');
+            throw new Error(await fetchApiError(response, 'Error al cargar usuarios del departamento'));
         }
 
         const result = await response.json();
@@ -491,7 +512,9 @@ async function handleSubmit(e) {
 
         // Validar
         if (!validateFormData(formData)) {
-            throw new Error('Por favor complete todos los campos requeridos');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> Registrar Equipo';
+            return;
         }
 
         // Enviar a la API
@@ -505,26 +528,10 @@ async function handleSubmit(e) {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            console.error('API Error:', error);
-            
-            let msg = 'Error al registrar equipo';
-            const detail = error.detail || error.message || error;
-
-            if (typeof detail === 'string') {
-                msg = detail;
-            } else if (Array.isArray(detail)) {
-                // Errores de validación de FastAPI o lista de errores
-                msg = detail.map(e => {
-                    if (typeof e === 'object' && e.msg) return e.msg;
-                    if (typeof e === 'string') return e;
-                    return JSON.stringify(e);
-                }).join(', ');
-            } else if (typeof detail === 'object') {
-                msg = getErrorMessageFromObject(detail);
-            }
-            
-            throw new Error(msg);
+            let errorData = {};
+            try { errorData = await response.json(); } catch (_) {}
+            console.error('API Error:', errorData);
+            throw new Error(extractErrorMessage(errorData, 'Error al registrar equipo'));
         }
 
         const result = await response.json();
@@ -594,10 +601,13 @@ function collectFormData() {
 }
 
 function validateFormData(data) {
+    const categorySelect = document.getElementById('category-id');
     if (!data.category_id) {
+        categorySelect.classList.add('is-invalid');
         showError('Debe seleccionar una categoría');
         return false;
     }
+    categorySelect.classList.remove('is-invalid');
 
     // department_id es opcional: si no se selecciona, va al limbo del CC
     return true;
@@ -611,36 +621,6 @@ function showSuccessModal(item) {
     $('#successModal').modal('show');
 }
 
-function getErrorMessageFromObject(obj) {
-    let msg = obj.message || obj.error || '';
-    
-    // Si hay errores de validación, agregarlos
-    if (obj.validation_errors && Array.isArray(obj.validation_errors)) {
-        if (msg) msg += ': ';
-        msg += obj.validation_errors.join(', ');
-    } else if (obj.errors && Array.isArray(obj.errors)) {
-        if (msg) msg += ': ';
-        msg += obj.errors.join(', ');
-    }
-
-    if (msg) return msg;
-
-    if (obj.detail) {
-        if (typeof obj.detail === 'string') return obj.detail;
-        if (Array.isArray(obj.detail)) return obj.detail.map(e => e.msg || e).join(', ');
-        return JSON.stringify(obj.detail);
-    }
-    
-    // Buscar cualquier string que parezca un mensaje
-    const keys = Object.keys(obj);
-    if (keys.length > 0) {
-        // Si tiene clave 'loc' y 'msg', es error de validación
-        if (obj.loc && obj.msg) return `${obj.loc.join('.')}: ${obj.msg}`;
-        return JSON.stringify(obj);
-    }
-    
-    return 'Error desconocido';
-}
 
 // ==================== HELPERS ====================
 function showError(message) {
@@ -666,8 +646,7 @@ async function loadBulkCategories() {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+            throw new Error(await fetchApiError(response, 'Error al cargar categorías'));
         }
 
         const result = await response.json();
@@ -710,8 +689,7 @@ async function loadBulkDepartments() {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+            throw new Error(await fetchApiError(response, 'Error al cargar departamentos'));
         }
 
         const result = await response.json();
@@ -753,8 +731,7 @@ async function loadGroups(departmentId = null) {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar grupos');
+            throw new Error(await fetchApiError(response, 'Error al cargar grupos'));
         }
 
         const result = await response.json();
@@ -868,7 +845,9 @@ async function handleBulkSubmit(e) {
 
         // Validar
         if (!validateBulkFormData(formData)) {
-            throw new Error('Por favor complete todos los campos requeridos');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-boxes"></i> Registrar <span id="bulk-btn-quantity">0</span> Equipos';
+            return;
         }
 
         // Mostrar modal de progreso
@@ -885,10 +864,9 @@ async function handleBulkSubmit(e) {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            const detail = error.detail || error;
-            const msg = (typeof detail === 'string') ? detail : (detail.error || detail.message || 'Error en registro masivo');
-            throw new Error(msg);
+            let errorData = {};
+            try { errorData = await response.json(); } catch (_) {}
+            throw new Error(extractErrorMessage(errorData, 'Error en registro masivo'));
         }
 
         const result = await response.json();
@@ -965,20 +943,28 @@ function collectBulkFormData() {
 }
 
 function validateBulkFormData(data) {
+    const categorySelect = document.getElementById('bulk-category-id');
+    const quantityInput = document.getElementById('bulk-quantity');
+
     if (!data.category_id) {
+        categorySelect?.classList.add('is-invalid');
         showError('Debe seleccionar una categoría');
         return false;
     }
+    categorySelect?.classList.remove('is-invalid');
 
     if (!data.items || data.items.length === 0) {
+        quantityInput?.classList.add('is-invalid');
         showError('Debe especificar la cantidad de equipos');
         return false;
     }
 
     if (data.items.length > 100) {
+        quantityInput?.classList.add('is-invalid');
         showError('No se pueden registrar más de 100 equipos de una vez');
         return false;
     }
+    quantityInput?.classList.remove('is-invalid');
 
     return true;
 }

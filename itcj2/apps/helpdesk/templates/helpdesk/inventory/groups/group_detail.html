@@ -3,7 +3,7 @@
 {% block title %}Detalle de Grupo - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/group_detail.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups/group_detail.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -324,5 +324,5 @@
 <script>
     const GROUP_ID = {{ group_id }};
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/group_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/group_detail.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups/group_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/groups/group_detail.js') }}"></script>
 {% endblock %}

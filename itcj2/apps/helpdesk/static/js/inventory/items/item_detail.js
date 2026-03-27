@@ -29,6 +29,7 @@ function setupEventListeners() {
 
     // Forms
     document.getElementById('edit-basic-form').addEventListener('submit', handleEditBasic);
+    document.getElementById('edit-specs-form').addEventListener('submit', handleEditSpecs);
     document.getElementById('assign-user-form').addEventListener('submit', handleAssignUser);
     document.getElementById('change-status-form').addEventListener('submit', handleChangeStatus);
     document.getElementById('deactivate-form').addEventListener('submit', handleDeactivate);
@@ -352,9 +353,18 @@ function renderMaintenanceInfo(item) {
 
 function renderSpecifications(item) {
     const container = document.getElementById('specs-container');
+    const specTemplate = item.category?.spec_template || {};
+
+    const editButton = CAN_EDIT ? `
+        <div class="d-flex justify-content-end mb-3">
+            <button class="btn btn-sm btn-outline-primary" onclick="openEditSpecsModal()">
+                <i class="fas fa-edit"></i> Editar Especificaciones
+            </button>
+        </div>
+    ` : '';
 
     if (!item.specifications || Object.keys(item.specifications).length === 0) {
-        container.innerHTML = `
+        container.innerHTML = editButton + `
             <div class="text-center text-muted py-4">
                 <i class="fas fa-microchip fa-2x mb-3"></i>
                 <p class="mb-0">No hay especificaciones técnicas registradas</p>
@@ -364,9 +374,9 @@ function renderSpecifications(item) {
     }
 
     let html = '<div class="row">';
-    
+
     Object.entries(item.specifications).forEach(([key, value]) => {
-        const label = formatSpecLabel(key);
+        const label = specTemplate[key]?.label || formatSpecLabel(key);
         const displayValue = formatSpecValue(value);
 
         html += `
@@ -379,7 +389,7 @@ function renderSpecifications(item) {
     });
 
     html += '</div>';
-    container.innerHTML = html;
+    container.innerHTML = editButton + html;
 }
 
 function renderNotes(item) {
@@ -798,6 +808,122 @@ async function handleDeactivate(e) {
         setTimeout(() => {
             window.location.href = '/help-desk/inventory/items';
         }, 2000);
+
+    } catch (error) {
+        console.error('Error:', error);
+        showError(error.message);
+    }
+}
+
+// ==================== ESPECIFICACIONES ====================
+function openEditSpecsModal() {
+    const specTemplate = currentItem.category?.spec_template;
+    const currentSpecs = currentItem.specifications || {};
+    const container = document.getElementById('specs-form-container');
+
+    if (!specTemplate || Object.keys(specTemplate).length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                Esta categoría no tiene un template de especificaciones definido.
+            </div>
+        `;
+        $('#editSpecsModal').modal('show');
+        return;
+    }
+
+    let html = '<div class="row">';
+
+    Object.entries(specTemplate).forEach(([key, fieldDef]) => {
+        const label = fieldDef.label || formatSpecLabel(key);
+        const required = fieldDef.required ? 'required' : '';
+        const requiredMark = fieldDef.required ? ' <span class="text-danger">*</span>' : '';
+        const currentValue = currentSpecs[key];
+
+        html += `<div class="col-md-6 mb-3"><div class="form-group">`;
+        html += `<label>${label}${requiredMark}</label>`;
+
+        if (fieldDef.type === 'select') {
+            html += `<select class="form-control" name="${key}" id="spec-${key}" ${required}>`;
+            html += `<option value="">Seleccionar...</option>`;
+            (fieldDef.options || []).forEach(opt => {
+                const selected = currentValue === opt ? 'selected' : '';
+                html += `<option value="${opt}" ${selected}>${opt}</option>`;
+            });
+            html += `</select>`;
+
+        } else if (fieldDef.type === 'boolean') {
+            const checked = currentValue === true ? 'checked' : '';
+            html += `
+                <div class="mt-2">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" name="${key}" id="spec-${key}" ${checked}>
+                        <label class="form-check-label" for="spec-${key}">Sí</label>
+                    </div>
+                </div>
+            `;
+
+        } else if (fieldDef.type === 'number') {
+            const val = currentValue !== undefined && currentValue !== null ? currentValue : '';
+            html += `<input type="number" class="form-control" name="${key}" id="spec-${key}" value="${val}" ${required} min="0" step="any">`;
+
+        } else {
+            const val = currentValue !== undefined && currentValue !== null ? escapeHtml(String(currentValue)) : '';
+            html += `<input type="text" class="form-control" name="${key}" id="spec-${key}" value="${val}" ${required}>`;
+        }
+
+        html += `</div></div>`;
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+    $('#editSpecsModal').modal('show');
+}
+
+async function handleEditSpecs(e) {
+    e.preventDefault();
+
+    const specTemplate = currentItem.category?.spec_template;
+    if (!specTemplate || Object.keys(specTemplate).length === 0) {
+        $('#editSpecsModal').modal('hide');
+        return;
+    }
+
+    const specifications = {};
+
+    Object.entries(specTemplate).forEach(([key, fieldDef]) => {
+        const el = document.getElementById(`spec-${key}`);
+        if (!el) return;
+
+        if (fieldDef.type === 'boolean') {
+            specifications[key] = el.checked;
+        } else if (fieldDef.type === 'number') {
+            const val = el.value.trim();
+            if (val !== '') specifications[key] = parseFloat(val);
+        } else {
+            const val = el.value.trim();
+            if (val !== '') specifications[key] = val;
+        }
+    });
+
+    try {
+        const response = await fetch(`/api/help-desk/v2/inventory/items/${ITEM_ID}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ specifications })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Error al actualizar especificaciones');
+        }
+
+        $('#editSpecsModal').modal('hide');
+        showSuccess('Especificaciones actualizadas correctamente');
+        loadItemDetail();
 
     } catch (error) {
         console.error('Error:', error);

@@ -3,7 +3,7 @@
 {% block title %}Grupos de Equipos - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups_list.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups/groups_list.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -193,5 +193,5 @@
     const departmentId = {% if department_id %}{{ department_id }}{% else %}null{% endif %};
     const canViewAll = {{ 'true' if can_view_all else 'false' }};
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups_list.js') }}?v={{ sv('helpdesk', 'js/inventory/groups_list.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups/groups_list.js') }}?v={{ sv('helpdesk', 'js/inventory/groups/groups_list.js') }}"></script>
 {% endblock %}

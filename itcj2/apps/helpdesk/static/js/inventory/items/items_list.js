@@ -703,7 +703,7 @@ async function executeBulkTransfer() {
     try {
         const res = await fetch('/api/help-desk/v2/inventory/items/bulk-transfer', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
             body: JSON.stringify({ item_ids: ids, target_department_id: deptId }),
         });
         const data = await res.json();
@@ -738,7 +738,7 @@ async function executeBulkLimbo() {
     try {
         const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
             body: JSON.stringify({ item_ids: ids }),
         });
         const data = await res.json();
@@ -768,7 +768,7 @@ async function sendSingleToLimbo(itemId) {
     try {
         const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
             body: JSON.stringify({ item_ids: [itemId] }),
         });
         const data = await res.json();

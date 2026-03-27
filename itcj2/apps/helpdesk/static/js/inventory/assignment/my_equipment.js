@@ -20,7 +20,7 @@
             const response = await fetch(`${API_BASE}/items/my-equipment`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
                 }
             });
 
@@ -180,7 +180,7 @@
             const response = await fetch(`${API_BASE}/items/${itemId}`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
                 }
             });
 
@@ -370,7 +370,7 @@
             const response = await fetch(`${API_BASE}/history/item/${itemId}`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
                 }
             });
 
@@ -432,7 +432,7 @@
             const response = await fetch(`/api/help-desk/v2/tickets/equipment/${itemId}`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
                 }
             });
 

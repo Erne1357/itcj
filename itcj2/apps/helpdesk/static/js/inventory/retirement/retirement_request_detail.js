@@ -64,7 +64,9 @@
     // ── Load request ──────────────────────────────────────────────────────────
     async function loadRequest() {
         try {
-            const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}?include_items=true`);
+            const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}?include_items=true`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            });
             if (!res.ok) throw new Error('No se pudo cargar la solicitud');
             const json = await res.json();
             requestData = json.data;
@@ -244,7 +246,9 @@
     async function searchForAdd(q) {
         if (!el.addItemResults) return;
         try {
-            const res = await fetch(`${API_BASE}/items?search=${encodeURIComponent(q)}&per_page=8`);
+            const res = await fetch(`${API_BASE}/items?search=${encodeURIComponent(q)}&per_page=8`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            });
             if (!res.ok) return;
             const data = await res.json();
             const items = data.data || [];
@@ -275,10 +279,11 @@
         el.btnConfirmAdd.addEventListener('click', async () => {
             if (!pendingAddItemId) return;
             try {
+                const _notes = el.addItemNotes ? el.addItemNotes.value || null : null;
                 const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ items: [{ item_id: pendingAddItemId, item_notes: el.addItemNotes ? el.addItemNotes.value || null : null }] }),
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                    body: JSON.stringify({ item_ids: [pendingAddItemId], notes_map: _notes ? { [pendingAddItemId]: _notes } : {} }),
                 });
                 if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
                 pendingAddItemId = null;
@@ -298,6 +303,7 @@
         try {
             const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items/${retirementItemId}`, {
                 method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
             });
             if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
             loadRequest();
@@ -309,7 +315,7 @@
         try {
             const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/${action}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
                 body: JSON.stringify(extra),
             });
             if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `Error en ${action}`); }
@@ -343,7 +349,9 @@
             fd.append('file', file);
             try {
                 const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/attach`, {
-                    method: 'POST', body: fd,
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                    body: fd,
                 });
                 if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
                 loadRequest();

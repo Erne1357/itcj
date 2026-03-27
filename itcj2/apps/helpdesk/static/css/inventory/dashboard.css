@@ -1,0 +1,88 @@
+/* ==================== DASHBOARD DE INVENTARIO ==================== */
+
+/* Cards con borde izquierdo (misma paleta que reports.css) */
+.card[class*="border-left-"] {
+    border-left-width: 4px !important;
+    border-left-style: solid !important;
+}
+
+.border-left-primary   { border-left-color: #4e73df !important; }
+.border-left-success   { border-left-color: #1cc88a !important; }
+.border-left-warning   { border-left-color: #f6c23e !important; }
+.border-left-danger    { border-left-color: #e74a3b !important; }
+.border-left-info      { border-left-color: #36b9cc !important; }
+.border-left-secondary { border-left-color: #858796 !important; }
+
+/* ------------------------------------------------------------------
+   Badges de tipo de evento (tabla Actividad Reciente)
+   El JS genera: badge badge-{color}
+   donde color ∈ { success, info, warning, secondary, primary, danger }
+   Estas clases replican Bootstrap 4 usando la paleta del proyecto.
+   ------------------------------------------------------------------ */
+
+/* Colores base */
+.badge-primary   { background-color: #4e73df; color: #fff; }
+.badge-success   { background-color: #1cc88a; color: #fff; }
+.badge-info      { background-color: #36b9cc; color: #fff; }
+.badge-warning   { background-color: #f6c23e; color: #212529; }
+.badge-danger    { background-color: #e74a3b; color: #fff; }
+.badge-secondary { background-color: #858796; color: #fff; }
+
+/* Mapa semántico completo de tipos de evento (por si el JS evoluciona
+   a usar clases específicas como hace reports.js) */
+
+/* Registro y alta */
+.badge-event-REGISTERED  { background-color: #1cc88a; color: #fff; }
+.badge-event-REACTIVATED { background-color: #1cc88a; color: #fff; }
+
+/* Asignaciones */
+.badge-event-ASSIGNED_TO_DEPT,
+.badge-event-ASSIGNED_TO_USER { background-color: #4e73df; color: #fff; }
+.badge-event-UNASSIGNED        { background-color: #858796; color: #fff; }
+.badge-event-REASSIGNED        { background-color: #f6c23e; color: #212529; }
+
+/* Transferencia y ubicación */
+.badge-event-TRANSFERRED       { background-color: #36b9cc; color: #fff; }
+.badge-event-LOCATION_CHANGED  { background-color: #6f42c1; color: #fff; }
+
+/* Estado */
+.badge-event-STATUS_CHANGED    { background-color: #6f42c1; color: #fff; }
+
+/* Especificaciones */
+.badge-event-SPECS_UPDATED     { background-color: #fd7e14; color: #fff; }
+
+/* Mantenimiento */
+.badge-event-MAINTENANCE_SCHEDULED { background-color: #20c997; color: #fff; }
+.badge-event-MAINTENANCE_COMPLETED { background-color: #20c997; color: #fff; }
+
+/* Baja */
+.badge-event-DEACTIVATED { background-color: #e74a3b; color: #fff; }
+
+/* Verificación física */
+.badge-event-VERIFIED    { background-color: #2c6fad; color: #fff; }
+
+/* Tamaño y forma comunes de todos los badges de evento */
+.badge-event,
+[class^="badge-event-"],
+[class*=" badge-event-"] {
+    font-size: 0.7rem;
+    padding: 0.25em 0.5em;
+    border-radius: 0.25rem;
+    font-weight: 500;
+}
+
+/* ------------------------------------------------------------------
+   Tabla Actividad Reciente
+   ------------------------------------------------------------------ */
+#recent-activity-table td {
+    font-size: 0.82rem;
+    vertical-align: middle;
+}
+
+#recent-activity-table th {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6c757d;
+    font-weight: 600;
+}

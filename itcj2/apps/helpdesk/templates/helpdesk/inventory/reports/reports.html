@@ -3,7 +3,7 @@
 {% block title %}Reportes de Inventario - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/reports.css') }}?v={{ sv('helpdesk', 'css/inventory/reports.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/reports/reports.css') }}?v={{ sv('helpdesk', 'css/inventory/reports/reports.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -584,5 +584,5 @@
 <script>
     const ACTIVE_TAB = '{{ active_tab }}';
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/reports.js') }}?v={{ sv('helpdesk', 'js/inventory/reports.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/reports/reports.js') }}?v={{ sv('helpdesk', 'js/inventory/reports/reports.js') }}"></script>
 {% endblock %}

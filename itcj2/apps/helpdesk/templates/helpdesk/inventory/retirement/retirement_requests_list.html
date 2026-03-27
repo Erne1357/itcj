@@ -3,7 +3,7 @@
 {% block title %}Solicitudes de Baja - Inventario Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link href="{{ url_for('static', filename='helpdesk/css/inventory/retirement_requests_list.css') }}?v={{ sv('helpdesk', 'css/inventory/retirement_requests_list.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/retirement/retirement_requests_list.css') }}?v={{ sv('helpdesk', 'css/inventory/retirement/retirement_requests_list.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -125,5 +125,5 @@
     const CAN_VIEW_ALL = {{ 'true' if can_view_all else 'false' }};
     const CAN_APPROVE  = {{ 'true' if can_approve else 'false' }};
 </script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement_requests_list.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement_requests_list.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_requests_list.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_requests_list.js') }}"></script>
 {% endblock %}

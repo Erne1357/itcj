@@ -84,7 +84,7 @@ async function loadInitialData() {
 
 async function loadUserDepartment() {
     try {
-        const response = await fetch('/api/core/v2/users/me/department', {
+        const response = await fetch('/api/core/v2/user/me/department', {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             }

@@ -3,7 +3,7 @@
 {% block title %}Verificación de Inventario - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/verification.css') }}?v={{ sv('helpdesk', 'css/inventory/verification.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/reports/verification.css') }}?v={{ sv('helpdesk', 'css/inventory/reports/verification.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -428,5 +428,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/verification.js') }}?v={{ sv('helpdesk', 'js/inventory/verification.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/reports/verification.js') }}?v={{ sv('helpdesk', 'js/inventory/reports/verification.js') }}"></script>
 {% endblock %}

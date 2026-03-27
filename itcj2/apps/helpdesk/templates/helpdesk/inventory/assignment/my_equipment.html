@@ -3,7 +3,7 @@
 {% block title %}Mi Equipo - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-    <link href="{{ url_for('static', filename='helpdesk/css/inventory/my_equipment.css') }}?v={{ sv('helpdesk', 'css/inventory/my_equipment.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='helpdesk/css/inventory/assignment/my_equipment.css') }}?v={{ sv('helpdesk', 'css/inventory/assignment/my_equipment.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -138,6 +138,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/my_equipment.js') }}?v={{ sv('helpdesk', 'js/inventory/my_equipment.js') }}"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/my_equipment_modal.js') }}?v={{ sv('helpdesk', 'js/inventory/my_equipment_modal.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/assignment/my_equipment.js') }}?v={{ sv('helpdesk', 'js/inventory/assignment/my_equipment.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/assignment/my_equipment_modal.js') }}?v={{ sv('helpdesk', 'js/inventory/assignment/my_equipment_modal.js') }}"></script>
 {% endblock %}

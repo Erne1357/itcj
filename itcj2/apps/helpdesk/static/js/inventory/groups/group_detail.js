@@ -407,7 +407,7 @@ async function addSelectedEquipment() {
     const itemIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.itemId));
 
     try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/items`, {
+        const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/bulk-assign`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -438,8 +438,8 @@ async function removeEquipmentFromGroup(itemId) {
     if (!await HelpdeskUtils.confirmDialog('Remover equipo', '¿Remover este equipo del grupo?')) return;
 
     try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/items/${itemId}`, {
-            method: 'DELETE',
+        const response = await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
+            method: 'POST',
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             }
@@ -447,7 +447,7 @@ async function removeEquipmentFromGroup(itemId) {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error || 'Error al remover equipo');
+            throw new Error(error.detail?.error || error.error || 'Error al remover equipo');
         }
 
         showSuccess('Equipo removido del grupo');
@@ -475,8 +475,8 @@ async function removeSelectedEquipment() {
     try {
         // Remover uno por uno
         for (const itemId of itemIds) {
-            await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/items/${itemId}`, {
-                method: 'DELETE',
+            await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
+                method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('access_token')}`
                 }

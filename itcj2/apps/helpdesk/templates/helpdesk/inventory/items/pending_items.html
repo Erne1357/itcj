@@ -3,7 +3,7 @@
 {% block title %}Equipos Pendientes - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/pending_items.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/items/pending_items.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -298,5 +298,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/pending_items.js') }}?v={{ sv('helpdesk', 'js/inventory/pending_items.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/pending_items.js') }}?v={{ sv('helpdesk', 'js/inventory/items/pending_items.js') }}"></script>
 {% endblock %}

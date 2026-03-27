@@ -317,21 +317,25 @@ async function handleAssign(e) {
             throw new Error('Selecciona un departamento');
         }
 
-        const response = await fetch(`/api/help-desk/v2/inventory/pending/${itemId}/assign`, {
+        const response = await fetch('/api/help-desk/v2/inventory/pending/assign-to-department', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                item_ids: [parseInt(itemId)],
                 department_id: parseInt(departmentId),
                 notes: notes || null
             })
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || error.message || 'Error al asignar equipo');
+            let errData = {};
+            try { errData = await response.json(); } catch (_) {}
+            const d = errData.detail || errData;
+            const msg = (typeof d === 'string') ? d : (d.error || d.message || 'Error al asignar equipo');
+            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
         }
 
         $('#assignModal').modal('hide');
@@ -401,7 +405,7 @@ async function handleBulkAssign(e) {
 
         const itemIds = Array.from(selectedItems);
 
-        const response = await fetch('/api/help-desk/v2/inventory/pending/bulk-assign', {
+        const response = await fetch('/api/help-desk/v2/inventory/pending/assign-to-department', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -415,14 +419,17 @@ async function handleBulkAssign(e) {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || error.message || 'Error al asignar equipos');
+            let errData = {};
+            try { errData = await response.json(); } catch (_) {}
+            const d = errData.detail || errData;
+            const msg = (typeof d === 'string') ? d : (d.error || d.message || 'Error al asignar equipos');
+            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
         }
 
         const result = await response.json();
 
         $('#bulkAssignModal').modal('hide');
-        showSuccess(`${result.assigned_count} equipo(s) asignado(s) exitosamente`);
+        showSuccess(result.message || `${result.items?.length || 0} equipo(s) asignado(s) exitosamente`);
 
         // Limpiar selección y recargar
         selectedItems.clear();

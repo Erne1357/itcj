@@ -3,7 +3,7 @@
 {% block title %}Inventario de Equipos - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/items_list.css') }}?v={{ sv('helpdesk', 'css/inventory/items_list.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/items/items_list.css') }}?v={{ sv('helpdesk', 'css/inventory/items/items_list.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -308,5 +308,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/items_list.js') }}?v={{ sv('helpdesk', 'js/inventory/items_list.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/items_list.js') }}?v={{ sv('helpdesk', 'js/inventory/items/items_list.js') }}"></script>
 {% endblock %}
