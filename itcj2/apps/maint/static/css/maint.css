@@ -21,6 +21,12 @@
     --maint-warning:  #f59e0b;   /* amarillo urgente / alerta */
     --maint-info:     #0891b2;   /* cyan en proceso */
     --maint-muted:    #607D8B;   /* Blue Grey 500 — texto secundario */
+
+    /* Override de variables del mobile-app-shell compartido
+       para que el sidebar use la paleta de maint en lugar del verde de helpdesk */
+    --app-primary:       #546E7A;
+    --app-primary-dark:  #37474F;
+    --app-primary-light: #ECEFF1;
 }
 
 /* ══════════════════════════════════════════════

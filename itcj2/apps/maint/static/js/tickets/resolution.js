@@ -9,6 +9,11 @@
     var API_BASE = '/api/maint/v2';
     var ctx = window.TICKET_CTX || {};
 
+    // ── Estado de materiales ──────────────────────────────────────────────────
+
+    var _materialsMap = {};  // product_id → {product_id, name, unit, quantity, notes}
+    var _searchTimeout = null;
+
     // ── API pública ───────────────────────────────────────────────────────────
 
     window.MaintResolution = {
@@ -17,6 +22,20 @@
         },
         openRateModal: function () {
             _openRateModal();
+        },
+        removeMaterial: function (productId) {
+            delete _materialsMap[productId];
+            _renderMaterialsList();
+        },
+        _updateQty: function (productId, val) {
+            if (_materialsMap[productId]) {
+                _materialsMap[productId].quantity = parseFloat(val) || 1;
+            }
+        },
+        _updateNotes: function (productId, val) {
+            if (_materialsMap[productId]) {
+                _materialsMap[productId].notes = val;
+            }
         },
     };
 
@@ -34,6 +53,26 @@
         document.getElementById('timeInvested').value = '';
         document.getElementById('resolutionObservations').value = '';
 
+        // Reset materials
+        _materialsMap = {};
+        _renderMaterialsList();
+        var searchInput = document.getElementById('materialSearchInput');
+        if (searchInput) {
+            searchInput.value = '';
+            searchInput.oninput = function () {
+                clearTimeout(_searchTimeout);
+                var q = searchInput.value.trim();
+                if (q.length < 2) {
+                    _hideSearchResults();
+                    return;
+                }
+                _searchTimeout = setTimeout(function () { _searchProducts(q); }, 300);
+            };
+            searchInput.addEventListener('blur', function () {
+                setTimeout(_hideSearchResults, 200);
+            });
+        }
+
         // Remove previous is-invalid states
         ['maintenanceType', 'serviceOrigin', 'resolutionNotes', 'timeInvested'].forEach(function (id) {
             var el = document.getElementById(id);
@@ -45,6 +84,97 @@
         document.getElementById('confirmResolveBtn').onclick = function () {
             _submitResolve(modal);
         };
+    }
+
+    function _searchProducts(query) {
+        MaintUtils.api.fetch(
+            API_BASE + '/tickets/warehouse-products?search=' + encodeURIComponent(query) + '&limit=15'
+        ).then(function (data) {
+            _showSearchResults(data.products || []);
+        }).catch(function () {
+            _hideSearchResults();
+        });
+    }
+
+    function _showSearchResults(products) {
+        var container = document.getElementById('materialSearchResults');
+        if (!container) return;
+
+        if (!products.length) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.innerHTML = '';
+        products.forEach(function (p) {
+            var item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            item.innerHTML =
+                '<span class="fw-medium">' + _esc(p.name) + '</span>' +
+                '<span class="text-muted ms-2">' + _esc(p.unit_of_measure || '') + '</span>' +
+                (p.total_stock !== undefined
+                    ? '<span class="badge bg-light text-secondary ms-auto float-end">' + p.total_stock + ' disp.</span>'
+                    : '');
+            item.onclick = function () {
+                _addMaterial(p);
+                document.getElementById('materialSearchInput').value = '';
+                _hideSearchResults();
+            };
+            container.appendChild(item);
+        });
+        container.style.display = 'block';
+    }
+
+    function _hideSearchResults() {
+        var container = document.getElementById('materialSearchResults');
+        if (container) container.style.display = 'none';
+    }
+
+    function _addMaterial(product) {
+        var id = product.id || product.product_id;
+        if (!_materialsMap[id]) {
+            _materialsMap[id] = {
+                product_id: id,
+                name: product.name,
+                unit: product.unit_of_measure || '',
+                quantity: 1,
+                notes: '',
+            };
+        }
+        _renderMaterialsList();
+    }
+
+    function _renderMaterialsList() {
+        var container = document.getElementById('materialsList');
+        if (!container) return;
+
+        var keys = Object.keys(_materialsMap);
+        if (!keys.length) {
+            container.innerHTML = '<span class="text-muted small">Sin materiales agregados.</span>';
+            return;
+        }
+
+        container.innerHTML = '';
+        keys.forEach(function (pid) {
+            var mat = _materialsMap[pid];
+            var row = document.createElement('div');
+            row.className = 'd-flex align-items-center gap-2 p-2 border rounded bg-light';
+            row.innerHTML =
+                '<div class="flex-grow-1 small fw-medium text-truncate" title="' + _esc(mat.name) + '">' + _esc(mat.name) + '</div>' +
+                '<input type="number" min="0.01" step="0.01" class="form-control form-control-sm" style="width:80px;"' +
+                '  value="' + mat.quantity + '"' +
+                '  onchange="MaintResolution._updateQty(' + pid + ', this.value)">' +
+                '<span class="small text-muted">' + _esc(mat.unit) + '</span>' +
+                '<input type="text" class="form-control form-control-sm" style="width:120px;" placeholder="Notas"' +
+                '  value="' + _esc(mat.notes) + '"' +
+                '  oninput="MaintResolution._updateNotes(' + pid + ', this.value)">' +
+                '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"' +
+                '  onclick="MaintResolution.removeMaterial(' + pid + ')">' +
+                '  <i class="bi bi-x"></i>' +
+                '</button>';
+            container.appendChild(row);
+        });
     }
 
     function _submitResolve(modal) {
@@ -76,6 +206,14 @@
             return;
         }
 
+        var materialsUsed = Object.values(_materialsMap).map(function (m) {
+            return {
+                product_id: m.product_id,
+                quantity: m.quantity,
+                notes: m.notes || null,
+            };
+        });
+
         MaintUtils.loading.show(btn, 'Resolviendo...');
 
         MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/resolve', {
@@ -87,11 +225,19 @@
                 resolution_notes: resolutionNotes,
                 time_invested_minutes: timeInvested,
                 observations: observations || null,
+                materials_used: materialsUsed.length ? materialsUsed : null,
             }),
         })
-            .then(function () {
+            .then(function (data) {
                 modal.hide();
-                MaintUtils.toast('Ticket resuelto correctamente', 'success');
+                if (data.warnings && data.warnings.length) {
+                    MaintUtils.toast(
+                        'Ticket resuelto. Advertencias de almacén: ' + data.warnings.join('; '),
+                        'warning'
+                    );
+                } else {
+                    MaintUtils.toast('Ticket resuelto correctamente', 'success');
+                }
                 if (window._maintDetailReload) _maintDetailReload();
             })
             .catch(function (err) {
@@ -216,6 +362,14 @@
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    function _esc(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
 
     function _setInvalid(id, isInvalid) {
         var el = document.getElementById(id);

@@ -165,7 +165,7 @@ async def resolve_ticket(
             detail="Solo los técnicos asignados o dispatchers pueden resolver tickets",
         )
 
-    resolved = ticket_service.resolve_ticket(
+    resolved, warnings = ticket_service.resolve_ticket(
         db=db,
         ticket_id=ticket_id,
         resolved_by_id=user_id,
@@ -175,9 +175,61 @@ async def resolve_ticket(
         resolution_notes=body.resolution_notes,
         time_invested_minutes=body.time_invested_minutes,
         observations=body.observations,
+        materials_used=body.materials_used,
     )
     MaintNotificationHelper.notify_ticket_resolved(db, resolved)
-    return {"status": resolved.status, "ticket_number": resolved.ticket_number}
+    response = {"status": resolved.status, "ticket_number": resolved.ticket_number}
+    if warnings:
+        response["warnings"] = warnings
+    return response
+
+
+# ==================== MATERIALES DE ALMACÉN ====================
+@router.get("/{ticket_id}/materials")
+async def get_ticket_materials(
+    ticket_id: int,
+    user: dict = require_perms("maint", [
+        "maint.tickets.api.read.own",
+        "maint.tickets.api.read.department",
+        "maint.tickets.api.read.all",
+    ]),
+    db: DbSession = None,
+):
+    from itcj2.apps.warehouse.models.ticket_material import WarehouseTicketMaterial
+    user_id = int(user["sub"])
+    ticket_service.get_ticket_by_id(db, ticket_id, user_id=user_id)
+    materials = (
+        db.query(WarehouseTicketMaterial)
+        .filter_by(source_app="maint", source_ticket_id=ticket_id)
+        .all()
+    )
+    return {
+        "materials": [
+            {
+                "product_id": m.product_id,
+                "product_name": m.product.name if m.product else None,
+                "product_unit": m.product.unit_of_measure if m.product else None,
+                "quantity_used": str(m.quantity_used),
+                "notes": m.notes,
+                "added_at": m.added_at.isoformat() if m.added_at else None,
+                "added_by": m.added_by.full_name if m.added_by else None,
+            }
+            for m in materials
+        ]
+    }
+
+
+@router.get("/warehouse-products")
+async def search_warehouse_products(
+    search: str = None,
+    limit: int = 20,
+    user: dict = require_perms("maint", ["maint.tickets.api.resolve"]),
+    db: DbSession = None,
+):
+    """Autocomplete de productos del almacén para la resolución de tickets."""
+    from itcj2.apps.warehouse.services.product_service import get_available_for_autocomplete
+    products = get_available_for_autocomplete(db, "equipment_maint", search, min(limit, 50))
+    return {"products": products}
 
 
 # ==================== CALIFICAR TICKET ====================

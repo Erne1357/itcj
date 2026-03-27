@@ -205,10 +205,13 @@
     <script src="/static/core/js/apps/mobile-app-shell.js?v={{ sv_core('js/apps/mobile-app-shell.js') }}"></script>
 
     <!-- Utilidades globales de maint -->
-    <script src="/static/maint/js/maint-utils.js?v={{ sv('js/maint-utils.js') }}"></script>
+    <script src="/static/maint/js/shared/maint-utils.js?v={{ sv('js/shared/maint-utils.js') }}"></script>
 
     <!-- Base: logout + FAB init -->
     <script src="/static/maint/js/shared/base.js?v={{ sv('js/shared/base.js') }}"></script>
+
+    {# Variables Jinja→JS: cada página define las suyas en este bloque #}
+    {% block page_vars %}{% endblock %}
 
     {% block extra_js %}{% endblock %}
 </body>

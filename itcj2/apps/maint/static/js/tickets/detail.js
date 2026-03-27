@@ -155,7 +155,7 @@
             case 'technicians': content.innerHTML = _buildTechTab(_ticket);
                 window.MaintAssignment && MaintAssignment.bind(_ticket, _reload); break;
             case 'comments':   content.innerHTML = _buildCommentsTab(_ticket); _bindCommentForm(); break;
-            case 'resolution': content.innerHTML = _buildResolutionTab(_ticket); break;
+            case 'resolution': content.innerHTML = _buildResolutionTab(_ticket); _loadMaterials(); break;
             case 'history':    content.innerHTML = _buildHistoryTab(_ticket); break;
         }
     }
@@ -332,6 +332,10 @@
                     '<div style="white-space:pre-line;">' + _esc(t.resolution_notes || '—') + '</div></div>' +
                 (t.observations ? '<div class="col-12"><div class="mn-detail-label">Observaciones</div>' +
                     '<div>' + _esc(t.observations) + '</div></div>' : '') +
+                '<div class="col-12" id="materialsSection">' +
+                    '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
+                    '<div class="text-muted small mt-1"><div class="spinner-border spinner-border-sm me-1" role="status"></div>Cargando...</div>' +
+                '</div>' +
             '</div>';
 
             if (t.rated_at) {
@@ -353,6 +357,39 @@
 
         html += '</div></div>';
         return html;
+    }
+
+    function _loadMaterials() {
+        var section = document.getElementById('materialsSection');
+        if (!section) return;
+
+        MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/materials')
+            .then(function (data) {
+                var mats = data.materials || [];
+                if (!mats.length) {
+                    section.innerHTML =
+                        '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
+                        '<div class="text-muted small mt-1">Sin materiales registrados.</div>';
+                    return;
+                }
+                var rows = mats.map(function (m) {
+                    return '<div class="d-flex align-items-center gap-2 py-1">' +
+                        '<i class="bi bi-box text-secondary"></i>' +
+                        '<span class="fw-medium small">' + _esc(m.product_name || 'Producto #' + m.product_id) + '</span>' +
+                        '<span class="badge bg-light text-secondary">' + _esc(m.quantity_used) + ' ' + _esc(m.product_unit || '') + '</span>' +
+                        (m.notes ? '<span class="text-muted small">— ' + _esc(m.notes) + '</span>' : '') +
+                    '</div>';
+                });
+                section.innerHTML =
+                    '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
+                    '<div class="mt-1">' + rows.join('') + '</div>';
+            })
+            .catch(function () {
+                var section2 = document.getElementById('materialsSection');
+                if (section2) section2.innerHTML =
+                    '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
+                    '<div class="text-muted small mt-1">No se pudo cargar.</div>';
+            });
     }
 
     // ── Tab: Historial ────────────────────────────────────────────────────────

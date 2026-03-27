@@ -2,43 +2,7 @@
 {% block title %}Nueva Solicitud{% endblock %}
 
 {% block extra_css %}
-<style>
-.mn-category-card {
-    border: 2px solid #CFD8DC;
-    border-radius: 10px;
-    background: #fff;
-    padding: 1rem;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
-    text-align: center;
-}
-.mn-category-card:hover {
-    border-color: var(--maint-accent);
-    background: var(--maint-primary-light);
-}
-.mn-category-card.selected {
-    border-color: var(--maint-primary);
-    background: #EDF2F5;
-}
-.mn-category-card .cat-icon { font-size: 1.8rem; color: var(--maint-primary); margin-bottom: 0.4rem; }
-.mn-category-card .cat-name { font-weight: 600; font-size: 0.85rem; color: var(--maint-primary-dark); }
-
-.mn-priority-card {
-    border: 2px solid #CFD8DC;
-    border-radius: 8px;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    transition: border-color 0.15s ease;
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-.mn-priority-card:hover { border-color: var(--maint-accent); }
-.mn-priority-card.selected { border-color: var(--maint-primary); }
-.mn-priority-baja.selected   { border-color: #6B7280; background: #F3F4F6; }
-.mn-priority-media.selected  { border-color: #1E40AF; background: #DBEAFE; }
-.mn-priority-alta.selected   { border-color: #D97706; background: #FEF3C7; }
-.mn-priority-urgente.selected{ border-color: #DC2626; background: #FEE2E2; }
-</style>
+<link href="/static/maint/css/tickets/create.css?v={{ sv('css/tickets/create.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -158,5 +122,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/maint/js/ticket-create.js?v={{ sv('js/ticket-create.js') }}"></script>
+<script src="/static/maint/js/tickets/create.js?v={{ sv('js/tickets/create.js') }}"></script>
 {% endblock %}

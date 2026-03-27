@@ -1,0 +1,104 @@
+/*
+ * tickets/detail.css — Estilos del detalle de ticket
+ * Prefijo: .mn-
+ */
+
+/* ── Navegación por tabs ─────────────────────────────────────────────────── */
+
+/* Contenedor con scroll horizontal en pantallas pequeñas */
+.mn-tab-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;          /* Firefox */
+}
+
+.mn-tab-nav::-webkit-scrollbar {
+    display: none;                  /* Chrome/Safari */
+}
+
+.mn-tab-nav .nav-link {
+    color: var(--maint-muted);
+    border-radius: 6px 6px 0 0;
+    font-size: 0.88rem;
+    white-space: nowrap;            /* Evita que el texto se parta */
+}
+
+.mn-tab-nav .nav-link.active {
+    color: var(--maint-primary-dark);
+    font-weight: 600;
+    border-bottom: 2px solid var(--maint-primary);
+}
+
+/* ── Campos de detalle (etiqueta + valor) ───────────────────────────────── */
+
+.mn-detail-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--maint-muted);
+}
+
+.mn-detail-value {
+    color: var(--maint-primary-darker);
+}
+
+/* ── Comentarios ─────────────────────────────────────────────────────────── */
+
+.mn-comment-bubble {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+
+.mn-comment-bubble.internal {
+    background: #FFFDE7;
+    border-color: #FDD835;
+}
+
+/* ── Historial de cambios ────────────────────────────────────────────────── */
+
+.mn-history-item {
+    border-left: 3px solid var(--maint-accent-light);
+    padding-left: 1rem;
+    margin-bottom: 1rem;
+    position: relative;
+}
+
+.mn-history-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--maint-primary);
+}
+
+/* ── Estrellas de calificación ───────────────────────────────────────────── */
+
+.mn-star {
+    font-size: 1.3rem;
+    cursor: pointer;
+    color: #CFD8DC;
+    transition: color 0.1s;
+}
+
+/* Reset color en hover hacia adelante */
+.mn-star.filled,
+.mn-star:hover ~ .mn-star,
+.mn-stars:hover .mn-star {
+    color: #CFD8DC;
+}
+
+.mn-stars:hover .mn-star:hover ~ .mn-star { color: #CFD8DC; }
+
+/* Resaltar estrella hover y las anteriores */
+.mn-stars .mn-star:hover,
+.mn-stars .mn-star:hover ~ .mn-star + .mn-star { color: #CFD8DC; }
+
+/* Estrella llena cuando hay valor guardado */
+.mn-stars[data-value] .mn-star.filled { color: #F59E0B; }

@@ -1,0 +1,74 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Almacén — Dashboard{% endblock %}
+
+{% block extra_css %}
+<link href="/static/maint/css/warehouse/dashboard.css?v={{ sv('css/warehouse/dashboard.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<!-- KPIs -->
+<div class="d-flex align-items-center gap-2 mb-4 mt-2">
+    <h5 class="mb-0 fw-bold" style="color:var(--maint-primary-dark);">
+        <i class="bi bi-boxes me-2"></i>Almacén — Dashboard
+    </h5>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="bi bi-box-seam fs-2 mb-2" style="color:var(--maint-primary);"></i>
+                <h3 class="mb-1" id="kpiProducts">—</h3>
+                <p class="text-muted mb-0 small">Productos</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="bi bi-exclamation-triangle fs-2 mb-2 text-warning"></i>
+                <h3 class="mb-1" id="kpiLowStock">—</h3>
+                <p class="text-muted mb-0 small">Stock Bajo</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="bi bi-currency-dollar fs-2 mb-2 text-success"></i>
+                <h3 class="mb-1 fs-5" id="kpiValue">—</h3>
+                <p class="text-muted mb-0 small">Valor Total</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center py-3">
+                <i class="bi bi-arrow-left-right fs-2 mb-2 text-info"></i>
+                <h3 class="mb-1" id="kpiMovements">—</h3>
+                <p class="text-muted mb-0 small">Mov. Hoy</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-header border-bottom d-flex align-items-center justify-content-between" style="background:var(--maint-primary-light);">
+        <h6 class="mb-0 fw-semibold text-warning">
+            <i class="bi bi-exclamation-triangle me-2"></i>Productos con Stock Bajo
+        </h6>
+        <a href="/maintenance/warehouse/products" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-list me-1"></i>Ver todos
+        </a>
+    </div>
+    <div class="card-body p-0" id="lowStockTable">
+        <div class="text-center py-5">
+            <div class="spinner-border" style="color:var(--maint-primary);" role="status"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/warehouse/dashboard.js?v={{ sv('js/warehouse/dashboard.js') }}"></script>
+{% endblock %}
