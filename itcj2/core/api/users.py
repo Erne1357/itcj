@@ -168,6 +168,18 @@ def get_notifications(
         db.close()
 
 
+@router.get("/me/department")
+def get_current_user_department(user: CurrentUser, db: DbSession):
+    """Departamento activo del usuario actual."""
+    from itcj2.core.services.departments_service import get_user_department
+
+    user_id = int(user["sub"])
+    dept = get_user_department(db, user_id)
+    if not dept:
+        raise HTTPException(404, detail="no_department")
+    return {"success": True, "data": {"id": dept.id, "name": dept.name}}
+
+
 @router.patch("/me/profile")
 def update_profile(body: UpdateProfileRequest, user: CurrentUser, db: DbSession):
     """Actualiza campos no críticos del perfil (email)."""

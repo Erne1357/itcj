@@ -29,7 +29,27 @@ const Tasks = (() => {
 
     const timeAgo = (iso) => {
         if (!iso) return '-';
-        const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+        // Si viene sin Z y parece ser local del servidor, asumiremos que es hora local
+        // y el navegador intentará parsearlo como tal.
+        let date = new Date(iso);
+        
+        // Si la fecha es válida pero está en el futuro (diferencia negativa)
+        // puede ser que el servidor esté en UTC y nosotros en local pero sin la 'Z'.
+        // Intentamos corregirlo asumiendo que era UTC.
+        let now = Date.now();
+        if (date.getTime() > now + 5000) { // Si está más de 5s en el futuro
+             // Intentar parsear como UTC agregando 'Z' si no la tiene
+             if (!iso.endsWith('Z')) {
+                 const utcDate = new Date(iso + 'Z');
+                 if (utcDate.getTime() <= now + 5000) {
+                     date = utcDate;
+                 }
+             }
+        }
+
+        const diff = Math.floor((now - date.getTime()) / 1000);
+        
+        if (diff < 0) return 'hace 0s'; // Evitar mostrar negativos
         if (diff < 60) return `${diff}s`;
         if (diff < 3600) return `${Math.floor(diff / 60)}m`;
         if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
