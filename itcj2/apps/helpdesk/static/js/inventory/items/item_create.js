@@ -7,9 +7,11 @@ let allCategories = [];
 let allDepartments = [];
 let allGroups = [];
 let currentCategory = null;
+let currentBulkCategory = null;
 let departmentUsers = [];
 let currentMode = 'individual';
 let bulkItems = [];
+const COMPUTER_CATEGORY_CODE = 'computer';
 
 // ==================== ERROR HELPERS ====================
 function extractErrorMessage(data, fallback = 'Error desconocido') {
@@ -347,6 +349,8 @@ function handleCategoryChange(e) {
     // Generar campos de especificaciones
     if (currentCategory.requires_specs && currentCategory.spec_template) {
         renderSpecFields(currentCategory.spec_template);
+        renderSpecsContextHelp();
+        setupSpecFieldDependencies();
         showSpecsSection();
     } else {
         hideSpecsSection();
@@ -387,6 +391,83 @@ function renderSpecFields(template) {
         const fieldHtml = createSpecField(key, config);
         container.insertAdjacentHTML('beforeend', fieldHtml);
     });
+}
+
+function renderSpecsContextHelp() {
+    const helpBox = document.getElementById('spec-context-help');
+    if (!helpBox) return;
+
+    const isComputer = currentCategory && currentCategory.code === COMPUTER_CATEGORY_CODE;
+    if (!isComputer) {
+        helpBox.style.display = 'none';
+        helpBox.innerHTML = '';
+        return;
+    }
+
+    helpBox.innerHTML = `
+        <i class="fas fa-info-circle"></i>
+        Si el <strong>Factor de Forma</strong> es <strong>All in One</strong>, el sistema marcará automáticamente
+        <strong>Pantalla Integrada</strong>. Si además usa monitores externos, regístralos por separado en la
+        categoría <strong>Monitor</strong>.
+    `;
+    helpBox.style.display = 'block';
+}
+
+function setupSpecFieldDependencies() {
+    const formFactorField = document.getElementById('spec_form_factor');
+    const integratedDisplayField = document.getElementById('spec_integrated_display');
+
+    if (!formFactorField || !integratedDisplayField) return;
+
+    formFactorField.addEventListener('change', applyComputerSpecRules);
+    integratedDisplayField.addEventListener('change', applyComputerSpecRules);
+    applyComputerSpecRules();
+}
+
+function applyComputerSpecRules() {
+    if (!currentCategory || currentCategory.code !== COMPUTER_CATEGORY_CODE) return;
+
+    const formFactorField = document.getElementById('spec_form_factor');
+    const integratedDisplayField = document.getElementById('spec_integrated_display');
+    const displaySizeField = document.getElementById('spec_display_size');
+
+    if (!formFactorField || !integratedDisplayField) return;
+
+    const normalizedFormFactor = (formFactorField.value || '').toString().trim().toLowerCase();
+    const isAllInOne = normalizedFormFactor === 'all in one' || normalizedFormFactor === 'all-in-one' || normalizedFormFactor === 'allinone';
+
+    if (isAllInOne) {
+        integratedDisplayField.checked = true;
+        integratedDisplayField.disabled = true;
+    } else {
+        integratedDisplayField.disabled = false;
+    }
+
+    if (displaySizeField) {
+        const displaySizeGroup = displaySizeField.closest('.spec-field');
+        if (displaySizeGroup) {
+            displaySizeGroup.style.display = integratedDisplayField.checked ? 'block' : 'none';
+        }
+    }
+}
+
+function normalizeComputerSpecificationsByCategory(specifications, category) {
+    if (!category || category.code !== COMPUTER_CATEGORY_CODE) return;
+
+    const formFactor = (specifications.form_factor || '').toString().trim().toLowerCase();
+    const isAllInOne = formFactor === 'all in one' || formFactor === 'all-in-one' || formFactor === 'allinone';
+
+    if (isAllInOne) {
+        specifications.integrated_display = true;
+    }
+
+    if (!specifications.integrated_display) {
+        delete specifications.display_size;
+    }
+}
+
+function normalizeComputerSpecifications(specifications) {
+    normalizeComputerSpecificationsByCategory(specifications, currentCategory);
 }
 
 function createSpecField(key, config) {
@@ -487,6 +568,7 @@ function showSpecsSection() {
 function hideSpecsSection() {
     document.getElementById('specs-section').style.display = 'none';
     document.getElementById('dynamic-specs-container').innerHTML = '';
+    renderSpecsContextHelp();
 }
 
 // ==================== MANEJO DE DEPARTAMENTO ====================
@@ -591,6 +673,8 @@ function collectFormData() {
                 }
             }
         });
+
+        normalizeComputerSpecifications(specifications);
 
         if (Object.keys(specifications).length > 0) {
             formData.specifications = specifications;
@@ -764,7 +848,199 @@ function populateBulkGroups() {
 
 function handleBulkCategoryChange(e) {
     const categoryId = e.target.value;
+
+    if (!categoryId) {
+        currentBulkCategory = null;
+        hideBulkSpecsSection();
+        updateBulkPreview();
+        return;
+    }
+
+    const selectedOption = e.target.selectedOptions[0];
+    currentBulkCategory = selectedOption ? JSON.parse(selectedOption.dataset.category) : null;
+
+    if (currentBulkCategory && currentBulkCategory.requires_specs && currentBulkCategory.spec_template) {
+        renderBulkSpecFields(currentBulkCategory.spec_template);
+        renderBulkSpecsContextHelp();
+        setupBulkSpecFieldDependencies();
+        showBulkSpecsSection();
+    } else {
+        hideBulkSpecsSection();
+    }
+
     updateBulkPreview();
+}
+
+function renderBulkSpecFields(template) {
+    const container = document.getElementById('bulk-dynamic-specs-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    Object.entries(template).forEach(([key, config]) => {
+        const fieldHtml = createBulkSpecField(key, config);
+        container.insertAdjacentHTML('beforeend', fieldHtml);
+    });
+}
+
+function createBulkSpecField(key, config) {
+    const id = `bulk_spec_${key}`;
+    const label = config.label || key;
+    const required = config.required ? 'required' : '';
+    const requiredClass = config.required ? 'required-field' : '';
+
+    switch (config.type) {
+        case 'text':
+            return `
+                <div class="form-group spec-field">
+                    <label for="${id}" class="${requiredClass}">${label}</label>
+                    <input
+                        type="text"
+                        class="form-control"
+                        id="${id}"
+                        name="bulk_spec_${key}"
+                        placeholder="${config.placeholder || ''}"
+                        ${required}
+                    >
+                </div>
+            `;
+
+        case 'number':
+            return `
+                <div class="form-group spec-field">
+                    <label for="${id}" class="${requiredClass}">${label}</label>
+                    <input
+                        type="number"
+                        class="form-control"
+                        id="${id}"
+                        name="bulk_spec_${key}"
+                        placeholder="${config.placeholder || ''}"
+                        min="${config.min || 0}"
+                        ${required}
+                    >
+                </div>
+            `;
+
+        case 'select':
+            const options = config.options || [];
+            const optionsHtml = options.map(opt => `<option value="${opt}">${opt}</option>`).join('');
+
+            return `
+                <div class="form-group spec-field">
+                    <label for="${id}" class="${requiredClass}">${label}</label>
+                    <select class="form-control" id="${id}" name="bulk_spec_${key}" ${required}>
+                        <option value="">Seleccionar...</option>
+                        ${optionsHtml}
+                    </select>
+                </div>
+            `;
+
+        case 'boolean':
+            return `
+                <div class="form-group spec-field">
+                    <div class="custom-control custom-checkbox">
+                        <input
+                            type="checkbox"
+                            class="custom-control-input"
+                            id="${id}"
+                            name="bulk_spec_${key}"
+                        >
+                        <label class="custom-control-label" for="${id}">
+                            ${label}
+                        </label>
+                    </div>
+                </div>
+            `;
+
+        case 'textarea':
+            return `
+                <div class="form-group spec-field">
+                    <label for="${id}" class="${requiredClass}">${label}</label>
+                    <textarea
+                        class="form-control"
+                        id="${id}"
+                        name="bulk_spec_${key}"
+                        rows="3"
+                        placeholder="${config.placeholder || ''}"
+                        ${required}
+                    ></textarea>
+                </div>
+            `;
+
+        default:
+            return '';
+    }
+}
+
+function renderBulkSpecsContextHelp() {
+    const helpBox = document.getElementById('bulk-spec-context-help');
+    if (!helpBox) return;
+
+    const isComputer = currentBulkCategory && currentBulkCategory.code === COMPUTER_CATEGORY_CODE;
+    if (!isComputer) {
+        helpBox.style.display = 'none';
+        helpBox.innerHTML = '';
+        return;
+    }
+
+    helpBox.innerHTML = `
+        <i class="fas fa-info-circle"></i>
+        Para lotes <strong>All in One</strong>, selecciona ese factor de forma y el sistema activará
+        <strong>Pantalla Integrada</strong> automáticamente para todo el lote.
+    `;
+    helpBox.style.display = 'block';
+}
+
+function setupBulkSpecFieldDependencies() {
+    const formFactorField = document.getElementById('bulk_spec_form_factor');
+    const integratedDisplayField = document.getElementById('bulk_spec_integrated_display');
+
+    if (!formFactorField || !integratedDisplayField) return;
+
+    formFactorField.addEventListener('change', applyBulkComputerSpecRules);
+    integratedDisplayField.addEventListener('change', applyBulkComputerSpecRules);
+    applyBulkComputerSpecRules();
+}
+
+function applyBulkComputerSpecRules() {
+    if (!currentBulkCategory || currentBulkCategory.code !== COMPUTER_CATEGORY_CODE) return;
+
+    const formFactorField = document.getElementById('bulk_spec_form_factor');
+    const integratedDisplayField = document.getElementById('bulk_spec_integrated_display');
+    const displaySizeField = document.getElementById('bulk_spec_display_size');
+
+    if (!formFactorField || !integratedDisplayField) return;
+
+    const normalizedFormFactor = (formFactorField.value || '').toString().trim().toLowerCase();
+    const isAllInOne = normalizedFormFactor === 'all in one' || normalizedFormFactor === 'all-in-one' || normalizedFormFactor === 'allinone';
+
+    if (isAllInOne) {
+        integratedDisplayField.checked = true;
+        integratedDisplayField.disabled = true;
+    } else {
+        integratedDisplayField.disabled = false;
+    }
+
+    if (displaySizeField) {
+        const displaySizeGroup = displaySizeField.closest('.spec-field');
+        if (displaySizeGroup) {
+            displaySizeGroup.style.display = integratedDisplayField.checked ? 'block' : 'none';
+        }
+    }
+}
+
+function showBulkSpecsSection() {
+    const section = document.getElementById('bulk-specs-section');
+    if (section) section.style.display = 'block';
+}
+
+function hideBulkSpecsSection() {
+    const section = document.getElementById('bulk-specs-section');
+    const container = document.getElementById('bulk-dynamic-specs-container');
+
+    if (section) section.style.display = 'none';
+    if (container) container.innerHTML = '';
+    renderBulkSpecsContextHelp();
 }
 
 function handleDestinationTypeChange(e) {
@@ -912,6 +1188,27 @@ function collectBulkFormData() {
         quantity: quantity,
         items: []
     };
+
+    if (currentBulkCategory && currentBulkCategory.requires_specs && currentBulkCategory.spec_template) {
+        const specifications = {};
+
+        Object.keys(currentBulkCategory.spec_template).forEach(key => {
+            const field = form.querySelector(`[name="bulk_spec_${key}"]`);
+            if (field) {
+                if (field.type === 'checkbox') {
+                    specifications[key] = field.checked;
+                } else if (field.value) {
+                    specifications[key] = field.value;
+                }
+            }
+        });
+
+        normalizeComputerSpecificationsByCategory(specifications, currentBulkCategory);
+
+        if (Object.keys(specifications).length > 0) {
+            baseData.specifications = specifications;
+        }
+    }
     
     // Generar items individuales
     for (let i = 1; i <= quantity; i++) {
