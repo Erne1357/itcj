@@ -205,6 +205,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "permission": "helpdesk.inventory.page.reports"
                 },
                 {
+                    "label": "Campañas",
+                    "endpoint": "helpdesk_pages.inventory_pages.campaigns_list",
+                    "icon": "fa-clipboard-list",
+                    "permission": "helpdesk.inventory.campaign.page.list"
+                },
+                {
                     "label": "Solicitudes de Baja",
                     "endpoint": "helpdesk_pages.inventory_pages.retirement_requests_list",
                     "icon": "fa-file-alt",

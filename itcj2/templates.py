@@ -168,6 +168,10 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.inventory_pages.retirement_requests_list":      "/help-desk/inventory/retirement-requests",
     "helpdesk_pages.inventory_pages.retirement_request_create":     "/help-desk/inventory/retirement-requests/create",
     "helpdesk_pages.inventory_pages.retirement_request_detail":     "/help-desk/inventory/retirement-requests/{request_id}",
+    "helpdesk_pages.inventory_pages.campaigns_list":                "/help-desk/inventory/campaigns",
+    "helpdesk_pages.inventory_pages.campaign_create":               "/help-desk/inventory/campaigns/create",
+    "helpdesk_pages.inventory_pages.campaign_detail":               "/help-desk/inventory/campaigns/{campaign_id}",
+    "helpdesk_pages.inventory_pages.campaign_validate":             "/help-desk/inventory/campaigns/{campaign_id}/validate",
 
     # ── AgendaTec: Páginas ───────────────────────────────────────────────────
     # Student

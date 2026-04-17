@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from .items import router as items_router
 from .assignments import router as assignments_router
 from .categories import router as categories_router
+from .campaigns import router as campaigns_router
 from .dashboard import router as dashboard_router
 from .groups import router as groups_router
 from .history import router as history_router
@@ -21,6 +22,7 @@ inventory_router = APIRouter(tags=["helpdesk-inventory"])
 inventory_router.include_router(items_router, prefix="/items")
 inventory_router.include_router(assignments_router, prefix="/assignments")
 inventory_router.include_router(categories_router, prefix="/categories")
+inventory_router.include_router(campaigns_router, prefix="/campaigns")
 inventory_router.include_router(dashboard_router, prefix="/dashboard")
 inventory_router.include_router(groups_router, prefix="/groups")
 inventory_router.include_router(history_router, prefix="/history")

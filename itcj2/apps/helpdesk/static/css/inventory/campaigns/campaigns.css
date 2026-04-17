@@ -1,0 +1,135 @@
+/* ===================================================================
+   Campañas de Inventario — estilos específicos
+   =================================================================== */
+
+/* Badges de estado */
+.campaign-status-badge { font-size: .75rem; }
+
+/* Cards de items en la vista de validación */
+.item-card {
+    border: 1px solid #e3e6f0;
+    border-radius: .35rem;
+    margin-bottom: .5rem;
+    transition: box-shadow .15s;
+}
+.item-card:hover { box-shadow: 0 .125rem .5rem rgba(0,0,0,.1); }
+.item-card .item-card-header {
+    padding: .5rem .75rem;
+    background: #f8f9fc;
+    border-bottom: 1px solid #e3e6f0;
+    border-radius: .35rem .35rem 0 0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.item-card .item-card-body {
+    padding: .5rem .75rem;
+    font-size: .82rem;
+}
+.item-card.has-predecessor { border-left: 3px solid #f6c23e; }
+.item-card.is-replaced      { border-left: 3px solid #e74a3b; }
+.item-card.unchanged         { border-left: 3px solid #1cc88a; }
+
+/* Tabla de cambios (comparación campo a campo) */
+.diff-table td { font-size: .8rem; padding: .25rem .5rem; }
+.diff-table .diff-old { color: #e74a3b; text-decoration: line-through; }
+.diff-table .diff-new { color: #1cc88a; font-weight: 600; }
+
+/* Panel de decisión sticky en desktop */
+@media (min-width: 992px) {
+    #decision-panel {
+        position: sticky;
+        bottom: 1rem;
+        z-index: 100;
+    }
+}
+
+/* Columnas de comparación: scroll independiente */
+#new-items-list,
+#existing-items-list {
+    overflow-y: auto;
+}
+
+/* Contadores en las tarjetas de resumen */
+.opacity-25 { opacity: .25; }
+
+/* Modal de item detail */
+#modal-item-body .spec-row { font-size: .82rem; }
+#modal-item-body .spec-key { font-weight: 600; color: #5a5c69; }
+
+/* ── Sección de reemplazos (viejo → nuevo) ──────────────────────── */
+.replacement-pair-card {
+    border: 1px solid #e3e6f0;
+    border-radius: .4rem;
+    overflow: hidden;
+}
+.replacement-side-old {
+    background: #fff5f5;
+    border-right: 1px solid #e3e6f0;
+}
+.replacement-side-new {
+    background: #f0fff5;
+}
+.replacement-arrow-col {
+    background: #fffbf0;
+    border-right: 1px solid #e3e6f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: .75rem .5rem;
+    color: #e4a20c;
+}
+.replacement-arrow-col .arrow-icon-h { display: none; }
+.replacement-arrow-col .arrow-icon-v { display: block; }
+
+/* En desktop: flecha horizontal */
+@media (min-width: 768px) {
+    .replacement-side-old { border-bottom: none; }
+    .replacement-arrow-col .arrow-icon-h { display: block; }
+    .replacement-arrow-col .arrow-icon-v { display: none; }
+}
+/* En mobile: flecha vertical, sin borde derecho en old */
+@media (max-width: 767px) {
+    .replacement-side-old  { border-right: none; border-bottom: 1px solid #e3e6f0; }
+    .replacement-arrow-col { border-right: none; border-bottom: 1px solid #e3e6f0; flex-direction: row; gap: .5rem; }
+}
+
+.replacement-label {
+    font-size: .6rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin-top: .25rem;
+}
+.replacement-inv-old  { color: #c0392b; font-weight: 700; }
+.replacement-inv-new  { color: #1a7a4a; font-weight: 700; }
+
+/* Cards seleccionables en modal de asignación masiva */
+.bulk-item-card {
+    border: 2px solid #e3e6f0;
+    border-radius: .35rem;
+    margin-bottom: .4rem;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: #fff;
+    user-select: none;
+}
+.bulk-item-card:hover {
+    border-color: #b7c2ea;
+    background: #f8f9fc;
+}
+.bulk-item-card.selected {
+    border-color: #1cc88a;
+    background: #f0fdf7;
+}
+.bulk-item-card .bulk-item-icon {
+    font-size: 1.1rem;
+    color: #d1d3e2;
+    flex-shrink: 0;
+    transition: color .15s;
+}
+.bulk-item-card.selected .bulk-item-icon {
+    color: #1cc88a;
+}

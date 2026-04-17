@@ -11,6 +11,21 @@ from pathlib import Path
 import click
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+DML_INVENTORY_CAMPAIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory_campaign"
+
+
+def _run_inventory_campaign_sql(files: list[str]) -> None:
+    """Ejecuta una lista de archivos SQL del módulo inventory_campaign."""
+    from itcj2.cli.core import execute_sql_file
+
+    for filename in files:
+        file_path = DML_INVENTORY_CAMPAIGN / filename
+        if not file_path.exists():
+            click.echo(f"   ⚠️  Archivo no encontrado: {filename}")
+            continue
+        click.echo(f"   🔄 Ejecutando: {filename}")
+        execute_sql_file(str(file_path))
+        click.echo(f"   ✅ Completado: {filename}")
 
 # ==================== MAPEO DE DEPARTAMENTOS ====================
 DEPARTMENT_MAPPING = {
@@ -262,9 +277,30 @@ def load_inventory_csv():
         raise
 
 
+@click.command("init-inventory-campaign")
+def init_inventory_campaign_command():
+    """Carga los permisos de Campañas de Inventario y los asigna a roles.
+
+    Ejecuta en orden:
+      01_add_campaign_permissions.sql    — Inserta los 8 permisos de campaña
+      02_assign_campaign_permissions.sql — Los asigna a admin, técnicos, jefe dpto y CC
+    """
+    click.echo("🗂️  Inicializando permisos de Campañas de Inventario...")
+    try:
+        _run_inventory_campaign_sql([
+            "01_add_campaign_permissions.sql",
+            "02_assign_campaign_permissions.sql",
+        ])
+        click.echo("\n🎉 ¡Permisos de campañas de inventario aplicados exitosamente!")
+    except Exception as e:
+        click.echo(f"\n💥 Error durante la inicialización: {e}")
+        raise
+
+
 @click.group("helpdesk")
 def helpdesk_cli():
     """Comandos CLI del módulo Helpdesk."""
 
 
 helpdesk_cli.add_command(load_inventory_csv)
+helpdesk_cli.add_command(init_inventory_campaign_command)

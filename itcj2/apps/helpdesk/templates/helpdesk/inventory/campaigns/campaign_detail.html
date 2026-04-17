@@ -1,0 +1,207 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Detalle de Campaña — Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/campaigns/campaigns.css') }}?v={{ sv('helpdesk', 'css/inventory/campaigns/campaigns.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Encabezado esqueleto (se completa con JS) -->
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="h4 mb-1 text-gray-800" id="campaign-title">
+                <i class="fas fa-clipboard-list fa-fw"></i>
+                <span id="campaign-folio">Cargando...</span>
+                <span id="campaign-status-badge" class="ml-2"></span>
+            </h1>
+            <p class="text-muted mb-0 small" id="campaign-subtitle"></p>
+        </div>
+        <a href="{{ url_for('helpdesk_pages.inventory_pages.campaigns_list') }}"
+           class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <!-- Alerta si REJECTED -->
+    <div id="rejection-alert" class="alert alert-danger d-none mb-3">
+        <i class="fas fa-times-circle"></i>
+        <strong>Campaña rechazada.</strong>
+        <span id="rejection-reason"></span>
+        {% if is_admin %}
+        <button class="btn btn-sm btn-outline-danger ml-2" id="btn-reopen">
+            <i class="fas fa-redo"></i> Reabrir
+        </button>
+        {% endif %}
+    </div>
+
+    <!-- Alerta si VALIDATED -->
+    <div id="validated-alert" class="alert alert-success d-none mb-3">
+        <i class="fas fa-check-circle"></i>
+        <strong>Campaña validada.</strong>
+        <span id="validated-by-info"></span>
+    </div>
+
+    <div class="row">
+
+        <!-- Columna principal: info + items -->
+        <div class="col-12 col-lg-8">
+
+            <!-- Tarjeta de metadatos -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-info-circle"></i> Información de la Campaña
+                    </h6>
+                </div>
+                <div class="card-body p-3">
+                    <div class="row" id="campaign-meta">
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="text-muted d-block">Departamento</small>
+                            <span id="meta-department" class="font-weight-bold">—</span>
+                        </div>
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="text-muted d-block">Items registrados</small>
+                            <span id="meta-items" class="font-weight-bold">—</span>
+                        </div>
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="text-muted d-block">Creada por</small>
+                            <span id="meta-created-by">—</span>
+                        </div>
+                        <div class="col-6 col-md-3 mb-2">
+                            <small class="text-muted d-block">Fecha inicio</small>
+                            <span id="meta-started-at">—</span>
+                        </div>
+                        <div class="col-12 mb-2" id="meta-notes-row" style="display:none!important;">
+                            <small class="text-muted d-block">Notas</small>
+                            <span id="meta-notes" class="small"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items de la campaña -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-laptop"></i> Equipos en esta Campaña
+                        <span class="badge bg-secondary text-white ml-1" id="items-count">0</span>
+                    </h6>
+                    {% if can_manage %}
+                    <div id="items-actions" class="d-none gap-2 d-flex">
+                        <button class="btn btn-sm btn-outline-primary" id="btn-bulk-assign">
+                            <i class="fas fa-plus"></i> Asignar equipos
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th class="pl-3">No. Inventario</th>
+                                    <th class="d-none d-sm-table-cell">Marca / Modelo</th>
+                                    <th class="d-none d-md-table-cell">Estado</th>
+                                    <th class="d-none d-lg-table-cell">Predecesor</th>
+                                    <th class="text-center">Bloqueado</th>
+                                    {% if can_manage %}
+                                    <th id="col-unassign" class="text-center d-none"></th>
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody id="items-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center py-4">
+                                        <i class="fas fa-spinner fa-spin text-primary"></i> Cargando...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Columna lateral: acciones + historial -->
+        <div class="col-12 col-lg-4">
+
+            <!-- Acciones -->
+            <div class="card shadow mb-3" id="actions-card">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-bolt"></i> Acciones
+                    </h6>
+                </div>
+                <div class="card-body p-3 d-grid gap-2" id="actions-body">
+                    <div class="text-center text-muted small py-2">
+                        <i class="fas fa-spinner fa-spin"></i> Cargando...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Historial de validaciones -->
+            <div class="card shadow mb-3">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-history"></i> Historial de Validaciones
+                    </h6>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush" id="validation-history">
+                        <li class="list-group-item text-muted small text-center py-3">
+                            Sin historial
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modal: asignar equipos en masa -->
+    <div class="modal fade" id="modal-bulk-assign" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header py-3">
+                    <h5 class="modal-title"><i class="fas fa-plus-circle"></i> Asignar Equipos a la Campaña</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">
+                        Busca equipos del departamento que aún no tienen campaña asignada y agrégalos a esta campaña.
+                    </p>
+                    <input type="text" class="form-control form-control-sm mb-3" id="bulk-search-input"
+                           placeholder="Buscar por número, marca, modelo o serial...">
+                    <div id="bulk-items-list" style="max-height:350px; overflow-y:auto;">
+                        <div class="text-center text-muted py-3 small">
+                            <i class="fas fa-search"></i> Escribe para buscar equipos
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <small class="text-muted mr-auto" id="bulk-selection-count">0 seleccionados</small>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-confirm-bulk-assign" disabled>
+                        <i class="fas fa-check"></i> Asignar seleccionados
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const CAMPAIGN_ID  = {{ campaign_id }};
+    const CAN_MANAGE   = {{ 'true' if can_manage else 'false' }};
+    const CAN_VALIDATE = {{ 'true' if can_validate else 'false' }};
+    const IS_ADMIN     = {{ 'true' if is_admin else 'false' }};
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/campaigns/campaign_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/campaigns/campaign_detail.js') }}"></script>
+{% endblock %}

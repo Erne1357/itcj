@@ -1,0 +1,114 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Nueva Campaña — Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/campaigns/campaigns.css') }}?v={{ sv('helpdesk', 'css/inventory/campaigns/campaigns.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="h4 mb-0 text-gray-800">
+                <i class="fas fa-plus-circle fa-fw"></i> Nueva Campaña de Inventario
+            </h1>
+            <p class="text-muted mb-0 small d-none d-sm-block">
+                Inicia un levantamiento formal de inventario para un departamento
+            </p>
+        </div>
+        <a href="{{ url_for('helpdesk_pages.inventory_pages.campaigns_list') }}"
+           class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left"></i> Volver
+        </a>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-12 col-lg-7">
+            <div class="card shadow">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">
+                        <i class="fas fa-clipboard-list"></i> Datos de la Campaña
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <form id="campaign-create-form" novalidate>
+
+                        <!-- Departamento -->
+                        <div class="form-group mb-3">
+                            <label class="form-label font-weight-bold" for="department-select">
+                                Departamento <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-control" id="department-select" required>
+                                <option value="">— Selecciona un departamento —</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.id }}">{{ dept.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <div id="dept-campaign-alert" class="alert alert-warning mt-2 py-2 small d-none">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <span id="dept-campaign-msg"></span>
+                            </div>
+                        </div>
+
+                        <!-- Título -->
+                        <div class="form-group mb-3">
+                            <label class="form-label font-weight-bold" for="title-input">
+                                Título <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="title-input"
+                                   placeholder="ej. Levantamiento de inventario 2026 — Rectorado"
+                                   maxlength="200" required>
+                            <small class="form-text text-muted">Mínimo 5 caracteres, máximo 200.</small>
+                        </div>
+
+                        <!-- Periodo académico -->
+                        {% if periods %}
+                        <div class="form-group mb-3">
+                            <label class="form-label font-weight-bold" for="period-select">
+                                Periodo Académico
+                            </label>
+                            <select class="form-control" id="period-select">
+                                <option value="">— Sin asociar a periodo —</option>
+                                {% for period in periods %}
+                                <option value="{{ period.id }}">{{ period.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endif %}
+
+                        <!-- Notas -->
+                        <div class="form-group mb-4">
+                            <label class="form-label font-weight-bold" for="notes-input">
+                                Notas <span class="text-muted font-weight-normal">(opcional)</span>
+                            </label>
+                            <textarea class="form-control" id="notes-input" rows="3"
+                                      placeholder="Observaciones iniciales sobre este levantamiento..."></textarea>
+                        </div>
+
+                        <div id="form-error" class="alert alert-danger d-none py-2 small mb-3"></div>
+
+                        <div class="d-flex gap-2 justify-content-end">
+                            <a href="{{ url_for('helpdesk_pages.inventory_pages.campaigns_list') }}"
+                               class="btn btn-outline-secondary">
+                                Cancelar
+                            </a>
+                            <button type="submit" class="btn btn-primary" id="btn-submit">
+                                <i class="fas fa-save"></i> Crear Campaña
+                            </button>
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/campaigns/campaign_create.js') }}?v={{ sv('helpdesk', 'js/inventory/campaigns/campaign_create.js') }}"></script>
+{% endblock %}

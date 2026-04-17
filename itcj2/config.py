@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111171"
+    STATIC_VERSION: str = "1.0.1111189"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # Uploads
     INSTANCE_PATH: str = os.path.abspath("instance")
     HELPDESK_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "helpdesk")
+    HELPDESK_RETIREMENT_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "helpdesk", "retirement_requests")
     HELPDESK_MAX_FILE_SIZE: int = 3 * 1024 * 1024
     HELPDESK_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,gif,webp"
     HELPDESK_MAX_DOCUMENT_SIZE: int = 25 * 1024 * 1024

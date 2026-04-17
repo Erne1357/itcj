@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -164,3 +164,28 @@ class ValidateBulkSerialsRequest(BaseModel):
     itcj_serial_list: Optional[str] = None
     id_tecnm_list: Optional[str] = None
     serial_separator: Optional[str] = "newline"
+
+
+# --- Campaigns ---
+
+class CampaignCreateRequest(BaseModel):
+    department_id: int
+    title: str = Field(..., min_length=5, max_length=200)
+    notes: Optional[str] = None
+    academic_period_id: Optional[int] = None
+
+
+class CampaignBulkAssignRequest(BaseModel):
+    item_ids: list[int] = Field(..., min_length=1)
+
+
+class CampaignApproveRequest(BaseModel):
+    notes: Optional[str] = None
+
+
+class CampaignRejectRequest(BaseModel):
+    notes: str = Field(..., min_length=5, description="Motivo del rechazo (mínimo 5 caracteres)")
+
+
+class ItemUnlockRequest(BaseModel):
+    justification: str = Field(..., min_length=10, description="Justificación del desbloqueo (mínimo 10 caracteres)")

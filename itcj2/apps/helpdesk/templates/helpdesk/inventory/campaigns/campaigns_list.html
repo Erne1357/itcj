@@ -1,0 +1,128 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Campañas de Inventario — Help-Desk ITCJ{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='helpdesk/css/inventory/campaigns/campaigns.css') }}?v={{ sv('helpdesk', 'css/inventory/campaigns/campaigns.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- Encabezado -->
+    <div class="d-flex justify-content-between align-items-center mb-3 mb-md-4 flex-wrap gap-2">
+        <div>
+            <h1 class="h4 h3-md mb-0 text-gray-800">
+                <i class="fas fa-clipboard-list fa-fw"></i> Campañas de Inventario
+            </h1>
+            <p class="text-muted mb-0 small d-none d-sm-block">
+                Levantamientos de inventario por departamento
+            </p>
+        </div>
+        {% if can_create %}
+        <a href="{{ url_for('helpdesk_pages.inventory_pages.campaign_create') }}"
+           class="btn btn-primary btn-sm">
+            <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Nueva Campaña</span>
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Filtros -->
+    <div class="card shadow mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                <i class="fas fa-filter"></i> Filtros
+            </h6>
+            <button class="btn btn-sm btn-link p-0" type="button" data-toggle="collapse" data-target="#filtersCollapse">
+                <i class="fas fa-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="filtersCollapse">
+            <div class="card-body p-2 p-md-3">
+                <div class="row g-2">
+                    <div class="col-12 col-md-3 mb-2">
+                        <label class="form-label small mb-1"><i class="fas fa-search"></i> Folio</label>
+                        <input type="text" class="form-control form-control-sm" id="filter-folio"
+                               placeholder="CAM-2026-001">
+                    </div>
+                    <div class="col-6 col-md-3 mb-2">
+                        <label class="form-label small mb-1"><i class="fas fa-tag"></i> Estado</label>
+                        <select class="form-control form-control-sm" id="filter-status">
+                            <option value="">Todos</option>
+                            <option value="OPEN">Abierta</option>
+                            <option value="PENDING_VALIDATION">Pendiente validación</option>
+                            <option value="VALIDATED">Validada</option>
+                            <option value="REJECTED">Rechazada</option>
+                        </select>
+                    </div>
+                    {% if can_view_all %}
+                    <div class="col-6 col-md-3 mb-2">
+                        <label class="form-label small mb-1"><i class="fas fa-building"></i> Departamento</label>
+                        <select class="form-control form-control-sm" id="filter-department">
+                            <option value="">Todos</option>
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="col-12 col-md-2 mb-2 d-flex align-items-end">
+                        <button class="btn btn-sm btn-outline-secondary w-100" id="btn-clear-filters">
+                            <i class="fas fa-times"></i> Limpiar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                <i class="fas fa-list"></i> Campañas
+                <span class="badge bg-secondary text-white ml-2" id="total-count">0</span>
+            </h6>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0" id="campaigns-table">
+                    <thead class="thead-light">
+                        <tr>
+                            <th class="pl-3">Folio</th>
+                            <th>Estado</th>
+                            <th class="d-none d-md-table-cell">Departamento</th>
+                            <th class="d-none d-sm-table-cell text-center">Items</th>
+                            <th class="d-none d-lg-table-cell">Inicio</th>
+                            <th class="d-none d-lg-table-cell">Cierre</th>
+                            <th class="text-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="campaigns-tbody">
+                        <tr id="loading-row">
+                            <td colspan="7" class="text-center py-4">
+                                <i class="fas fa-spinner fa-spin text-primary"></i> Cargando...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paginación -->
+    <div class="d-flex justify-content-between align-items-center mb-4" id="pagination-container" style="display:none!important;">
+        <small class="text-muted" id="pagination-info"></small>
+        <nav>
+            <ul class="pagination pagination-sm mb-0" id="pagination-list"></ul>
+        </nav>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const CAN_VIEW_ALL  = {{ 'true' if can_view_all else 'false' }};
+    const CAN_CREATE    = {{ 'true' if can_create else 'false' }};
+    const USER_DEPT_ID  = {{ user_dept_id if user_dept_id else 'null' }};
+</script>
+<script src="{{ url_for('static', filename='helpdesk/js/inventory/campaigns/campaigns_list.js') }}?v={{ sv('helpdesk', 'js/inventory/campaigns/campaigns_list.js') }}"></script>
+{% endblock %}
