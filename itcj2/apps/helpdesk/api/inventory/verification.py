@@ -247,6 +247,8 @@ def verify_item(
             update_payload["specifications"] = new_specs
             changes_applied["specifications"] = {"old": old_specs, "new": new_specs}
 
+    _LOCKED_FIELDS = frozenset({"brand", "model", "supplier_serial", "itcj_serial", "id_tecnm"})
+
     if update_payload:
         update_payload["update_notes"] = "Cambio registrado durante verificación física"
         try:
@@ -254,6 +256,20 @@ def verify_item(
             db.refresh(item)
         except ValueError as e:
             raise HTTPException(400, detail={"success": False, "error": str(e)})
+
+    # Si el equipo está bloqueado y se modificaron campos críticos, registrar LOCKED_FIELD_MODIFIED
+    if item.is_locked and changes_applied:
+        locked_changes = {f: v for f, v in changes_applied.items() if f in _LOCKED_FIELDS}
+        for field, change in locked_changes.items():
+            db.add(InventoryHistory(
+                item_id=item_id,
+                event_type="LOCKED_FIELD_MODIFIED",
+                old_value={field: change["old"]},
+                new_value={field: change["new"]},
+                notes=f"Campo bloqueado modificado durante verificación física: {field}.",
+                performed_by_id=user_id,
+                ip_address=ip,
+            ))
 
     # Cambio de estado
     new_status = body.get("status")

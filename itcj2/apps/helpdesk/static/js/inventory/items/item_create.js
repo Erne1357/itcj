@@ -11,6 +11,9 @@ let currentBulkCategory = null;
 let departmentUsers = [];
 let currentMode = 'individual';
 let bulkItems = [];
+let currentCampaignId = null;
+let currentPredecessorId = null;
+let predecessorDebounce = null;
 const COMPUTER_CATEGORY_CODE = 'computer';
 
 // ==================== ERROR HELPERS ====================
@@ -61,6 +64,12 @@ function setupEventListeners() {
         document.getElementById('user-assignment-section').style.display = 
             e.target.checked ? 'block' : 'none';
     });
+
+    // Crear usuario inactivo
+    initCreateInactiveUser();
+
+    // Predecesor (equipo que este reemplaza)
+    initPredecessorSearch();
 
     // Submit del formulario individual
     document.getElementById('create-item-form').addEventListener('submit', handleSubmit);
@@ -296,7 +305,7 @@ async function loadDepartmentUsers(departmentId) {
     }
 
     try {
-        const response = await fetch(`/api/core/v2/departments/${departmentId}/users`, {
+        const response = await fetch(`/api/core/v2/departments/${departmentId}/users?include_inactive=true`, {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             }
@@ -307,7 +316,7 @@ async function loadDepartmentUsers(departmentId) {
         }
 
         const result = await response.json();
-        departmentUsers = result.data;
+        departmentUsers = result.data.users ?? result.data;
 
         const select = document.getElementById('assigned-to-user-id');
         select.innerHTML = '<option value="">Seleccionar usuario...</option>';
@@ -315,7 +324,10 @@ async function loadDepartmentUsers(departmentId) {
         departmentUsers.forEach(user => {
             const option = document.createElement('option');
             option.value = user.id;
-            option.textContent = `${user.full_name} (${user.email})`;
+            const label = user.is_active === false
+                ? `${user.full_name} (cuenta inactiva)`
+                : `${user.full_name} (${user.email || user.username})`;
+            option.textContent = label;
             select.appendChild(option);
         });
 
@@ -574,10 +586,285 @@ function hideSpecsSection() {
 // ==================== MANEJO DE DEPARTAMENTO ====================
 function handleDepartmentChange(e) {
     const departmentId = e.target.value;
-    
+
     if (departmentId && document.getElementById('assign-to-user-check').checked) {
         loadDepartmentUsers(departmentId);
     }
+
+    loadActiveCampaign(departmentId);
+    clearPredecessor();
+}
+
+// ==================== CAMPAÑA ACTIVA ====================
+async function loadActiveCampaign(deptId) {
+    const section = document.getElementById('campaign-section');
+    if (!deptId) {
+        section.style.display = 'none';
+        currentCampaignId = null;
+        document.getElementById('campaign-id').value = '';
+        return;
+    }
+    try {
+        const res = await fetch(
+            `/api/help-desk/v2/inventory/campaigns?department_id=${deptId}&status=OPEN&per_page=1`,
+            { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }
+        );
+        if (!res.ok) { section.style.display = 'none'; return; }
+        const data = await res.json();
+        const campaigns = data.data || [];
+        if (campaigns.length > 0) {
+            const c = campaigns[0];
+            currentCampaignId = c.id;
+            document.getElementById('campaign-id').value = c.id;
+            document.getElementById('campaign-folio').textContent = c.folio;
+            document.getElementById('campaign-title').textContent = c.title || '';
+            section.style.display = 'block';
+        } else {
+            section.style.display = 'none';
+            currentCampaignId = null;
+            document.getElementById('campaign-id').value = '';
+        }
+    } catch (_) {
+        section.style.display = 'none';
+    }
+}
+
+// ==================== PREDECESOR ====================
+let _selectedPredecessorData = null;
+
+const _STATUS_COLORS = {
+    ACTIVE: 'success', MAINTENANCE: 'warning', DAMAGED: 'danger',
+    LOST: 'secondary', PENDING_ASSIGNMENT: 'info'
+};
+
+function initPredecessorSearch() {
+    const btnSearch = document.getElementById('btn-search-predecessor');
+    const btnClear  = document.getElementById('btn-clear-predecessor');
+    const searchInput = document.getElementById('predecessor-search-input');
+    const btnConfirm  = document.getElementById('btn-confirm-predecessor');
+
+    if (btnSearch) {
+        btnSearch.addEventListener('click', () => {
+            _resetPredecessorModal();
+            $('#predecessorSearchModal').modal('show');
+        });
+    }
+
+    // Precargar equipos del dpto cuando el modal termina de abrir
+    $('#predecessorSearchModal').on('shown.bs.modal', () => {
+        if (searchInput) searchInput.focus();
+        searchPredecessorItems('');
+    });
+
+    if (btnClear) btnClear.addEventListener('click', clearPredecessor);
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            clearTimeout(predecessorDebounce);
+            predecessorDebounce = setTimeout(() => searchPredecessorItems(searchInput.value.trim()), 350);
+        });
+    }
+
+    if (btnConfirm) {
+        btnConfirm.addEventListener('click', () => {
+            if (!_selectedPredecessorData) return;
+            const i = _selectedPredecessorData;
+            const desc = [i.brand, i.model].filter(Boolean).join(' ');
+            _confirmPredecessor(i.id, i.inventory_number, desc);
+        });
+    }
+}
+
+function _resetPredecessorModal() {
+    const searchInput = document.getElementById('predecessor-search-input');
+    if (searchInput) searchInput.value = '';
+    document.getElementById('predecessor-results').innerHTML =
+        '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-primary fa-lg"></i></div>';
+    document.getElementById('predecessor-detail-empty').style.display = '';
+    document.getElementById('predecessor-detail-panel').style.display = 'none';
+    document.getElementById('btn-confirm-predecessor').classList.add('d-none');
+    _selectedPredecessorData = null;
+}
+
+async function searchPredecessorItems(q) {
+    const resultsEl = document.getElementById('predecessor-results');
+    resultsEl.innerHTML =
+        '<div class="text-center py-3"><i class="fas fa-spinner fa-spin text-primary"></i></div>';
+
+    try {
+        const deptId = document.getElementById('department-id').value;
+        const params = new URLSearchParams({ per_page: 50, sort: 'recent' });
+        if (deptId) params.set('department_id', deptId);
+        if (q) params.set('search', q);
+
+        const res = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        const data = await res.json();
+        const items = (data.data || []).filter(i => i.is_active);
+
+        if (items.length === 0) {
+            resultsEl.innerHTML =
+                `<div class="text-center text-muted py-4 small">
+                    <i class="fas fa-inbox d-block fa-2x mb-2"></i>
+                    ${q ? 'Sin resultados para "' + q + '"' : 'Sin equipos en este departamento'}
+                 </div>`;
+            return;
+        }
+
+        resultsEl.innerHTML = items.map(i => {
+            const desc = [i.brand, i.model].filter(Boolean).join(' ');
+            const sc = _STATUS_COLORS[i.status] || 'secondary';
+            return `<div class="pred-item-card border-bottom px-3 py-2" data-id="${i.id}"
+                         onclick="showPredecessorDetail(${i.id})">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="overflow-hidden">
+                        <div class="font-weight-bold small text-truncate">
+                            ${i.inventory_number}
+                            ${i.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Bloqueado"></i>' : ''}
+                        </div>
+                        <div class="text-muted" style="font-size:.78rem;">${desc || '—'}</div>
+                        ${i.itcj_serial ? `<div class="text-muted" style="font-size:.72rem;">${i.itcj_serial}</div>` : ''}
+                    </div>
+                    <span class="badge badge-${sc} ml-2 flex-shrink-0" style="font-size:.62rem;">${i.status}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+    } catch (err) {
+        resultsEl.innerHTML =
+            `<div class="text-center text-danger py-3 small">${err.message}</div>`;
+    }
+}
+
+async function showPredecessorDetail(itemId) {
+    const emptyEl  = document.getElementById('predecessor-detail-empty');
+    const panelEl  = document.getElementById('predecessor-detail-panel');
+    const btnCfm   = document.getElementById('btn-confirm-predecessor');
+
+    // Resaltar card seleccionada
+    document.querySelectorAll('.pred-item-card').forEach(el => el.classList.remove('selected'));
+    const card = document.querySelector(`.pred-item-card[data-id="${itemId}"]`);
+    if (card) card.classList.add('selected');
+
+    // Loading state
+    emptyEl.style.display = '';
+    emptyEl.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x text-primary"></i></div>';
+    panelEl.style.display = 'none';
+    btnCfm.classList.add('d-none');
+
+    try {
+        const res = await fetch(`/api/help-desk/v2/inventory/items/${itemId}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        _selectedPredecessorData = data.data;
+        _renderPredecessorDetail(data.data);
+
+        emptyEl.style.display = 'none';
+        panelEl.style.display = 'block';
+        btnCfm.classList.remove('d-none');
+
+    } catch (err) {
+        emptyEl.innerHTML =
+            `<div class="text-center text-danger py-4 small">
+                <i class="fas fa-exclamation-circle fa-2x d-block mb-2"></i>${err.message}
+             </div>`;
+    }
+}
+
+function _renderPredecessorDetail(item) {
+    const panel = document.getElementById('predecessor-detail-panel');
+    const sc = _STATUS_COLORS[item.status] || 'secondary';
+
+    // Especificaciones
+    let specsHtml = '';
+    if (item.specifications && Object.keys(item.specifications).length > 0) {
+        const specItems = Object.entries(item.specifications)
+            .filter(([, v]) => v !== null && v !== '')
+            .map(([k, v]) => `
+                <div class="pred-spec-item">
+                    <small class="text-muted d-block">${_fmtKey(k)}</small>
+                    <span>${v === true ? 'Sí' : v === false ? 'No' : v}</span>
+                </div>`).join('');
+        specsHtml = `
+            <div class="mt-3">
+                <div class="text-muted small font-weight-bold text-uppercase mb-2">
+                    <i class="fas fa-microchip mr-1"></i>Especificaciones
+                </div>
+                <div class="pred-spec-grid">${specItems}</div>
+            </div>`;
+    }
+
+    // Datos de asignación/fechas
+    const rows = [
+        ['Categoría',     item.category ? item.category.name : null],
+        ['Departamento',  item.department ? item.department.name : null],
+        ['Asignado a',    item.assigned_to_user ? item.assigned_to_user.full_name : 'Global del depto.'],
+        ['Serial ITCJ',   item.itcj_serial],
+        ['Serial Prov.',  item.supplier_serial],
+        ['ID TecNM',      item.id_tecnm],
+        ['Adquisición',   item.acquisition_date],
+        ['Garantía',      item.warranty_expiration
+            ? `<span class="${item.is_under_warranty ? 'text-success' : 'text-danger'}">${item.warranty_expiration}</span>`
+            : null],
+    ].filter(([, v]) => v);
+
+    const infoHtml = `
+        <div class="pred-spec-grid mt-2">
+            ${rows.map(([label, val]) => `
+                <div class="pred-spec-item">
+                    <small class="text-muted d-block">${label}</small>
+                    <span>${val}</span>
+                </div>`).join('')}
+        </div>`;
+
+    panel.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+                <h5 class="mb-0 font-weight-bold">${item.inventory_number}</h5>
+                <span class="text-muted">${[item.brand, item.model].filter(Boolean).join(' ') || '—'}</span>
+            </div>
+            <div class="text-right flex-shrink-0 ml-2">
+                <span class="badge badge-${sc}">${item.status}</span>
+                ${item.is_locked
+                    ? '<br><span class="badge badge-warning mt-1"><i class="fas fa-lock mr-1"></i>Bloqueado</span>'
+                    : ''}
+            </div>
+        </div>
+        <hr class="my-2">
+        ${infoHtml}
+        ${specsHtml}
+        ${item.notes
+            ? `<div class="mt-3"><small class="text-muted d-block">Notas</small><span class="small">${item.notes}</span></div>`
+            : ''}`;
+}
+
+function _fmtKey(key) {
+    return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function _confirmPredecessor(id, invNumber, desc) {
+    currentPredecessorId = id;
+    document.getElementById('predecessor-item-id').value = id;
+    document.getElementById('predecessor-display').value =
+        desc.trim() ? `${invNumber} — ${desc}` : invNumber;
+    document.getElementById('btn-clear-predecessor').classList.remove('d-none');
+    $('#predecessorSearchModal').modal('hide');
+}
+
+function selectPredecessor(id, invNumber, desc) {
+    _confirmPredecessor(id, invNumber, desc);
+}
+
+function clearPredecessor() {
+    currentPredecessorId = null;
+    _selectedPredecessorData = null;
+    document.getElementById('predecessor-item-id').value = '';
+    document.getElementById('predecessor-display').value = '';
+    document.getElementById('btn-clear-predecessor').classList.add('d-none');
 }
 
 // ==================== SUBMIT ====================
@@ -657,6 +944,19 @@ function collectFormData() {
         if (userId) {
             formData.assigned_to_user_id = parseInt(userId);
         }
+    }
+
+    // Campaña activa (si el usuario eligió asociar)
+    const campaignId = document.getElementById('campaign-id').value;
+    const campaignCheck = document.getElementById('assign-to-campaign');
+    if (campaignId && campaignCheck && campaignCheck.checked) {
+        formData.campaign_id = parseInt(campaignId);
+    }
+
+    // Predecesor (equipo que este reemplaza)
+    const predecessorId = document.getElementById('predecessor-item-id').value;
+    if (predecessorId) {
+        formData.predecessor_item_id = parseInt(predecessorId);
     }
 
     // Especificaciones técnicas
@@ -1287,6 +1587,162 @@ function showBulkSuccessModal(result) {
     `).join('');
     
     document.getElementById('bulk-success-details').innerHTML = detailsHtml;
-    
+
     $('#bulkSuccessModal').modal('show');
+}
+
+// ==================== CREAR USUARIO INACTIVO ====================
+
+function _normalizeStr(s) {
+    return (s || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+}
+
+function _generateUsernameCandidates(firstName, lastName, middleName) {
+    const fn  = _normalizeStr(firstName.trim().split(/\s+/)[0]);   // primer nombre
+    const fn2 = _normalizeStr((firstName.trim().split(/\s+/)[1] || ''));  // segundo nombre
+    const ln  = _normalizeStr(lastName.trim().split(/\s+/)[0]);    // apellido paterno
+    const ln2 = _normalizeStr(middleName ? middleName.trim().split(/\s+/)[0] : ''); // apellido materno
+
+    const candidates = [];
+    if (fn && ln)  candidates.push(fn[0] + ln);           // evillarreal
+    if (fn && ln2) candidates.push(fn[0] + ln2);          // eibarra
+    if (fn2 && ln) candidates.push(fn2[0] + ln);          // vvillarreal
+    if (fn && ln)  candidates.push(fn + ln);              // ernestovillarreal
+    return candidates.filter((v, i, a) => v.length > 1 && a.indexOf(v) === i);
+}
+
+let _usernameCandidates = [];
+let _usernameIndex = 0;
+
+function initCreateInactiveUser() {
+    const btnOpen = document.getElementById('btn-create-inactive-user');
+    if (!btnOpen) return;
+
+    btnOpen.addEventListener('click', () => {
+        _usernameCandidates = [];
+        _usernameIndex = 0;
+        document.getElementById('inactive-first-name').value = '';
+        document.getElementById('inactive-last-name').value = '';
+        document.getElementById('inactive-middle-name').value = '';
+        document.getElementById('inactive-username').value = '';
+        document.getElementById('inactive-email').value = '';
+        document.getElementById('username-hint').textContent = 'Generado automáticamente. Puedes editarlo si hay conflicto.';
+        $('#createInactiveUserModal').modal('show');
+    });
+
+    // Auto-generar username al escribir nombre/apellido
+    ['inactive-first-name', 'inactive-last-name', 'inactive-middle-name'].forEach(id => {
+        document.getElementById(id).addEventListener('input', () => {
+            const fn = document.getElementById('inactive-first-name').value;
+            const ln = document.getElementById('inactive-last-name').value;
+            const mn = document.getElementById('inactive-middle-name').value;
+            if (fn && ln) {
+                _usernameCandidates = _generateUsernameCandidates(fn, ln, mn);
+                _usernameIndex = 0;
+                document.getElementById('inactive-username').value = _usernameCandidates[0] || '';
+            }
+        });
+    });
+
+    // Botón para rotar al siguiente candidato
+    document.getElementById('btn-next-username').addEventListener('click', () => {
+        if (_usernameCandidates.length === 0) return;
+        _usernameIndex = (_usernameIndex + 1) % _usernameCandidates.length;
+        const next = _usernameCandidates[_usernameIndex];
+        document.getElementById('inactive-username').value = next || '';
+        if (_usernameIndex === 0) {
+            document.getElementById('username-hint').textContent = 'Volviste al inicio. Edítalo manualmente si ninguno funciona.';
+        } else {
+            document.getElementById('username-hint').textContent = `Variante ${_usernameIndex + 1} de ${_usernameCandidates.length}`;
+        }
+    });
+
+    // Submit del modal
+    document.getElementById('create-inactive-user-form').addEventListener('submit', handleCreateInactiveUser);
+}
+
+async function handleCreateInactiveUser(e) {
+    e.preventDefault();
+
+    const deptId = parseInt(document.getElementById('department-id')?.value);
+    if (!deptId) {
+        showError('Selecciona primero el departamento del equipo.');
+        return;
+    }
+
+    const firstName  = document.getElementById('inactive-first-name').value.trim();
+    const lastName   = document.getElementById('inactive-last-name').value.trim();
+    const middleName = document.getElementById('inactive-middle-name').value.trim();
+    const username   = document.getElementById('inactive-username').value.trim();
+    const email      = document.getElementById('inactive-email').value.trim();
+
+    if (!firstName || !lastName || !username) {
+        showError('Nombre, apellido y username son obligatorios.');
+        return;
+    }
+
+    const btn = document.getElementById('btn-confirm-inactive-user');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creando...';
+
+    try {
+        const res = await fetch('/api/core/v2/users/create-inactive', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                first_name: firstName,
+                last_name: lastName,
+                middle_name: middleName || null,
+                email: email || null,
+                username,
+                department_id: deptId,
+            }),
+        });
+
+        const data = await res.json();
+
+        if (res.status === 409) {
+            // Username en uso — rotar al siguiente candidato automáticamente
+            const nextIdx = (_usernameIndex + 1) % (_usernameCandidates.length || 1);
+            const nextUser = _usernameCandidates[nextIdx];
+            if (nextUser && nextUser !== username) {
+                _usernameIndex = nextIdx;
+                document.getElementById('inactive-username').value = nextUser;
+                document.getElementById('username-hint').textContent =
+                    `"${username}" ya está en uso. Prueba con "${nextUser}" u edítalo.`;
+            } else {
+                document.getElementById('username-hint').textContent =
+                    `"${username}" ya está en uso. Edítalo manualmente.`;
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save"></i> Crear usuario';
+            return;
+        }
+
+        if (!res.ok) throw new Error(data.error || 'Error al crear usuario');
+
+        // Éxito — agregar al select y seleccionarlo
+        const newUser = data.data;
+        const select = document.getElementById('assigned-to-user-id');
+        const opt = document.createElement('option');
+        opt.value = newUser.id;
+        opt.textContent = `${newUser.full_name} (cuenta inactiva)`;
+        opt.setAttribute('data-inactive', 'true');
+        select.appendChild(opt);
+        select.value = newUser.id;
+
+        $('#createInactiveUserModal').modal('hide');
+        showSuccess(`Usuario ${newUser.full_name} creado. Se seleccionó automáticamente.`);
+
+    } catch (err) {
+        showError(err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> Crear usuario';
+    }
 }

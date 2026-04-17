@@ -1,3 +1,28 @@
+/* ── Modal de predecesor ─────────────────────────────────────── */
+.pred-item-card {
+    cursor: pointer;
+    transition: background .12s;
+}
+.pred-item-card:hover {
+    background: #f0f4ff;
+}
+.pred-item-card.selected {
+    background: #e8f0fe;
+    border-left: 3px solid #4e73df !important;
+}
+#predecessor-detail-panel {
+    overflow-y: auto;
+    max-height: 420px;
+}
+.pred-spec-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem 1rem;
+}
+.pred-spec-item small { font-size: .72rem; }
+.pred-spec-item span  { font-size: .85rem; }
+
+/* ── Form sections ───────────────────────────────────────────── */
 .form-section {
     background: #f8f9fc;
     border-radius: 0.35rem;

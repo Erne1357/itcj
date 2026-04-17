@@ -227,14 +227,65 @@
                     <div id="user-assignment-section" style="display: none;">
                         <div class="form-group">
                             <label>Usuario</label>
-                            <select class="form-control" id="assigned-to-user-id" name="assigned_to_user_id">
-                                <option value="">Seleccionar usuario...</option>
-                                <!-- Se llenará dinámicamente según departamento -->
-                            </select>
+                            <div class="input-group">
+                                <select class="form-control" id="assigned-to-user-id" name="assigned_to_user_id">
+                                    <option value="">Seleccionar usuario...</option>
+                                </select>
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-outline-secondary" id="btn-create-inactive-user"
+                                        title="Crear nuevo usuario inactivo">
+                                        <i class="fas fa-user-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
                             <small class="form-text text-muted">
-                                Dejar vacío para que sea global del departamento
+                                Dejar vacío para que sea global del departamento.
+                                Usa <i class="fas fa-user-plus"></i> para registrar a alguien que aún no tiene cuenta.
                             </small>
                         </div>
+                    </div>
+
+                    <!-- Campaña activa del departamento -->
+                    <div id="campaign-section" style="display:none;" class="mb-3">
+                        <div class="alert alert-primary py-2 mb-1 d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="fas fa-folder-open mr-1"></i>
+                                <strong>Campaña activa:</strong>
+                                <span id="campaign-folio" class="ml-1 font-weight-bold"></span>
+                                <small class="d-block text-muted mt-1" id="campaign-title"></small>
+                            </div>
+                            <div class="custom-control custom-checkbox ml-3 flex-shrink-0">
+                                <input type="checkbox" class="custom-control-input" id="assign-to-campaign" checked>
+                                <label class="custom-control-label" for="assign-to-campaign">Asociar</label>
+                            </div>
+                        </div>
+                        <input type="hidden" id="campaign-id">
+                        <small class="form-text text-muted">
+                            <i class="fas fa-info-circle"></i> Hay una campaña de inventario abierta para este departamento. Asociar facilita la validación posterior por el jefe de departamento.
+                        </small>
+                    </div>
+
+                    <!-- Predecesor: ¿Reemplaza a un equipo? -->
+                    <div class="form-group">
+                        <label><i class="fas fa-history mr-1 text-muted"></i> ¿Reemplaza a un equipo existente? <small class="text-muted font-weight-normal">(Opcional)</small></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="predecessor-display"
+                                   placeholder="Ninguno — clic en la lupa para buscar..." readonly
+                                   style="background:#fff; cursor:pointer;"
+                                   onclick="document.getElementById('btn-search-predecessor').click()">
+                            <div class="input-group-append">
+                                <button type="button" class="btn btn-outline-secondary" id="btn-search-predecessor"
+                                        title="Buscar equipo predecesor">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-danger d-none" id="btn-clear-predecessor"
+                                        title="Quitar predecesor">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <input type="hidden" id="predecessor-item-id">
+                        <small class="form-text text-muted">Vincula este equipo como sucesor del anterior en la cadena de versiones del inventario.</small>
                     </div>
                 </div>
 
@@ -819,6 +870,126 @@
                     <span id="progress-current">0</span> / <span id="progress-total">0</span> equipos
                 </p>
             </div>
+        </div>
+    </div>
+</div>
+<!-- Modal: Buscar equipo predecesor -->
+<div class="modal fade" id="predecessorSearchModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title"><i class="fas fa-history mr-1"></i> Seleccionar equipo predecesor</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="row no-gutters" style="min-height:420px;">
+
+                    <!-- Izquierda: búsqueda + lista -->
+                    <div class="col-md-5 border-right d-flex flex-column">
+                        <div class="p-3 border-bottom">
+                            <input type="text" class="form-control form-control-sm"
+                                   id="predecessor-search-input"
+                                   placeholder="N° inventario, serial, marca, modelo...">
+                            <small class="text-muted d-block mt-1">
+                                Filtrado por el departamento seleccionado.
+                            </small>
+                        </div>
+                        <div id="predecessor-results"
+                             style="overflow-y:auto; flex:1; max-height:380px;">
+                        </div>
+                    </div>
+
+                    <!-- Derecha: detalle del equipo seleccionado -->
+                    <div class="col-md-7 d-flex flex-column">
+                        <div id="predecessor-detail-empty"
+                             class="text-center text-muted m-auto py-5">
+                            <i class="fas fa-hand-pointer fa-3x mb-3 d-block"></i>
+                            <p class="mb-0 small">Selecciona un equipo de la lista<br>para revisar sus detalles</p>
+                        </div>
+                        <div id="predecessor-detail-panel" class="p-3" style="display:none; overflow-y:auto; max-height:420px;">
+                            <!-- llenado por JS -->
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm d-none" id="btn-confirm-predecessor">
+                    <i class="fas fa-check mr-1"></i> Confirmar como predecesor
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Crear usuario inactivo -->
+<div class="modal fade" id="createInactiveUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-plus"></i> Registrar nuevo personal
+                </h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <form id="create-inactive-user-form">
+                <div class="modal-body">
+                    <div class="alert alert-info py-2 small">
+                        <i class="fas fa-info-circle"></i>
+                        Se creará una cuenta <strong>inactiva</strong> con contraseña temporal.
+                        El usuario podrá activarla y cambiarla cuando sea necesario.
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Nombre(s) <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="inactive-first-name"
+                                    placeholder="Ej: Ernesto" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label>Apellido paterno <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="inactive-last-name"
+                                    placeholder="Ej: Villarreal" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Apellido materno</label>
+                        <input type="text" class="form-control" id="inactive-middle-name"
+                            placeholder="Ej: Ibarra">
+                    </div>
+                    <div class="form-group">
+                        <label>Username <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="inactive-username"
+                                placeholder="Se genera automáticamente" required>
+                            <div class="input-group-append">
+                                <button type="button" class="btn btn-outline-secondary" id="btn-next-username"
+                                    title="Probar siguiente variante">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted" id="username-hint">
+                            Generado automáticamente. Puedes editarlo si hay conflicto.
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label>Correo electrónico</label>
+                        <input type="email" class="form-control" id="inactive-email"
+                            placeholder="Opcional">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btn-confirm-inactive-user">
+                        <i class="fas fa-save"></i> Crear usuario
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

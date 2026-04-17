@@ -109,7 +109,9 @@ class InventoryService:
             next_maintenance_date=data.get('next_maintenance_date'),
             notes=data.get('notes'),
             registered_by_id=registered_by_id,
-            is_active=True
+            is_active=True,
+            campaign_id=data.get('campaign_id'),
+            predecessor_item_id=data.get('predecessor_item_id'),
         )
 
         db.add(item)
@@ -130,6 +132,43 @@ class InventoryService:
             ip_address=ip_address
         )
         db.add(history)
+
+        # Si se asignó a un usuario al registrar, llenar campos de auditoría y loggear evento
+        if item.assigned_to_user_id:
+            from itcj2.core.models.user import User
+            assign_user = db.get(User, item.assigned_to_user_id)
+            item.assigned_by_id = registered_by_id
+            item.assigned_at = datetime.now()
+            assign_history = InventoryHistory(
+                item_id=item.id,
+                event_type='ASSIGNED_TO_USER',
+                old_value={'assigned_to_user_id': None},
+                new_value={
+                    'assigned_to_user_id': item.assigned_to_user_id,
+                    'assigned_to_user_name': assign_user.full_name if assign_user else None,
+                },
+                notes=f'Asignado a {assign_user.full_name if assign_user else "usuario"} al registrar el equipo',
+                performed_by_id=registered_by_id,
+                ip_address=ip_address,
+            )
+            db.add(assign_history)
+
+        # Si se declaró predecesor al registrar, loggear evento VERSION_LINKED
+        if item.predecessor_item_id:
+            pred = db.get(InventoryItem, item.predecessor_item_id)
+            version_history = InventoryHistory(
+                item_id=item.id,
+                event_type='VERSION_LINKED',
+                old_value={'predecessor_item_id': None},
+                new_value={
+                    'predecessor_item_id': item.predecessor_item_id,
+                    'predecessor_inventory_number': pred.inventory_number if pred else None,
+                },
+                notes=f'Vinculado como sucesor de {pred.inventory_number if pred else item.predecessor_item_id} al registrar el equipo',
+                performed_by_id=registered_by_id,
+                ip_address=ip_address,
+            )
+            db.add(version_history)
 
         db.commit()
         return item

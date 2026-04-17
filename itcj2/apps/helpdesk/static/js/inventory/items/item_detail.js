@@ -33,6 +33,28 @@ function setupEventListeners() {
     document.getElementById('assign-user-form').addEventListener('submit', handleAssignUser);
     document.getElementById('change-status-form').addEventListener('submit', handleChangeStatus);
     document.getElementById('deactivate-form').addEventListener('submit', handleDeactivate);
+    const lockedFieldForm = document.getElementById('edit-locked-field-form');
+    if (lockedFieldForm) lockedFieldForm.addEventListener('submit', handleEditLockedField);
+
+    const unlockForm = document.getElementById('unlock-item-form');
+    if (unlockForm) unlockForm.addEventListener('submit', handleUnlockItem);
+
+    const predecessorSearch = document.getElementById('predecessor-search-input');
+    if (predecessorSearch) {
+        predecessorSearch.addEventListener('input', () => {
+            clearTimeout(predecessorDebounce);
+            predecessorDebounce = setTimeout(() => searchPredecessorItems(predecessorSearch.value.trim()), 350);
+        });
+    }
+    const btnConfirmPred = document.getElementById('btn-confirm-predecessor');
+    if (btnConfirmPred) btnConfirmPred.addEventListener('click', confirmLinkPredecessor);
+
+    const versionsTab = document.getElementById('versions-tab');
+    if (versionsTab) {
+        versionsTab.addEventListener('shown.bs.tab', () => {
+            if (currentItem) loadVersionChain();
+        });
+    }
 }
 
 // ==================== CARGAR DATOS PRINCIPALES ====================
@@ -101,6 +123,9 @@ function renderItemDetail(item) {
     // Notas
     renderNotes(item);
 
+    // Cadena de versiones
+    loadVersionChain();
+
     // Main content visible
     document.getElementById('main-content').style.display = 'block';
 }
@@ -108,13 +133,21 @@ function renderItemDetail(item) {
 function renderStatusBadge(item) {
     const container = document.getElementById('status-badge-container');
     const statusInfo = getStatusInfo(item.status);
-    
+
+    const lockBadge = item.is_locked
+        ? `<span class="badge bg-warning text-dark badge-lg px-3 py-2 ml-2" style="font-size:0.9rem;"
+               title="Bloqueado por campaña validada${item.validated_at ? ' el ' + formatDate(item.validated_at) : ''}">
+               <i class="fas fa-lock"></i> Bloqueado
+           </span>`
+        : '';
+
     container.innerHTML = `
-        <div class="d-inline-block">
+        <div class="d-inline-flex align-items-center flex-wrap gap-2">
             <span class="badge bg-${statusInfo.color} text-white badge-lg px-3 py-2" style="font-size: 0.9rem;">
                 <span class="status-indicator ${statusInfo.class}"></span>
                 ${statusInfo.text}
             </span>
+            ${lockBadge}
         </div>
     `;
 }
@@ -164,18 +197,39 @@ function renderActionButtons(item) {
                 </button>
             `;
         }
+
+        // Botón desbloquear (solo admin, solo si está bloqueado)
+        if (IS_ADMIN && item.is_locked) {
+            buttons += `
+                <button class="btn btn-outline-danger action-button" onclick="openUnlockModal()">
+                    <i class="fas fa-lock-open"></i> Desbloquear
+                </button>
+            `;
+        }
     }
 
     buttons += `</div>`;
     container.innerHTML = buttons;
 }
 
+function _lockedFieldBtn(field, label, currentVal) {
+    if (!IS_ADMIN || !currentItem.is_locked) return '';
+    return `<button type="button" class="btn btn-xs btn-outline-warning ml-2 py-0 px-1"
+                title="Editar campo bloqueado"
+                onclick="openEditLockedField('${field}','${label}','${(currentVal||'').replace(/'/g,"\\'")}')">
+                <i class="fas fa-lock-open" style="font-size:.7rem;"></i>
+            </button>`;
+}
+
 function renderGeneralInfo(item) {
     const container = document.getElementById('general-info');
-    
+
     container.innerHTML = `
         <div class="info-label">Número de Inventario</div>
-        <div class="info-value">${item.inventory_number}</div>
+        <div class="info-value d-flex align-items-center">
+            ${item.inventory_number}
+            ${_lockedFieldBtn('inventory_number','Número de Inventario', item.inventory_number)}
+        </div>
 
         <div class="info-label">Categoría</div>
         <div class="info-value">
@@ -184,19 +238,34 @@ function renderGeneralInfo(item) {
         </div>
 
         <div class="info-label">Marca</div>
-        <div class="info-value ${item.brand ? '' : 'empty'}">${item.brand || 'No especificada'}</div>
+        <div class="info-value ${item.brand ? '' : 'empty'} d-flex align-items-center">
+            ${item.brand || 'No especificada'}
+            ${_lockedFieldBtn('brand','Marca', item.brand)}
+        </div>
 
         <div class="info-label">Modelo</div>
-        <div class="info-value ${item.model ? '' : 'empty'}">${item.model || 'No especificado'}</div>
+        <div class="info-value ${item.model ? '' : 'empty'} d-flex align-items-center">
+            ${item.model || 'No especificado'}
+            ${_lockedFieldBtn('model','Modelo', item.model)}
+        </div>
 
         <div class="info-label">Serial Proveedor</div>
-        <div class="info-value ${item.supplier_serial ? '' : 'empty'}">${item.supplier_serial || 'No registrado'}</div>
+        <div class="info-value ${item.supplier_serial ? '' : 'empty'} d-flex align-items-center">
+            ${item.supplier_serial || 'No registrado'}
+            ${_lockedFieldBtn('supplier_serial','Serial Proveedor', item.supplier_serial)}
+        </div>
 
         <div class="info-label">Serial ITCJ / Activo</div>
-        <div class="info-value ${item.itcj_serial ? '' : 'empty'}">${item.itcj_serial || 'No registrado'}</div>
+        <div class="info-value ${item.itcj_serial ? '' : 'empty'} d-flex align-items-center">
+            ${item.itcj_serial || 'No registrado'}
+            ${_lockedFieldBtn('itcj_serial','Serial ITCJ', item.itcj_serial)}
+        </div>
 
         <div class="info-label">ID TecNM</div>
-        <div class="info-value ${item.id_tecnm ? '' : 'empty'}">${item.id_tecnm || 'No registrado'}</div>
+        <div class="info-value ${item.id_tecnm ? '' : 'empty'} d-flex align-items-center">
+            ${item.id_tecnm || 'No registrado'}
+            ${_lockedFieldBtn('id_tecnm','ID TecNM', item.id_tecnm)}
+        </div>
 
         <div class="info-label">Fecha de Adquisición</div>
         <div class="info-value ${item.acquisition_date ? '' : 'empty'}">
@@ -812,6 +881,300 @@ async function handleDeactivate(e) {
     } catch (error) {
         console.error('Error:', error);
         showError(error.message);
+    }
+}
+
+// ==================== VERSIONADO DE ITEMS ====================
+
+async function loadVersionChain() {
+    const container = document.getElementById('versions-container');
+    if (!container) return;
+
+    try {
+        const res = await fetch(`/api/help-desk/v2/inventory/items/${ITEM_ID}/version-chain`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+        renderVersionChain(data.data);
+    } catch (err) {
+        container.innerHTML = `<div class="alert alert-danger small">${err.message}</div>`;
+    }
+}
+
+function renderVersionChain(chain) {
+    const container = document.getElementById('versions-container');
+
+    const canLink = CAN_EDIT;
+
+    // Badge de estado de versión en el item actual
+    const currentNode = chain.find(n => n.is_current);
+    if (currentNode) {
+        const versionBadge = document.getElementById('version-badge-placeholder');
+        if (versionBadge) {
+            versionBadge.innerHTML = currentNode.is_latest
+                ? '<span class="badge bg-success text-white ml-2"><i class="fas fa-check-circle"></i> Versión más reciente</span>'
+                : `<span class="badge bg-secondary text-white ml-2"><i class="fas fa-history"></i> Reemplazado</span>`;
+        }
+    }
+
+    let html = '';
+
+    if (chain.length <= 1 && !currentNode?.is_latest === false) {
+        // Solo este item, sin cadena
+    }
+
+    if (chain.length === 1 && currentNode?.is_latest) {
+        html += `
+        <div class="text-muted small py-2">
+            <i class="fas fa-info-circle"></i> Este equipo no tiene versiones anteriores ni posteriores registradas.
+        </div>`;
+    } else {
+        // Mostrar cadena
+        html += '<div class="d-flex align-items-center flex-wrap gap-2 mb-3">';
+        chain.forEach((node, idx) => {
+            const isCurrent = node.is_current;
+            const isActive = node.is_active;
+            const year = node.registered_at ? new Date(node.registered_at).getFullYear() : '—';
+
+            html += `
+            <div class="version-node ${isCurrent ? 'version-node--current' : ''} ${!isActive ? 'version-node--inactive' : ''}">
+                <a href="/help-desk/inventory/items/${node.id}" ${isCurrent ? 'class="font-weight-bold"' : 'class="text-muted"'}>
+                    <i class="fas fa-${isActive ? 'desktop' : 'archive'} mr-1"></i>
+                    ${node.inventory_number}
+                </a>
+                <div class="small text-muted">${node.brand || ''} ${node.model || ''}</div>
+                <div class="small text-muted">${year}</div>
+                ${isCurrent ? '<span class="badge badge-primary badge-sm mt-1">Este equipo</span>' : ''}
+                ${node.is_latest && !isCurrent ? '<span class="badge badge-success badge-sm mt-1">Más reciente</span>' : ''}
+                ${!isActive ? '<span class="badge badge-secondary badge-sm mt-1">Dado de baja</span>' : ''}
+            </div>`;
+
+            if (idx < chain.length - 1) {
+                html += '<i class="fas fa-arrow-right text-muted mx-1"></i>';
+            }
+        });
+        html += '</div>';
+    }
+
+    // Botón vincular (solo CC/admin)
+    if (canLink) {
+        const hasPredecessor = currentNode && !chain[0]?.is_current;
+        html += `<div class="mt-2 d-flex gap-2 flex-wrap">`;
+        html += `
+            <button class="btn btn-sm btn-outline-secondary" onclick="openLinkPredecessorModal()">
+                <i class="fas fa-link"></i> Vincular como sucesor de otro equipo
+            </button>`;
+        if (hasPredecessor || (currentNode && chain.length > 1 && chain[0]?.is_current === false)) {
+            html += `
+            <button class="btn btn-sm btn-outline-danger" onclick="unlinkPredecessor()">
+                <i class="fas fa-unlink"></i> Desvincular predecesor
+            </button>`;
+        }
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+let predecessorDebounce = null;
+let selectedPredecessorId = null;
+
+function openLinkPredecessorModal() {
+    selectedPredecessorId = null;
+    document.getElementById('predecessor-search-input').value = '';
+    document.getElementById('predecessor-search-results').innerHTML =
+        '<div class="text-center text-muted small py-3"><i class="fas fa-search"></i> Escribe para buscar</div>';
+    document.getElementById('btn-confirm-predecessor').disabled = true;
+    $('#linkPredecessorModal').modal('show');
+}
+
+async function searchPredecessorItems(search) {
+    const results = document.getElementById('predecessor-search-results');
+    if (!search) {
+        results.innerHTML = '<div class="text-center text-muted small py-3"><i class="fas fa-search"></i> Escribe para buscar</div>';
+        return;
+    }
+    results.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin text-primary"></i></div>';
+
+    const params = new URLSearchParams({ search, per_page: 20 });
+    if (currentItem?.department_id) params.set('department_id', currentItem.department_id);
+
+    try {
+        const res = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+        });
+        const data = await res.json();
+        const items = (data.data || []).filter(i => i.id !== ITEM_ID);
+
+        if (items.length === 0) {
+            results.innerHTML = '<div class="text-center text-muted small py-3">Sin resultados</div>';
+            return;
+        }
+
+        results.innerHTML = items.map(i => `
+            <div class="list-group-item list-group-item-action py-2 px-3 predecessor-option"
+                 style="cursor:pointer;" data-id="${i.id}"
+                 onclick="selectPredecessor(${i.id}, this)">
+                <strong>${i.inventory_number}</strong>
+                <span class="text-muted small ml-1">${i.brand || ''} ${i.model || ''}</span>
+                ${i.is_latest_version ? '' : '<span class="badge badge-warning badge-sm ml-1">Ya tiene sucesor</span>'}
+                ${!i.is_active ? '<span class="badge badge-secondary badge-sm ml-1">Dado de baja</span>' : ''}
+            </div>`).join('');
+    } catch (err) {
+        results.innerHTML = `<div class="text-center text-danger small py-3">${err.message}</div>`;
+    }
+}
+
+function selectPredecessor(itemId, el) {
+    document.querySelectorAll('.predecessor-option').forEach(e => e.classList.remove('active'));
+    el.classList.add('active');
+    selectedPredecessorId = itemId;
+    document.getElementById('btn-confirm-predecessor').disabled = false;
+}
+
+async function confirmLinkPredecessor() {
+    if (!selectedPredecessorId) return;
+    const btn = document.getElementById('btn-confirm-predecessor');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    try {
+        const res = await fetch(`/api/help-desk/v2/inventory/items/${ITEM_ID}/set-predecessor`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ predecessor_item_id: selectedPredecessorId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al vincular');
+
+        $('#linkPredecessorModal').modal('hide');
+        showSuccess('Equipo vinculado correctamente');
+        loadItemDetail();
+    } catch (err) {
+        showError(err.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-link"></i> Vincular';
+    }
+}
+
+async function unlinkPredecessor() {
+    if (!await HelpdeskUtils.confirmDialog(
+        'Desvincular predecesor',
+        '¿Deseas eliminar la relación con el equipo predecesor?',
+        'Desvincular'
+    )) return;
+
+    try {
+        const res = await fetch(`/api/help-desk/v2/inventory/items/${ITEM_ID}/predecessor`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al desvincular');
+        showSuccess('Predecesor desvinculado');
+        loadItemDetail();
+    } catch (err) {
+        showError(err.message);
+    }
+}
+
+// ==================== CAMPO BLOQUEADO (ADMIN) ====================
+function openEditLockedField(field, label, currentVal) {
+    document.getElementById('locked-field-name').value = field;
+    document.getElementById('locked-field-label').textContent = label;
+    document.getElementById('locked-field-value').value = currentVal;
+    document.getElementById('locked-field-justification').value = '';
+    $('#editLockedFieldModal').modal('show');
+}
+
+async function handleEditLockedField(e) {
+    e.preventDefault();
+
+    const field = document.getElementById('locked-field-name').value;
+    const newValue = document.getElementById('locked-field-value').value.trim();
+    const justification = document.getElementById('locked-field-justification').value.trim();
+
+    if (justification.length < 10) {
+        showError('La justificación debe tener al menos 10 caracteres');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/help-desk/v2/inventory/items/${ITEM_ID}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ [field]: newValue || null, _justification: justification }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Error al actualizar');
+
+        $('#editLockedFieldModal').modal('hide');
+        showSuccess('Campo actualizado. El cambio quedó registrado en el historial.');
+        loadItemDetail();
+    } catch (error) {
+        console.error('Error:', error);
+        showError(error.message);
+    }
+}
+
+// ==================== DESBLOQUEAR EQUIPO (ADMIN) ====================
+
+function openUnlockModal() {
+    document.getElementById('unlock-justification').value = '';
+    $('#unlockItemModal').modal('show');
+}
+
+async function handleUnlockItem(e) {
+    e.preventDefault();
+
+    const justification = document.getElementById('unlock-justification').value.trim();
+    if (justification.length < 10) {
+        showError('La justificación debe tener al menos 10 caracteres');
+        return;
+    }
+
+    if (!currentItem || !currentItem.locked_campaign_id) {
+        showError('No se encontró la campaña que bloqueó este equipo');
+        return;
+    }
+
+    const submitBtn = e.target.querySelector('[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Desbloqueando...';
+
+    try {
+        const response = await fetch(
+            `/api/help-desk/v2/inventory/campaigns/${currentItem.locked_campaign_id}/items/${ITEM_ID}/unlock`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ justification }),
+            }
+        );
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Error al desbloquear');
+
+        $('#unlockItemModal').modal('hide');
+        showSuccess('Equipo desbloqueado. El cambio quedó registrado en el historial.');
+        loadItemDetail();
+    } catch (error) {
+        console.error('Error:', error);
+        showError(error.message);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-lock-open"></i> Desbloquear';
     }
 }
 

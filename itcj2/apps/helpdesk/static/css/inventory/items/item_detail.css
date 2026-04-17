@@ -81,3 +81,20 @@
 .warranty-card.expired {
     border-left-color: #e74a3b;
 }
+
+/* Cadena de versiones */
+.version-node {
+    border: 1px solid #e3e6f0;
+    border-radius: .35rem;
+    padding: .5rem .75rem;
+    background: #f8f9fc;
+    min-width: 130px;
+    text-align: center;
+}
+.version-node--current {
+    border-color: #4e73df;
+    background: #edf0fb;
+}
+.version-node--inactive {
+    opacity: .6;
+}
