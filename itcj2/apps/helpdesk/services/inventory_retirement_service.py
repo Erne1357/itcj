@@ -16,7 +16,8 @@ from itcj2.apps.helpdesk.models.inventory_retirement_request import (
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_BASE = os.path.join("uploads", "helpdesk", "retirement_requests")
+from itcj2.config import get_settings
+UPLOAD_BASE = get_settings().HELPDESK_RETIREMENT_PATH
 ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "png", "jpg", "jpeg"}
 
 
@@ -192,11 +193,16 @@ class InventoryRetirementService:
 
         for ri in req.items:
             try:
+                item = db.get(InventoryItem, ri.item_id)
+                was_locked = item.is_locked if item else False
+                reason = reason_base
+                if was_locked:
+                    reason += " El equipo estaba bloqueado por campaña de inventario al momento de la baja."
                 InventoryService.deactivate_item(
                     db,
                     item_id=ri.item_id,
                     deactivated_by_id=admin_id,
-                    reason=reason_base,
+                    reason=reason,
                     ip_address=ip_address,
                 )
             except ValueError as e:
@@ -258,9 +264,8 @@ class InventoryRetirementService:
         if ext not in ALLOWED_EXTENSIONS:
             raise ValueError(f"Tipo de archivo no permitido. Permitidos: {', '.join(ALLOWED_EXTENSIONS)}")
 
-        folder = os.path.join(UPLOAD_BASE, req.folio)
-        os.makedirs(folder, exist_ok=True)
-        dest_path = os.path.join(folder, f"solicitud.{ext}")
+        os.makedirs(UPLOAD_BASE, exist_ok=True)
+        dest_path = os.path.join(UPLOAD_BASE, f"{req.folio}.{ext}")
 
         with open(dest_path, "wb") as f:
             shutil.copyfileobj(file, f)
