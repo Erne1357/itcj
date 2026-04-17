@@ -163,36 +163,46 @@ function renderTickets(tickets) {
 }
 
 // ==================== LOAD USERS ====================
+let _showInactiveUsers = false;
+
+window.toggleInactiveUsers = function(checked) {
+    _showInactiveUsers = checked;
+    loadDepartmentUsers();
+};
+
 async function loadDepartmentUsers() {
     const container = document.getElementById('usersList');
     HelpdeskUtils.showLoading('usersList');
-    
+
+    const url = `/api/core/v2/departments/${DEPARTMENT_ID}/users` +
+                (_showInactiveUsers ? '?include_inactive=true' : '');
+
     try {
-        // Usar la nueva API del core para obtener usuarios del departamento
-        const response = await fetch(`/api/core/v2/departments/${DEPARTMENT_ID}/users`, {
+        const response = await fetch(url, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`
             }
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
-        
+
         if (result.status !== 'ok') {
             throw new Error(result.error || 'Error en la respuesta del servidor');
         }
-        
+
         departmentUsers = result.data.users || [];
-        
-        document.getElementById('usersCount').textContent = departmentUsers.length;
-        
+        const activeCount = departmentUsers.filter(u => u.is_active).length;
+        document.getElementById('usersCount').textContent =
+            _showInactiveUsers ? `${activeCount}+${departmentUsers.length - activeCount}` : activeCount;
+
         renderUsers(departmentUsers);
-        
+
     } catch (error) {
         console.error('Error loading users:', error);
         container.innerHTML = `

@@ -107,9 +107,19 @@ async function loadUserDepartment() {
     }
 }
 
+let _showInactiveUsers = false;
+
+window.toggleInactiveUsers = async function (checked) {
+    _showInactiveUsers = checked;
+    await loadDepartmentUsers();
+    renderUsersList(document.getElementById('search-users').value);
+};
+
 async function loadDepartmentUsers() {
     try {
-        const response = await fetch(`/api/core/v2/departments/${currentDepartment.id}/users`, {
+        const url = `/api/core/v2/departments/${currentDepartment.id}/users` +
+                    (_showInactiveUsers ? '?include_inactive=true' : '');
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             }
@@ -230,10 +240,10 @@ function renderUsersList(filter = '') {
     const container = document.getElementById('users-list');
     const filterLower = filter.toLowerCase();
 
-    const filteredUsers = filter 
-        ? departmentUsers.filter(u => 
+    const filteredUsers = filter
+        ? departmentUsers.filter(u =>
             u.full_name.toLowerCase().includes(filterLower) ||
-            u.email.toLowerCase().includes(filterLower)
+            (u.email || '').toLowerCase().includes(filterLower)
         )
         : departmentUsers;
 
@@ -264,8 +274,13 @@ function renderUsersList(filter = '') {
                         </div>
                     </div>
                     <div class="flex-grow-1">
-                        <div class="font-weight-bold">${user.full_name}</div>
-                        <small class="text-muted">${user.email}</small>
+                        <div class="font-weight-bold">
+                            ${user.full_name}
+                            ${!user.is_active ? '<span class="badge badge-secondary ml-1" style="font-size:0.65rem;">Inactivo</span>' : ''}
+                        </div>
+                        <small class="text-muted">
+                            ${user.email || '<span class="font-italic">Sin correo registrado</span>'}
+                        </small>
                     </div>
                     <div class="text-right">
                         <span class="badge badge-${userEquipment.length > 0 ? 'info' : 'secondary'}">

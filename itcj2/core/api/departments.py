@@ -206,10 +206,14 @@ def update_department(
 @router.get("/{dept_id}/users")
 def get_department_users(
     dept_id: int,
+    include_inactive: bool = False,
     user: dict = require_perms("itcj", ["core.departments.api.read"]),
     db: DbSession = None,
 ):
-    """Obtiene usuarios asignados a un departamento con estadísticas."""
+    """Obtiene usuarios asignados a un departamento con estadísticas.
+
+    include_inactive=true → incluye usuarios con is_active=False (cuentas inactivas).
+    """
     from itcj2.core.services import departments_service as dept_svc
     from itcj2.core.models.position import Position, UserPosition
     from itcj2.core.models.user import User
@@ -218,16 +222,19 @@ def get_department_users(
     if not dept:
         raise HTTPException(404, detail={"status": "error", "error": "Department not found"})
 
+    filters = [
+        Position.department_id == dept_id,
+        Position.is_active == True,
+        UserPosition.is_active == True,
+    ]
+    if not include_inactive:
+        filters.append(User.is_active == True)
+
     users_data = (
         db.query(User, Position, UserPosition)
         .join(UserPosition, User.id == UserPosition.user_id)
         .join(Position, UserPosition.position_id == Position.id)
-        .filter(
-            Position.department_id == dept_id,
-            Position.is_active == True,
-            UserPosition.is_active == True,
-            User.is_active == True,
-        )
+        .filter(*filters)
         .distinct(User.id)
         .all()
     )
