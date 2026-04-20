@@ -634,7 +634,16 @@ let _selectedPredecessorData = null;
 
 const _STATUS_COLORS = {
     ACTIVE: 'success', MAINTENANCE: 'warning', DAMAGED: 'danger',
-    LOST: 'secondary', PENDING_ASSIGNMENT: 'info'
+    LOST: 'secondary', PENDING_ASSIGNMENT: 'info', RETIRED: 'secondary'
+};
+
+const _STATUS_LABELS = {
+    ACTIVE:             'Activo',
+    PENDING_ASSIGNMENT: 'Pendiente',
+    MAINTENANCE:        'Mantenimiento',
+    DAMAGED:            'Dañado',
+    RETIRED:            'Retirado',
+    LOST:               'Extraviado',
 };
 
 function initPredecessorSearch() {
@@ -726,7 +735,7 @@ async function searchPredecessorItems(q) {
                         <div class="text-muted" style="font-size:.78rem;">${desc || '—'}</div>
                         ${i.itcj_serial ? `<div class="text-muted" style="font-size:.72rem;">${i.itcj_serial}</div>` : ''}
                     </div>
-                    <span class="badge badge-${sc} ml-2 flex-shrink-0" style="font-size:.62rem;">${i.status}</span>
+                    <span class="badge badge-${sc} ml-2 flex-shrink-0" style="font-size:.62rem;">${_STATUS_LABELS[i.status] || i.status}</span>
                 </div>
             </div>`;
         }).join('');
@@ -828,7 +837,7 @@ function _renderPredecessorDetail(item) {
                 <span class="text-muted">${[item.brand, item.model].filter(Boolean).join(' ') || '—'}</span>
             </div>
             <div class="text-right flex-shrink-0 ml-2">
-                <span class="badge badge-${sc}">${item.status}</span>
+                <span class="badge badge-${sc}">${_STATUS_LABELS[item.status] || item.status}</span>
                 ${item.is_locked
                     ? '<br><span class="badge badge-warning mt-1"><i class="fas fa-lock mr-1"></i>Bloqueado</span>'
                     : ''}

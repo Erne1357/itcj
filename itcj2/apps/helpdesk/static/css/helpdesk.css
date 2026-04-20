@@ -839,3 +839,16 @@ body {
         padding: 0.25rem 0;
     }
 }
+
+/* ── Compatibilidad de clases badge Bootstrap 4 → Bootstrap 5 ────────────
+   El proyecto usa BS5 pero varios módulos JS generan clases BS4
+   (badge-success, badge-warning, etc.) que BS5 no incluye.
+   ─────────────────────────────────────────────────────────────────────── */
+.badge-primary   { background-color: #4e73df; color: #fff; }
+.badge-success   { background-color: #1cc88a; color: #fff; }
+.badge-warning   { background-color: #f6c23e; color: #212529; }
+.badge-danger    { background-color: #e74a3b; color: #fff; }
+.badge-info      { background-color: #36b9cc; color: #fff; }
+.badge-secondary { background-color: #858796; color: #fff; }
+.badge-dark      { background-color: #5a5c69; color: #fff; }
+.badge-light     { background-color: #f8f9fc; color: #5a5c69; border: 1px solid #e3e6f0; }
