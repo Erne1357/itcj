@@ -13,7 +13,7 @@ from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
 from itcj2.apps.helpdesk.models.inventory_group_capacity import InventoryGroupCapacity
 from itcj2.apps.helpdesk.models.ticket_inventory_item import TicketInventoryItem
 from itcj2.apps.helpdesk.models.inventory_verification import InventoryVerification
-from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest, InventoryRetirementRequestItem
+from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest, InventoryRetirementRequestItem, InventoryRetirementSignature
 from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
 from itcj2.apps.helpdesk.models.inventory_campaign_validation import InventoryCampaignValidation
 
@@ -35,6 +35,7 @@ __all__ = [
     "InventoryVerification",
     "InventoryRetirementRequest",
     "InventoryRetirementRequestItem",
+    "InventoryRetirementSignature",
     "InventoryCampaign",
     "InventoryCampaignValidation",
 ]

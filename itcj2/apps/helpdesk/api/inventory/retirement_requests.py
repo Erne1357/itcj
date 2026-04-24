@@ -236,7 +236,59 @@ async def attach_document(
         raise HTTPException(500, detail={"success": False, "error": str(e)})
 
 
-# ── Generar formato PDF ────────────────────────────────────────────────────────
+# ── Generar documento (PDF / Excel) ───────────────────────────────────────────
+
+@router.get("/{request_id}/generate-document")
+def generate_document(
+    request_id: int,
+    format: str = "pdf",   # "pdf" | "xlsx"
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.create"]),
+    db: DbSession = None,
+):
+    """
+    Genera el documento oficial de baja en PDF (ReportLab) o Excel (openpyxl).
+    El parámetro `format` acepta "pdf" (por defecto) o "xlsx".
+    """
+    from fastapi.responses import Response
+    from itcj2.apps.helpdesk.services.retirement_document_service import RetirementDocumentService
+    from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest
+
+    req = db.get(InventoryRetirementRequest, request_id)
+    if not req:
+        raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
+
+    user_id = int(user["sub"])
+    if not _is_admin(db, user_id) and req.requested_by_id != user_id:
+        raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
+
+    try:
+        if format == "xlsx":
+            content = RetirementDocumentService.fill_excel_template(req)
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            filename = f"{req.folio}.xlsx"
+        else:
+            content = RetirementDocumentService.generate_pdf(req)
+            media_type = "application/pdf"
+            filename = f"{req.folio}.pdf"
+    except RuntimeError as e:
+        raise HTTPException(500, detail={"success": False, "error": str(e)})
+    except Exception as e:
+        logger.error(f"generate_document error (request_id={request_id}, format={format}): {e}")
+        raise HTTPException(500, detail={"success": False, "error": "Error al generar el documento"})
+
+    # Si la solicitud está en DRAFT, marcar que el oficio fue generado (habilita el flujo multi-firma)
+    if req.status == "DRAFT" and req.oficio_data is None:
+        from datetime import datetime as _dt
+        req.oficio_data = {"type": "system_generated", "generated_at": _dt.utcnow().isoformat()}
+        req.format_generated_at = _dt.utcnow()
+        db.commit()
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @router.get("/{request_id}/generate-format")
 def generate_format(
@@ -244,8 +296,132 @@ def generate_format(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.create"]),
     db: DbSession = None,
 ):
-    return {
-        "success": False,
-        "message": "Generación de formato pendiente. El formato oficial aún no ha sido configurado. Adjunta el documento manualmente.",
-        "status": 501,
-    }
+    """Alias de compatibilidad → delega a generate-document con format=pdf."""
+    from fastapi.responses import Response
+    from itcj2.apps.helpdesk.services.retirement_document_service import RetirementDocumentService
+    from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest
+
+    req = db.get(InventoryRetirementRequest, request_id)
+    if not req:
+        raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
+
+    user_id = int(user["sub"])
+    if not _is_admin(db, user_id) and req.requested_by_id != user_id:
+        raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
+
+    try:
+        content = RetirementDocumentService.generate_pdf(req)
+    except RuntimeError as e:
+        raise HTTPException(500, detail={"success": False, "error": str(e)})
+    except Exception as e:
+        logger.error(f"generate_format error (request_id={request_id}): {e}")
+        raise HTTPException(500, detail={"success": False, "error": "Error al generar el PDF"})
+
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{req.folio}.pdf"'},
+    )
+
+
+# ── Enviar al flujo de firmas ──────────────────────────────────────────────────
+
+@router.post("/{request_id}/submit-for-approval")
+def submit_for_approval(
+    request_id: int,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.create"]),
+    db: DbSession = None,
+):
+    from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService
+
+    user_id = int(user["sub"])
+    try:
+        req = InventoryRetirementService.submit_for_approval(db, request_id, user_id)
+        return {
+            "success": True,
+            "message": f"Solicitud {req.folio} enviada al flujo de aprobación",
+            "data": req.to_dict(),
+        }
+    except ValueError as e:
+        raise HTTPException(400, detail={"success": False, "error": str(e)})
+    except Exception as e:
+        logger.error(f"submit_for_approval error: {e}")
+        db.rollback()
+        raise HTTPException(500, detail={"success": False, "error": "Error interno"})
+
+
+# ── Firmar / rechazar ──────────────────────────────────────────────────────────
+
+@router.post("/{request_id}/sign")
+def sign_request(
+    request_id: int,
+    body: dict = Body(...),
+    user: dict = require_perms("helpdesk", []),
+    db: DbSession = None,
+):
+    from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService
+
+    user_id = int(user["sub"])
+    action = body.get("action", "").upper()
+    notes = body.get("notes")
+
+    if action not in ("APPROVED", "REJECTED"):
+        raise HTTPException(400, detail={"success": False, "error": "El campo 'action' debe ser APPROVED o REJECTED"})
+
+    try:
+        req = InventoryRetirementService.sign_request(db, request_id, user_id, action, notes)
+        action_label = "aprobada" if action == "APPROVED" else "rechazada"
+        return {
+            "success": True,
+            "message": f"Solicitud {req.folio} {action_label}",
+            "data": req.to_dict(),
+        }
+    except ValueError as e:
+        raise HTTPException(400, detail={"success": False, "error": str(e)})
+    except Exception as e:
+        logger.error(f"sign_request error: {e}")
+        db.rollback()
+        raise HTTPException(500, detail={"success": False, "error": "Error interno"})
+
+
+# ── Re-enviar tras rechazo ─────────────────────────────────────────────────────
+
+@router.post("/{request_id}/resubmit")
+def resubmit_request(
+    request_id: int,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.create"]),
+    db: DbSession = None,
+):
+    from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService
+
+    user_id = int(user["sub"])
+    try:
+        req = InventoryRetirementService.resubmit_request(db, request_id, user_id)
+        return {
+            "success": True,
+            "message": f"Solicitud {req.folio} regresada a borrador para corrección",
+            "data": req.to_dict(),
+        }
+    except ValueError as e:
+        raise HTTPException(400, detail={"success": False, "error": str(e)})
+    except Exception as e:
+        logger.error(f"resubmit_request error: {e}")
+        db.rollback()
+        raise HTTPException(500, detail={"success": False, "error": "Error interno"})
+
+
+# ── Estado de firmas ───────────────────────────────────────────────────────────
+
+@router.get("/{request_id}/signatures")
+def get_signatures(
+    request_id: int,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.read"]),
+    db: DbSession = None,
+):
+    from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService
+
+    try:
+        timeline = InventoryRetirementService.get_signatures(db, request_id)
+        return {"success": True, "data": timeline}
+    except ValueError as e:
+        raise HTTPException(404, detail={"success": False, "error": str(e)})
