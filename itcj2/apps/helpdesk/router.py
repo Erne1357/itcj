@@ -12,6 +12,7 @@ from itcj2.apps.helpdesk.api.attachments import router as attachments_router
 from itcj2.apps.helpdesk.api.documents import router as documents_router
 from itcj2.apps.helpdesk.api.stats import router as stats_router
 from itcj2.apps.helpdesk.api.inventory import inventory_router
+from itcj2.apps.helpdesk.api.department_head import router as department_head_router
 
 helpdesk_router = APIRouter(prefix="/api/help-desk/v2", tags=["helpdesk"])
 
@@ -26,3 +27,4 @@ helpdesk_router.include_router(attachments_router, prefix="/attachments")
 helpdesk_router.include_router(documents_router, prefix="/documents")
 helpdesk_router.include_router(stats_router, prefix="/stats")
 helpdesk_router.include_router(inventory_router, prefix="/inventory")
+helpdesk_router.include_router(department_head_router, prefix="/department-head")

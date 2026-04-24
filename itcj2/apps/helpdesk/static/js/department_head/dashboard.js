@@ -26,15 +26,16 @@ async function initializeDashboard() {
         await Promise.all([
             loadDepartmentStats(),
             loadDepartmentTickets(),
-            loadDepartmentUsers()
+            loadDepartmentUsers(),
+            loadPendingTasks(),
         ]);
 
         // loadRecentActivity depends on departmentTickets being populated
         await loadRecentActivity();
-        
+
         // Load stats tab lazy
         document.getElementById('stats-tab').addEventListener('shown.bs.tab', loadStatistics);
-        
+
     } catch (error) {
         console.error('Error initializing dashboard:', error);
         const errorMessage = error.message || 'Error desconocido';
@@ -443,4 +444,123 @@ async function loadStatistics() {
     } catch (error) {
         console.error('Error loading statistics:', error);
     }
+}
+
+
+// ==================== TAREAS PENDIENTES ====================
+
+async function loadPendingTasks() {
+    const container = document.getElementById('pendingTasksContainer');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/help-desk/v2/department-head/pending-tasks');
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Error al cargar tareas');
+
+        renderPendingTasks(json.data);
+    } catch (error) {
+        console.error('Error loading pending tasks:', error);
+        container.innerHTML = '<p class="text-muted text-center py-3 small">No se pudieron cargar las tareas pendientes.</p>';
+    }
+}
+
+function renderPendingTasks(data) {
+    const container = document.getElementById('pendingTasksContainer');
+    const badge = document.getElementById('pendingTasksBadge');
+    if (!container) return;
+
+    const campaigns        = data.campaigns        || [];
+    const retirements      = data.pending_retirements || [];
+    const unratedCount     = data.unrated_tickets?.count || 0;
+    const unratedUrl       = data.unrated_tickets?.url   || '#';
+
+    const totalCount = campaigns.length + retirements.length + (unratedCount > 0 ? 1 : 0);
+
+    // Actualizar badge del card header
+    if (badge) {
+        if (totalCount > 0) {
+            badge.textContent = totalCount;
+            badge.classList.remove('d-none');
+        } else {
+            badge.classList.add('d-none');
+        }
+    }
+
+    if (totalCount === 0) {
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                <p class="text-muted mb-0 small">Sin tareas pendientes</p>
+            </div>`;
+        return;
+    }
+
+    const rows = [];
+
+    // Campañas de inventario pendientes de validación
+    campaigns.forEach(c => {
+        rows.push(`
+            <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fas fa-box-open text-primary" style="width:18px;"></i>
+                    <div>
+                        <div class="fw-semibold small">${escHtml(c.folio)} — Campaña de Inventario</div>
+                        <div class="text-muted" style="font-size:.8rem;">Pendiente de validación${c.pending_count ? ' · ' + c.pending_count + ' equipos' : ''}</div>
+                    </div>
+                </div>
+                <a href="${escHtml(c.url)}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-arrow-right"></i> Validar
+                </a>
+            </div>`);
+    });
+
+    // Solicitudes de baja esperando firma
+    retirements.forEach(r => {
+        const statusLabel = {
+            'AWAITING_RECURSOS_MATERIALES': 'Firma — Rec. Materiales',
+            'AWAITING_SUBDIRECTOR':         'Firma — Subdirector',
+            'AWAITING_DIRECTOR':            'Firma — Director',
+        }[r.status] || r.status;
+        rows.push(`
+            <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fas fa-file-signature text-warning" style="width:18px;"></i>
+                    <div>
+                        <div class="fw-semibold small">${escHtml(r.folio)} — Solicitud de Baja</div>
+                        <div class="text-muted" style="font-size:.8rem;">Requiere tu autorización · ${escHtml(statusLabel)}</div>
+                    </div>
+                </div>
+                <a href="${escHtml(r.url)}" class="btn btn-sm btn-outline-warning">
+                    <i class="fas fa-arrow-right"></i> Revisar
+                </a>
+            </div>`);
+    });
+
+    // Tickets sin calificar
+    if (unratedCount > 0) {
+        rows.push(`
+            <div class="d-flex align-items-center justify-content-between px-3 py-2">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fas fa-star text-info" style="width:18px;"></i>
+                    <div>
+                        <div class="fw-semibold small">${unratedCount} ticket${unratedCount > 1 ? 's' : ''} sin calificar</div>
+                        <div class="text-muted" style="font-size:.8rem;">Los usuarios aún no han evaluado la atención</div>
+                    </div>
+                </div>
+                <a href="${escHtml(unratedUrl)}" class="btn btn-sm btn-outline-info">
+                    <i class="fas fa-arrow-right"></i> Ver
+                </a>
+            </div>`);
+    }
+
+    container.innerHTML = rows.join('');
+}
+
+function escHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
