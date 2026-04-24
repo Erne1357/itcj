@@ -81,20 +81,55 @@
                 </div>
             </div>
 
-            <!-- Paso 3: Documento adjunto (opcional) -->
+            <!-- Paso 3: Modo de aprobación -->
             <div class="card shadow mb-3">
                 <div class="card-header py-2">
                     <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
-                        <i class="fas fa-paperclip"></i> Paso 3 &ndash; Documento Adjunto (Opcional)
+                        <i class="fas fa-file-signature"></i> Paso 3 &ndash; Modo de Aprobación
                     </h6>
                 </div>
                 <div class="card-body">
-                    <div class="form-group mb-0">
-                        <label class="form-label small">Archivo de respaldo (PDF, DOCX)</label>
-                        <input type="file" class="form-control-file" id="document-input"
-                               accept=".pdf,.doc,.docx">
-                        <small class="form-text text-muted">Máximo 10 MB. Puede adjuntarse más tarde.</small>
+                    <!-- Opción A: Generar Oficio -->
+                    <div class="form-check mb-3 approval-option" id="opt-oficio-wrapper">
+                        <input class="form-check-input" type="radio" name="approvalMode"
+                               id="opt-oficio" value="oficio">
+                        <label class="form-check-label" for="opt-oficio">
+                            <strong>Generar Oficio Oficial</strong>
+                            <span class="badge bg-primary ms-2 small">Recomendado</span>
+                            <br>
+                            <small class="text-muted">
+                                Genera el formato institucional TecNM automáticamente.<br>
+                                Requiere firma de: Jefe Rec. Materiales &rarr; Subdirector &rarr; Director.
+                            </small>
+                        </label>
                     </div>
+
+                    <!-- Opción B: Documento físico -->
+                    <div class="form-check mb-2 approval-option">
+                        <input class="form-check-input" type="radio" name="approvalMode"
+                               id="opt-documento" value="documento">
+                        <label class="form-check-label" for="opt-documento">
+                            <strong>Adjuntar Documento Físico</strong>
+                            <br>
+                            <small class="text-muted">
+                                Sube el oficio ya firmado en papel (PDF, DOCX).<br>
+                                Solo requiere aprobación del Centro de Cómputo.
+                            </small>
+                        </label>
+                    </div>
+
+                    <!-- File input, visible solo cuando se elige opción B -->
+                    <div id="doc-upload-wrapper" style="display:none;" class="mt-3 ps-4">
+                        <label class="form-label small">Archivo de respaldo (PDF, DOCX)</label>
+                        <input type="file" class="form-control form-control-sm" id="document-input"
+                               accept=".pdf,.doc,.docx">
+                        <small class="form-text text-muted">Máximo 10 MB. Puede adjuntarse más tarde desde el detalle.</small>
+                    </div>
+
+                    <!-- Mensaje cuando ninguna opción está seleccionada -->
+                    <small class="text-danger d-none" id="approval-mode-error">
+                        <i class="fas fa-exclamation-circle"></i> Selecciona un modo de aprobación antes de enviar.
+                    </small>
                 </div>
             </div>
 
@@ -115,7 +150,7 @@
                         <dt class="text-muted small">Estado inicial</dt>
                         <dd><span class="badge bg-secondary text-white">BORRADOR</span></dd>
                         <dt class="text-muted small">Flujo de aprobación</dt>
-                        <dd class="small text-muted">Borrador → Pendiente → Aprobada</dd>
+                        <dd class="small text-muted" id="summary-flow">Selecciona un modo (Paso 3)</dd>
                     </dl>
 
                     <hr>

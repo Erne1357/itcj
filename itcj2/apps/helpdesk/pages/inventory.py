@@ -484,14 +484,34 @@ async def retirement_request_detail(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.detail"])),
 ):
     """Detalle de una solicitud de baja."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.services.authz_service import _get_users_with_position
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
     can_approve = "admin" in user_roles
+
+    _db = SessionLocal()
+    try:
+        mat_ids = {u.id for u in _get_users_with_position(_db, ["head_mat_services"])}
+        sub_ids = {u.id for u in _get_users_with_position(_db, ["secretary_sub_admin_services"])}
+        dir_ids = {u.id for u in _get_users_with_position(_db, ["director"])}
+    finally:
+        _db.close()
+
+    sign_perms = []
+    if user_id in mat_ids:
+        sign_perms.append("helpdesk.retirement.sign.recursos_materiales")
+    if user_id in sub_ids:
+        sign_perms.append("helpdesk.retirement.sign.subdirector")
+    if user_id in dir_ids:
+        sign_perms.append("helpdesk.retirement.sign.director")
 
     return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_request_detail.html", {
         "request_id": request_id,
         "user_roles": user_roles,
         "can_approve": can_approve,
+        "sign_perms": sign_perms,
         "active_page": "inventory_retirement_requests",
     })
 
