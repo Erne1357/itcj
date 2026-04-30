@@ -20,10 +20,11 @@ import json
 import os
 
 apps = {
-    'core':      'itcj/core/static',
-    'agendatec': 'itcj/apps/agendatec/static',
-    'helpdesk':  'itcj/apps/helpdesk/static',
-    'vistetec':  'itcj/apps/vistetec/static',
+    'core':      'itcj2/core/static',
+    'agendatec': 'itcj2/apps/agendatec/static',
+    'helpdesk':  'itcj2/apps/helpdesk/static',
+    'vistetec':  'itcj2/apps/vistetec/static',
+    'maint':     'itcj2/apps/maint/static',
 }
 
 manifest = {}
