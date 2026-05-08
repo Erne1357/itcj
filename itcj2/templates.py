@@ -143,6 +143,7 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.admin_pages.stats":                  "/help-desk/admin/stats",
     "helpdesk_pages.admin_pages.analysis":               "/help-desk/admin/analysis",
     "helpdesk_pages.admin_pages.documents":              "/help-desk/admin/documents",
+    "helpdesk_pages.admin_pages.config":                 "/help-desk/admin/config",
 
     # ── Help-Desk: Almacén (Warehouse) ──────────────────────────────────────
     "helpdesk_pages.warehouse_pages.dashboard":          "/help-desk/warehouse/dashboard",

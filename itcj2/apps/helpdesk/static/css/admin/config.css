@@ -1,0 +1,523 @@
+/* Configuración del módulo Helpdesk - Estilos compartidos entre tabs */
+
+.config-wrapper {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Tabs */
+.config-tabs {
+    border-bottom: 2px solid var(--bs-border-color, #dee2e6);
+    flex-wrap: wrap;
+}
+
+.config-tabs .nav-link {
+    color: #6c757d;
+    border: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    font-weight: 500;
+    padding: 0.65rem 1rem;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.config-tabs .nav-link:hover {
+    color: var(--bs-primary, #0d6efd);
+    border-color: transparent;
+}
+
+.config-tabs .nav-link.active {
+    color: var(--bs-primary, #0d6efd);
+    background: transparent;
+    border-bottom-color: var(--bs-primary, #0d6efd);
+}
+
+/* Placeholder de fase pendiente */
+.config-tab-placeholder {
+    border: 2px dashed #dee2e6;
+    border-radius: 0.5rem;
+    background: #f8f9fa;
+}
+
+.config-tab-placeholder h6 {
+    color: #495057;
+    font-weight: 600;
+}
+
+/* Responsive: en móvil tabs scrolleables */
+@media (max-width: 768px) {
+    .config-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .config-tabs .nav-item {
+        flex-shrink: 0;
+    }
+
+    .config-tabs .nav-link {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        white-space: nowrap;
+    }
+}
+
+/* ================================================================
+   FASE 2: Categorías de tickets
+   ================================================================ */
+
+/* Fila de una categoría */
+.category-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    background: #fff;
+    transition: background 0.12s, border-color 0.12s;
+    min-height: 48px;
+}
+
+.category-row:hover {
+    background: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+.category-row + .category-row {
+    margin-top: 4px;
+}
+
+.category-row--inactive {
+    opacity: 0.6;
+}
+
+.category-row--ghost {
+    opacity: 0.4;
+    background: #e9f0ff;
+    border: 1px dashed #6c8ebf;
+}
+
+/* Drag handle */
+.drag-handle {
+    cursor: grab;
+    color: #adb5bd;
+    padding: 0 4px;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+/* Info de la categoría (nombre + badges) */
+.cat-row-info {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.cat-row-name {
+    font-weight: 500;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.cat-row-code {
+    font-size: 0.7rem;
+    font-family: var(--bs-font-monospace, monospace);
+    flex-shrink: 0;
+}
+
+/* Estadísticas de la fila */
+.cat-row-stats {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 0.8rem;
+}
+
+/* Acciones de la fila */
+.cat-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.cat-row-actions .btn {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+/* Lista sortable */
+.cat-sortable-list {
+    min-height: 60px;
+}
+
+/* ================================================================
+   FASE 2: Field Template Builder
+   ================================================================ */
+
+/* Grid 2 columnas del builder */
+.field-builder-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    min-height: 400px;
+}
+
+@media (max-width: 991px) {
+    .field-builder-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Panel izquierdo: lista de campos */
+.field-builder-left {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--bs-border-color, #dee2e6);
+    padding-right: 1rem;
+}
+
+@media (max-width: 991px) {
+    .field-builder-left {
+        border-right: none;
+        padding-right: 0;
+        border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+        padding-bottom: 1rem;
+    }
+}
+
+/* Panel derecho: preview */
+.field-builder-right {
+    display: flex;
+    flex-direction: column;
+}
+
+.field-builder-preview-area {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    min-height: 300px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Lista interna de campos en el builder */
+#field-builder-list {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 480px;
+    padding-right: 2px;
+}
+
+/* Tarjeta de un campo en el builder */
+.field-card {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.625rem 0.75rem;
+    background: #fff;
+    margin-bottom: 6px;
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.field-card:hover {
+    border-color: #adb5bd;
+}
+
+.field-card--editing {
+    border-color: var(--bs-primary, #0d6efd);
+    box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+    background: #f0f6ff;
+}
+
+.field-card--ghost {
+    opacity: 0.4;
+    background: #e9f0ff;
+    border: 1px dashed #6c8ebf;
+}
+
+/* Header de cada tarjeta de campo */
+.field-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.field-key {
+    font-size: 0.8rem;
+    color: #495057;
+}
+
+.field-card-label {
+    font-size: 0.82rem;
+    max-width: 180px;
+}
+
+.field-card-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.field-card-actions .btn {
+    padding: 0.15rem 0.35rem;
+    font-size: 0.75rem;
+}
+
+/* Opciones y condicional */
+.field-card-options {
+    margin-top: 4px;
+    padding-left: 24px;
+}
+
+.field-card-visible-when {
+    margin-top: 4px;
+    padding-left: 24px;
+    font-size: 0.78rem;
+}
+
+/* Fila de opción dentro del editor inline */
+.field-option-row {
+    align-items: center;
+}
+
+/* ================================================================
+   FASE 2: Categorías de inventario
+   ================================================================ */
+
+#inv-cat-table-wrapper .table {
+    font-size: 0.875rem;
+}
+
+#inv-cat-table-wrapper .table td {
+    vertical-align: middle;
+}
+
+/* Preview icono en modal */
+#inv-cat-icon-preview {
+    font-size: 1.5rem;
+    color: #6c757d;
+}
+
+/* ================================================================
+   FASE 3: Prioridades y SLA
+   ================================================================ */
+
+/* Lista sortable de prioridades */
+.priority-sortable-list {
+    min-height: 60px;
+}
+
+/* Info auxiliar sobre drag-drop */
+.priority-list-info {
+    padding: 0.25rem 0.625rem;
+}
+
+/* Fila de una prioridad */
+.priority-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    background: #fff;
+    transition: background 0.12s, border-color 0.12s;
+    min-height: 52px;
+}
+
+.priority-row:hover {
+    background: #f8f9fa;
+    border-color: #dee2e6;
+}
+
+.priority-row + .priority-row {
+    margin-top: 4px;
+}
+
+.priority-row--inactive {
+    opacity: 0.55;
+}
+
+.priority-row--ghost {
+    opacity: 0.4;
+    background: #fff0f0;
+    border: 1px dashed #dc3545;
+}
+
+/* Columna badge preview (badge bootstrap renderizado) */
+.priority-badge-preview {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    min-width: 90px;
+}
+
+/* Columna código de la prioridad */
+.priority-row-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.priority-row-code {
+    font-size: 0.78rem;
+    font-family: var(--bs-font-monospace, monospace);
+    color: #495057;
+    background: #f1f3f5;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+/* Celda SLA con colores escalados */
+.priority-sla-cell {
+    flex-shrink: 0;
+    min-width: 70px;
+    text-align: right;
+}
+
+.priority-sla-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.3em 0.6em;
+}
+
+/* Verde: SLA holgado (> 72h) */
+.priority-sla--low {
+    background-color: #198754 !important;
+    color: #fff !important;
+}
+
+/* Amarillo: SLA moderado (24–72h) */
+.priority-sla--medium {
+    background-color: #ffc107 !important;
+    color: #212529 !important;
+}
+
+/* Rojo: SLA crítico (< 24h) */
+.priority-sla--critical {
+    background-color: #dc3545 !important;
+    color: #fff !important;
+}
+
+/* Acciones de la fila */
+.priority-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.priority-row-actions .btn {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+/* Vista previa del badge en los modales */
+.priority-badge-preview-modal {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 0.625rem 0.875rem;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ================================================================
+   Responsive: móvil — stack vertical en las filas de categoría
+   ================================================================ */
+@media (max-width: 576px) {
+    .category-row {
+        flex-wrap: wrap;
+    }
+
+    .cat-row-info {
+        flex: 1 1 100%;
+        order: 2;
+    }
+
+    .cat-row-stats {
+        order: 3;
+        flex: 1 1 100%;
+        font-size: 0.78rem;
+        padding-left: 28px;
+    }
+
+    .cat-row-actions {
+        order: 4;
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        padding-left: 28px;
+    }
+
+    .drag-handle {
+        order: 1;
+    }
+
+    .cat-row-name {
+        max-width: 100%;
+    }
+
+    .field-builder-left {
+        border-right: none;
+        border-bottom: 1px solid #dee2e6;
+        padding-right: 0;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Prioridades: stack vertical en móvil */
+    .priority-row {
+        flex-wrap: wrap;
+        min-height: unset;
+    }
+
+    .priority-badge-preview {
+        order: 2;
+        flex: 1 1 auto;
+    }
+
+    .priority-row-info {
+        order: 3;
+        flex: 1 1 100%;
+        padding-left: 28px;
+    }
+
+    .priority-sla-cell {
+        order: 4;
+        text-align: left;
+        padding-left: 28px;
+        min-width: unset;
+    }
+
+    .priority-row-actions {
+        order: 5;
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        padding-left: 28px;
+    }
+
+    .priority-row .drag-handle {
+        order: 1;
+    }
+}

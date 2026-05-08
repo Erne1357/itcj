@@ -13,6 +13,7 @@ import click
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DML_INVENTORY_CAMPAIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory_campaign"
 DML_INVENTORY = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory"
+DML_CONFIG = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "config"
 
 
 def _run_sql_files(base_dir: Path, files: list[str]) -> None:
@@ -329,6 +330,44 @@ def init_retirement_permissions_command():
         raise
 
 
+@click.command("seed-config")
+def seed_config_command():
+    """Ejecuta los SQL de la pestaña de Configuración del Helpdesk.
+
+    Lee y ejecuta en orden alfabético todos los archivos .sql dentro de:
+        database/DML/helpdesk/config/
+
+    Archivos esperados (se irán agregando por fase):
+      01_insert_permissions.sql        — Permisos helpdesk.config.* (Fase 1)
+      02_seed_priorities.sql           — Catálogo de prioridades + SLA (Fase 3)
+      03_seed_statuses.sql             — Estados de ticket (Fase 4)
+      04_seed_status_transitions.sql   — Matriz de transiciones (Fase 4)
+      05_seed_areas.sql                — Áreas DESARROLLO/SOPORTE (Fase 5)
+      06_seed_notification_templates.sql — Plantillas de notificación (Fase 6)
+
+    Idempotente: los SQL deben usar ON CONFLICT DO NOTHING.
+    """
+    click.echo("⚙️  Sembrando configuración del Helpdesk...")
+    click.echo(f"📂 Directorio: {DML_CONFIG}")
+
+    if not DML_CONFIG.exists():
+        click.echo(click.style(f"❌ No existe el directorio {DML_CONFIG}", fg="red"))
+        raise click.Abort()
+
+    sql_files = sorted(p.name for p in DML_CONFIG.glob("*.sql"))
+    if not sql_files:
+        click.echo(click.style("⚠️  No se encontraron archivos .sql en config/", fg="yellow"))
+        return
+
+    click.echo(f"🗂️  Archivos a ejecutar: {len(sql_files)}\n")
+    try:
+        _run_sql_files(DML_CONFIG, sql_files)
+        click.echo("\n🎉 ¡Configuración del Helpdesk sembrada exitosamente!")
+    except Exception as e:
+        click.echo(click.style(f"\n💥 Error durante la siembra: {e}", fg="red"))
+        raise
+
+
 @click.group("helpdesk")
 def helpdesk_cli():
     """Comandos CLI del módulo Helpdesk."""
@@ -337,3 +376,4 @@ def helpdesk_cli():
 helpdesk_cli.add_command(load_inventory_csv)
 helpdesk_cli.add_command(init_inventory_campaign_command)
 helpdesk_cli.add_command(init_retirement_permissions_command)
+helpdesk_cli.add_command(seed_config_command)

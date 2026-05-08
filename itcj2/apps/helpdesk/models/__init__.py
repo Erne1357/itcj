@@ -16,6 +16,8 @@ from itcj2.apps.helpdesk.models.inventory_verification import InventoryVerificat
 from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest, InventoryRetirementRequestItem, InventoryRetirementSignature
 from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
 from itcj2.apps.helpdesk.models.inventory_campaign_validation import InventoryCampaignValidation
+from itcj2.apps.helpdesk.models.priority import Priority
+from itcj2.apps.helpdesk.models.config_change_log import ConfigChangeLog
 
 __all__ = [
     "Ticket",
@@ -38,4 +40,6 @@ __all__ = [
     "InventoryRetirementSignature",
     "InventoryCampaign",
     "InventoryCampaignValidation",
+    "Priority",
+    "ConfigChangeLog",
 ]

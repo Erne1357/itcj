@@ -143,8 +143,10 @@ def create_ticket(
     if area not in ['DESARROLLO', 'SOPORTE']:
         raise HTTPException(status_code=400, detail='Área debe ser DESARROLLO o SOPORTE')
 
-    if priority not in ['BAJA', 'MEDIA', 'ALTA', 'URGENTE']:
-        raise HTTPException(status_code=400, detail='Prioridad inválida')
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_priority_codes
+    valid_codes = get_priority_codes(db, active_only=True)
+    if priority not in valid_codes:
+        raise HTTPException(status_code=400, detail=f'Prioridad inválida. Válidas: {sorted(valid_codes)}')
 
     department_id = None
     try:
@@ -347,7 +349,7 @@ def list_tickets(
     pagination = paginate(query, page=page, per_page=per_page)
 
     return {
-        'tickets': [t.to_dict(include_relations=True, include_metrics=include_metrics) for t in pagination.items],
+        'tickets': [t.to_dict(include_relations=True, include_metrics=include_metrics, db=db if include_metrics else None) for t in pagination.items],
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page,
@@ -749,8 +751,10 @@ def update_pending_ticket(
         ticket.category_id = category_id
 
     if priority and priority != ticket.priority:
-        if priority not in ['BAJA', 'MEDIA', 'ALTA', 'URGENTE']:
-            raise HTTPException(status_code=400, detail='Prioridad invalida')
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_priority_codes
+        valid_codes = get_priority_codes(db, active_only=True)
+        if priority not in valid_codes:
+            raise HTTPException(status_code=400, detail=f'Prioridad inválida. Válidas: {sorted(valid_codes)}')
 
         changes.append({
             'field': 'priority',

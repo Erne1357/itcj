@@ -150,7 +150,7 @@ class Ticket(Base):
     def inventory_items_count(self):
         return self.ticket_items.count()
 
-    def to_dict(self, include_relations=False, include_metrics=False):
+    def to_dict(self, include_relations=False, include_metrics=False, db=None):
         data = {
             'id': self.id,
             'ticket_number': self.ticket_number,
@@ -252,8 +252,17 @@ class Ticket(Base):
             end_time = ensure_local_timezone(self.resolved_at) if self.resolved_at else now_local()
             total_elapsed_hours = (end_time - created_at).total_seconds() / 3600
 
-            sla_targets = {'URGENTE': 4, 'ALTA': 24, 'MEDIA': 72, 'BAJA': 168}
-            sla_target_hours = sla_targets.get(self.priority, 72)
+            if db is not None:
+                from itcj2.apps.helpdesk.utils.catalog_cache import get_sla_hours
+                sla_target_hours = get_sla_hours(db, self.priority) or 72
+            else:
+                from itcj2.database import SessionLocal
+                from itcj2.apps.helpdesk.utils.catalog_cache import get_sla_hours
+                _db = SessionLocal()
+                try:
+                    sla_target_hours = get_sla_hours(_db, self.priority) or 72
+                finally:
+                    _db.close()
             sla_percentage = min((total_elapsed_hours / sla_target_hours) * 100, 100) if sla_target_hours > 0 else 0
             sla_status = 'on_time' if total_elapsed_hours <= sla_target_hours else 'overdue'
 

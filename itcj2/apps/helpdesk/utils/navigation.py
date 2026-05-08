@@ -217,6 +217,65 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "permission": "helpdesk.inventory.retirement.page.list"
                 }
             ]
+        },
+
+        # ==================== CONFIGURACIÓN ====================
+        {
+            "label": "Configuración",
+            "endpoint": "#",
+            "icon": "fa-sliders-h",
+            "permission": "helpdesk.config.page.view",
+            "dropdown": [
+                {
+                    "label": "Categorías y Campos",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-tags",
+                    "permission": "helpdesk.config.page.view",
+                    "fragment": "#categorias",
+                },
+                {
+                    "label": "Cat. de Inventario",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-boxes",
+                    "permission": "helpdesk.config.page.view",
+                    "fragment": "#inv-cat",
+                },
+                {
+                    "label": "Prioridades y SLA",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-flag",
+                    "permission": "helpdesk.config.priorities.api.read",
+                    "fragment": "#prioridades",
+                },
+                {
+                    "label": "Estados y Flujo",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-route",
+                    "permission": "helpdesk.config.statuses.api.read",
+                    "fragment": "#estados",
+                },
+                {
+                    "label": "Áreas",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-layer-group",
+                    "permission": "helpdesk.config.areas.api.read",
+                    "fragment": "#areas",
+                },
+                {
+                    "label": "Notificaciones",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-bell",
+                    "permission": "helpdesk.config.notifications.api.read",
+                    "fragment": "#notif",
+                },
+                {
+                    "label": "Auditoría",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-history",
+                    "permission": "helpdesk.config.audit.api.read",
+                    "fragment": "#audit",
+                },
+            ]
         }
     ]
 
