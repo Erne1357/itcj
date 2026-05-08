@@ -41,6 +41,7 @@ def init_maint_command():
       01_add_maint_permissions.sql           → 20 permisos maint.*
       02_assign_maint_permissions_to_roles.sql → Roles + asignación + posiciones
       03_seed_maint_categories.sql           → 6 categorías base con field_templates
+      05_add_stats_permissions.sql           → 4 permisos stats/analysis (admin + dispatcher)
 
     Prerequisito: Las tablas maint_* deben existir (alembic upgrade head).
     """
@@ -52,6 +53,7 @@ def init_maint_command():
             "01_add_maint_permissions.sql",
             "02_assign_maint_permissions_to_roles.sql",
             "03_seed_maint_categories.sql",
+            "05_add_stats_permissions.sql",
         ])
         click.echo()
         click.echo("🎉 ¡App de Mantenimiento inicializada exitosamente!")

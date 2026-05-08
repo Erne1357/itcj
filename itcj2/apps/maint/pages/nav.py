@@ -113,6 +113,16 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "icon": "fa-chart-bar",
             "url": "/maintenance/admin/reports",
         })
+        dropdown.append({
+            "label": "Estadísticas",
+            "icon": "fa-chart-pie",
+            "url": "/maintenance/admin/stats",
+        })
+        dropdown.append({
+            "label": "Análisis",
+            "icon": "fa-microscope",
+            "url": "/maintenance/admin/analysis",
+        })
         items.append({
             "label": "Administración",
             "icon": "fa-cog",
@@ -200,7 +210,8 @@ def render_maint(
     }
 
     return maint_templates.TemplateResponse(
-        name=template,
-        context=ctx,
+        request,
+        template,
+        ctx,
         status_code=status_code,
     )

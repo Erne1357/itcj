@@ -8,12 +8,126 @@
     var API_BASE = '/api/maint/v2';
     var _selectedCategory = null;  // objeto completo {id, code, name, icon, field_template}
     var _selectedPriority = 'MEDIA';
+    var _attachedFiles = [];       // archivos seleccionados para adjuntar al crear
 
     document.addEventListener('DOMContentLoaded', function () {
+        _checkUnratedTickets();
         _loadCategories();
         _bindPriority();
+        _bindDropzone();
         _bindSubmit();
     });
+
+    // ── Aviso de solicitudes sin calificar ────────────────────────────────────
+
+    function _checkUnratedTickets() {
+        fetch(API_BASE + '/dashboard', { credentials: 'include' })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (data) {
+                if (!data) return;
+                var unrated = data.unrated_resolved;
+                if (typeof unrated !== 'number' || unrated < 3) return;
+
+                var form = document.getElementById('createTicketForm');
+                if (!form) return;
+
+                var alert = document.createElement('div');
+                alert.id = 'unratedAlert';
+                alert.className = 'alert alert-warning mb-4';
+                alert.innerHTML =
+                    '<div class="d-flex align-items-start gap-2">' +
+                        '<i class="bi bi-exclamation-triangle-fill mt-1 flex-shrink-0"></i>' +
+                        '<div>' +
+                            '<strong>Tienes ' + unrated + ' solicitudes resueltas sin calificar.</strong> ' +
+                            'Por favor califícalas antes de crear nuevas.' +
+                            '<div class="mt-2">' +
+                                '<a href="/maintenance/tickets?status=RESOLVED_SUCCESS,RESOLVED_FAILED" class="btn btn-sm btn-warning me-2">' +
+                                    '<i class="bi bi-star me-1"></i>Ver mis solicitudes' +
+                                '</a>' +
+                            '</div>' +
+                            '<div class="form-check mt-3">' +
+                                '<input class="form-check-input" type="checkbox" id="unratedBypass">' +
+                                '<label class="form-check-label small" for="unratedBypass">Continuar de todos modos</label>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+                form.insertBefore(alert, form.firstChild);
+
+                // Deshabilitar submit hasta que el checkbox esté marcado
+                var submitBtn = document.getElementById('submitBtn');
+                if (submitBtn) submitBtn.disabled = true;
+
+                document.getElementById('unratedBypass').addEventListener('change', function () {
+                    if (submitBtn) submitBtn.disabled = !this.checked;
+                });
+            })
+            .catch(function () {
+                // Fail silently — no bloquear el formulario
+            });
+    }
+
+    // ── Dropzone de adjuntos ──────────────────────────────────────────────────
+
+    function _bindDropzone() {
+        var zone = document.getElementById('attachDropzone');
+        var input = document.getElementById('attachFileInput');
+        var preview = document.getElementById('attachPreview');
+        if (!zone || !input) return;
+
+        zone.addEventListener('click', function () { input.click(); });
+
+        zone.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            zone.classList.add('dragover');
+        });
+        zone.addEventListener('dragleave', function () { zone.classList.remove('dragover'); });
+        zone.addEventListener('drop', function (e) {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+            _addFiles(Array.from(e.dataTransfer.files || []));
+        });
+
+        input.addEventListener('change', function () {
+            _addFiles(Array.from(input.files || []));
+            input.value = '';  // reset so same file can be re-selected
+        });
+
+        function _addFiles(files) {
+            files.forEach(function (f) {
+                if (f.size > 3 * 1024 * 1024) {
+                    MaintUtils.toast('El archivo "' + f.name + '" supera el límite de 3 MB', 'warning');
+                    return;
+                }
+                _attachedFiles.push(f);
+            });
+            _renderAttachPreview();
+        }
+
+        function _renderAttachPreview() {
+            if (!preview) return;
+            if (!_attachedFiles.length) {
+                preview.innerHTML = '';
+                return;
+            }
+            var items = _attachedFiles.map(function (f, idx) {
+                return '<div class="d-flex align-items-center gap-2 p-1 border rounded bg-light small">' +
+                    '<i class="bi bi-file-earmark text-secondary flex-shrink-0"></i>' +
+                    '<span class="text-truncate flex-grow-1">' + _esc(f.name) + '</span>' +
+                    '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-idx="' + idx + '" title="Quitar">' +
+                        '<i class="bi bi-x-lg"></i>' +
+                    '</button>' +
+                '</div>';
+            });
+            preview.innerHTML = '<div class="d-flex flex-column gap-1 mt-2">' + items.join('') + '</div>';
+            preview.querySelectorAll('[data-idx]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var idx = parseInt(btn.dataset.idx, 10);
+                    _attachedFiles.splice(idx, 1);
+                    _renderAttachPreview();
+                });
+            });
+        }
+    }
 
     // ── Cargar categorías ─────────────────────────────────────────────────────
 
@@ -194,14 +308,42 @@
         })
             .then(function (data) {
                 MaintUtils.toast('Solicitud creada: ' + data.ticket_number, 'success');
-                setTimeout(function () {
-                    window.location.href = '/maintenance/tickets/' + data.ticket_id;
-                }, 800);
+                var ticketId = data.ticket_id || data.id;
+                if (_attachedFiles.length && ticketId) {
+                    _uploadAttachments(ticketId, _attachedFiles).then(function () {
+                        window.location.href = '/maintenance/tickets/' + ticketId;
+                    });
+                } else {
+                    setTimeout(function () {
+                        window.location.href = '/maintenance/tickets/' + ticketId;
+                    }, 800);
+                }
             })
             .catch(function (err) {
                 MaintUtils.loading.hide(btn);
                 MaintUtils.alert({ title: 'No se pudo crear la solicitud', message: err.message, type: 'error' });
             });
+    }
+
+    // ── Subida de adjuntos post-creación ──────────────────────────────────────
+
+    function _uploadAttachments(ticketId, files) {
+        var url = API_BASE + '/tickets/' + ticketId + '/attachments';
+        var promises = files.map(function (file) {
+            var fd = new FormData();
+            fd.append('file', file);
+            fd.append('attachment_type', 'ticket');
+            return fetch(url, { method: 'POST', credentials: 'include', body: fd })
+                .then(function (res) {
+                    if (!res.ok) {
+                        MaintUtils.toast('No se pudo subir: ' + file.name, 'warning');
+                    }
+                })
+                .catch(function () {
+                    MaintUtils.toast('Error al subir: ' + file.name, 'warning');
+                });
+        });
+        return Promise.all(promises);
     }
 
     function _setInvalid(id, isInvalid) {

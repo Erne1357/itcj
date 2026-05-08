@@ -23,6 +23,40 @@
 <!-- Contenido principal -->
 <div class="container pb-5">
 
+    <!-- ── KPI Cards ─────────────────────────────────────────────────────── -->
+    {% set _is_privileged = ('admin' in user_roles or 'dispatcher' in user_roles or 'tech_maint' in user_roles) %}
+    <section id="mn-kpi-section" class="mb-4"
+             data-role-hint="{{ 'privileged' if _is_privileged else 'staff' }}">
+
+        <!-- Banner de solicitudes sin calificar (visible tras fetch) -->
+        <div id="mn-unrated-banner" class="mn-unrated-banner d-none">
+            <i class="bi bi-star-fill"></i>
+            <p>
+                Tienes <strong><span class="mn-unrated-count">0</span></strong>
+                solicitud(es) resuelta(s) sin calificar.
+                <a href="/maintenance/tickets" class="fw-semibold text-decoration-none" style="color:#e65100;">Calificar ahora</a>
+            </p>
+        </div>
+
+        <div class="row g-3" id="mn-kpi-grid">
+            <!-- Skeleton placeholders — reemplazados por JS -->
+        </div>
+    </section>
+
+    <!-- ── Actividad reciente ─────────────────────────────────────────────── -->
+    <section id="mn-activity-section" class="mb-5 d-none">
+        <h6 class="fw-semibold mb-3" style="color: var(--maint-primary-dark);">
+            <i class="bi bi-clock-history me-2"></i>Actividad reciente
+        </h6>
+        <div class="card border-0 shadow-sm" style="border-radius: 12px;">
+            <div class="card-body p-3 p-md-4">
+                <div id="mn-activity-timeline" class="mn-activity-timeline">
+                    <!-- Rellenado por JS -->
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Servicios que ofrece la app -->
     <h3 class="text-center mb-4" style="color: var(--maint-primary-dark); font-weight: 600;">
         Servicios disponibles
@@ -162,4 +196,8 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/landing/dashboard.js?v={{ sv('js/landing/dashboard.js') }}"></script>
 {% endblock %}

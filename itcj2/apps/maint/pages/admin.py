@@ -30,3 +30,19 @@ async def admin_reports(
     user: dict = Depends(require_page_app("maint", perms=["maint.admin.page.reports"])),
 ) -> HTMLResponse:
     return render_maint(request, "maint/admin/reports.html", {"active_page": "admin_reports"})
+
+
+@router.get("/admin/stats", name="maint_pages.admin.stats")
+async def admin_stats(
+    request: Request,
+    user: dict = Depends(require_page_app("maint", perms=["maint.stats.page.list"])),
+) -> HTMLResponse:
+    return render_maint(request, "maint/admin/stats.html", {"active_page": "admin_stats"})
+
+
+@router.get("/admin/analysis", name="maint_pages.admin.analysis")
+async def admin_analysis(
+    request: Request,
+    user: dict = Depends(require_page_app("maint", perms=["maint.analysis.page.list"])),
+) -> HTMLResponse:
+    return render_maint(request, "maint/admin/analysis.html", {"active_page": "admin_analysis"})

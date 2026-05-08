@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111194"
+    STATIC_VERSION: str = "1.0.1111198"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     HELPDESK_ALLOWED_DOC_EXTENSIONS: str = "xlsx,xls,csv,pdf,doc,docx"
     HELPDESK_MAX_RESOLUTION_FILES: int = 10
     HELPDESK_MAX_COMMENT_FILES: int = 3
+
+    MAINT_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "maint")
+    MAINT_MAX_FILE_SIZE: int = 3 * 1024 * 1024
+    MAINT_MAX_PDF_SIZE: int = 10 * 1024 * 1024
+    MAINT_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,gif,webp"
+    MAINT_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+    MAINT_MAX_RESOLUTION_FILES: int = 5
+    MAINT_MAX_COMMENT_FILES: int = 3
+    MAINT_AUTO_DELETE_DAYS: int = 7
 
     VISTETEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "vistetec", "garments")
     VISTETEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024

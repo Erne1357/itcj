@@ -103,6 +103,22 @@
                                placeholder="Edificio, aula, área o descripción de dónde ocurre el problema">
                     </div>
 
+                    <!-- Adjuntos (imágenes opcionales) -->
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">
+                            <i class="bi bi-paperclip me-1" style="color:var(--maint-primary)"></i>
+                            Imágenes adjuntas <span class="text-muted fw-normal small">(opcional)</span>
+                        </label>
+                        <div id="attachDropzone" class="mn-dropzone">
+                            <i class="bi bi-cloud-upload fs-3 d-block mb-1"></i>
+                            <span>Arrastra archivos aquí o haz clic para seleccionar</span>
+                            <div class="text-muted small mt-1">Máx. 3 MB cada una — jpg, png, gif, webp</div>
+                            <input type="file" id="attachFileInput" multiple
+                                   accept="image/jpeg,image/png,image/gif,image/webp">
+                        </div>
+                        <div id="attachPreview"></div>
+                    </div>
+
                     <!-- Botones -->
                     <div class="d-flex gap-2 justify-content-end">
                         <a href="/maintenance/tickets" class="btn btn-outline-secondary">

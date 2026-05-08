@@ -8,9 +8,39 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.dependencies import CurrentUser, DbSession
+from itcj2.utils import async_broadcast as _async_broadcast
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 logger = logging.getLogger("itcj2.notifications")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────
+
+async def _emit_read_event(user_id: int, counts: dict, total: int) -> None:
+    """Emite notification:read al room personal del usuario en /notify.
+    Sincroniza dashboard widget + todos los AppNotificationFAB abiertos.
+    """
+    try:
+        from itcj2.sockets.server import sio
+        await sio.emit(
+            "notification:read",
+            {"counts": counts, "total": total},
+            to=f"user:{int(user_id)}:notify",
+            namespace="/notify",
+        )
+    except Exception as exc:
+        logger.warning("notification:read emit failed for user %s: %s", user_id, exc)
+
+
+def _push_counts_to_user(db, user_id: int) -> None:
+    """Calcula counts agregados y los envía via WS al room del usuario."""
+    from itcj2.core.services.notification_service import NotificationService
+
+    counts = NotificationService.get_unread_counts_by_app(db, user_id)
+    total = sum(counts.values())
+    _async_broadcast(_emit_read_event(user_id, counts, total))
 
 
 @router.get("")
@@ -64,6 +94,7 @@ def mark_read(notification_id: int, user: CurrentUser, db: DbSession):
         raise HTTPException(404, detail="not_found")
 
     db.commit()
+    _push_counts_to_user(db, user_id)
     return {"status": "ok"}
 
 
@@ -75,6 +106,7 @@ def mark_all_read(user: CurrentUser, db: DbSession, app: str | None = None):
     user_id = int(user["sub"])
     count = NotificationService.mark_all_read(db, user_id, app)
     db.commit()
+    _push_counts_to_user(db, user_id)
     return {"status": "ok", "count": count}
 
 
@@ -89,4 +121,5 @@ def delete_notification(notification_id: int, user: CurrentUser, db: DbSession):
         raise HTTPException(404, detail="not_found")
 
     db.commit()
+    _push_counts_to_user(db, user_id)
     return {"status": "ok"}

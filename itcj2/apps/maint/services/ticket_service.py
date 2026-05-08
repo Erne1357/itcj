@@ -11,7 +11,7 @@ from itcj2.apps.maint.models.comment import MaintComment
 from itcj2.apps.maint.models.status_log import MaintStatusLog
 from itcj2.apps.maint.models.action_log import MaintTicketActionLog
 from itcj2.apps.maint.utils.ticket_number_generator import generate_ticket_number
-from itcj2.apps.maint.utils.timezone_utils import now_local
+from itcj2.apps.maint.utils.timezone_utils import now_local, ensure_local_timezone
 from itcj2.core.models.user import User
 from itcj2.models.base import paginate
 
@@ -657,6 +657,9 @@ def _dt(val):
 
 def serialize_ticket_summary(ticket: MaintTicket) -> dict:
     """Datos mínimos para la lista de tickets."""
+    now = now_local()
+    due_at_local = ensure_local_timezone(ticket.due_at) if ticket.due_at else None
+
     try:
         cat = {
             "id": ticket.category.id,
@@ -694,6 +697,12 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
         "category": cat,
         "requester": req,
         "active_technicians": active_techs,
+        "is_overdue": bool(
+            due_at_local
+            and due_at_local < now
+            and ticket.status in ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
+        ),
+        "sla_alert_sent_at": _dt(ticket.sla_alert_sent_at),
     }
 
 
@@ -737,6 +746,17 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
     except Exception:
         technicians = []
 
+    def _att_brief(att):
+        return {
+            "id": att.id,
+            "original_filename": att.original_filename,
+            "mime_type": att.mime_type,
+            "file_size": att.file_size,
+            "uploaded_at": _dt(att.uploaded_at),
+            "is_purged": bool(att.is_purged),
+            "purged_at": _dt(att.purged_at),
+        }
+
     try:
         comments = [
             {
@@ -748,11 +768,19 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
                     "id": c.author_id,
                     "name": c.author.full_name if c.author else str(c.author_id),
                 },
+                "attachments": [_att_brief(a) for a in (c.attachments or [])],
             }
             for c in sorted(ticket.comments, key=lambda x: x.created_at or 0)
         ]
     except Exception:
         comments = []
+
+    try:
+        ticket_attachments = [_att_brief(a) for a in (ticket.attachments or []) if a.attachment_type == 'ticket']
+        resolution_attachments = [_att_brief(a) for a in (ticket.attachments or []) if a.attachment_type == 'resolution']
+    except Exception:
+        ticket_attachments = []
+        resolution_attachments = []
 
     try:
         status_logs = [
@@ -799,5 +827,10 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
         "technicians": technicians,
         "comments": comments,
         "status_logs": status_logs,
+        "ticket_attachments": ticket_attachments,
+        "resolution_attachments": resolution_attachments,
+        # sla_alert_sent_at ya viene desde serialize_ticket_summary;
+        # lo repetimos aquí explícitamente para la vista de detalle.
+        "sla_alert_sent_at": _dt(ticket.sla_alert_sent_at),
     })
     return data

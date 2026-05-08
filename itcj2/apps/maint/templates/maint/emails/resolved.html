@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitud atendida — Mantenimiento ITCJ</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0"
+               style="max-width:600px;width:100%;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+
+          <!-- HEADER -->
+          <tr>
+            <td style="background-color:#546E7A;padding:28px 32px;text-align:center;">
+              <p style="margin:0;color:#ffffff;font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.8;">
+                Instituto Tecnológico de Ciudad Juárez
+              </p>
+              <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:.5px;">
+                Mantenimiento ITCJ
+              </h1>
+            </td>
+          </tr>
+
+          <!-- BODY -->
+          <tr>
+            <td style="background-color:#ffffff;padding:32px;">
+
+              <p style="margin:0 0 16px;color:#37474F;font-size:15px;line-height:1.5;">
+                Hola <strong>{{ recipient.full_name }}</strong>,
+              </p>
+
+              {% set status_label = {
+                'RESOLVED_SUCCESS': 'resuelta exitosamente',
+                'RESOLVED_FAILED':  'atendida (sin resolución completa)',
+              }.get(ticket.status, 'atendida') %}
+
+              <p style="margin:0 0 24px;color:#546E7A;font-size:15px;line-height:1.6;">
+                Tu solicitud de mantenimiento ha sido <strong>{{ status_label }}</strong>.
+                Te invitamos a calificar el servicio recibido para ayudarnos a mejorar.
+              </p>
+
+              <!-- TICKET CARD -->
+              <table width="100%" cellpadding="0" cellspacing="0"
+                     style="border:1px solid #CFD8DC;border-radius:6px;overflow:hidden;margin-bottom:28px;">
+                <tr>
+                  <td style="background-color:#ECEFF1;padding:10px 16px;border-bottom:1px solid #CFD8DC;">
+                    <span style="font-size:12px;color:#546E7A;font-weight:700;text-transform:uppercase;letter-spacing:.8px;">
+                      Solicitud
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:4px 0;color:#546E7A;font-size:12px;width:110px;">Número</td>
+                        <td style="padding:4px 0;color:#37474F;font-size:14px;font-weight:700;">
+                          {{ ticket.ticket_number }}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;color:#546E7A;font-size:12px;">Título</td>
+                        <td style="padding:4px 0;color:#37474F;font-size:14px;">{{ ticket.title }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;color:#546E7A;font-size:12px;">Categoría</td>
+                        <td style="padding:4px 0;color:#37474F;font-size:14px;">
+                          {{ ticket.category.name if ticket.category else '—' }}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;color:#546E7A;font-size:12px;">Prioridad</td>
+                        <td style="padding:4px 0;">
+                          {% set p_color = {'URGENTE':'#c62828','ALTA':'#e65100','MEDIA':'#1565c0','BAJA':'#2e7d32'} %}
+                          <span style="color:{{ p_color.get(ticket.priority, '#37474F') }};font-size:13px;font-weight:700;">
+                            {{ ticket.priority }}
+                          </span>
+                        </td>
+                      </tr>
+                      {% if ticket.resolution_notes %}
+                      <tr>
+                        <td style="padding:4px 0;color:#546E7A;font-size:12px;vertical-align:top;">Resolución</td>
+                        <td style="padding:4px 0;color:#37474F;font-size:13px;line-height:1.5;">
+                          {{ ticket.resolution_notes[:200] }}{% if ticket.resolution_notes|length > 200 %}…{% endif %}
+                        </td>
+                      </tr>
+                      {% endif %}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="{{ ticket_url }}"
+                       style="display:inline-block;background-color:#546E7A;color:#ffffff;text-decoration:none;
+                              padding:12px 32px;border-radius:5px;font-size:14px;font-weight:700;letter-spacing:.3px;">
+                      Calificar servicio
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background-color:#ECEFF1;padding:16px 32px;text-align:center;
+                        border-top:1px solid #CFD8DC;">
+              <p style="margin:0;color:#90A4AE;font-size:11px;line-height:1.6;">
+                Recibiste este correo porque eres parte del proceso de la solicitud
+                <strong>#{{ ticket.ticket_number }}</strong>.<br>
+                Sistema de Mantenimiento — ITCJ
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

@@ -77,6 +77,18 @@
 <nav id="paginationContainer" class="mt-3 d-flex justify-content-center"></nav>
 {% endblock %}
 
+{% block page_vars %}
+<script>
+var MAINT_CTX = {
+    userRoles:    {{ user_roles | tojson }},
+    isAdmin:      {{ ('admin' in user_roles) | lower }},
+    isDispatcher: {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
+    isDeptHead:   {{ ('department_head' in user_roles or 'secretary' in user_roles) | lower }},
+};
+</script>
+{% endblock %}
+
 {% block extra_js %}
 <script src="/static/maint/js/tickets/list.js?v={{ sv('js/tickets/list.js') }}"></script>
 {% endblock %}

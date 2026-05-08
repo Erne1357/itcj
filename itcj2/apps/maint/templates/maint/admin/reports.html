@@ -1,17 +1,190 @@
 {% extends "maint/base_maint.html" %}
-
 {% block title %}Reportes{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="/static/maint/css/admin/reports.css?v={{ sv('css/admin/reports.css') }}">
+{% endblock %}
+
 {% block content %}
-<div class="row mt-3">
-    <div class="col">
-        <h2 class="mb-4" style="color: var(--maint-primary-dark);">
-            <i class="fas fa-chart-bar me-2"></i>Reportes
-        </h2>
-        <div class="alert alert-info">
-            <i class="fas fa-hard-hat me-2"></i>
-            <strong>En construcción.</strong> Los reportes de mantenimiento estarán disponibles próximamente.
-        </div>
+<div class="py-3">
+
+  <!-- Encabezado -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold">
+        <i class="fas fa-chart-bar me-2" style="color:var(--maint-primary);"></i>Reportes
+      </h4>
+      <small class="text-muted">Serie de tiempo, técnicos, categorías y SLA</small>
     </div>
+    <a href="/maintenance/admin/stats" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-chart-pie me-1"></i><span class="d-none d-sm-inline">Estadísticas</span>
+    </a>
+  </div>
+
+  <!-- Selector de rango -->
+  <div id="reportDateRange"></div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="reportTabs" role="tablist">
+    <li class="nav-item">
+      <a class="nav-link active" data-bs-toggle="tab" href="#tab-tickets" id="tab-tickets-link">
+        <i class="fas fa-ticket-alt me-1"></i><span class="d-none d-sm-inline">Tickets</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-technicians" id="tab-technicians-link">
+        <i class="fas fa-users-cog me-1"></i><span class="d-none d-sm-inline">Técnicos</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-categories" id="tab-categories-link">
+        <i class="fas fa-tags me-1"></i><span class="d-none d-sm-inline">Categorías</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-sla" id="tab-sla-link">
+        <i class="fas fa-tachometer-alt me-1"></i><span class="d-none d-sm-inline">SLA</span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ── TAB: TICKETS ─────────────────────────────────────── -->
+    <div class="tab-pane fade show active" id="tab-tickets">
+      <div class="card shadow-sm p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="mn-section-title mb-0" style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--maint-muted);">
+            Tickets creados vs resueltos por día
+          </span>
+        </div>
+        <div id="ticketsChartWrap" class="chart-wrap">
+          <div class="d-flex align-items-center justify-content-center h-100">
+            <span class="mn-skeleton" style="width:80%;height:200px;"></span>
+          </div>
+        </div>
+        <canvas id="chartTickets" style="display:none;"></canvas>
+      </div>
+    </div>
+
+    <!-- ── TAB: TÉCNICOS ────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-technicians">
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <span class="mn-section-title mb-2 d-block" style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--maint-muted);">
+              Tickets resueltos por técnico
+            </span>
+            <div id="techChartWrap" class="chart-wrap-sm">
+              <div class="d-flex align-items-center justify-content-center h-100">
+                <span class="mn-skeleton" style="width:80%;height:160px;"></span>
+              </div>
+            </div>
+            <canvas id="chartTech" style="display:none;"></canvas>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="card shadow-sm p-0">
+            <div class="table-responsive">
+              <table class="table table-sm table-hover mn-table align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Técnico</th>
+                    <th class="text-center">Resueltos</th>
+                    <th class="text-center d-none d-md-table-cell">Tiempo prom. (min)</th>
+                    <th class="text-center d-none d-md-table-cell">Atención</th>
+                    <th class="text-center d-none d-md-table-cell">Velocidad</th>
+                    <th class="text-center d-none d-sm-table-cell">Eficiencia %</th>
+                    <th class="d-none d-sm-table-cell">SLA %</th>
+                    <th class="d-none d-lg-table-cell">Resueltos</th>
+                  </tr>
+                </thead>
+                <tbody id="techTableBody">
+                  <tr><td colspan="9" class="text-center py-4 text-muted">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Cargando...
+                  </td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB: CATEGORÍAS ──────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-categories">
+      <div class="row g-3">
+        <div class="col-12 col-lg-5">
+          <div class="card shadow-sm p-3 h-100">
+            <span class="mn-section-title mb-2 d-block" style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--maint-muted);">
+              Distribución por categoría
+            </span>
+            <div id="catChartWrap" class="chart-wrap">
+              <div class="d-flex align-items-center justify-content-center h-100">
+                <span class="mn-skeleton" style="width:60%;height:60%;border-radius:50%;"></span>
+              </div>
+            </div>
+            <canvas id="chartCat" style="display:none;"></canvas>
+          </div>
+        </div>
+        <div class="col-12 col-lg-7">
+          <div class="card shadow-sm p-0 h-100">
+            <div class="table-responsive">
+              <table class="table table-sm table-hover mn-table align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th>Categoría</th>
+                    <th class="text-center">Total</th>
+                    <th class="text-center d-none d-sm-table-cell">Abiertos</th>
+                    <th class="text-center d-none d-sm-table-cell">Resueltos</th>
+                    <th class="text-center">T. prom. (min)</th>
+                  </tr>
+                </thead>
+                <tbody id="catTableBody">
+                  <tr><td colspan="5" class="text-center py-4 text-muted">
+                    <i class="fas fa-spinner fa-spin me-2"></i>Cargando...
+                  </td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB: SLA ──────────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-sla">
+      <div class="row g-3">
+        <div class="col-12 col-md-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-body sla-gauge-card" id="slaGaugeCard">
+              <span class="mn-skeleton d-block" style="height:80px;border-radius:8px;"></span>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-md-8">
+          <div class="card shadow-sm p-3 h-100">
+            <span class="mn-section-title mb-2 d-block" style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--maint-muted);">
+              Desglose SLA
+            </span>
+            <div id="slaDetailWrap" class="row g-2">
+              <div class="col-12">
+                <span class="mn-skeleton d-block" style="height:120px;border-radius:8px;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-content -->
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/maint/js/admin/_chart_defaults.js?v={{ sv('js/admin/_chart_defaults.js') }}"></script>
+<script src="/static/maint/js/admin/_daterange.js?v={{ sv('js/admin/_daterange.js') }}"></script>
+<script src="/static/maint/js/admin/reports.js?v={{ sv('js/admin/reports.js') }}"></script>
 {% endblock %}

@@ -164,6 +164,17 @@ var TICKET_CTX = {
                         <div id="materialsList" class="d-flex flex-column gap-1"></div>
                     </div>
                 </div>
+
+                <!-- Adjuntos de resolución (imágenes / PDF) -->
+                <div class="border-top pt-3 mt-3">
+                    <div class="mn-section-title small mb-2">
+                        <i class="bi bi-paperclip me-1"></i>Evidencia (imágenes o PDF)
+                    </div>
+                    <input type="file" class="form-control form-control-sm mb-2" id="resolutionFiles"
+                           multiple accept="image/jpeg,image/png,image/webp,image/gif,application/pdf">
+                    <small class="text-muted d-block mb-2">Máx. 5 archivos. Imágenes ≤ 3 MB, PDF ≤ 10 MB.</small>
+                    <div id="resolutionFilesList" class="d-flex flex-column gap-1"></div>
+                </div>
             </div>
             <div class="modal-footer border-0">
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>

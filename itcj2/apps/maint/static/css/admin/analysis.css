@@ -1,0 +1,128 @@
+/*
+ * analysis.css — Estilos para la página de Análisis de Mantenimiento
+ */
+
+/* ── Date-range bar ──────────────────────────────────────────────── */
+.maint-daterange-bar {
+    background: #fff;
+    border-radius: 8px;
+}
+
+/* ── Chart containers ────────────────────────────────────────────── */
+.chart-wrap {
+    position: relative;
+    height: 300px;
+}
+
+.chart-wrap canvas {
+    max-height: 300px;
+}
+
+.chart-wrap-sm {
+    position: relative;
+    height: 220px;
+}
+
+/* ── Skeleton ────────────────────────────────────────────────────── */
+.mn-skeleton {
+    background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
+    background-size: 200% 100%;
+    animation: mn-shimmer 1.4s infinite;
+    border-radius: 4px;
+    display: block;
+}
+
+@keyframes mn-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Outlier summary cards ───────────────────────────────────────── */
+.mn-outlier-stat {
+    text-align: center;
+    padding: 1rem;
+}
+
+.mn-outlier-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.mn-outlier-label {
+    font-size: 0.78rem;
+    color: var(--maint-muted);
+    margin-top: 0.3rem;
+}
+
+/* ── IQR fence card ──────────────────────────────────────────────── */
+.mn-fence-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.mn-fence-item {
+    background: var(--maint-primary-light);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.82rem;
+}
+
+.mn-fence-item .mn-fence-val {
+    font-weight: 700;
+    color: var(--maint-primary-dark);
+    font-size: 1rem;
+}
+
+/* ── Cluster cards ───────────────────────────────────────────────── */
+.mn-cluster-card {
+    border-left: 4px solid var(--maint-primary);
+    border-radius: 6px;
+}
+
+.mn-cluster-badge {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+/* ── Scatter container ───────────────────────────────────────────── */
+#scatterContainer {
+    min-height: 320px;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────── */
+.mn-table th {
+    background: var(--maint-primary-light);
+    color: var(--maint-primary-darker);
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.mn-table td {
+    font-size: 0.84rem;
+    vertical-align: middle;
+}
+
+/* ── Histogram bars ──────────────────────────────────────────────── */
+.mn-hist-bar {
+    background: var(--maint-primary);
+    border-radius: 3px 3px 0 0;
+    transition: height 0.3s ease;
+}
+
+/* ── Tab nav ─────────────────────────────────────────────────────── */
+.nav-tabs .nav-link.active {
+    color: var(--maint-primary-dark);
+    border-bottom-color: var(--maint-primary);
+    font-weight: 600;
+}
+
+.nav-tabs .nav-link:hover:not(.active) {
+    color: var(--maint-primary);
+}

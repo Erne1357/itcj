@@ -58,6 +58,9 @@ class MaintTicket(Base):
     due_at = Column(DateTime, nullable=True)
     # Calculado al crear: created_at + SLA_HOURS[priority] horas
     # Permite alertas de vencimiento y reportes de cumplimiento
+    sla_alert_sent_at = Column(DateTime, nullable=True)
+    # Timestamp del último envío de alerta de vencimiento SLA.
+    # Query de alerta: due_at < now() AND is_open AND sla_alert_sent_at IS NULL
 
     # ==================== RESOLUCIÓN ====================
     maintenance_type = Column(String(20), nullable=True)   # PREVENTIVO | CORRECTIVO

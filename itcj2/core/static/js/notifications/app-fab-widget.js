@@ -186,11 +186,21 @@ class AppNotificationFAB {
                 }
             });
 
-            // Evento: notificación leída (sincronización de badges)
+            // Evento: notificación leída (sincronización cross-FAB / cross-tab)
+            // Disparado por server cuando usuario marca leída desde cualquier vista.
             this.socket.on('notification:read', (data) => {
-                if (data.counts !== undefined) {
-                    const count = data.counts[this.appName] || 0;
-                    this.updateBadge(count);
+                if (!data || data.counts === undefined) return;
+                const count = data.counts[this.appName] || 0;
+                this.updateBadge(count);
+
+                // Si el panel está abierto, re-cargar lista para reflejar el estado
+                if (this.panelOpen) {
+                    if (this.currentTab === 'recent') {
+                        this.loadRecent();
+                    } else {
+                        this.historyOffset = 0;
+                        this.loadHistory(true);
+                    }
                 }
             });
 

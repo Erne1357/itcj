@@ -76,7 +76,12 @@ async def create_ticket(
         custom_fields=body.custom_fields,
         created_by_id=user_id,
     )
-    MaintNotificationHelper.notify_ticket_created(db, ticket)
+    try:
+        MaintNotificationHelper.notify_ticket_created(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_created failed for ticket %s: %s", ticket.id, exc)
     return {"ticket_id": ticket.id, "ticket_number": ticket.ticket_number, "due_at": ticket.due_at.isoformat() if ticket.due_at else None}
 
 
@@ -137,6 +142,12 @@ async def start_ticket(
     user_id = int(user["sub"])
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
     ticket = ticket_service.start_progress(db, ticket_id, user_id, user_roles)
+    try:
+        MaintNotificationHelper.notify_ticket_in_progress(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_in_progress failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}
 
 
@@ -177,7 +188,12 @@ async def resolve_ticket(
         observations=body.observations,
         materials_used=body.materials_used,
     )
-    MaintNotificationHelper.notify_ticket_resolved(db, resolved)
+    try:
+        MaintNotificationHelper.notify_ticket_resolved(db, resolved)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_resolved failed for ticket %s: %s", resolved.id, exc)
     response = {"status": resolved.status, "ticket_number": resolved.ticket_number}
     if warnings:
         response["warnings"] = warnings
@@ -250,6 +266,12 @@ async def rate_ticket(
         rating_efficiency=body.rating_efficiency,
         comment=body.comment,
     )
+    try:
+        MaintNotificationHelper.notify_ticket_rated(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_rated failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}
 
 
@@ -271,5 +293,10 @@ async def cancel_ticket(
         reason=body.reason,
         user_roles=user_roles,
     )
-    MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+    try:
+        MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_canceled failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}

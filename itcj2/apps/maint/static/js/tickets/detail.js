@@ -63,6 +63,17 @@
         sBadge.textContent = STATUS_LABEL[t.status] || t.status;
         sBadge.className = 'mn-badge-status ' + (STATUS_CSS[t.status] || '');
 
+        // Overdue badge
+        var existingOverdue = document.getElementById('overdueBadge');
+        if (existingOverdue) existingOverdue.remove();
+        if (t.is_overdue) {
+            var oBadge = document.createElement('span');
+            oBadge.id = 'overdueBadge';
+            oBadge.className = 'mn-badge-overdue';
+            oBadge.innerHTML = '<i class="bi bi-exclamation-triangle-fill"></i>Vencido';
+            sBadge.insertAdjacentElement('afterend', oBadge);
+        }
+
         var pBadge = document.getElementById('priorityBadge');
         pBadge.textContent = PRIORITY_LABEL[t.priority] || t.priority;
         pBadge.className = 'mn-badge-status ' + (PRIORITY_CSS[t.priority] || '');
@@ -151,12 +162,26 @@
     function _renderTab(tab) {
         var content = document.getElementById('tabContent');
         switch (tab) {
-            case 'info':       content.innerHTML = _buildInfoTab(_ticket); break;
-            case 'technicians': content.innerHTML = _buildTechTab(_ticket);
-                window.MaintAssignment && MaintAssignment.bind(_ticket, _reload); break;
-            case 'comments':   content.innerHTML = _buildCommentsTab(_ticket); _bindCommentForm(); break;
-            case 'resolution': content.innerHTML = _buildResolutionTab(_ticket); _loadMaterials(); break;
-            case 'history':    content.innerHTML = _buildHistoryTab(_ticket); break;
+            case 'info':
+                content.innerHTML = _buildInfoTab(_ticket);
+                _loadTicketAttachments();
+                break;
+            case 'technicians':
+                content.innerHTML = _buildTechTab(_ticket);
+                window.MaintAssignment && MaintAssignment.bind(_ticket, _reload);
+                break;
+            case 'comments':
+                content.innerHTML = _buildCommentsTab(_ticket);
+                _bindCommentForm();
+                break;
+            case 'resolution':
+                content.innerHTML = _buildResolutionTab(_ticket);
+                _loadMaterials();
+                _loadResolutionAttachments();
+                break;
+            case 'history':
+                content.innerHTML = _buildHistoryTab(_ticket);
+                break;
         }
     }
 
@@ -199,10 +224,86 @@
                     '<div class="col-md-3"><div class="mn-detail-label">Creado por</div>' +
                         '<div class="mn-detail-value">' + _esc(t.created_by ? t.created_by.name : '—') + '</div>' +
                         '<small class="text-muted">' + (t.created_at ? new Date(t.created_at).toLocaleString('es-MX') : '') + '</small>' + '</div>' +
+                    '<div class="col-12" id="ticketAttachmentsSection">' +
+                        '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
+                        '<div class="text-muted small mt-1"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Cargando...</div>' +
+                    '</div>' +
                 '</div>' +
                 customHtml +
             '</div>' +
         '</div>';
+    }
+
+    // ── Adjuntos: helpers compartidos ────────────────────────────────────────
+
+    function _buildAttachGrid(attachments) {
+        if (!attachments || !attachments.length) {
+            return '<div class="text-muted small">Sin archivos adjuntos.</div>';
+        }
+        var items = attachments.map(function (a) {
+            if (a.is_purged) {
+                var purgedDate = a.purged_at
+                    ? new Date(a.purged_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                    : '—';
+                return '<div class="mn-attach-purged">' +
+                    '<i class="bi bi-file-earmark-x fs-4 mb-1"></i>' +
+                    'Archivo eliminado el ' + purgedDate +
+                '</div>';
+            }
+            var downloadUrl = '/api/maint/v2/attachments/' + a.id + '/download';
+            var isPdf = a.filename && a.filename.toLowerCase().endsWith('.pdf');
+            var isImage = a.filename && /\.(jpe?g|png|gif|webp)$/i.test(a.filename);
+            if (isImage) {
+                return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-thumb" title="' + _esc(a.filename || '') + '">' +
+                    '<img src="' + downloadUrl + '" alt="' + _esc(a.filename || '') + '" loading="lazy">' +
+                '</a>';
+            }
+            if (isPdf) {
+                return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-pdf" title="' + _esc(a.filename || '') + '">' +
+                    '<i class="bi bi-file-earmark-pdf fs-3 mb-1"></i>' +
+                    '<span style="word-break:break-all;">' + _esc(a.filename || 'PDF') + '</span>' +
+                '</a>';
+            }
+            return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-pdf" style="background:#e8f4f8;color:#0c7abf;border-color:#bee5eb;" title="' + _esc(a.filename || '') + '">' +
+                '<i class="bi bi-file-earmark fs-3 mb-1"></i>' +
+                '<span style="word-break:break-all;">' + _esc(a.filename || 'Archivo') + '</span>' +
+            '</a>';
+        });
+        return '<div class="mn-attach-grid mt-2">' + items.join('') + '</div>';
+    }
+
+    function _loadTicketAttachments() {
+        var section = document.getElementById('ticketAttachmentsSection');
+        if (!section) return;
+
+        MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/attachments?type=ticket')
+            .then(function (data) {
+                var attachments = data.attachments || [];
+                section.innerHTML =
+                    '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
+                    _buildAttachGrid(attachments);
+            })
+            .catch(function () {
+                section.innerHTML =
+                    '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
+                    '<div class="text-muted small mt-1">No se pudieron cargar los adjuntos.</div>';
+            });
+    }
+
+    function _loadResolutionAttachments() {
+        var section = document.getElementById('resolutionAttachmentsSection');
+        if (!section) return;
+
+        MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/attachments?type=resolution')
+            .then(function (data) {
+                var attachments = data.attachments || [];
+                section.innerHTML =
+                    '<div class="mn-detail-label mt-3"><i class="bi bi-paperclip me-1"></i>Archivos de resolución</div>' +
+                    _buildAttachGrid(attachments);
+            })
+            .catch(function () {
+                if (section) section.innerHTML = '';
+            });
     }
 
     // ── Tab: Técnicos ─────────────────────────────────────────────────────────
@@ -261,6 +362,18 @@
         } else {
             comments.forEach(function (c) {
                 var isInternal = c.is_internal;
+                var commentAttachments = c.attachments || [];
+                var attachHtml = '';
+                if (commentAttachments.length) {
+                    var items = commentAttachments.map(function (a) {
+                        if (a.is_purged) return '<span class="text-muted small"><i class="bi bi-file-earmark-x me-1"></i>Archivo eliminado</span>';
+                        var url = '/api/maint/v2/attachments/' + a.id + '/download';
+                        var isImg = a.filename && /\.(jpe?g|png|gif|webp)$/i.test(a.filename);
+                        if (isImg) return '<a href="' + url + '" target="_blank"><img src="' + url + '" style="max-height:80px;max-width:100px;border-radius:4px;object-fit:cover;" alt="' + _esc(a.filename || '') + '" loading="lazy"></a>';
+                        return '<a href="' + url + '" target="_blank" class="small"><i class="bi bi-paperclip me-1"></i>' + _esc(a.filename || 'Archivo') + '</a>';
+                    });
+                    attachHtml = '<div class="d-flex flex-wrap gap-2 mt-2">' + items.join('') + '</div>';
+                }
                 html += '<div class="mn-comment-bubble ' + (isInternal ? 'internal' : '') + ' mb-3">' +
                     '<div class="d-flex justify-content-between align-items-start mb-1">' +
                         '<span class="fw-semibold small">' + _esc(c.author ? c.author.name : '—') + '</span>' +
@@ -270,6 +383,7 @@
                         '</div>' +
                     '</div>' +
                     '<div style="white-space:pre-line;">' + _esc(c.content) + '</div>' +
+                    attachHtml +
                 '</div>';
             });
         }
@@ -281,6 +395,13 @@
                 (canInternal ?
                     '<div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="isInternalCheck">' +
                     '<label class="form-check-label small" for="isInternalCheck">Comentario interno (solo staff operativo)</label></div>' : '') +
+                '<div class="d-flex align-items-center gap-2 mb-2">' +
+                    '<label class="btn btn-outline-secondary btn-sm mb-0" for="commentFileInput" style="cursor:pointer;">' +
+                        '<i class="bi bi-paperclip me-1"></i>Adjuntar archivos' +
+                    '</label>' +
+                    '<input type="file" id="commentFileInput" multiple accept="image/jpeg,image/png,image/gif,image/webp,application/pdf" style="display:none;">' +
+                    '<span id="commentFileCount" class="text-muted small"></span>' +
+                '</div>' +
                 '<button class="btn btn-maint btn-sm" id="sendCommentBtn"><i class="bi bi-send me-1"></i>Enviar</button>' +
             '</div>';
         }
@@ -292,24 +413,64 @@
     function _bindCommentForm() {
         var btn = document.getElementById('sendCommentBtn');
         if (!btn) return;
+
+        // Track selected files and update label
+        var fileInput = document.getElementById('commentFileInput');
+        var fileCount = document.getElementById('commentFileCount');
+        if (fileInput) {
+            fileInput.addEventListener('change', function () {
+                var n = fileInput.files ? fileInput.files.length : 0;
+                fileCount.textContent = n > 0 ? n + ' archivo' + (n !== 1 ? 's' : '') + ' seleccionado' + (n !== 1 ? 's' : '') : '';
+            });
+        }
+
         btn.addEventListener('click', function () {
             var text = (document.getElementById('newCommentText').value || '').trim();
             if (text.length < 1) return;
             var isInternal = document.getElementById('isInternalCheck') ? document.getElementById('isInternalCheck').checked : false;
+            var files = fileInput && fileInput.files ? fileInput.files : null;
 
             MaintUtils.loading.show(btn, 'Enviando...');
-            MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/comments', {
-                method: 'POST',
-                body: JSON.stringify({ content: text, is_internal: isInternal }),
-            })
-                .then(function () {
-                    MaintUtils.toast('Comentario enviado', 'success');
-                    _reload();
+
+            if (files && files.length > 0) {
+                // Use multipart/form-data to send content + files together
+                var formData = new FormData();
+                formData.append('content', text);
+                formData.append('is_internal', isInternal ? 'true' : 'false');
+                for (var i = 0; i < files.length; i++) {
+                    formData.append('files[]', files[i]);
+                }
+                fetch(API_BASE + '/tickets/' + ctx.ticketId + '/comments', {
+                    method: 'POST',
+                    credentials: 'include',
+                    body: formData,
                 })
-                .catch(function (err) {
-                    MaintUtils.loading.hide(btn);
-                    MaintUtils.toast(err.message, 'error');
-                });
+                    .then(function (res) {
+                        if (!res.ok) return res.json().then(function (d) { throw new Error((d && (d.detail || d.message)) || 'Error ' + res.status); });
+                        return res.json();
+                    })
+                    .then(function () {
+                        MaintUtils.toast('Comentario enviado', 'success');
+                        _reload();
+                    })
+                    .catch(function (err) {
+                        MaintUtils.loading.hide(btn);
+                        MaintUtils.toast(err.message, 'error');
+                    });
+            } else {
+                MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/comments', {
+                    method: 'POST',
+                    body: JSON.stringify({ content: text, is_internal: isInternal }),
+                })
+                    .then(function () {
+                        MaintUtils.toast('Comentario enviado', 'success');
+                        _reload();
+                    })
+                    .catch(function (err) {
+                        MaintUtils.loading.hide(btn);
+                        MaintUtils.toast(err.message, 'error');
+                    });
+            }
         });
     }
 
@@ -335,6 +496,9 @@
                 '<div class="col-12" id="materialsSection">' +
                     '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
                     '<div class="text-muted small mt-1"><div class="spinner-border spinner-border-sm me-1" role="status"></div>Cargando...</div>' +
+                '</div>' +
+                '<div class="col-12" id="resolutionAttachmentsSection">' +
+                    '<div class="text-muted small mt-1"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Cargando adjuntos...</div>' +
                 '</div>' +
             '</div>';
 
@@ -366,29 +530,72 @@
         MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/materials')
             .then(function (data) {
                 var mats = data.materials || [];
+                var canRevert = (ctx.isDispatcher || ctx.isAdmin) && _ticket && _ticket.status !== 'CLOSED';
+
                 if (!mats.length) {
                     section.innerHTML =
                         '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
                         '<div class="text-muted small mt-1">Sin materiales registrados.</div>';
                     return;
                 }
+
                 var rows = mats.map(function (m) {
+                    var revertBtn = canRevert
+                        ? '<button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 ms-auto mn-revert-mat-btn"' +
+                          ' data-product-id="' + m.product_id + '"' +
+                          ' data-product-name="' + _esc(m.product_name || 'Producto #' + m.product_id) + '"' +
+                          ' title="Revertir consumo">' +
+                          '<i class="bi bi-trash3"></i></button>'
+                        : '';
                     return '<div class="d-flex align-items-center gap-2 py-1">' +
                         '<i class="bi bi-box text-secondary"></i>' +
                         '<span class="fw-medium small">' + _esc(m.product_name || 'Producto #' + m.product_id) + '</span>' +
-                        '<span class="badge bg-light text-secondary">' + _esc(m.quantity_used) + ' ' + _esc(m.product_unit || '') + '</span>' +
+                        '<span class="badge bg-light text-secondary">' + _esc(m.quantity_used) + ' ' + _esc(m.unit_of_measure || '') + '</span>' +
                         (m.notes ? '<span class="text-muted small">— ' + _esc(m.notes) + '</span>' : '') +
+                        revertBtn +
                     '</div>';
                 });
+
                 section.innerHTML =
                     '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
-                    '<div class="mt-1">' + rows.join('') + '</div>';
+                    '<div class="mt-1" id="materialRows">' + rows.join('') + '</div>';
+
+                // Bind revert buttons
+                section.querySelectorAll('.mn-revert-mat-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var productId = btn.dataset.productId;
+                        var productName = btn.dataset.productName;
+                        MaintUtils.confirm({
+                            title: 'Revertir material',
+                            message: '¿Revertir el consumo de "' + productName + '"? El stock volverá al almacén.',
+                            confirmLabel: 'Revertir',
+                            confirmClass: 'btn-danger',
+                            onConfirm: function () {
+                                _revertMaterial(productId);
+                            },
+                        });
+                    });
+                });
             })
             .catch(function () {
                 var section2 = document.getElementById('materialsSection');
                 if (section2) section2.innerHTML =
                     '<div class="mn-detail-label"><i class="bi bi-box-seam me-1"></i>Materiales del almacén</div>' +
                     '<div class="text-muted small mt-1">No se pudo cargar.</div>';
+            });
+    }
+
+    function _revertMaterial(productId) {
+        // Usa el endpoint genérico del warehouse:
+        // DELETE /api/warehouse/v2/ticket-materials/maint/{ticketId}/{productId}
+        var url = '/api/warehouse/v2/ticket-materials/maint/' + ctx.ticketId + '/' + productId;
+        MaintUtils.api.fetch(url, { method: 'DELETE' })
+            .then(function () {
+                MaintUtils.toast('Material revertido correctamente', 'success');
+                _loadMaterials();
+            })
+            .catch(function (err) {
+                MaintUtils.toast('No se pudo revertir: ' + err.message, 'error');
             });
     }
 
@@ -474,5 +681,244 @@
     }
 
     window._maintDetailReload = _reload;
+
+})();
+
+// =============================================================================
+// MaintLiveDetailSync — WebSocket live updates para el detalle de ticket
+// =============================================================================
+(function () {
+    'use strict';
+
+    var ctx = window.TICKET_CTX || {};
+
+    // ── Toast helper ─────────────────────────────────────────────────────────
+
+    function _toast(message, type) {
+        if (window.MaintUtils && typeof MaintUtils.toast === 'function') {
+            MaintUtils.toast(message, type || 'info');
+        } else {
+            console.log('[MaintLive] ' + message);
+        }
+    }
+
+    // ── Esperar a que el socket esté listo (máx 3 s) ─────────────────────────
+
+    function _waitForSocket(callback) {
+        var attempts = 0;
+        var maxAttempts = 30;
+        var interval = setInterval(function () {
+            if (window.__maintSocket) {
+                clearInterval(interval);
+                callback(window.__maintSocket);
+                return;
+            }
+            attempts++;
+            if (attempts >= maxAttempts) {
+                clearInterval(interval);
+                console.warn('[MaintLiveDetailSync] Socket no disponible después de 3 s');
+            }
+        }, 100);
+    }
+
+    // ── Actualizar badge de tech count ────────────────────────────────────────
+
+    function _updateTechBadge(delta) {
+        var el = document.getElementById('techCount');
+        if (!el) return;
+        var current = parseInt(el.textContent, 10) || 0;
+        var next = Math.max(0, current + delta);
+        if (next > 0) {
+            el.textContent = next;
+            el.style.display = '';
+        } else {
+            el.style.display = 'none';
+        }
+    }
+
+    // ── Actualizar badge de commentCount ─────────────────────────────────────
+
+    function _bumpCommentBadge() {
+        var el = document.getElementById('commentCount');
+        if (!el) return;
+        var current = parseInt(el.textContent, 10) || 0;
+        el.textContent = current + 1;
+        el.style.display = '';
+    }
+
+    // ── Indicador "nuevo comentario" cuando el tab de comentarios no está activo ─
+
+    var _commentIndicator = null;
+
+    function _showCommentIndicator() {
+        var tabBtn = document.querySelector('[data-tab="comments"]');
+        if (!tabBtn) return;
+        if (!_commentIndicator) {
+            _commentIndicator = document.createElement('span');
+            _commentIndicator.className = 'badge bg-info ms-1';
+            _commentIndicator.style.fontSize = '0.65rem';
+            _commentIndicator.textContent = 'Nuevo';
+            tabBtn.appendChild(_commentIndicator);
+        }
+        _commentIndicator.style.display = '';
+    }
+
+    function _hideCommentIndicator() {
+        if (_commentIndicator) _commentIndicator.style.display = 'none';
+    }
+
+    // ── Append de comentario en tiempo real ───────────────────────────────────
+
+    function _appendComment(payload) {
+        var content = document.getElementById('tabContent');
+        if (!content) return;
+
+        // Buscar el contenedor de burbujas de comentario
+        var cardBody = content.querySelector('.card-body');
+        if (!cardBody) return;
+
+        // Construir burbuja
+        var isInternal = !!payload.is_internal;
+        var bubble = document.createElement('div');
+        bubble.className = 'mn-comment-bubble ' + (isInternal ? 'internal' : '') + ' mb-3';
+
+        var authorName = (payload.author && payload.author.name) ? payload.author.name : '—';
+        var createdAt = payload.created_at ? new Date(payload.created_at).toLocaleString('es-MX') : '';
+
+        bubble.innerHTML =
+            '<div class="d-flex justify-content-between align-items-start mb-1">' +
+                '<span class="fw-semibold small">' + _esc(authorName) + '</span>' +
+                '<div class="d-flex align-items-center gap-2">' +
+                    (isInternal ? '<span class="badge bg-warning text-dark" style="font-size:0.65rem;">Interno</span>' : '') +
+                    '<small class="text-muted">' + _esc(createdAt) + '</small>' +
+                '</div>' +
+            '</div>' +
+            '<div style="white-space:pre-line;">' + _esc(payload.content || '') + '</div>';
+
+        // Insertar antes del formulario (hr + div#commentForm) si existe
+        var hr = cardBody.querySelector('hr');
+        if (hr) {
+            cardBody.insertBefore(bubble, hr);
+        } else {
+            cardBody.insertBefore(bubble, cardBody.firstChild);
+        }
+
+        // Quitar el mensaje de "sin comentarios" si existía
+        var empty = cardBody.querySelector('.text-muted.text-center');
+        if (empty) empty.remove();
+    }
+
+    function _esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s || '')));
+        return d.innerHTML;
+    }
+
+    // ── Registro de eventos ───────────────────────────────────────────────────
+
+    function _bindEvents(socket) {
+        // Cambio de estado
+        socket.on('ticket_status_changed', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            var label = payload.status_label || payload.status || 'desconocido';
+            _toast('El estado del ticket cambió a: ' + label, 'info');
+            if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+        });
+
+        // Asignación de técnico
+        socket.on('ticket_assigned', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            _toast('Se asignó un técnico al ticket', 'info');
+            // Si el tab de técnicos está activo, recargar; si no, actualizar badge
+            var activeTab = document.querySelector('#detailTabs .nav-link.active');
+            if (activeTab && activeTab.dataset && activeTab.dataset.tab === 'technicians') {
+                if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+            } else {
+                _updateTechBadge(1);
+            }
+        });
+
+        // Desasignación de técnico
+        socket.on('ticket_unassigned', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            _toast('Se removió un técnico del ticket', 'info');
+            var activeTab = document.querySelector('#detailTabs .nav-link.active');
+            if (activeTab && activeTab.dataset && activeTab.dataset.tab === 'technicians') {
+                if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+            } else {
+                _updateTechBadge(-1);
+            }
+        });
+
+        // Nuevo comentario
+        socket.on('ticket_comment_added', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            var activeTab = document.querySelector('#detailTabs .nav-link.active');
+            if (activeTab && activeTab.dataset && activeTab.dataset.tab === 'comments') {
+                _appendComment(payload);
+                _hideCommentIndicator();
+            } else {
+                _bumpCommentBadge();
+                _showCommentIndicator();
+                _toast('Nuevo comentario en el ticket', 'info');
+            }
+        });
+
+        // Ticket resuelto
+        socket.on('ticket_resolved', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            _toast('Ticket resuelto', 'success');
+            if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+        });
+
+        // Ticket cancelado
+        socket.on('ticket_canceled', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            _toast('Ticket cancelado', 'warning');
+            // Deshabilitar botones de acción
+            var actionButtons = document.getElementById('actionButtons');
+            if (actionButtons) {
+                actionButtons.querySelectorAll('button').forEach(function (btn) {
+                    btn.disabled = true;
+                });
+            }
+            if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+        });
+
+        // Ticket calificado
+        socket.on('ticket_rated', function (payload) {
+            if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            if (ctx.isTechMaint) {
+                var avg = payload.rating_avg != null ? (' Promedio: ' + Number(payload.rating_avg).toFixed(1) + '/5') : '';
+                _toast('El ticket recibió una calificación.' + avg, 'success');
+            }
+            if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+        });
+    }
+
+    // ── Limpiar el room al salir de la página ─────────────────────────────────
+
+    function _bindUnload() {
+        window.addEventListener('beforeunload', function () {
+            if (window.__maintLeaveTicket && ctx.ticketId) {
+                window.__maintLeaveTicket(ctx.ticketId);
+            }
+        });
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+
+    document.addEventListener('DOMContentLoaded', function () {
+        if (!ctx.ticketId) return;
+
+        _waitForSocket(function (socket) {
+            window.__maintJoinTicket(ctx.ticketId);
+            _bindEvents(socket);
+        });
+
+        _bindUnload();
+    });
+
+    window.MaintLiveDetailSync = {};
 
 })();

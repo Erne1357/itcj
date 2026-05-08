@@ -55,3 +55,26 @@
 .mn-priority-media.selected       { border-color: #1E40AF; background: #DBEAFE; }
 .mn-priority-alta.selected        { border-color: #D97706; background: #FEF3C7; }
 .mn-priority-urgente.selected     { border-color: #DC2626; background: #FEE2E2; }
+
+/* ── Dropzone de adjuntos ────────────────────────────────────────────────── */
+
+.mn-dropzone {
+    border: 2px dashed #CFD8DC;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    font-size: 0.875rem;
+    color: var(--maint-muted);
+}
+
+.mn-dropzone:hover,
+.mn-dropzone.dragover {
+    border-color: var(--maint-primary);
+    background: var(--maint-primary-light);
+}
+
+.mn-dropzone input[type="file"] {
+    display: none;
+}
