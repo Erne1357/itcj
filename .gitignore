@@ -54,6 +54,7 @@ logs/
 __cache__/
 .cache-*
 .claude/
+CLAUDE.md
 
 # --- Frontend ---
 node_modules/
