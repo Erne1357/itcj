@@ -5,7 +5,7 @@ Fuente: itcj/apps/helpdesk/routes/api/categories.py
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.helpdesk.schemas.categories import (
     CreateCategoryRequest,
@@ -32,8 +32,10 @@ def list_categories(
     query = db.query(Category)
 
     if area:
-        if area not in ("DESARROLLO", "SOPORTE"):
-            raise HTTPException(400, detail={"error": "invalid_area", "message": "El área debe ser DESARROLLO o SOPORTE"})
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_area_codes
+        valid_areas = get_area_codes(db, active_only=False)
+        if area not in valid_areas:
+            raise HTTPException(400, detail={"error": "invalid_area", "message": f"El área debe ser una de: {sorted(valid_areas)}"})
         query = query.filter_by(area=area)
 
     if active is not None:
@@ -60,12 +62,12 @@ def get_categories_stats(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category, Ticket
-    from sqlalchemy import func
+    from sqlalchemy import case, func
 
     stats = db.query(
         Category.id, Category.name, Category.area, Category.is_active,
         func.count(Ticket.id).label("tickets_count"),
-        func.count(db.case((Ticket.status.notin_(["CLOSED", "CANCELED"]), Ticket.id))).label("active_tickets_count"),
+        func.count(case((Ticket.status.notin_(["CLOSED", "CANCELED"]), Ticket.id))).label("active_tickets_count"),
     ).outerjoin(Ticket, Ticket.category_id == Category.id).group_by(
         Category.id, Category.name, Category.area, Category.is_active
     ).order_by(Category.area, Category.display_order).all()
@@ -104,17 +106,22 @@ def get_category(
 
 @router.post("", status_code=201)
 def create_category(
+    request: Request,
     body: CreateCategoryRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
     from sqlalchemy import func
 
     user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
 
-    if body.area not in ("DESARROLLO", "SOPORTE"):
-        raise HTTPException(400, detail={"error": "invalid_area", "message": "El área debe ser DESARROLLO o SOPORTE"})
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_area_codes
+    valid_areas = get_area_codes(db, active_only=True)
+    if body.area not in valid_areas:
+        raise HTTPException(400, detail={"error": "invalid_area", "message": f"El área debe ser una de: {sorted(valid_areas)}"})
 
     existing = db.query(Category).filter_by(code=body.code).first()
     if existing:
@@ -136,6 +143,19 @@ def create_category(
     )
 
     db.add(category)
+    db.flush()  # garantiza category.id antes del log
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="category",
+        entity_id=category.id,
+        action="create",
+        before=None,
+        after=category.to_dict(),
+        ip_address=client_ip,
+    )
+
     db.commit()
 
     logger.info(f"Categoría '{category.name}' creada por usuario {user_id}")
@@ -145,16 +165,22 @@ def create_category(
 @router.patch("/{category_id}")
 def update_category(
     category_id: int,
+    request: Request,
     body: UpdateCategoryRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
 
     user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
+
     category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
+
+    before = category.to_dict()
 
     if body.name is not None:
         name = body.name.strip()
@@ -170,6 +196,17 @@ def update_category(
             raise HTTPException(400, detail={"error": "invalid_display_order", "message": "El display_order debe ser un número entero positivo"})
         category.display_order = body.display_order
 
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="category",
+        entity_id=category.id,
+        action="update",
+        before=before,
+        after=category.to_dict(),
+        ip_address=client_ip,
+    )
+
     db.commit()
     logger.info(f"Categoría {category_id} actualizada por usuario {user_id}")
     return {"message": "Categoría actualizada exitosamente", "category": category.to_dict()}
@@ -178,13 +215,17 @@ def update_category(
 @router.post("/{category_id}/toggle")
 def toggle_category(
     category_id: int,
+    request: Request,
     body: ToggleCategoryRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category, Ticket
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
 
     user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
+
     category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
@@ -201,7 +242,20 @@ def toggle_category(
                 "active_tickets_count": active_tickets,
             })
 
+    before = category.to_dict()
     category.is_active = body.is_active
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="category",
+        entity_id=category.id,
+        action="toggle",
+        before=before,
+        after=category.to_dict(),
+        ip_address=client_ip,
+    )
+
     db.commit()
 
     action = "activada" if body.is_active else "desactivada"
@@ -211,17 +265,23 @@ def toggle_category(
 
 @router.post("/reorder")
 def reorder_categories(
+    request: Request,
     body: ReorderCategoriesRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
 
     user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
 
-    if body.area not in ("DESARROLLO", "SOPORTE"):
-        raise HTTPException(400, detail={"error": "invalid_area", "message": "El área debe ser DESARROLLO o SOPORTE"})
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_area_codes
+    valid_areas = get_area_codes(db, active_only=False)
+    if body.area not in valid_areas:
+        raise HTTPException(400, detail={"error": "invalid_area", "message": f"El área debe ser una de: {sorted(valid_areas)}"})
 
+    before_snapshot = []
     for item in body.order:
         if "id" not in item or "display_order" not in item:
             raise HTTPException(400, detail={"error": "invalid_order_item", "message": "Cada item debe tener id y display_order"})
@@ -230,7 +290,21 @@ def reorder_categories(
             raise HTTPException(404, detail={"error": "category_not_found", "message": f'Categoría con id {item["id"]} no encontrada'})
         if category.area != body.area:
             raise HTTPException(400, detail={"error": "area_mismatch", "message": f"La categoría {category.name} no pertenece al área {body.area}"})
+        before_snapshot.append({"id": category.id, "name": category.name, "display_order": category.display_order})
         category.display_order = item["display_order"]
+
+    after_snapshot = [{"id": item["id"], "display_order": item["display_order"]} for item in body.order]
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="category",
+        entity_id=None,
+        action="reorder",
+        before={"area": body.area, "previous_order": before_snapshot},
+        after={"area": body.area, "order": after_snapshot},
+        ip_address=client_ip,
+    )
 
     db.commit()
     logger.info(f"Categorías del área {body.area} reordenadas por usuario {user_id}")
@@ -242,12 +316,16 @@ def reorder_categories(
 @router.delete("/{category_id}")
 def delete_category(
     category_id: int,
+    request: Request,
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category, Ticket
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
 
     user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
+
     category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
@@ -260,7 +338,20 @@ def delete_category(
             "tickets_count": tickets_count,
         })
 
+    before = category.to_dict()
     category.is_active = False
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="category",
+        entity_id=category.id,
+        action="delete",
+        before=before,
+        after=None,
+        ip_address=client_ip,
+    )
+
     db.commit()
 
     logger.info(f"Categoría {category_id} eliminada (soft delete) por usuario {user_id}")
@@ -286,19 +377,37 @@ def get_category_field_template(
 @router.put("/{category_id}/field-template")
 def update_category_field_template(
     category_id: int,
+    request: Request,
     body: UpdateFieldTemplateRequest,
     user: dict = require_perms("helpdesk", ["helpdesk.categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Category
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
 
     user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
+
     category = db.get(Category, category_id)
     if not category:
         raise HTTPException(404, detail={"error": "not_found", "message": "Categoría no encontrada"})
 
+    before = {"field_template": category.field_template}
+
     category.field_template = body.model_dump()
     category.updated_at = datetime.now()
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="field_template",
+        entity_id=category_id,
+        action="update",
+        before=before,
+        after={"field_template": body.model_dump()},
+        ip_address=client_ip,
+    )
+
     db.commit()
 
     logger.info(f"Field template para categoría {category_id} actualizado por usuario {user_id}")
