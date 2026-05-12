@@ -74,6 +74,97 @@ def list_audit_logs(
     }
 
 
+@router.get("/export.csv")
+def export_audit_csv(
+    entity_type: Optional[str] = Query(default=None),
+    entity_id: Optional[int] = Query(default=None),
+    action: Optional[str] = Query(default=None),
+    user_id: Optional[int] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    user: dict = require_perms("helpdesk", ["helpdesk.config.audit.api.read"]),
+    db: DbSession = None,
+):
+    import csv
+    import io
+    import json
+    from fastapi.responses import Response
+    from sqlalchemy.orm import joinedload
+    from itcj2.apps.helpdesk.models.config_change_log import ConfigChangeLog
+
+    query = db.query(ConfigChangeLog).options(joinedload(ConfigChangeLog.user))
+
+    if entity_type:
+        query = query.filter(ConfigChangeLog.entity_type == entity_type)
+    if entity_id is not None:
+        query = query.filter(ConfigChangeLog.entity_id == entity_id)
+    if action:
+        query = query.filter(ConfigChangeLog.action == action)
+    if user_id is not None:
+        query = query.filter(ConfigChangeLog.user_id == user_id)
+
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            query = query.filter(ConfigChangeLog.changed_at >= dt_from)
+        except ValueError:
+            raise HTTPException(400, detail={
+                "error": "invalid_date_from",
+                "message": "date_from debe ser formato ISO 8601 (ej: 2026-01-01 o 2026-01-01T00:00:00)",
+            })
+
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            query = query.filter(ConfigChangeLog.changed_at <= dt_to)
+        except ValueError:
+            raise HTTPException(400, detail={
+                "error": "invalid_date_to",
+                "message": "date_to debe ser formato ISO 8601",
+            })
+
+    total = query.count()
+    if total > 50000:
+        raise HTTPException(400, detail={
+            "error": "too_many_rows",
+            "message": f"Demasiados registros ({total}). Aplica más filtros para exportar.",
+        })
+
+    logs = query.order_by(ConfigChangeLog.changed_at.desc()).all()
+
+    output = io.StringIO()
+    output.write("﻿")  # BOM UTF-8 para compatibilidad con Excel en Windows
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow([
+        "id", "changed_at", "user_id", "user_name",
+        "entity_type", "entity_id", "action", "ip_address",
+        "before_data", "after_data",
+    ])
+    for log in logs:
+        user_name = ""
+        if log.user:
+            user_name = getattr(log.user, "full_name", None) or ""
+        writer.writerow([
+            log.id,
+            log.changed_at.isoformat() if log.changed_at else "",
+            log.user_id,
+            user_name,
+            log.entity_type,
+            log.entity_id if log.entity_id is not None else "",
+            log.action,
+            log.ip_address or "",
+            json.dumps(log.before_data, ensure_ascii=False) if log.before_data is not None else "",
+            json.dumps(log.after_data, ensure_ascii=False) if log.after_data is not None else "",
+        ])
+
+    filename = f"audit-{datetime.now().strftime('%Y-%m-%d-%H%M%S')}.csv"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{log_id}")
 def get_audit_log(
     log_id: int,
