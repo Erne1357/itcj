@@ -3,10 +3,15 @@ Helper de Notificaciones para Helpdesk
 
 Proporciona métodos para crear notificaciones en los diferentes eventos del ciclo de vida de tickets.
 Incluye broadcasts WebSocket para actualizaciones en tiempo real.
+
+Fase 6.5: Las plantillas de título y cuerpo se cargan desde la BD (NotificationTemplate)
+y se renderizan con Jinja2. Si la plantilla no existe, está inactiva, o falla la renderización,
+se usa el string hardcoded como fallback para preservar el comportamiento previo.
 """
 import logging
 from typing import Optional
 
+from jinja2 import Environment, DebugUndefined, TemplateSyntaxError
 from sqlalchemy.orm import Session
 
 from itcj2.core.services.notification_service import NotificationService
@@ -16,6 +21,115 @@ from itcj2.utils import async_broadcast as _async_broadcast
 
 logger = logging.getLogger(__name__)
 
+# ==================== JINJA2 ENV ====================
+
+_jinja_env = Environment(autoescape=False, undefined=DebugUndefined)
+
+
+# ==================== HELPERS DE RENDERIZADO ====================
+
+def _safe_render(template_str: str, context: dict) -> str:
+    """Renderiza una cadena Jinja2 capturando errores. Devuelve template_str si falla."""
+    try:
+        return _jinja_env.from_string(template_str).render(**context)
+    except (TemplateSyntaxError, Exception) as e:
+        logger.warning(f"Error al renderizar fragmento de plantilla: {e}")
+        return template_str
+
+
+def _render_notification(
+    db,
+    code: str,
+    context: dict,
+    fallback_title: str,
+    fallback_body: str,
+) -> tuple[str, str]:
+    """
+    Carga la plantilla por code desde el cache de BD y la renderiza con Jinja2.
+
+    Si la plantilla no existe en BD, está inactiva, o produce un error de sintaxis,
+    devuelve (fallback_title, fallback_body) — los strings hardcoded originales.
+
+    Returns:
+        (title, body)
+    """
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_notification_template
+
+    try:
+        tpl = get_notification_template(db, code)
+        if not tpl or not tpl.get('is_active'):
+            logger.info(f"Notificación '{code}' usó fallback (template no activo o inexistente)")
+            return fallback_title, fallback_body
+
+        subject_template = tpl.get('subject_template')
+        body_template = tpl.get('body_template')
+
+        title = _safe_render(subject_template, context) if subject_template else fallback_title
+        body = _safe_render(body_template, context) if body_template else fallback_body
+
+        logger.info(f"Notificación '{code}' renderizada (template BD activo)")
+        return title, body
+
+    except Exception as e:
+        logger.warning(f"Falla al renderizar plantilla '{code}': {e}. Usando fallback.")
+        return fallback_title, fallback_body
+
+
+def _model_to_context(obj) -> dict:
+    """
+    Snapshot superficial de un modelo SQLAlchemy para uso en plantillas Jinja2.
+    No navega relationships para evitar lazy-load inesperado.
+    """
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.models.comment import Comment
+
+    if isinstance(obj, Ticket):
+        return {
+            'id': obj.id,
+            'ticket_number': obj.ticket_number,
+            'title': obj.title,
+            'description': obj.description,
+            'status': obj.status,
+            'priority': obj.priority,
+            'area': obj.area,
+            'location': obj.location,
+            'created_at': obj.created_at.isoformat() if obj.created_at else None,
+        }
+    if isinstance(obj, User):
+        return {
+            'id': obj.id,
+            'name': getattr(obj, 'full_name', None) or getattr(obj, 'username', None) or str(obj.id),
+            'email': getattr(obj, 'email', None),
+        }
+    if isinstance(obj, Comment):
+        return {
+            'id': obj.id,
+            'content': obj.content,
+            'is_internal': obj.is_internal,
+            'created_at': obj.created_at.isoformat() if obj.created_at else None,
+        }
+    # Fallback genérico para tipos no previstos
+    return {'id': getattr(obj, 'id', None), 'str': str(obj)}
+
+
+def _build_context(**kwargs) -> dict:
+    """
+    Construye el contexto Jinja2 para renderizar plantillas.
+    Los modelos SQLAlchemy se convierten a dicts superficiales para evitar
+    lazy-load de relationships desde dentro de la plantilla.
+    """
+    ctx = {}
+    for key, obj in kwargs.items():
+        if obj is None:
+            ctx[key] = None
+        elif hasattr(obj, '__tablename__'):  # SQLAlchemy model
+            ctx[key] = _model_to_context(obj)
+        else:
+            ctx[key] = obj
+    return ctx
+
+
+# ==================== HELPER PRINCIPAL ====================
 
 class HelpdeskNotificationHelper:
     """Helper para crear notificaciones de eventos de helpdesk"""
@@ -39,14 +153,25 @@ class HelpdeskNotificationHelper:
 
             recipients = list(recipients)
 
+            fallback_title = f'Nuevo ticket #{ticket.ticket_number}'
+            fallback_body = f'{ticket.title} - Prioridad: {ticket.priority}'
+
+            context = _build_context(
+                ticket=ticket,
+                requester=ticket.requester,
+            )
+            title, body = _render_notification(
+                db, 'ticket_created', context, fallback_title, fallback_body
+            )
+
             for user_id in recipients:
                 NotificationService.create(
                     db=db,
                     user_id=user_id,
                     app_name='helpdesk',
                     type='TICKET_CREATED',
-                    title=f'Nuevo ticket #{ticket.ticket_number}',
-                    body=f'{ticket.title} - Prioridad: {ticket.priority}',
+                    title=title,
+                    body=body,
                     data={
                         'ticket_id': ticket.id,
                         'url': f'/help-desk/user/tickets/{ticket.id}',
@@ -86,13 +211,24 @@ class HelpdeskNotificationHelper:
         try:
             from itcj2.sockets.helpdesk import broadcast_ticket_assigned
 
+            fallback_title = f'Ticket #{ticket.ticket_number} asignado a ti'
+            fallback_body = f'{ticket.title} - Prioridad: {ticket.priority}'
+
+            context = _build_context(
+                ticket=ticket,
+                assignee=assigned_user,
+            )
+            title, body = _render_notification(
+                db, 'ticket_assigned', context, fallback_title, fallback_body
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=assigned_user.id,
                 app_name='helpdesk',
                 type='TICKET_ASSIGNED',
-                title=f'Ticket #{ticket.ticket_number} asignado a ti',
-                body=f'{ticket.title} - Prioridad: {ticket.priority}',
+                title=title,
+                body=body,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'/help-desk/user/tickets/{ticket.id}',
@@ -131,13 +267,26 @@ class HelpdeskNotificationHelper:
         try:
             from itcj2.sockets.helpdesk import broadcast_ticket_reassigned
 
+            # Notificación para el nuevo técnico asignado
+            fallback_title_new = f'Ticket #{ticket.ticket_number} reasignado a ti'
+            fallback_body_new = f'{ticket.title} - Prioridad: {ticket.priority}'
+
+            context_new = _build_context(
+                ticket=ticket,
+                assignee=new_assigned_user,
+                previous_assignee=previous_assigned_user,
+            )
+            title_new, body_new = _render_notification(
+                db, 'ticket_reassigned', context_new, fallback_title_new, fallback_body_new
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=new_assigned_user.id,
                 app_name='helpdesk',
                 type='TICKET_REASSIGNED',
-                title=f'Ticket #{ticket.ticket_number} reasignado a ti',
-                body=f'{ticket.title} - Prioridad: {ticket.priority}',
+                title=title_new,
+                body=body_new,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'/help-desk/user/tickets/{ticket.id}',
@@ -146,14 +295,27 @@ class HelpdeskNotificationHelper:
                 ticket_id=ticket.id
             )
 
+            # Notificación para el técnico anterior (si existe)
             if previous_assigned_user:
+                fallback_title_prev = f'Ticket #{ticket.ticket_number} reasignado'
+                fallback_body_prev = f'El ticket fue reasignado a {new_assigned_user.full_name}'
+
+                context_prev = _build_context(
+                    ticket=ticket,
+                    assignee=new_assigned_user,
+                    previous_assignee=previous_assigned_user,
+                )
+                title_prev, body_prev = _render_notification(
+                    db, 'ticket_reassigned', context_prev, fallback_title_prev, fallback_body_prev
+                )
+
                 NotificationService.create(
                     db=db,
                     user_id=previous_assigned_user.id,
                     app_name='helpdesk',
                     type='TICKET_REASSIGNED',
-                    title=f'Ticket #{ticket.ticket_number} reasignado',
-                    body=f'El ticket fue reasignado a {new_assigned_user.full_name}',
+                    title=title_prev,
+                    body=body_prev,
                     data={
                         'ticket_id': ticket.id,
                         'url': f'/help-desk/user/tickets/{ticket.id}'
@@ -189,13 +351,25 @@ class HelpdeskNotificationHelper:
         try:
             from itcj2.sockets.helpdesk import broadcast_ticket_self_assigned
 
+            fallback_title = f'Tu ticket #{ticket.ticket_number} fue tomado'
+            fallback_body = f'{technician.full_name} comenzará a trabajar en tu ticket'
+
+            context = _build_context(
+                ticket=ticket,
+                requester=ticket.requester,
+                assignee=technician,
+            )
+            title, body = _render_notification(
+                db, 'ticket_self_assigned', context, fallback_title, fallback_body
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=ticket.requester_id,
                 app_name='helpdesk',
                 type='TICKET_IN_PROGRESS',
-                title=f'Tu ticket #{ticket.ticket_number} fue tomado',
-                body=f'{technician.full_name} comenzará a trabajar en tu ticket',
+                title=title,
+                body=body,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'/help-desk/user/tickets/{ticket.id}',
@@ -229,13 +403,25 @@ class HelpdeskNotificationHelper:
 
             technician_name = ticket.assigned_to.full_name if ticket.assigned_to else 'Un técnico'
 
+            fallback_title = f'Trabajando en tu ticket #{ticket.ticket_number}'
+            fallback_body = f'{technician_name} comenzó a trabajar en tu solicitud'
+
+            context = _build_context(
+                ticket=ticket,
+                requester=ticket.requester,
+                assignee=ticket.assigned_to,
+            )
+            title, body = _render_notification(
+                db, 'ticket_in_progress', context, fallback_title, fallback_body
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=ticket.requester_id,
                 app_name='helpdesk',
                 type='TICKET_IN_PROGRESS',
-                title=f'Trabajando en tu ticket #{ticket.ticket_number}',
-                body=f'{technician_name} comenzó a trabajar en tu solicitud',
+                title=title,
+                body=body,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'/help-desk/user/tickets/{ticket.id}'
@@ -272,13 +458,24 @@ class HelpdeskNotificationHelper:
                 'RESOLVED_FAILED': 'atendido pero no pudo resolverse completamente'
             }.get(ticket.status, 'resuelto')
 
+            fallback_title = f'Ticket #{ticket.ticket_number} {status_text}'
+            fallback_body = f'Por favor califica el servicio recibido'
+
+            context = _build_context(
+                ticket=ticket,
+                requester=ticket.requester,
+            )
+            title, body = _render_notification(
+                db, 'ticket_resolved', context, fallback_title, fallback_body
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=ticket.requester_id,
                 app_name='helpdesk',
                 type='TICKET_RESOLVED',
-                title=f'Ticket #{ticket.ticket_number} {status_text}',
-                body=f'Por favor califica el servicio recibido',
+                title=title,
+                body=body,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'/help-desk/user/tickets/{ticket.id}',
@@ -317,13 +514,24 @@ class HelpdeskNotificationHelper:
 
             avg_rating = (ticket.rating_attention + ticket.rating_speed) / 2 if ticket.rating_attention and ticket.rating_speed else 0
 
+            fallback_title = f'Calificación recibida - Ticket #{ticket.ticket_number}'
+            fallback_body = f'Promedio: {avg_rating:.1f}/5 estrellas'
+
+            context = _build_context(
+                ticket=ticket,
+                assignee=assigned_technician,
+            )
+            title, body = _render_notification(
+                db, 'ticket_rated', context, fallback_title, fallback_body
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=assigned_technician.id,
                 app_name='helpdesk',
                 type='TICKET_RATED',
-                title=f'Calificación recibida - Ticket #{ticket.ticket_number}',
-                body=f'Promedio: {avg_rating:.1f}/5 estrellas',
+                title=title,
+                body=body,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'/help-desk/user/tickets/{ticket.id}',
@@ -346,13 +554,24 @@ class HelpdeskNotificationHelper:
             from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
 
             if ticket.assigned_to_user_id:
+                fallback_title = f'Ticket #{ticket.ticket_number} cancelado'
+                fallback_body = f'El solicitante canceló el ticket: {ticket.title}'
+
+                context = _build_context(
+                    ticket=ticket,
+                    assignee=ticket.assigned_to,
+                )
+                title, body = _render_notification(
+                    db, 'ticket_canceled', context, fallback_title, fallback_body
+                )
+
                 NotificationService.create(
                     db=db,
                     user_id=ticket.assigned_to_user_id,
                     app_name='helpdesk',
                     type='TICKET_CANCELED',
-                    title=f'Ticket #{ticket.ticket_number} cancelado',
-                    body=f'El solicitante canceló el ticket: {ticket.title}',
+                    title=title,
+                    body=body,
                     data={
                         'ticket_id': ticket.id,
                         'url': f'/help-desk/user/tickets/{ticket.id}'
@@ -415,14 +634,30 @@ class HelpdeskNotificationHelper:
             except Exception as e:
                 logger.warning(f"Error obteniendo comentadores previos: {e}")
 
+            comment_preview = comment.content[:100] + '...' if len(comment.content) > 100 else comment.content
+
+            fallback_title = f'Nuevo comentario en ticket #{ticket.ticket_number}'
+            fallback_body = f'{author.full_name}: {comment_preview}'
+
+            context = _build_context(
+                ticket=ticket,
+                requester=ticket.requester,
+                assignee=ticket.assigned_to,
+                commenter=author,
+                comment=comment,
+            )
+            title, body = _render_notification(
+                db, 'comment_added', context, fallback_title, fallback_body
+            )
+
             for user_id in recipients:
                 NotificationService.create(
                     db=db,
                     user_id=user_id,
                     app_name='helpdesk',
                     type='TICKET_COMMENT',
-                    title=f'Nuevo comentario en ticket #{ticket.ticket_number}',
-                    body=f'{author.full_name}: {comment.content[:100]}...' if len(comment.content) > 100 else f'{author.full_name}: {comment.content}',
+                    title=title,
+                    body=body,
                     data={
                         'ticket_id': ticket.id,
                         'url': f'/help-desk/user/tickets/{ticket.id}#comment-{comment.id}',
