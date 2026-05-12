@@ -38,6 +38,8 @@ async def create_ticket(
     user_id = int(user["sub"])
     _db = SessionLocal()
     try:
+        from itcj2.apps.helpdesk.models.area import Area
+
         user_roles = user_roles_in_app(_db, user_id, "helpdesk")
 
         unrated_count = _db.query(Ticket).filter(
@@ -54,6 +56,14 @@ async def create_ticket(
                     if up.position.department.code == "comp_center":
                         can_create_for_other = True
                         break
+
+        areas = (
+            _db.query(Area)
+            .filter_by(is_active=True)
+            .order_by(Area.display_order)
+            .all()
+        )
+        areas_data = [a.to_dict() for a in areas]
     finally:
         _db.close()
 
@@ -64,6 +74,7 @@ async def create_ticket(
         "unrated_count": unrated_count,
         "max_unrated": MAX_UNRATED_TICKETS,
         "active_page": "create_ticket",
+        "areas": areas_data,
     })
 
 

@@ -116,11 +116,13 @@
     <div class="tab-pane fade" id="estados" role="tabpanel" aria-labelledby="tab-estados-btn">
       <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <div class="config-tab-placeholder text-muted py-5 text-center">
-            <i class="fas fa-route fa-2x mb-3 opacity-50"></i>
-            <h6>Estados y Transiciones</h6>
-            <p class="mb-0 small">Estados del ticket y matriz de transiciones legales.</p>
-            <p class="mb-0 small fst-italic">Disponible en Fase 4.</p>
+          <div id="estados-root">
+            <div id="estados-statuses-section" class="mb-4">
+              {# Lista de estados — poblado por statuses_tab.js al lazy init #}
+            </div>
+            <div id="estados-transitions-section">
+              {# Matriz de transiciones — poblado por transitions_matrix.js al lazy init #}
+            </div>
           </div>
         </div>
       </div>
@@ -130,11 +132,8 @@
     <div class="tab-pane fade" id="areas" role="tabpanel" aria-labelledby="tab-areas-btn">
       <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <div class="config-tab-placeholder text-muted py-5 text-center">
-            <i class="fas fa-layer-group fa-2x mb-3 opacity-50"></i>
-            <h6>Áreas de Servicio</h6>
-            <p class="mb-0 small">Áreas (DESARROLLO/SOPORTE) — metadata visual y descripciones.</p>
-            <p class="mb-0 small fst-italic">Disponible en Fase 5.</p>
+          <div id="areas-root">
+            {# Populated by areas_tab.js on lazy init #}
           </div>
         </div>
       </div>
@@ -144,12 +143,7 @@
     <div class="tab-pane fade" id="notif" role="tabpanel" aria-labelledby="tab-notif-btn">
       <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <div class="config-tab-placeholder text-muted py-5 text-center">
-            <i class="fas fa-bell fa-2x mb-3 opacity-50"></i>
-            <h6>Plantillas de Notificación</h6>
-            <p class="mb-0 small">Asuntos y cuerpos editables (Jinja) para cada evento del ticket.</p>
-            <p class="mb-0 small fst-italic">Disponible en Fase 6.</p>
-          </div>
+          <div id="notif-root">{# Populated by notifications_tab.js #}</div>
         </div>
       </div>
     </div>
@@ -158,12 +152,7 @@
     <div class="tab-pane fade" id="audit" role="tabpanel" aria-labelledby="tab-audit-btn">
       <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <div class="config-tab-placeholder text-muted py-5 text-center">
-            <i class="fas fa-history fa-2x mb-3 opacity-50"></i>
-            <h6>Auditoría de Cambios</h6>
-            <p class="mb-0 small">Quién cambió qué, cuándo, con before/after.</p>
-            <p class="mb-0 small fst-italic">Disponible en Fase 7.</p>
-          </div>
+          <div id="audit-root">{# populated by audit_tab.js on lazy init #}</div>
         </div>
       </div>
     </div>
@@ -510,6 +499,432 @@
   </div>
 </div>
 
+
+{# ===== MODAL: Editar estado (solo metadata visual) ===== #}
+<div class="modal fade" id="modal-status-edit" tabindex="-1"
+     aria-labelledby="modal-status-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-status-edit-label">
+          <i class="fas fa-pencil-alt me-2"></i>Editar presentación del estado
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="status-edit-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Código del estado</label>
+          <div>
+            <span class="badge bg-secondary font-monospace fs-6" id="status-edit-code-display"></span>
+            <small class="text-muted ms-2">No se puede modificar.</small>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="status-edit-label" class="form-label fw-semibold">
+            Etiqueta visible <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control" id="status-edit-label" maxlength="100">
+          <div class="invalid-feedback"></div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label for="status-edit-color" class="form-label fw-semibold">Color personalizado</label>
+            <input type="color" class="form-control form-control-color" id="status-edit-color"
+                   value="#6c757d" title="Color de fondo (sobreescribe badge_class)">
+            <div class="form-text">Sobreescribe el color del badge_class si se especifica.</div>
+          </div>
+          <div class="col-md-6">
+            <label for="status-edit-display-order" class="form-label fw-semibold">Orden de visualización</label>
+            <input type="number" class="form-control" id="status-edit-display-order"
+                   min="1" max="999" step="1">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Clase de badge Bootstrap</label>
+          <div id="status-edit-badge-wrap">
+            {# Populated by JS #}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="status-edit-icon" class="form-label fw-semibold">Icono Font Awesome</label>
+          <div class="input-group">
+            <span class="input-group-text"><i id="status-edit-icon-preview" class="fas fa-circle fa-lg text-muted"></i></span>
+            <input type="text" class="form-control" id="status-edit-icon"
+                   placeholder="ej: fa-clock, fa-check, fa-times" maxlength="80">
+          </div>
+          <div class="form-text">Solo la clase sin el prefijo <code>fas</code>. Ej: <code>fa-clock</code>, <code>fa-check-circle</code></div>
+        </div>
+        <div class="mb-0">
+          <label class="form-label fw-semibold small text-muted">Vista previa del badge</label>
+          <div class="priority-badge-preview-modal" id="status-edit-badge-preview">
+            {# Populated by JS #}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-status-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Editar área (Fase 5 — solo metadata visual) ===== #}
+<div class="modal fade" id="modal-area-edit" tabindex="-1"
+     aria-labelledby="modal-area-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-area-edit-label">
+          <i class="fas fa-pencil-alt me-2"></i>Editar presentación del área
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="area-edit-id">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Código del área</label>
+          <div>
+            <span class="badge bg-secondary font-monospace fs-6" id="area-edit-code-display"></span>
+            <small class="text-muted ms-2">No se puede modificar.</small>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="area-edit-label" class="form-label fw-semibold">
+            Etiqueta visible <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control" id="area-edit-label" maxlength="80"
+                 placeholder="ej: Soporte Técnico">
+          <div class="invalid-feedback"></div>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-7">
+            <label for="area-edit-icon" class="form-label fw-semibold">Icono Font Awesome</label>
+            <div class="input-group">
+              <span class="input-group-text">
+                <i id="area-edit-icon-preview" class="fas fa-layer-group fa-lg"></i>
+              </span>
+              <input type="text" class="form-control" id="area-edit-icon"
+                     placeholder="ej: fa-wrench, fa-code" maxlength="80">
+            </div>
+            <div class="form-text">Solo la clase sin el prefijo <code>fas</code>. Ej: <code>fa-wrench</code>, <code>fa-code</code></div>
+          </div>
+          <div class="col-md-5">
+            <label for="area-edit-color" class="form-label fw-semibold">Color del ícono</label>
+            <input type="color" class="form-control form-control-color w-100" id="area-edit-color"
+                   value="#0d6efd" title="Color aplicado al ícono del área">
+            <div class="form-text">Color que se aplica al ícono.</div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="area-edit-description" class="form-label fw-semibold">Descripción</label>
+          <textarea class="form-control" id="area-edit-description" rows="2"
+                    maxlength="500" placeholder="Descripción breve del área y sus responsabilidades"></textarea>
+        </div>
+
+        <div class="mb-3">
+          <label for="area-edit-display-order" class="form-label fw-semibold">Orden de visualización</label>
+          <input type="number" class="form-control" id="area-edit-display-order"
+                 min="1" max="99" step="1">
+        </div>
+
+        {# Vista previa combinada #}
+        <div class="area-preview-card">
+          <p class="text-muted small mb-2 fw-semibold">Vista previa</p>
+          <div id="area-edit-combined-preview" class="d-flex align-items-center justify-content-center gap-2">
+            {# Populated by JS #}
+          </div>
+          <p class="text-muted small mt-2 mb-0 fst-italic">Así verán el área los usuarios al crear un ticket.</p>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-area-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Editar transición (required_perm + required_fields) ===== #}
+<div class="modal fade" id="modal-transition-edit" tabindex="-1"
+     aria-labelledby="modal-transition-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-transition-edit-label">
+          <i class="fas fa-arrow-right me-2 text-success"></i>Editar transición
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="trans-edit-from-id">
+        <input type="hidden" id="trans-edit-to-id">
+        <input type="hidden" id="trans-edit-tid">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Transición</label>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge bg-secondary small" id="trans-edit-from-label">—</span>
+            <i class="fas fa-arrow-right text-muted"></i>
+            <span class="badge bg-secondary small" id="trans-edit-to-label">—</span>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="trans-edit-perm" class="form-label fw-semibold">
+            Permiso requerido
+            <span class="text-muted fw-normal">(opcional)</span>
+          </label>
+          <input type="text" class="form-control" id="trans-edit-perm"
+                 placeholder="ej: helpdesk.ticket.close"
+                 maxlength="200" autocomplete="off">
+          <div class="form-text">
+            Código de permiso que el usuario debe tener para realizar esta transición. Dejar vacío para no requerir.
+          </div>
+        </div>
+
+        <div class="mb-0">
+          <label class="form-label fw-semibold">
+            Campos requeridos al transicionar
+            <span class="text-muted fw-normal">(opcional)</span>
+          </label>
+          <div class="d-flex flex-column gap-2 mt-1">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="trans-field-resolution_notes">
+              <label class="form-check-label" for="trans-field-resolution_notes">
+                Notas de resolución
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="trans-field-time_invested_minutes">
+              <label class="form-check-label" for="trans-field-time_invested_minutes">
+                Tiempo invertido (minutos)
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="trans-field-observations">
+              <label class="form-check-label" for="trans-field-observations">
+                Observaciones
+              </label>
+            </div>
+          </div>
+          <div class="form-text mt-2">
+            El usuario deberá completar estos campos antes de confirmar la transición.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-danger btn-sm" id="btn-trans-deactivate">
+          <i class="fas fa-ban me-1"></i>Desactivar transición
+        </button>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-success ms-2" id="btn-trans-edit-save">
+            <i class="fas fa-check me-1"></i>Aplicar cambios
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Detalle de cambio (Auditoría — Fase 7) ===== #}
+<div class="modal fade" id="modal-audit-detail" tabindex="-1"
+     aria-labelledby="modal-audit-detail-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header flex-wrap gap-2">
+        <h5 class="modal-title" id="modal-audit-detail-label">
+          <i class="fas fa-history me-2 text-secondary"></i>Detalle del cambio
+        </h5>
+        <div id="audit-detail-header-meta" class="d-flex flex-wrap align-items-center gap-1 ms-2">
+          {# Populated by JS #}
+        </div>
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-3" id="audit-detail-body">
+        {# Populated by JS #}
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-audit-toggle-view">
+          <i class="fas fa-code me-1"></i>Ver JSON crudo
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ===== MODAL: Editar plantilla de notificación (Fase 6) ===== #}
+<div class="modal fade" id="modal-notification-edit" tabindex="-1"
+     aria-labelledby="modal-notification-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-notification-edit-label">
+          <i class="fas fa-pencil-alt me-2 text-primary"></i>Editar plantilla de notificación
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-3">
+        <div class="notification-editor-grid">
+
+          {# ---- Columna izquierda: formulario ---- #}
+          <div class="notification-editor-form">
+
+            {# Código (readonly) #}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Código</label>
+              <div>
+                <span class="notification-code fs-6" id="notif-edit-code-display"></span>
+                <small class="text-muted ms-2">No se puede modificar.</small>
+              </div>
+            </div>
+
+            {# Nombre (readonly) #}
+            <div class="mb-3">
+              <label for="notif-edit-name" class="form-label fw-semibold">Nombre</label>
+              <input type="text" class="form-control form-control-sm bg-light" id="notif-edit-name"
+                     readonly tabindex="-1">
+              <div class="form-text">El nombre es de solo lectura.</div>
+            </div>
+
+            {# Descripción #}
+            <div class="mb-3">
+              <label for="notif-edit-description" class="form-label fw-semibold">Descripción</label>
+              <textarea class="form-control form-control-sm" id="notif-edit-description"
+                        rows="2" maxlength="500"
+                        placeholder="Descripción del evento que dispara esta notificación"></textarea>
+            </div>
+
+            {# Canal #}
+            <div class="mb-3">
+              <label for="notif-edit-channel" class="form-label fw-semibold">Canal de envío</label>
+              <select class="form-select form-select-sm" id="notif-edit-channel">
+                <option value="inapp">In-app (notificación interna)</option>
+                <option value="email">Email</option>
+                <option value="both">Ambos (in-app + email)</option>
+              </select>
+            </div>
+
+            {# Asunto (visible solo si channel != inapp) #}
+            <div class="mb-3" id="notif-edit-subject-wrap">
+              <label for="notif-edit-subject" class="form-label fw-semibold">
+                Asunto del email <span class="text-muted fw-normal">(Jinja)</span>
+              </label>
+              <input type="text" class="form-control form-control-sm notification-template-textarea"
+                     id="notif-edit-subject"
+                     placeholder="{% raw %}Asunto para el email, ej: Ticket #{{ ticket.ticket_number }} creado{% endraw %}">
+            </div>
+
+            {# Cuerpo #}
+            <div class="mb-2">
+              <label for="notif-edit-body" class="form-label fw-semibold">
+                Cuerpo de la plantilla <span class="text-muted fw-normal">(Jinja)</span>
+              </label>
+              <textarea class="form-control form-control-sm notification-template-textarea"
+                        id="notif-edit-body" rows="12"
+                        placeholder="Cuerpo de la notificación..."></textarea>
+              {# Error de sintaxis inline #}
+              <div class="alert alert-danger py-2 small mt-1 d-none" id="notif-syntax-error">
+                <i class="fas fa-exclamation-circle me-1"></i>
+                <span id="notif-syntax-error-text"></span>
+              </div>
+              <div class="d-flex justify-content-between mt-1">
+                <small class="text-muted" id="notif-body-counter">0 líneas · 0 caracteres</small>
+              </div>
+            </div>
+
+            {# Variables disponibles (clicables) #}
+            <div class="mb-0">
+              <label class="form-label fw-semibold small text-muted mb-1">
+                Variables disponibles <span class="fw-normal">(clic para insertar en cursor)</span>
+              </label>
+              <div class="notification-variables" id="notif-edit-variables">
+                {# Populated by JS #}
+              </div>
+            </div>
+
+          </div>{# /notification-editor-form #}
+
+          {# ---- Columna derecha: vista previa ---- #}
+          <div class="notification-editor-preview">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0 fw-semibold text-secondary">
+                <i class="fas fa-eye me-1"></i>Vista previa
+              </h6>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-notif-render-preview">
+                <i class="fas fa-sync-alt me-1"></i>Renderizar
+              </button>
+            </div>
+
+            <div class="mb-2">
+              <label for="notif-edit-ticket-id" class="form-label form-label-sm text-muted">
+                ID de ticket real (opcional)
+              </label>
+              <input type="number" class="form-control form-control-sm" id="notif-edit-ticket-id"
+                     min="1" step="1" placeholder="Dejar vacío para usar datos de ejemplo">
+            </div>
+
+            <div id="notif-edit-preview-area">
+              <div class="text-muted small fst-italic text-center py-4">
+                Haz clic en "Renderizar" o edita el cuerpo para ver la vista previa.
+              </div>
+            </div>
+          </div>{# /notification-editor-preview #}
+
+        </div>{# /notification-editor-grid #}
+      </div>{# /modal-body #}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-notif-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Vista previa rápida de plantilla (Fase 6) ===== #}
+<div class="modal fade" id="modal-notification-preview" tabindex="-1"
+     aria-labelledby="modal-notification-preview-label" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-notification-preview-label">
+          <i class="fas fa-eye me-2 text-secondary"></i>Vista previa de plantilla
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex align-items-center flex-wrap gap-2" id="notif-preview-header">
+          {# Populated by JS: código + nombre + chip canal #}
+        </div>
+        <div id="notif-preview-body-area">
+          {# Populated by JS #}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-primary btn-sm" id="btn-notif-preview-open-edit">
+          <i class="fas fa-pencil-alt me-1"></i>Editar
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 
@@ -531,4 +946,17 @@
 
 {# Tab: prioridades y SLA #}
 <script src="{{ url_for('static', filename='helpdesk/js/admin/config/priorities_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/priorities_tab.js') }}"></script>
+
+{# Tab: estados y flujo (Fase 4) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/statuses_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/statuses_tab.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/transitions_matrix.js') }}?v={{ sv('helpdesk', 'js/admin/config/transitions_matrix.js') }}"></script>
+
+{# Tab: áreas de servicio (Fase 5) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/areas_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/areas_tab.js') }}"></script>
+
+{# Tab: auditoría de cambios (Fase 7) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/audit_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/audit_tab.js') }}"></script>
+
+{# Tab: plantillas de notificación (Fase 6) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/notifications_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/notifications_tab.js') }}"></script>
 {% endblock %}
