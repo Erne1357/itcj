@@ -18,6 +18,10 @@ from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
 from itcj2.apps.helpdesk.models.inventory_campaign_validation import InventoryCampaignValidation
 from itcj2.apps.helpdesk.models.priority import Priority
 from itcj2.apps.helpdesk.models.config_change_log import ConfigChangeLog
+from itcj2.apps.helpdesk.models.ticket_status import TicketStatus
+from itcj2.apps.helpdesk.models.status_transition import StatusTransition
+from itcj2.apps.helpdesk.models.area import Area
+from itcj2.apps.helpdesk.models.notification_template import NotificationTemplate
 
 __all__ = [
     "Ticket",
@@ -42,4 +46,8 @@ __all__ = [
     "InventoryCampaignValidation",
     "Priority",
     "ConfigChangeLog",
+    "TicketStatus",
+    "StatusTransition",
+    "Area",
+    "NotificationTemplate",
 ]
