@@ -140,8 +140,10 @@ def create_ticket(
             if not is_valid:
                 raise HTTPException(status_code=400, detail=f"Campos personalizados inválidos: {'; '.join(errors)}")
 
-    if area not in ['DESARROLLO', 'SOPORTE']:
-        raise HTTPException(status_code=400, detail='Área debe ser DESARROLLO o SOPORTE')
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_area_codes
+    valid_areas = get_area_codes(db, active_only=True)
+    if area not in valid_areas:
+        raise HTTPException(status_code=400, detail=f'Área inválida. Válidas: {sorted(valid_areas)}')
 
     from itcj2.apps.helpdesk.utils.catalog_cache import get_priority_codes
     valid_codes = get_priority_codes(db, active_only=True)
@@ -374,13 +376,14 @@ def change_status(
     if not ticket:
         raise HTTPException(status_code=404, detail='Ticket no encontrado')
 
-    valid_statuses = ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED', 'CANCELED']
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_status_codes, is_transition_allowed
+    valid_statuses = get_status_codes(db, active_only=False)
     if new_status not in valid_statuses:
         raise HTTPException(status_code=400, detail='Estado inválido')
 
     old_status = ticket.status
 
-    if not _is_valid_status_transition(old_status, new_status):
+    if not _is_valid_status_transition(old_status, new_status, db):
         raise HTTPException(status_code=400, detail=f'Transición inválida de {old_status} a {new_status}')
 
     ticket.status = new_status
@@ -664,21 +667,29 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     return False
 
 
-def _is_valid_status_transition(from_status: str, to_status: str) -> bool:
+def _is_valid_status_transition(from_status: str, to_status: str, db: Session) -> bool:
     """
-    Valida si una transición de estado es válida.
+    Valida si una transición de estado es válida consultando el catálogo en BD.
+    from == to siempre se acepta (no-op). Fallback defensivo al dict literal
+    si el cache no está disponible (tests, boot sin BD).
     """
-    valid_transitions = {
-        'PENDING': ['ASSIGNED', 'CANCELED'],
-        'ASSIGNED': ['IN_PROGRESS', 'PENDING', 'CANCELED'],
-        'IN_PROGRESS': ['ASSIGNED', 'RESOLVED_SUCCESS', 'RESOLVED_FAILED'],
-        'RESOLVED_SUCCESS': ['CLOSED'],
-        'RESOLVED_FAILED': ['CLOSED', 'ASSIGNED'],
-        'CLOSED': [],
-        'CANCELED': []
-    }
-
-    return to_status in valid_transitions.get(from_status, [])
+    if from_status == to_status:
+        return True
+    try:
+        from itcj2.apps.helpdesk.utils.catalog_cache import is_transition_allowed
+        return is_transition_allowed(db, from_status, to_status)
+    except Exception:
+        # fallback defensivo si la tabla aún no existe (migraciones pendientes)
+        _fallback = {
+            'PENDING': {'ASSIGNED', 'CANCELED'},
+            'ASSIGNED': {'IN_PROGRESS', 'PENDING', 'CANCELED'},
+            'IN_PROGRESS': {'ASSIGNED', 'RESOLVED_SUCCESS', 'RESOLVED_FAILED'},
+            'RESOLVED_SUCCESS': {'CLOSED'},
+            'RESOLVED_FAILED': {'CLOSED', 'ASSIGNED'},
+            'CLOSED': set(),
+            'CANCELED': set(),
+        }
+        return to_status in _fallback.get(from_status, set())
 
 
 # ==================== EDITAR TICKET PENDIENTE ====================
@@ -708,8 +719,10 @@ def update_pending_ticket(
     changes = []
 
     if area and area != ticket.area:
-        if area not in ['DESARROLLO', 'SOPORTE']:
-            raise HTTPException(status_code=400, detail='Area debe ser DESARROLLO o SOPORTE')
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_area_codes
+        valid_areas = get_area_codes(db, active_only=True)
+        if area not in valid_areas:
+            raise HTTPException(status_code=400, detail=f'Área inválida. Válidas: {sorted(valid_areas)}')
 
         if not category_id:
             raise HTTPException(status_code=400, detail='Al cambiar de area debe seleccionar una nueva categoria')
