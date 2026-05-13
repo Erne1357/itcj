@@ -251,16 +251,187 @@
 /* ══════════════════════════════════════════════
    SKELETON LOADER (consistente con helpdesk)
    ══════════════════════════════════════════════ */
-.mn-skeleton {
+.mn-skeleton,
+.mn-skel {
     background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
     background-size: 200% 100%;
     animation: mn-shimmer 1.5s infinite;
     border-radius: 4px;
+    display: block;
 }
 
 @keyframes mn-shimmer {
     0%   { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+}
+
+/* ── Primitivos de skeleton (composición visual del layout final) ── */
+.mn-skel-line {
+    height: 0.85rem;
+    width: 100%;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+}
+.mn-skel-line.mn-skel-sm   { height: 0.65rem; }
+.mn-skel-line.mn-skel-lg   { height: 1.1rem; }
+.mn-skel-line.w-25 { width: 25%; }
+.mn-skel-line.w-40 { width: 40%; }
+.mn-skel-line.w-50 { width: 50%; }
+.mn-skel-line.w-60 { width: 60%; }
+.mn-skel-line.w-75 { width: 75%; }
+.mn-skel-line.w-90 { width: 90%; }
+
+.mn-skel-circle {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+}
+.mn-skel-circle.mn-skel-sm { width: 1.75rem; height: 1.75rem; }
+.mn-skel-circle.mn-skel-lg { width: 3.5rem;  height: 3.5rem; }
+
+.mn-skel-pill {
+    height: 1.25rem;
+    width: 5rem;
+    border-radius: 999px;
+    display: inline-block;
+}
+
+.mn-skel-rect {
+    height: 0.85rem;
+    width: 100%;
+    border-radius: 4px;
+}
+
+/* Skeleton card (matches .mn-ticket-card layout) */
+.mn-skel-card {
+    border: 1px solid #CFD8DC;
+    border-radius: 8px;
+    background: #fff;
+    padding: 1rem;
+}
+
+/* Skeleton chart container */
+.mn-skel-chart {
+    height: 260px;
+    border-radius: 6px;
+}
+
+/* Skeleton bars row (matches chart bars / KPI rows) */
+.mn-skel-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+    height: 220px;
+    padding: 0.5rem;
+    border: 1px dashed #CFD8DC;
+    border-radius: 6px;
+}
+.mn-skel-bars .mn-skel {
+    width: 100%;
+    border-radius: 4px 4px 0 0;
+}
+
+/* ══════════════════════════════════════════════
+   ANIMACIONES (entrada, transiciones, stagger)
+   Subtle, profesional, 150–300ms
+   ══════════════════════════════════════════════ */
+@keyframes mn-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes mn-fade-in-up {
+    from { opacity: 0; transform: translate3d(0, 10px, 0); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes mn-fade-in-down {
+    from { opacity: 0; transform: translate3d(0, -10px, 0); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes mn-slide-in-left {
+    from { opacity: 0; transform: translate3d(-12px, 0, 0); }
+    to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes mn-scale-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+}
+@keyframes mn-pulse-highlight {
+    0%   { box-shadow: 0 0 0 0 rgba(84, 110, 122, 0.45); background-color: #FFF8E1; }
+    60%  { box-shadow: 0 0 0 10px rgba(84, 110, 122, 0); }
+    100% { background-color: transparent; }
+}
+
+.mn-fade-in       { animation: mn-fade-in       240ms ease-out both; }
+.mn-fade-in-up    { animation: mn-fade-in-up    260ms ease-out both; }
+.mn-fade-in-down  { animation: mn-fade-in-down  260ms ease-out both; }
+.mn-slide-in-left { animation: mn-slide-in-left 240ms ease-out both; }
+.mn-scale-in      { animation: mn-scale-in      220ms ease-out both; }
+.mn-highlight-new { animation: mn-pulse-highlight 1800ms ease-out 1; }
+
+/* Stagger: aplicar a contenedor; cada hijo entra escalonado.
+   Hijos deben tener .mn-fade-in-up o .mn-fade-in. */
+.mn-stagger > *:nth-child(1)  { animation-delay: 0ms;   }
+.mn-stagger > *:nth-child(2)  { animation-delay: 50ms;  }
+.mn-stagger > *:nth-child(3)  { animation-delay: 100ms; }
+.mn-stagger > *:nth-child(4)  { animation-delay: 150ms; }
+.mn-stagger > *:nth-child(5)  { animation-delay: 200ms; }
+.mn-stagger > *:nth-child(6)  { animation-delay: 240ms; }
+.mn-stagger > *:nth-child(7)  { animation-delay: 280ms; }
+.mn-stagger > *:nth-child(8)  { animation-delay: 320ms; }
+.mn-stagger > *:nth-child(9)  { animation-delay: 360ms; }
+.mn-stagger > *:nth-child(10) { animation-delay: 400ms; }
+.mn-stagger > *:nth-child(n+11) { animation-delay: 440ms; }
+
+/* Transición sutil de la página al cargar */
+main.mn-page-enter {
+    animation: mn-fade-in 200ms ease-out both;
+}
+
+/* Hover lift más expresivo en cards de ticket (mantiene transition existente) */
+.mn-ticket-card { will-change: transform; }
+.mn-ticket-card:hover {
+    transform: translateY(-2px);
+}
+
+/* Tabs: contenido con fade al activarse */
+.tab-pane.fade.show.active.mn-tab-enter {
+    animation: mn-fade-in-up 220ms ease-out both;
+}
+
+/* Modal: scale-in en lugar de solo fade (override sutil) */
+.modal.fade.show .modal-dialog.mn-modal-enter {
+    animation: mn-scale-in 180ms ease-out both;
+}
+
+/* Toast: slide desde la derecha */
+#toastContainer .toast.showing,
+#toastContainer .toast.show {
+    animation: mn-fade-in-down 220ms ease-out both;
+}
+
+/* Counter wrapper (evita layout shift mientras anima) */
+.mn-counter {
+    font-variant-numeric: tabular-nums;
+    display: inline-block;
+}
+
+/* Botones de filtro suaves */
+.mn-filter-chip {
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+.mn-filter-chip:hover { transform: translateY(-1px); }
+.mn-filter-chip:active { transform: translateY(0); }
+
+/* Respeto a prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+    .mn-skeleton, .mn-skel { animation: none; }
 }
 
 /* ══════════════════════════════════════════════
