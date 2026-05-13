@@ -41,15 +41,23 @@ def init_maint_command():
       01_add_maint_permissions.sql              → 20 permisos maint.*
       02_assign_maint_permissions_to_roles.sql  → Roles + asignación + posiciones
       03_seed_maint_categories.sql              → 6 categorías base
-      04_add_warehouse_permissions.sql          → Perm legacy `maint.admin.page.warehouse` (compat)
       05_add_stats_permissions.sql              → 4 permisos stats/analysis
       06_help_permissions.sql                   → Permisos de páginas de ayuda
-      07_warehouse_pages_granular.sql           → 5 permisos granulares por página del almacén
-                                                  (admin/dispatcher/tech_maint con scope distinto)
+      08_insert_position_app_perm.sql           → Extras al puesto secretary_equipment_maint
+                                                  (asignaciones, admin, stats, warehouse vía dispatcher)
+      09_assign_warehouse_user_roles.sql        → Propaga UserAppRole maint → warehouse
+                                                  (admin/dispatcher/tech_maint)
 
     Todos los DML son idempotentes (ON CONFLICT DO NOTHING).
 
-    Prerequisito: Las tablas maint_* deben existir (alembic upgrade head).
+    Prerequisitos:
+      - Tablas maint_* existen (alembic upgrade head)
+      - `warehouse init-warehouse` ejecutado (app warehouse + perms warehouse.*)
+
+    Post-requisito:
+      - Ejecutar `warehouse warehouse-maint` DESPUÉS de este comando para
+        asignar los perms warehouse a los roles dispatcher/tech_maint que
+        crea el paso 02.
     """
     click.echo("🔧 Inicializando app de Mantenimiento...")
     click.echo()
@@ -59,10 +67,10 @@ def init_maint_command():
             "01_add_maint_permissions.sql",
             "02_assign_maint_permissions_to_roles.sql",
             "03_seed_maint_categories.sql",
-            "04_add_warehouse_permissions.sql",
             "05_add_stats_permissions.sql",
             "06_help_permissions.sql",
-            "07_warehouse_pages_granular.sql",
+            "08_insert_position_app_perm.sql",
+            "09_assign_warehouse_user_roles.sql",
         ])
         click.echo()
         click.echo("🎉 ¡App de Mantenimiento inicializada exitosamente!")
@@ -71,10 +79,10 @@ def init_maint_command():
         click.echo("                  department_head, secretary, staff")
         click.echo("   Categorías:    TRANSPORT, GENERAL, ELECTRICAL,")
         click.echo("                  CARPENTRY, AC, GARDENING")
-        click.echo("   Almacén:       admin=5/5, dispatcher=4/5 (sin categories),")
-        click.echo("                  tech_maint=2/5 (dashboard + products)")
+        click.echo("   Almacén:       admin/dispatcher/tech_maint con UserAppRole")
+        click.echo("                  cruzada a la app warehouse (paso 09)")
         click.echo()
-        click.echo("   Recuerda asignar los permisos del warehouse global:")
+        click.echo("   ⚠️  Siguiente paso obligatorio (asigna perms warehouse a estos roles):")
         click.echo("   → python -m itcj2.cli.main warehouse warehouse-maint")
     except Exception as e:
         click.echo(f"\n💥 Error durante la inicialización: {e}")

@@ -80,6 +80,9 @@ def warehouse_maint_command():
 
     Ejecuta:
       03_assign_warehouse_permissions_to_maint_roles.sql
+
+    Prerequisito: `maint init-maint` ejecutado (roles dispatcher y tech_maint
+    creados). Si los roles no existen, el script aborta con error explícito.
     """
     click.echo("🔧 Asignando permisos Warehouse → roles Mantenimiento...")
     try:

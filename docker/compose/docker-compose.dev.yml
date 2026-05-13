@@ -5,6 +5,12 @@ services:
     image: redis:7
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
   postgres:
     restart: always
@@ -56,9 +62,9 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
-        condition: service_started
-    # Override ENTRYPOINT para dev: uvicorn con hot-reload (sin script de producción)
-    entrypoint: ["uvicorn", "asgi:app", "--host", "0.0.0.0", "--port", "8001", "--reload", "--log-level", "info"]
+        condition: service_healthy
+    # Dev: wait redis + alembic upgrade head + uvicorn --reload
+    entrypoint: ["/bin/sh", "/app/docker/backend/entrypoint-fastapi-dev.sh"]
     #ports:
     #  - "8001:8001"  # Para desarrollo directo sin nginx
 
@@ -77,7 +83,7 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   # ============================================
   # CELERY BEAT (scheduler)
@@ -94,7 +100,7 @@ services:
       pgbouncer:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   nginx:
     restart: always
