@@ -53,9 +53,10 @@
 
     function _renderHeader(t) {
         var skel = document.getElementById('headerSkeleton');
-        if (skel) skel.style.display = 'none';
+        if (skel) skel.classList.add('d-none');
         var hc = document.getElementById('headerContent');
-        hc.style.display = '';
+        hc.classList.remove('d-none');
+        hc.classList.add('d-flex');
         hc.classList.add('mn-fade-in');
 
         document.getElementById('ticketNumber').textContent = t.ticket_number;
@@ -250,12 +251,20 @@
                         '<div class="mn-detail-value" style="white-space:pre-line;">' + _esc(t.description) + '</div></div>' +
                     (t.location ? '<div class="col-md-6"><div class="mn-detail-label"><i class="bi bi-geo-alt me-1"></i>Ubicación</div>' +
                         '<div class="mn-detail-value">' + _esc(t.location) + '</div></div>' : '') +
-                    '<div class="col-md-3"><div class="mn-detail-label">Solicitante</div>' +
-                        '<div class="mn-detail-value">' + _esc(t.requester ? t.requester.name : '—') + '</div>' +
-                        (t.requester_department ? '<small class="text-muted">' + _esc(t.requester_department) + '</small>' : '') + '</div>' +
-                    '<div class="col-md-3"><div class="mn-detail-label">SLA / Vencimiento</div>' +
+                    '<div class="col-md-6"><div class="mn-detail-label">SLA / Vencimiento</div>' +
                         '<div class="mn-detail-value ' + slaClass + '">' + slaText + '</div></div>' +
-                    '<div class="col-md-3"><div class="mn-detail-label">Creado por</div>' +
+                    '<div class="col-md-6"><div class="mn-detail-label">Solicitante</div>' +
+                        '<div class="mn-requester-card">' +
+                            '<div class="mn-requester-avatar">' + _getInitials(t.requester ? t.requester.name : '') + '</div>' +
+                            '<div class="mn-requester-info">' +
+                                '<div class="mn-requester-name">' + _esc(t.requester ? t.requester.name : '—') + '</div>' +
+                                (t.requester_position ? '<div class="mn-requester-meta"><i class="bi bi-briefcase me-1"></i>' + _esc(t.requester_position) + '</div>' : '') +
+                                (t.requester_department ? '<div class="mn-requester-meta"><i class="bi bi-building me-1"></i>' + _esc(t.requester_department) + '</div>' : '') +
+                                (t.requester && t.requester.email ? '<div class="mn-requester-meta"><i class="bi bi-envelope me-1"></i>' + _esc(t.requester.email) + '</div>' : '') +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="col-md-6"><div class="mn-detail-label">Creado por</div>' +
                         '<div class="mn-detail-value">' + _esc(t.created_by ? t.created_by.name : '—') + '</div>' +
                         '<small class="text-muted">' + (t.created_at ? new Date(t.created_at).toLocaleString('es-MX') : '') + '</small>' + '</div>' +
                     '<div class="col-12" id="ticketAttachmentsSection">' +
@@ -712,6 +721,13 @@
         var d = document.createElement('div');
         d.appendChild(document.createTextNode(String(s || '')));
         return d.innerHTML;
+    }
+
+    function _getInitials(name) {
+        if (!name) return '?';
+        var parts = String(name).trim().split(/\s+/);
+        if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
 
     window._maintDetailReload = _reload;

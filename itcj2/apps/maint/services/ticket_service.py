@@ -30,10 +30,16 @@ def create_ticket(
     location: str = None,
     custom_fields: dict = None,
     created_by_id: int = None,
+    department_id: int = None,
 ) -> MaintTicket:
     """
     Crea un nuevo ticket de mantenimiento.
     Calcula due_at según la prioridad (SLA_HOURS).
+
+    department_id: si viene, se valida que el solicitante tenga ese depto via
+    UserPosition activa. Si no viene, se resuelve automáticamente: si tiene
+    un solo depto activo, se usa; si tiene varios, se requiere selección
+    explícita (HTTP 400).
     """
     if priority not in SLA_HOURS:
         raise HTTPException(status_code=400, detail='Prioridad inválida. Valores: BAJA, MEDIA, ALTA, URGENTE')
@@ -46,18 +52,35 @@ def create_ticket(
     if not category or not category.is_active:
         raise HTTPException(status_code=400, detail='Categoría inválida o inactiva')
 
-    # Obtener departamento del solicitante desde su posición activa
-    department_id = None
-    try:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=requester_id,
-            is_active=True
-        ).first()
-        if user_position and user_position.position:
-            department_id = user_position.position.department_id
-    except Exception as e:
-        logger.warning(f"No se pudo obtener departamento del usuario {requester_id}: {e}")
+    # Determinar/validar departamento del solicitante via puestos activos
+    from itcj2.core.models.position import UserPosition, Position
+    user_depts = (
+        db.query(Position.department_id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            UserPosition.user_id == requester_id,
+            UserPosition.is_active == True,
+            Position.department_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    user_dept_ids = {r[0] for r in user_depts}
+
+    if department_id is not None:
+        if department_id not in user_dept_ids:
+            raise HTTPException(
+                status_code=400,
+                detail='El departamento indicado no corresponde a un puesto activo del solicitante.',
+            )
+    elif len(user_dept_ids) == 1:
+        department_id = next(iter(user_dept_ids))
+    elif len(user_dept_ids) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail='El solicitante pertenece a varios departamentos; debes indicar `department_id` explícitamente.',
+        )
+    # else: ningún depto — department_id queda None (no bloquea, queda nulo en BD)
 
     # Restricción: máximo 3 tickets sin calificar
     unrated = db.query(MaintTicket).filter(
@@ -142,12 +165,17 @@ def list_tickets(
     search: str = None,
     page: int = 1,
     per_page: int = 20,
+    assigned_to_me: bool = False,
 ) -> dict:
     """
     Lista tickets según el rol del usuario:
     - admin / dispatcher / tech_maint → todos
     - department_head / secretary    → solo su departamento
     - staff / any other              → solo propios
+
+    `assigned_to_me`: filtro adicional que limita a tickets donde el user
+    es técnico activo asignado (cross-cutting con el scope del rol).
+    Ordenado siempre por `created_at DESC` (LIFO).
     """
     query = db.query(MaintTicket)
 
@@ -192,6 +220,18 @@ def list_tickets(
             MaintTicket.ticket_number.ilike(term),
             MaintTicket.description.ilike(term),
         ))
+
+    if assigned_to_me:
+        # Solo tickets con técnico activo (unassigned_at NULL) = user actual.
+        from itcj2.apps.maint.models import MaintTicketTechnician
+        query = query.filter(
+            MaintTicket.id.in_(
+                db.query(MaintTicketTechnician.ticket_id).filter(
+                    MaintTicketTechnician.user_id == user_id,
+                    MaintTicketTechnician.unassigned_at.is_(None),
+                )
+            )
+        )
 
     query = query.order_by(MaintTicket.created_at.desc())
     pagination = paginate(query, page=page, per_page=per_page)
@@ -672,9 +712,13 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
         cat = None
 
     try:
-        req = {"id": ticket.requester.id, "name": ticket.requester.full_name}
+        req = {
+            "id": ticket.requester.id,
+            "name": ticket.requester.full_name,
+            "email": getattr(ticket.requester, "email", None),
+        }
     except Exception:
-        req = {"id": ticket.requester_id, "name": "—"}
+        req = {"id": ticket.requester_id, "name": "—", "email": None}
 
     try:
         active_techs = [
@@ -729,6 +773,36 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
         dept = ticket.requester_department.name if ticket.requester_department else None
     except Exception:
         dept = None
+
+    # Puesto/cargo principal del solicitante (puede no existir)
+    requester_position = None
+    try:
+        from itcj2.core.models.position import UserPosition, Position
+        up = (
+            ticket.requester
+            and (
+                ticket.requester.__dict__.get("_sa_instance_state")
+                and None
+            )
+        )
+        # Query directo (no asumir relación cargada)
+        from sqlalchemy.orm import object_session
+        sess = object_session(ticket)
+        if sess and ticket.requester_id:
+            row = (
+                sess.query(Position.title)
+                .join(UserPosition, UserPosition.position_id == Position.id)
+                .filter(
+                    UserPosition.user_id == ticket.requester_id,
+                    UserPosition.is_active == True,
+                )
+                .order_by(UserPosition.start_date.desc())
+                .first()
+            )
+            if row:
+                requester_position = row[0]
+    except Exception:
+        requester_position = None
 
     try:
         technicians = [
@@ -804,6 +878,7 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
         "description": ticket.description,
         "custom_fields": ticket.custom_fields or {},
         "requester_department": dept,
+        "requester_position": requester_position,
         "maintenance_type": ticket.maintenance_type,
         "service_origin": ticket.service_origin,
         "resolution_notes": ticket.resolution_notes,

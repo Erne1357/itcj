@@ -27,16 +27,40 @@
     // ── Estado ────────────────────────────────────────────────────────────────
     var _state = {
         status: '', category_id: '', priority: '', search: '',
-        page: 1, per_page: 20,
+        page: 1, per_page: 20, assigned_to: '',
     };
     var _searchTimer = null;
+    var _isTechMaint = false;
 
     // ── Init ──────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
+        _detectRoleAndSetDefault();
         _loadCategories();
         _bindFilters();
         _fetchTickets();
     });
+
+    function _detectRoleAndSetDefault() {
+        // Default chip por rol:
+        //   tech_maint puro (NO admin/dispatcher) → "Asignados a mí".
+        //   Otros → "Todos".
+        // MAINT_CTX viene inyectado en el template Jinja con los roles del user.
+        var ctx = window.MAINT_CTX || {};
+        _isTechMaint = !!ctx.isTechMaint && !ctx.isAdmin && !ctx.isDispatcher;
+
+        var btns = document.querySelectorAll('.mn-status-filter');
+        btns.forEach(function (b) { b.classList.remove('active'); });
+        var defaultBtn;
+        if (_isTechMaint) {
+            defaultBtn = document.querySelector('[data-assigned="me"]');
+            _state.assigned_to = 'me';
+        } else {
+            // "Todos" es el último botón con data-status="" sin data-assigned.
+            var all = document.querySelectorAll('.mn-status-filter[data-status=""]:not([data-assigned])');
+            defaultBtn = all[all.length - 1];
+        }
+        if (defaultBtn) defaultBtn.classList.add('active');
+    }
 
     function _loadCategories() {
         MaintUtils.api.fetch(API_BASE + '/categories')
@@ -59,6 +83,7 @@
             document.querySelectorAll('.mn-status-filter').forEach(function (b) { b.classList.remove('active'); });
             btn.classList.add('active');
             _state.status = btn.dataset.status || '';
+            _state.assigned_to = btn.dataset.assigned || '';
             _state.page = 1;
             _fetchTickets();
         });
@@ -86,12 +111,14 @@
         });
 
         document.getElementById('clearFilters').addEventListener('click', function () {
-            _state = { status: '', category_id: '', priority: '', search: '', page: 1, per_page: 20 };
+            _state = { status: '', category_id: '', priority: '', search: '', page: 1, per_page: 20, assigned_to: '' };
             document.getElementById('searchInput').value = '';
             document.getElementById('categoryFilter').value = '';
             document.getElementById('priorityFilter').value = '';
             document.querySelectorAll('.mn-status-filter').forEach(function (b) { b.classList.remove('active'); });
-            document.querySelector('[data-status=""]').classList.add('active');
+            // "Todos" es el último botón con data-status="" sin data-assigned.
+            var all = document.querySelectorAll('.mn-status-filter[data-status=""]:not([data-assigned])');
+            if (all.length) all[all.length - 1].classList.add('active');
             _fetchTickets();
         });
     }
@@ -110,6 +137,7 @@
         if (_state.category_id) params.set('category_id', _state.category_id);
         if (_state.priority)    params.set('priority', _state.priority);
         if (_state.search)      params.set('search', _state.search);
+        if (_state.assigned_to) params.set('assigned_to', _state.assigned_to);
 
         MaintUtils.api.fetch(API_BASE + '/tickets?' + params.toString())
             .then(function (data) {

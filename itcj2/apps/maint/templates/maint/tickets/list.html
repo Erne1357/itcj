@@ -22,10 +22,10 @@
 <!-- Filtros -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-3">
-        <!-- Status chips -->
+        <!-- Status chips: el orden y el default los maneja list.js segun rol -->
         <div class="d-flex flex-wrap gap-2 mb-3" id="statusFilters">
-            <button class="btn mn-status-filter active" data-status="">
-                <i class="bi bi-grid me-1"></i>Todos
+            <button class="btn mn-status-filter" data-status="" data-assigned="me">
+                <i class="bi bi-person-check me-1"></i>Asignados a mí
             </button>
             <button class="btn mn-status-filter" data-status="PENDING">Pendiente</button>
             <button class="btn mn-status-filter" data-status="ASSIGNED">Asignado</button>
@@ -34,6 +34,9 @@
             <button class="btn mn-status-filter" data-status="RESOLVED_FAILED">Atendido</button>
             <button class="btn mn-status-filter" data-status="CLOSED">Cerrado</button>
             <button class="btn mn-status-filter" data-status="CANCELED">Cancelado</button>
+            <button class="btn mn-status-filter" data-status="">
+                <i class="bi bi-grid me-1"></i>Todos
+            </button>
         </div>
         <!-- Otros filtros -->
         <div class="row g-2 align-items-center">

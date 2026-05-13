@@ -39,6 +39,18 @@
                         <div class="invalid-feedback" id="categoryError">Selecciona una categoría</div>
                     </div>
 
+                    <!-- Departamento solicitante (solo visible si user tiene >1 puesto activo) -->
+                    <div id="departmentWrap" class="mb-4" style="display:none;">
+                        <label for="departmentSelect" class="form-label fw-semibold">
+                            <i class="bi bi-building me-1" style="color:var(--maint-primary)"></i>
+                            Departamento solicitante <span class="text-danger">*</span>
+                        </label>
+                        <select id="departmentSelect" class="form-select" required>
+                            <option value="">Selecciona un departamento...</option>
+                        </select>
+                        <div class="invalid-feedback">Selecciona el departamento al que pertenece esta solicitud.</div>
+                    </div>
+
                     <!-- Campos dinámicos -->
                     <div id="customFieldsSection" class="mb-4" style="display:none;">
                         <label class="form-label fw-semibold">

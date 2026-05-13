@@ -9,14 +9,45 @@
     var _selectedCategory = null;  // objeto completo {id, code, name, icon, field_template}
     var _selectedPriority = 'MEDIA';
     var _attachedFiles = [];       // archivos seleccionados para adjuntar al crear
+    var _userDepartments = [];     // deptos activos del usuario
 
     document.addEventListener('DOMContentLoaded', function () {
         _checkUnratedTickets();
         _loadCategories();
+        _loadDepartments();
         _bindPriority();
         _bindDropzone();
         _bindSubmit();
     });
+
+    // ── Departamentos del solicitante ─────────────────────────────────────────
+    function _loadDepartments() {
+        fetch(API_BASE + '/tickets/my-departments', { credentials: 'include' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (resp) {
+                if (!resp) return;
+                _userDepartments = resp.data || [];
+                var wrap = document.getElementById('departmentWrap');
+                var sel = document.getElementById('departmentSelect');
+                if (!wrap || !sel) return;
+                if (_userDepartments.length <= 1) {
+                    wrap.style.display = 'none';
+                    return;
+                }
+                wrap.style.display = '';
+                sel.innerHTML = '<option value="">Selecciona un departamento...</option>' +
+                    _userDepartments.map(function (d) {
+                        return '<option value="' + d.id + '">' + _esc(d.name) + '</option>';
+                    }).join('');
+            })
+            .catch(function () { /* silent */ });
+    }
+
+    function _esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s || '')));
+        return d.innerHTML;
+    }
 
     // ── Aviso de solicitudes sin calificar ────────────────────────────────────
 
@@ -291,6 +322,13 @@
             if (el.value.trim()) customFields[key] = el.value.trim();
         });
 
+        var deptSel = document.getElementById('departmentSelect');
+        var deptVal = deptSel ? deptSel.value : '';
+        if (deptSel && _userDepartments.length > 1 && !deptVal) {
+            MaintUtils.toast('Selecciona el departamento solicitante.', 'warning');
+            deptSel.classList.add('is-invalid');
+            return;
+        }
         var payload = {
             category_id: _selectedCategory.id,
             priority: _selectedPriority,
@@ -298,6 +336,7 @@
             description: description,
             location: document.getElementById('locationInput').value.trim() || null,
             custom_fields: Object.keys(customFields).length > 0 ? customFields : null,
+            department_id: deptVal ? parseInt(deptVal, 10) : null,
         };
 
         MaintUtils.loading.show(btn, 'Enviando...');

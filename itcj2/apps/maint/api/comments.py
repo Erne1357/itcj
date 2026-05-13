@@ -45,8 +45,6 @@ async def add_comment(
     Los adjuntos del multipart se guardan usando la misma lógica que
     POST /tickets/{id}/attachments con attachment_type='comment'.
     """
-    from itcj2.core.services.authz_service import user_roles_in_app
-
     user_id = int(user["sub"])
     content_type = request.headers.get("content-type", "")
 
@@ -69,11 +67,13 @@ async def add_comment(
     body = CreateCommentRequest(**raw)
 
     if body.is_internal:
-        user_roles = set(user_roles_in_app(db, user_id, "maint"))
-        if not (user_roles & {"admin", "dispatcher", "tech_maint"}):
+        from itcj2.core.services.authz_service import get_user_permissions_for_app
+        is_admin_global = user.get("role") == "admin"
+        user_perms = get_user_permissions_for_app(db, user_id, "maint", include_positions=True)
+        if not is_admin_global and "maint.comments.api.internal" not in user_perms:
             raise HTTPException(
                 status_code=403,
-                detail="Los comentarios internos son exclusivos para el staff de mantenimiento",
+                detail="Requiere permiso: maint.comments.api.internal",
             )
 
     comment = ticket_service.add_comment(
@@ -103,7 +103,6 @@ async def _add_comment_multipart(
     Procesa la ruta multipart: extrae campos del formulario, crea el
     comentario y luego guarda cada archivo adjunto.
     """
-    from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.apps.maint.api.attachments import _save_attachment_file
 
     form = await request.form()
@@ -119,11 +118,14 @@ async def _add_comment_multipart(
     is_internal = str(raw_internal).lower() in ("true", "1", "yes")
 
     if is_internal:
-        user_roles = set(user_roles_in_app(db, user_id, "maint"))
-        if not (user_roles & {"admin", "dispatcher", "tech_maint"}):
+        from itcj2.core.services.authz_service import get_user_permissions_for_app
+        user = getattr(request.state, "current_user", None) or {}
+        is_admin_global = user.get("role") == "admin"
+        user_perms = get_user_permissions_for_app(db, user_id, "maint", include_positions=True)
+        if not is_admin_global and "maint.comments.api.internal" not in user_perms:
             raise HTTPException(
                 status_code=403,
-                detail="Los comentarios internos son exclusivos para el staff de mantenimiento",
+                detail="Requiere permiso: maint.comments.api.internal",
             )
 
     # Crear comentario primero
