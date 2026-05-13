@@ -46,3 +46,16 @@ async def admin_analysis(
     user: dict = Depends(require_page_app("maint", perms=["maint.analysis.page.list"])),
 ) -> HTMLResponse:
     return render_maint(request, "maint/admin/analysis.html", {"active_page": "admin_analysis"})
+
+
+@router.get("/admin/dashboard", name="maint_pages.admin.dashboard")
+async def admin_dashboard(
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "maint",
+        perms=["maint.dashboard.page.full", "maint.dashboard.page.summary"],
+    )),
+) -> HTMLResponse:
+    """Dashboard departamental. Sirve la misma página para `full` y `summary`;
+    el JS detecta vía API qué nivel mostrar (full gana si user tiene ambos)."""
+    return render_maint(request, "maint/admin/dashboard.html", {"active_page": "admin_dashboard"})

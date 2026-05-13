@@ -1,0 +1,178 @@
+/*
+ * dashboard.css — Estilos para el Dashboard Departamental de Mantenimiento
+ * Prefijo de clases propias: .mn-dash-
+ */
+
+/* ── Selector de departamento ────────────────────────────────────────── */
+.mn-dash-dept-select {
+    min-width: 200px;
+    max-width: 320px;
+    border-color: var(--maint-accent);
+    color: var(--maint-primary-darker);
+    font-size: 0.85rem;
+}
+
+.mn-dash-dept-select:focus {
+    border-color: var(--maint-primary);
+    box-shadow: 0 0 0 0.2rem rgba(84, 110, 122, 0.2);
+}
+
+/* ── KPI cards ───────────────────────────────────────────────────────── */
+.mn-dash-kpi {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1rem 1.15rem;
+    box-shadow: 0 1px 4px rgba(55, 71, 79, 0.09);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 0.18s ease;
+}
+
+.mn-dash-kpi:hover {
+    box-shadow: 0 3px 10px rgba(55, 71, 79, 0.15);
+}
+
+.mn-dash-kpi--warning {
+    border-left: 3px solid var(--maint-warning);
+}
+
+.mn-dash-kpi--danger {
+    border-left: 3px solid var(--maint-danger);
+}
+
+.mn-dash-kpi-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.mn-dash-kpi-value {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: var(--maint-primary-darker);
+    line-height: 1;
+}
+
+.mn-dash-kpi-label {
+    font-size: 0.72rem;
+    color: var(--maint-muted);
+    margin-top: 0.1rem;
+}
+
+/* ── Section title (heredado de stats.css pero local) ─────────────────── */
+.mn-section-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--maint-muted);
+    margin-bottom: 0.75rem;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────── */
+.mn-dash-table th {
+    background: var(--maint-primary-light);
+    color: var(--maint-primary-darker);
+    font-size: 0.76rem;
+    font-weight: 600;
+    white-space: nowrap;
+    border-bottom: 2px solid var(--maint-accent-light);
+}
+
+.mn-dash-table td {
+    font-size: 0.83rem;
+    vertical-align: middle;
+    border-color: var(--maint-primary-light);
+}
+
+.mn-dash-row-clickable:hover td {
+    background-color: rgba(84, 110, 122, 0.05);
+}
+
+/* ── Chart containers ────────────────────────────────────────────────── */
+.mn-dash-chart-wrap {
+    position: relative;
+    height: 220px;
+}
+
+.mn-dash-chart-wrap canvas {
+    max-height: 220px;
+}
+
+/* ── SLA rows ────────────────────────────────────────────────────────── */
+.mn-dash-sla-row {
+    margin-bottom: 0.85rem;
+}
+
+.mn-dash-sla-row:last-child {
+    margin-bottom: 0;
+}
+
+/* ── Badge urgente (purple, no está en Bootstrap por defecto) ─────────── */
+.mn-badge-urgente {
+    background-color: #7c3aed;
+    color: #fff;
+}
+
+/* ── Level badge ─────────────────────────────────────────────────────── */
+.mn-dash-level-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.3em 0.75em;
+    border-radius: 20px;
+    letter-spacing: 0.03em;
+}
+
+.mn-dash-level-badge--full {
+    background: var(--maint-primary-light);
+    color: var(--maint-primary-dark);
+    border: 1px solid var(--maint-accent-light);
+}
+
+.mn-dash-level-badge--summary {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffc107;
+}
+
+/* ── Skeleton ────────────────────────────────────────────────────────── */
+.mn-skeleton {
+    background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
+    background-size: 200% 100%;
+    animation: mn-shimmer 1.4s infinite;
+    border-radius: 4px;
+    display: block;
+}
+
+@keyframes mn-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Responsive KPI grid ─────────────────────────────────────────────── */
+@media (max-width: 575px) {
+    .mn-dash-kpi-value {
+        font-size: 1.35rem;
+    }
+
+    .mn-dash-dept-select {
+        min-width: 140px;
+        max-width: 200px;
+    }
+}
+
+/* ── Card headers consistentes ───────────────────────────────────────── */
+.card-header .fw-semibold {
+    color: var(--maint-primary-dark);
+}

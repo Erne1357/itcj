@@ -5,7 +5,7 @@
 
 (function () {
 
-    var API = '/api/maint/v2/warehouse';
+    var API = '/api/warehouse/v2';
     var _selectedCatId = null;
 
     window.MaintWarehouseCategories = {

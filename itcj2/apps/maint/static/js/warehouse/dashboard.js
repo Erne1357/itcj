@@ -5,7 +5,7 @@
 
 (function () {
 
-    var API = '/api/maint/v2/warehouse';
+    var API = '/api/warehouse/v2';
 
     function load() {
         MaintUtils.api.fetch(API + '/dashboard')

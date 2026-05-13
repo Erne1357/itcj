@@ -287,7 +287,10 @@
             var msg = (body && body.detail) ? body.detail
                     : (body && body.message) ? body.message
                     : 'Error ' + res.status;
-            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            var err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            err.status = res.status;
+            err.body = body;
+            throw err;
         }
 
         return body;

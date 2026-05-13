@@ -5,7 +5,7 @@
 
 (function () {
 
-    var API = '/api/maint/v2/warehouse';
+    var API = '/api/warehouse/v2';
     var _currentPage = 1;
     var _totalPages = 1;
     var _editingId = null;
@@ -162,10 +162,13 @@
         var body = {
             name: document.getElementById('prodName').value.trim(),
             unit_of_measure: document.getElementById('prodUnit').value.trim(),
-            lead_time_days: parseInt(document.getElementById('prodLeadTime').value) || 7,
+            restock_lead_time_days: parseInt(document.getElementById('prodLeadTime').value) || 7,
             subcategory_id: parseInt(document.getElementById('prodSubcategory').value) || null,
             description: document.getElementById('prodDesc').value.trim() || null,
         };
+        if (!_editingId) {
+            body.department_code = 'equipment_maint';
+        }
         if (!body.name || !body.unit_of_measure || !body.subcategory_id) {
             MaintUtils.toast('Completa los campos obligatorios.', 'warning');
             return;

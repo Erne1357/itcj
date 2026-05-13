@@ -63,13 +63,13 @@
                             {% for item in maint_nav_items %}
                                 {% if item.dropdown %}
                                 <li class="nav-item dropdown">
-                                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                                    <a class="nav-link dropdown-toggle {% if item.group_active %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown">
                                         <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
                                     </a>
                                     <ul class="dropdown-menu dropdown-menu-end">
                                         {% for sub in item.dropdown %}
                                         <li>
-                                            <a class="dropdown-item {% if current_route == sub.url %}active{% endif %}" href="{{ sub.url }}">
+                                            <a class="dropdown-item {% if sub.active %}active{% endif %}" href="{{ sub.url }}">
                                                 <i class="fas {{ sub.icon }} me-1"></i>{{ sub.label }}
                                             </a>
                                         </li>
@@ -78,7 +78,7 @@
                                 </li>
                                 {% else %}
                                 <li class="nav-item">
-                                    <a class="nav-link {% if current_route == item.url or current_route.startswith(item.url + '/') %}active{% endif %}" href="{{ item.url }}">
+                                    <a class="nav-link {% if item.active %}active{% endif %}" href="{{ item.url }}">
                                         <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
                                     </a>
                                 </li>
@@ -114,23 +114,22 @@
                 <div class="app-sidebar-section-title">Navegación</div>
                 {% for item in maint_nav_items %}
                     {% if item.dropdown %}
-                        {% set group_active = current_route in (item.dropdown | map(attribute='url') | list) %}
-                        <div class="app-sidebar-group {% if group_active %}has-active{% endif %}">
+                        <div class="app-sidebar-group {% if item.group_active %}has-active{% endif %}">
                             <button class="app-sidebar-group-toggle"
                                     type="button"
                                     data-bs-toggle="collapse"
                                     data-bs-target="#sidebarGroup{{ loop.index }}"
-                                    aria-expanded="{{ 'true' if group_active else 'false' }}"
+                                    aria-expanded="{{ 'true' if item.group_active else 'false' }}"
                                     aria-controls="sidebarGroup{{ loop.index }}">
                                 <i class="fas {{ item.icon }}"></i>
                                 <span>{{ item.label }}</span>
                                 <i class="fas fa-chevron-down app-sidebar-group-arrow"></i>
                             </button>
-                            <div class="collapse {% if group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
+                            <div class="collapse {% if item.group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
                                 <div class="app-sidebar-sub-items">
                                     {% for sub in item.dropdown %}
                                     <a href="{{ sub.url }}"
-                                       class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub.url %}active{% endif %}">
+                                       class="app-sidebar-item app-sidebar-sub-item {% if sub.active %}active{% endif %}">
                                         <i class="fas {{ sub.icon }}"></i>
                                         <span>{{ sub.label }}</span>
                                     </a>
@@ -140,7 +139,7 @@
                         </div>
                     {% else %}
                         <a href="{{ item.url }}"
-                           class="app-sidebar-item {% if current_route == item.url or current_route.startswith(item.url + '/') %}active{% endif %}">
+                           class="app-sidebar-item {% if item.active %}active{% endif %}">
                             <i class="fas {{ item.icon }}"></i>
                             <span>{{ item.label }}</span>
                         </a>

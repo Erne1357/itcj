@@ -104,56 +104,57 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "url": "/maint/tickets/create",
         })
 
-    # ── Administración (dropdown) ─────────────────────────────────────────────
-    if roles & {"admin", "dispatcher"}:
-        dropdown = []
-        if "admin" in roles:
-            dropdown.append({
-                "label": "Categorías",
-                "icon": "fa-tags",
-                "url": "/maint/admin/categories",
-            })
-            dropdown.append({
-                "label": "Áreas Técnicas",
-                "icon": "fa-users-cog",
-                "url": "/maint/admin/areas",
-            })
-        dropdown.append({
-            "label": "Reportes",
-            "icon": "fa-chart-bar",
-            "url": "/maint/admin/reports",
+    # ── Administración (dropdown filtrado por permisos granulares) ──────────
+    # Cada item aparece si el usuario tiene el permiso correspondiente.
+    # Admin global (rol "admin" en maint) bypassa los chequeos.
+    is_admin_role = "admin" in roles
+    admin_dropdown = []
+
+    def _adm(label, icon, url, perm):
+        if is_admin_role or perm in perms:
+            admin_dropdown.append({"label": label, "icon": icon, "url": url})
+
+    # Dashboard departamental aparece si tiene full O summary
+    if is_admin_role or "maint.dashboard.page.full" in perms or "maint.dashboard.page.summary" in perms:
+        admin_dropdown.append({
+            "label": "Dashboard depto",
+            "icon": "fa-gauge-high",
+            "url": "/maint/admin/dashboard",
         })
-        dropdown.append({
-            "label": "Estadísticas",
-            "icon": "fa-chart-pie",
-            "url": "/maint/admin/stats",
-        })
-        dropdown.append({
-            "label": "Análisis",
-            "icon": "fa-microscope",
-            "url": "/maint/admin/analysis",
-        })
+    _adm("Categorías",     "fa-tags",       "/maint/admin/categories", "maint.admin.page.categories")
+    _adm("Áreas Técnicas", "fa-users-cog",  "/maint/admin/areas",      "maint.admin.page.areas")
+    _adm("Reportes",       "fa-chart-bar",  "/maint/admin/reports",    "maint.admin.page.reports")
+    _adm("Estadísticas",   "fa-chart-pie",  "/maint/admin/stats",      "maint.stats.page.list")
+    _adm("Análisis",       "fa-microscope", "/maint/admin/analysis",   "maint.analysis.page.list")
+
+    if admin_dropdown:
         items.append({
             "label": "Administración",
             "icon": "fa-cog",
-            "dropdown": dropdown,
+            "dropdown": admin_dropdown,
         })
 
-    # ── Almacén (dropdown filtrado por perms granulares) ─────────────────────
-    # Cada item aparece si el usuario tiene su perm específico.
-    # Admin global del JWT (rol "admin" en maint) bypassa perms.
-    is_admin_role = "admin" in roles
+    # ── Almacén (dropdown filtrado por perms granulares warehouse) ───────────
+    # Perms warehouse se derivan del rol maint del usuario vía
+    # core_role_permissions (cross-app). Admin global del JWT bypassa.
+    try:
+        from itcj2.apps.maint.utils.warehouse_auth import get_warehouse_perms_via_maint
+        wh_perms = get_warehouse_perms_via_maint(db, user_id)
+    except Exception as exc:
+        logger.warning("Error obteniendo warehouse perms para user %s: %s", user_id, exc)
+        wh_perms = set()
+
     warehouse_items = []
 
     def _wh(label, icon, url, perm):
-        if is_admin_role or perm in perms:
+        if is_admin_role or perm in wh_perms:
             warehouse_items.append({"label": label, "icon": icon, "url": url})
 
-    _wh("Dashboard",         "fa-tachometer-alt", "/maint/warehouse/dashboard",  "maint.warehouse.page.dashboard")
-    _wh("Productos",         "fa-cube",           "/maint/warehouse/products",   "maint.warehouse.page.products")
-    _wh("Categorías",        "fa-folder-open",    "/maint/warehouse/categories", "maint.warehouse.page.categories")
-    _wh("Entradas de Stock", "fa-truck-loading",  "/maint/warehouse/entries",    "maint.warehouse.page.entries")
-    _wh("Movimientos",       "fa-exchange-alt",   "/maint/warehouse/movements",  "maint.warehouse.page.movements")
+    _wh("Dashboard",         "fa-tachometer-alt", "/maint/warehouse/dashboard",  "warehouse.page.dashboard")
+    _wh("Productos",         "fa-cube",           "/maint/warehouse/products",   "warehouse.page.products")
+    _wh("Categorías",        "fa-folder-open",    "/maint/warehouse/categories", "warehouse.page.categories")
+    _wh("Entradas de Stock", "fa-truck-loading",  "/maint/warehouse/entries",    "warehouse.page.entries")
+    _wh("Movimientos",       "fa-exchange-alt",   "/maint/warehouse/movements",  "warehouse.page.movements")
 
     if warehouse_items:
         items.append({
@@ -184,6 +185,10 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "url": help_url,
         })
 
+    # ── Cómputo de "active" con best-match (URL más larga gana) ──────────────
+    # Evita que /maint/tickets/create marque también el item "Tickets".
+    _mark_active_items(items, current_path)
+
     return {
         "maint_nav_items": items,
         "current_route": current_path,
@@ -195,6 +200,43 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "tech": has_tech_help,
         },
     }
+
+
+def _mark_active_items(items: list[dict], current_path: str) -> None:
+    """Marca a lo sumo un item/sub como `active` usando best-match.
+
+    Regla: gana la URL más larga que sea igual a `current_path` o prefijo
+    estricto (`current_path == url` o `current_path.startswith(url + '/')`).
+    Así `/maint/tickets/create` activa "Nueva Solicitud" y no "Tickets",
+    pero `/maint/tickets/123` (detalle) sí activa "Tickets".
+
+    Mutación: agrega `active=True` al item/sub ganador y `group_active=True`
+    al dropdown que lo contiene.
+    """
+    # Recolecta candidatos (url, target_dict, parent_dict_or_None)
+    candidates: list[tuple[str, dict, dict | None]] = []
+    for it in items:
+        if it.get("dropdown"):
+            for sub in it["dropdown"]:
+                url = sub.get("url")
+                if url:
+                    candidates.append((url, sub, it))
+        else:
+            url = it.get("url")
+            if url:
+                candidates.append((url, it, None))
+
+    def _matches(url: str) -> bool:
+        return current_path == url or current_path.startswith(url.rstrip("/") + "/")
+
+    matching = [c for c in candidates if _matches(c[0])]
+    if not matching:
+        return
+    # Gana la URL más larga (más específica)
+    _, target, parent = max(matching, key=lambda c: len(c[0]))
+    target["active"] = True
+    if parent is not None:
+        parent["group_active"] = True
 
 
 # ---------------------------------------------------------------------------
