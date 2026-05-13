@@ -41,7 +41,7 @@
                             '<strong>Tienes ' + unrated + ' solicitudes resueltas sin calificar.</strong> ' +
                             'Por favor califícalas antes de crear nuevas.' +
                             '<div class="mt-2">' +
-                                '<a href="/maintenance/tickets?status=RESOLVED_SUCCESS,RESOLVED_FAILED" class="btn btn-sm btn-warning me-2">' +
+                                '<a href="/maint/tickets?status=RESOLVED_SUCCESS,RESOLVED_FAILED" class="btn btn-sm btn-warning me-2">' +
                                     '<i class="bi bi-star me-1"></i>Ver mis solicitudes' +
                                 '</a>' +
                             '</div>' +
@@ -311,11 +311,11 @@
                 var ticketId = data.ticket_id || data.id;
                 if (_attachedFiles.length && ticketId) {
                     _uploadAttachments(ticketId, _attachedFiles).then(function () {
-                        window.location.href = '/maintenance/tickets/' + ticketId;
+                        window.location.href = '/maint/tickets/' + ticketId;
                     });
                 } else {
                     setTimeout(function () {
-                        window.location.href = '/maintenance/tickets/' + ticketId;
+                        window.location.href = '/maint/tickets/' + ticketId;
                     }, 800);
                 }
             })

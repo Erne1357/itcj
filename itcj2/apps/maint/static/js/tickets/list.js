@@ -98,7 +98,12 @@
 
     function _fetchTickets() {
         var container = document.getElementById('ticketList');
-        container.innerHTML = _skeletonHTML();
+        container.classList.remove('mn-stagger');
+        if (window.MaintUtils && MaintUtils.skeleton) {
+            MaintUtils.skeleton.show(container, 'ticket-card', 4);
+        } else {
+            container.innerHTML = _skeletonHTML();
+        }
 
         var params = new URLSearchParams({ page: _state.page, per_page: _state.per_page });
         if (_state.status)      params.set('status', _state.status);
@@ -128,7 +133,7 @@
 
         if (tickets.length === 0) {
             container.innerHTML =
-                '<div class="text-center py-5 text-muted">' +
+                '<div class="text-center py-5 text-muted mn-empty">' +
                 '<i class="bi bi-clipboard-x fs-1 d-block mb-2"></i>' +
                 '<p class="mb-0">No se encontraron tickets</p>' +
                 '</div>';
@@ -137,6 +142,11 @@
         }
 
         container.innerHTML = tickets.map(_renderCard).join('');
+        container.classList.add('mn-stagger');
+        // ensure each direct child has the entrance class (CSS handles the rest)
+        Array.prototype.forEach.call(container.children, function (a) {
+            a.classList.add('mn-fade-in-up');
+        });
         _renderPagination(data);
     }
 
@@ -168,7 +178,7 @@
             ? '<span class="mn-badge-overdue ms-1"><i class="bi bi-exclamation-triangle-fill"></i>Vencido</span>'
             : '';
 
-        return '<a href="/maintenance/tickets/' + t.id + '" class="text-decoration-none">' +
+        return '<a href="/maint/tickets/' + t.id + '" class="text-decoration-none">' +
             '<div class="mn-ticket-card ' + cardBorderClass + ' mb-3 p-3">' +
                 '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2">' +
                     '<div class="d-flex align-items-start gap-2 flex-wrap">' +
@@ -367,6 +377,10 @@
     // ── Flash animation en tarjeta nueva ─────────────────────────────────────
 
     function _flashCard(cardEl) {
+        if (window.MaintUtils && MaintUtils.animate) {
+            MaintUtils.animate.highlight(cardEl);
+            return;
+        }
         cardEl.style.transition = 'background-color 0.4s ease';
         cardEl.style.backgroundColor = '#d1e7dd';
         setTimeout(function () { cardEl.style.backgroundColor = ''; }, 1200);
@@ -397,7 +411,7 @@
         var ticketId = payload.ticket_id;
         if (!ticketId) return false;
 
-        var link = document.querySelector('#ticketList a[href="/maintenance/tickets/' + ticketId + '"]');
+        var link = document.querySelector('#ticketList a[href="/maint/tickets/' + ticketId + '"]');
         if (!link) return false;
 
         // Actualizar badge de estado
@@ -449,7 +463,7 @@
 
         // Construir un <a> wrapper mínimo con la data del payload
         var wrapper = document.createElement('a');
-        wrapper.href = '/maintenance/tickets/' + payload.id;
+        wrapper.href = '/maint/tickets/' + payload.id;
         wrapper.className = 'text-decoration-none';
 
         var card = document.createElement('div');
@@ -476,6 +490,7 @@
             '</div>';
 
         wrapper.appendChild(card);
+        wrapper.classList.add('mn-fade-in-down');
 
         // Insertar antes del primer hijo (o como único hijo si la lista estaba vacía)
         if (container.firstChild && !container.querySelector('.text-center')) {

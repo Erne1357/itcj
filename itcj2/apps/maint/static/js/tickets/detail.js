@@ -52,12 +52,22 @@
     // ── Header ────────────────────────────────────────────────────────────────
 
     function _renderHeader(t) {
-        document.getElementById('headerSkeleton').style.display = 'none';
-        document.getElementById('headerContent').style.display = '';
+        var skel = document.getElementById('headerSkeleton');
+        if (skel) skel.style.display = 'none';
+        var hc = document.getElementById('headerContent');
+        hc.style.display = '';
+        hc.classList.add('mn-fade-in');
 
         document.getElementById('ticketNumber').textContent = t.ticket_number;
-        document.getElementById('ticketTitle').textContent = t.title;
-        document.getElementById('progressBar').style.width = (t.progress_pct || 0) + '%';
+        var titleEl = document.getElementById('ticketTitle');
+        titleEl.textContent = t.title;
+        titleEl.classList.add('mn-fade-in-up');
+
+        // Animar la barra de progreso desde el ancho actual al objetivo
+        var pb = document.getElementById('progressBar');
+        var target = (t.progress_pct || 0);
+        // CSS .mn-progress-fill ya tiene transition: width 0.4s
+        requestAnimationFrame(function () { pb.style.width = target + '%'; });
 
         var sBadge = document.getElementById('statusBadge');
         sBadge.textContent = STATUS_LABEL[t.status] || t.status;
@@ -173,6 +183,7 @@
             case 'comments':
                 content.innerHTML = _buildCommentsTab(_ticket);
                 _bindCommentForm();
+                _staggerComments(content);
                 break;
             case 'resolution':
                 content.innerHTML = _buildResolutionTab(_ticket);
@@ -181,7 +192,30 @@
                 break;
             case 'history':
                 content.innerHTML = _buildHistoryTab(_ticket);
+                _staggerHistory(content);
                 break;
+        }
+        // Reflow + animate the tab content
+        content.classList.remove('mn-tab-fading');
+        void content.offsetWidth;
+        content.classList.add('mn-tab-fading');
+    }
+
+    function _staggerComments(content) {
+        var bubbles = content.querySelectorAll('.mn-comment-bubble');
+        if (!bubbles.length || !window.MaintUtils || !MaintUtils.animate) return;
+        for (var i = 0; i < bubbles.length; i++) {
+            bubbles[i].style.animationDelay = Math.min(i * 45, 360) + 'ms';
+            bubbles[i].classList.add('mn-fade-in-up');
+        }
+    }
+
+    function _staggerHistory(content) {
+        var items = content.querySelectorAll('.mn-history-item');
+        if (!items.length) return;
+        for (var i = 0; i < items.length; i++) {
+            items[i].style.animationDelay = Math.min(i * 40, 320) + 'ms';
+            items[i].classList.add('mn-slide-in-left');
         }
     }
 
@@ -658,7 +692,7 @@
                 .then(function () {
                     modal.hide();
                     MaintUtils.toast('Ticket cancelado', 'info');
-                    setTimeout(function () { window.location.href = '/maintenance/tickets'; }, 1000);
+                    setTimeout(function () { window.location.href = '/maint/tickets'; }, 1000);
                 })
                 .catch(function (err) { MaintUtils.toast(err.message, 'error'); });
         };
@@ -806,6 +840,12 @@
         // Quitar el mensaje de "sin comentarios" si existía
         var empty = cardBody.querySelector('.text-muted.text-center');
         if (empty) empty.remove();
+
+        // Entrada animada + pulso para llamar la atención
+        bubble.classList.add('mn-fade-in-down');
+        if (window.MaintUtils && MaintUtils.animate) {
+            setTimeout(function () { MaintUtils.animate.highlight(bubble); }, 200);
+        }
     }
 
     function _esc(s) {

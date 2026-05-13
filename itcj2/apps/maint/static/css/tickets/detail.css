@@ -30,6 +30,24 @@
     border-bottom: 2px solid var(--maint-primary);
 }
 
+.mn-tab-nav .nav-link {
+    transition: color 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.mn-tab-nav .nav-link:hover:not(.active) {
+    color: var(--maint-primary-dark);
+    background-color: var(--maint-primary-light);
+}
+
+/* Contenedor de tab fade-in */
+#tabContent.mn-tab-fading { animation: mn-fade-in-up 220ms ease-out both; }
+
+/* Comentarios entrada escalonada */
+#tabContent .mn-comment-bubble.mn-fade-in-up { animation-duration: 240ms; }
+
+/* Header sutilmente animado */
+#headerContent.mn-fade-in { animation: mn-fade-in 240ms ease-out both; }
+
 /* ── Campos de detalle (etiqueta + valor) ───────────────────────────────── */
 
 .mn-detail-label {
