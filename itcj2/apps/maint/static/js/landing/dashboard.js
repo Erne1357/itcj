@@ -104,6 +104,18 @@
 
         kpiGrid.innerHTML = html;
 
+        // Stagger entry + countUp numeric values
+        kpiGrid.classList.add('mn-stagger');
+        Array.prototype.forEach.call(kpiGrid.children, function (col) {
+            col.classList.add('mn-fade-in-up');
+        });
+        if (window.MaintUtils && MaintUtils.animate) {
+            kpiGrid.querySelectorAll('.mn-counter').forEach(function (el) {
+                var target = parseFloat(el.dataset.target);
+                if (!isNaN(target)) MaintUtils.animate.countUp(el, target, { duration: 700 });
+            });
+        }
+
         // Mostrar banner si hay solicitudes sin calificar
         if (data.unrated_resolved > 0) {
             var banner = document.getElementById('mn-unrated-banner');
@@ -115,8 +127,9 @@
     }
 
     function buildCard(extraClass, icon, value, label, sub, badge) {
+        var isNumeric = (typeof value === 'number') && isFinite(value);
         var valueHtml = (value !== null && value !== undefined)
-            ? '<div class="mn-kpi-value">' + value + '</div>'
+            ? '<div class="mn-kpi-value' + (isNumeric ? ' mn-counter' : '') + '" data-target="' + (isNumeric ? value : '') + '">' + (isNumeric ? '0' : value) + '</div>'
             : '<div class="mn-kpi-value text-muted" style="font-size:1rem">' + (sub || '—') + '</div>';
 
         var subHtml = (value !== null && value !== undefined && sub)
@@ -165,7 +178,7 @@
                 '<div class="mn-activity-content">' +
                 '<div class="mn-activity-action">' + escHtml(label) + '</div>' +
                 '<div class="mn-activity-meta">' +
-                '<a href="/maintenance/tickets/' + item.ticket_id + '" class="mn-activity-ticket">' +
+                '<a href="/maint/tickets/' + item.ticket_id + '" class="mn-activity-ticket">' +
                 escHtml(item.ticket_number) + '</a>' +
                 '<span class="mn-activity-by">por ' + escHtml(item.performed_by) + '</span>' +
                 '<span class="mn-activity-time">' + formatDatetime(item.performed_at) + '</span>' +
@@ -177,6 +190,14 @@
 
         timeline.innerHTML = html;
         section.classList.remove('d-none');
+        section.classList.add('mn-fade-in-up');
+
+        // Stagger entry on timeline items
+        var items2 = timeline.querySelectorAll('.mn-activity-item');
+        for (var i = 0; i < items2.length; i++) {
+            items2[i].style.animationDelay = Math.min(i * 60, 480) + 'ms';
+            items2[i].classList.add('mn-slide-in-left');
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────

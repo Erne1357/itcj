@@ -115,6 +115,14 @@
             link.addEventListener('shown.bs.tab', function (e) {
                 _activeTab = e.target.getAttribute('href').replace('#tab-', '');
                 _loadActiveTab();
+                // Animar entrada del tab-pane activado
+                var paneId = e.target.getAttribute('href');
+                var pane = document.querySelector(paneId);
+                if (pane) {
+                    pane.classList.remove('mn-tab-enter');
+                    void pane.offsetWidth;
+                    pane.classList.add('mn-tab-enter');
+                }
             });
         });
 
@@ -182,10 +190,10 @@
         var resolved = (bs.RESOLVED_SUCCESS || 0) + (bs.RESOLVED_FAILED || 0) + (bs.CLOSED || 0);
         var canceled = bs.CANCELED || 0;
 
-        _setText('kpiTotal',    _fmt(d.total));
-        _setText('kpiOpen',     _fmt(open));
-        _setText('kpiResolved', _fmt(resolved));
-        _setText('kpiCanceled', _fmt(canceled));
+        _setKpiCount('kpiTotal',    Number(d.total) || 0);
+        _setKpiCount('kpiOpen',     open);
+        _setKpiCount('kpiResolved', resolved);
+        _setKpiCount('kpiCanceled', canceled);
 
         // Status pie
         var statusLabels = Object.keys(bs).filter(function (k) { return bs[k] > 0; });
@@ -256,6 +264,21 @@
     function _setText(id, val) {
         var el = document.getElementById(id);
         if (el) el.textContent = val;
+    }
+
+    function _setKpiCount(id, num) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (typeof num !== 'number' || !isFinite(num)) {
+            el.textContent = (num === null || num === undefined) ? '—' : String(num);
+            return;
+        }
+        if (window.MaintUtils && MaintUtils.animate) {
+            el.classList.add('mn-counter');
+            MaintUtils.animate.countUp(el, num, { duration: 700 });
+        } else {
+            el.textContent = _fmt(num);
+        }
     }
 
     // ── TAB: TÉCNICOS ─────────────────────────────────────────────────────────
@@ -479,9 +502,9 @@
     }
 
     function renderRatings(d) {
-        _setText('ratingTotal',      _fmt(d.total_resolved));
-        _setText('ratingRated',      _fmt(d.total_rated));
-        _setText('ratingUnrated',    _fmt(d.total_unrated));
+        _setKpiCount('ratingTotal',   Number(d.total_resolved) || 0);
+        _setKpiCount('ratingRated',   Number(d.total_rated)    || 0);
+        _setKpiCount('ratingUnrated', Number(d.total_unrated)  || 0);
         _setText('ratingEfficiency', d.pct_rating_efficiency_true !== null && d.pct_rating_efficiency_true !== undefined
             ? _pct(d.pct_rating_efficiency_true) : '—');
 

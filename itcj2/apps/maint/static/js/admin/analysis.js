@@ -197,7 +197,7 @@
         } else {
             tbody.innerHTML = above.map(function (t) {
                 return '<tr>' +
-                    '<td><a href="/maintenance/tickets/' + t.id + '" target="_blank" class="fw-semibold" style="color:var(--maint-primary);">' +
+                    '<td><a href="/maint/tickets/' + t.id + '" target="_blank" class="fw-semibold" style="color:var(--maint-primary);">' +
                         _esc(t.ticket_number) +
                     '</a></td>' +
                     '<td class="text-center fw-bold text-danger">' + _fmt(t.value) + '</td>' +
@@ -214,7 +214,7 @@
             if (below.length) {
                 belowBody.innerHTML = below.map(function (t) {
                     return '<tr>' +
-                        '<td><a href="/maintenance/tickets/' + t.id + '" target="_blank" style="color:var(--maint-primary);">' + _esc(t.ticket_number) + '</a></td>' +
+                        '<td><a href="/maint/tickets/' + t.id + '" target="_blank" style="color:var(--maint-primary);">' + _esc(t.ticket_number) + '</a></td>' +
                         '<td class="text-center text-warning fw-bold">' + _fmt(t.value) + '</td>' +
                     '</tr>';
                 }).join('');
@@ -273,7 +273,7 @@
         cardsRow.innerHTML = clusters.map(function (c, i) {
             var color   = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
             var samples = (c.sample_tickets || []).map(function (t) {
-                return '<a href="/maintenance/tickets/' + t.id + '" target="_blank" class="badge me-1 mb-1" ' +
+                return '<a href="/maint/tickets/' + t.id + '" target="_blank" class="badge me-1 mb-1" ' +
                     'style="background:' + color + ';color:#fff;text-decoration:none;">' + _esc(t.ticket_number) + '</a>';
             }).join('');
 

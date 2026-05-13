@@ -17,10 +17,10 @@
       <small class="text-muted">Métricas globales, por técnico, categoría y calificaciones</small>
     </div>
     <div class="d-flex gap-2">
-      <a href="/maintenance/admin/reports" class="btn btn-outline-secondary btn-sm">
+      <a href="/maint/admin/reports" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-chart-bar me-1"></i><span class="d-none d-sm-inline">Reportes</span>
       </a>
-      <a href="/maintenance/admin/analysis" class="btn btn-outline-secondary btn-sm">
+      <a href="/maint/admin/analysis" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-microscope me-1"></i><span class="d-none d-sm-inline">Análisis</span>
       </a>
     </div>
@@ -69,8 +69,8 @@
     <div class="tab-pane fade show active" id="tab-global">
 
       <!-- KPI tiles -->
-      <div class="row g-3 mb-3" id="globalKpiRow">
-        <div class="col-6 col-md-3">
+      <div class="row g-3 mb-3 mn-stagger" id="globalKpiRow">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card d-flex align-items-center gap-3">
             <div class="mn-kpi-icon bg-primary bg-opacity-10">
               <i class="fas fa-clipboard-list text-primary"></i>
@@ -81,7 +81,7 @@
             </div>
           </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card d-flex align-items-center gap-3">
             <div class="mn-kpi-icon bg-warning bg-opacity-10">
               <i class="fas fa-hourglass-half text-warning"></i>
@@ -92,7 +92,7 @@
             </div>
           </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card d-flex align-items-center gap-3">
             <div class="mn-kpi-icon bg-success bg-opacity-10">
               <i class="fas fa-check-circle text-success"></i>
@@ -103,7 +103,7 @@
             </div>
           </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card d-flex align-items-center gap-3">
             <div class="mn-kpi-icon bg-danger bg-opacity-10">
               <i class="fas fa-times-circle text-danger"></i>
@@ -173,9 +173,9 @@
               </tr>
             </thead>
             <tbody id="techStatsBody">
-              <tr><td colspan="8" class="text-center py-4 text-muted">
-                <i class="fas fa-spinner fa-spin me-2"></i>Cargando...
-              </td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-25" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-25" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-25" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
             </tbody>
           </table>
         </div>
@@ -208,9 +208,9 @@
               </tr>
             </thead>
             <tbody id="catStatsBody">
-              <tr><td colspan="6" class="text-center py-4 text-muted">
-                <i class="fas fa-spinner fa-spin me-2"></i>Cargando...
-              </td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
             </tbody>
           </table>
         </div>
@@ -262,26 +262,26 @@
     <div class="tab-pane fade" id="tab-ratings">
 
       <!-- KPI ratings -->
-      <div class="row g-3 mb-3" id="ratingsKpiRow">
-        <div class="col-6 col-md-3">
+      <div class="row g-3 mb-3 mn-stagger" id="ratingsKpiRow">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card text-center">
             <div class="mn-kpi-label mb-1">Tickets resueltos</div>
             <div class="mn-kpi-value" id="ratingTotal">—</div>
           </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card text-center">
             <div class="mn-kpi-label mb-1">Calificados</div>
             <div class="mn-kpi-value text-success" id="ratingRated">—</div>
           </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card text-center">
             <div class="mn-kpi-label mb-1">Sin calificar</div>
             <div class="mn-kpi-value text-muted" id="ratingUnrated">—</div>
           </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-3 mn-fade-in-up">
           <div class="mn-kpi-card text-center">
             <div class="mn-kpi-label mb-1">Eficiencia percibida</div>
             <div class="mn-kpi-value text-warning" id="ratingEfficiency">—</div>
