@@ -34,7 +34,7 @@ def _admin_jwt(user_id: int = 1) -> str:
         "cn": None,
         "name": "Admin Test",
         "iat": now,
-        "exp": now + 3600,
+        "exp": now + 24 * 3600,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
@@ -49,7 +49,7 @@ def _no_role_jwt(user_id: int = 999) -> str:
         "cn": None,
         "name": "Plain User",
         "iat": now,
-        "exp": now + 3600,
+        "exp": now + 24 * 3600,
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
