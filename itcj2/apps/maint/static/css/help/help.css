@@ -1,0 +1,591 @@
+/* itcj2/apps/maint/static/css/help/help.css
+   Manual de Mantenimiento — diseño con header sticky sólido + TOC sticky + lightbox.
+
+   Decisiones UI/UX clave:
+   - Header sticky con fondo SÓLIDO (sin transparencia) — evita pasar contenido detrás
+   - TOC sticky en desktop, colapsable en móvil
+   - Imágenes con altura máxima limitada para no dominar el texto
+   - Tipografía con jerarquía clara (h2 más grande, body más legible)
+*/
+
+/* Variable local — la oscura del tema maint */
+.mn-help-wrapper {
+    --topbar-h: 56px;             /* alto del .mn-topbar global (mobile) */
+    --help-header-h: 80px;        /* alto sticky header de la página */
+    --help-toc-w: 240px;          /* ancho TOC desktop */
+    --help-bg: #f4f5f7;           /* fondo de la página */
+    --help-card-bg: #ffffff;      /* fondo de la tarjeta de contenido */
+    --help-border: #e5e7eb;
+    --help-text: #1f2937;
+    --help-muted: #6b7280;
+
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 0 4rem;
+    background: var(--help-bg);
+}
+
+@media (min-width: 768px) {
+    .mn-help-wrapper {
+        --topbar-h: 82px;          /* alto del topbar en md+ */
+        --help-header-h: 92px;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Header (sticky)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-header {
+    position: sticky;
+    /* Stack debajo del .mn-topbar global (que también es sticky-top con top:0) */
+    top: var(--topbar-h);
+    z-index: 50;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    margin: 0 0 1.25rem;
+    /* fondo SÓLIDO (no transparent) para que no se vea contenido pasar detrás */
+    background: linear-gradient(135deg, var(--maint-primary-darker, #263238) 0%, var(--maint-primary, #546E7A) 100%);
+    color: #fff;
+    border-radius: 0 0 14px 14px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .12);
+}
+
+.mn-help-header-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.mn-help-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.mn-help-subtitle {
+    margin: .15rem 0 0;
+    color: rgba(255, 255, 255, .82);
+    font-size: .82rem;
+    line-height: 1.3;
+}
+
+/* Pestañas estilo "segmented control": contenedor con fondo translúcido y
+   sub-botones que se elevan al activarse. Texto ≥14px para legibilidad WCAG. */
+.mn-help-tabs {
+    display: inline-flex;
+    gap: .25rem;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    background: rgba(0, 0, 0, .18);
+    padding: .3rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, .1);
+}
+
+.mn-help-tab {
+    color: rgba(255, 255, 255, .82);
+    background: transparent;
+    padding: .55rem 1rem;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: .95rem;          /* ~15.2px — primary nav legible */
+    font-weight: 600;
+    letter-spacing: .01em;
+    line-height: 1.2;
+    transition: background .18s ease, color .18s ease, box-shadow .18s ease, transform .12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    position: relative;
+    white-space: nowrap;
+}
+
+.mn-help-tab i {
+    font-size: .95em;
+    opacity: .9;
+}
+
+.mn-help-tab:hover {
+    background: rgba(255, 255, 255, .12);
+    color: #fff;
+}
+
+.mn-help-tab:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, .7);
+    outline-offset: 2px;
+}
+
+.mn-help-tab.is-active {
+    background: #fff;
+    color: var(--maint-primary-darker, #263238);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .18);
+    transform: translateY(-1px);
+}
+
+.mn-help-tab.is-active i {
+    color: var(--maint-primary, #546E7A);
+    opacity: 1;
+}
+
+@media (max-width: 575.98px) {
+    .mn-help-header {
+        padding: .75rem 1rem;
+        border-radius: 0 0 10px 10px;
+    }
+    .mn-help-title { font-size: 1.05rem; }
+    .mn-help-subtitle { display: none; }
+
+    /* En móvil el texto se oculta (d-none d-sm-inline); compactar padding */
+    .mn-help-tabs {
+        padding: .25rem;
+        gap: .2rem;
+    }
+    .mn-help-tab {
+        padding: .5rem .65rem;
+        font-size: .9rem;
+        gap: 0;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Layout: TOC + content
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-layout {
+    display: grid;
+    grid-template-columns: var(--help-toc-w) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+    padding: 0 1rem;
+}
+
+@media (max-width: 991.98px) {
+    .mn-help-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   TOC (sticky desktop / colapsable móvil)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-toc {
+    background: #fff;
+    border: 1px solid var(--help-border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .04);
+}
+
+@media (min-width: 992px) {
+    .mn-help-toc {
+        position: sticky;
+        /* Stack: topbar (82px) + help header (92px) + respiro = ~184px */
+        top: calc(var(--topbar-h) + var(--help-header-h) + .75rem);
+        max-height: calc(100vh - var(--topbar-h) - var(--help-header-h) - 2rem);
+        overflow-y: auto;
+        padding: 1rem 1rem;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .mn-help-toc {
+        margin-bottom: 1rem;
+    }
+}
+
+.mn-help-toc-toggle {
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: .8rem 1rem;
+    display: flex;
+    align-items: center;
+    color: var(--maint-primary-darker, #263238);
+    font-weight: 600;
+    font-size: .95rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s;
+}
+
+.mn-help-toc-toggle:hover {
+    background: rgba(84, 110, 122, .08);
+}
+
+.mn-help-toc-toggle-arrow {
+    transition: transform .2s;
+    font-size: .8rem;
+    color: var(--help-muted);
+}
+
+.mn-help-toc-toggle[aria-expanded="true"] .mn-help-toc-toggle-arrow {
+    transform: rotate(180deg);
+}
+
+.mn-help-toc-title {
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--help-muted);
+    font-weight: 700;
+    margin-bottom: .5rem;
+}
+
+.mn-help-toc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+@media (max-width: 991.98px) {
+    .mn-help-toc-list {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height .25s ease, padding .25s;
+        padding: 0 1rem;
+    }
+    .mn-help-toc-list.is-open {
+        max-height: 60vh;
+        overflow-y: auto;
+        padding: .25rem 1rem 1rem;
+        border-top: 1px solid var(--help-border);
+    }
+}
+
+.mn-help-toc-list a {
+    display: block;
+    padding: .42rem .65rem;
+    border-radius: 6px;
+    color: var(--help-text);
+    text-decoration: none;
+    font-size: .9rem;
+    line-height: 1.35;
+    transition: background .12s, color .12s, padding-left .15s;
+    border-left: 3px solid transparent;
+}
+
+.mn-help-toc-list a:hover {
+    background: rgba(84, 110, 122, .08);
+    color: var(--maint-primary-dark, #37474F);
+}
+
+.mn-help-toc-list a.is-active {
+    background: rgba(84, 110, 122, .14);
+    color: var(--maint-primary-darker, #263238);
+    border-left-color: var(--maint-primary, #546E7A);
+    font-weight: 600;
+    padding-left: .85rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Contenido principal
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-content {
+    background: var(--help-card-bg);
+    border-radius: 14px;
+    padding: 1.75rem 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .04);
+    border: 1px solid var(--help-border);
+}
+
+@media (max-width: 575.98px) {
+    .mn-help-content {
+        padding: 1.25rem 1rem;
+        border-radius: 10px;
+    }
+}
+
+.mn-help-section {
+    padding: .5rem 0 1.75rem;
+    border-bottom: 1px solid var(--help-border);
+}
+
+.mn-help-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.mn-help-section h2 {
+    color: var(--maint-primary-dark, #37474F);
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 1.25rem 0 1rem;
+    /* anchor compensa topbar + help header sticky */
+    scroll-margin-top: calc(var(--topbar-h) + var(--help-header-h) + 1rem);
+    line-height: 1.25;
+}
+
+.mn-help-section p {
+    color: var(--help-text);
+    line-height: 1.65;
+    font-size: 1rem;
+    margin-bottom: .85rem;
+}
+
+.mn-help-section ul {
+    color: var(--help-text);
+    line-height: 1.7;
+    font-size: 1rem;
+    padding-left: 1.5rem;
+    margin-bottom: .9rem;
+}
+
+.mn-help-section li {
+    margin-bottom: .25rem;
+}
+
+.mn-help-section code {
+    background: rgba(84, 110, 122, .12);
+    color: var(--maint-primary-darker, #263238);
+    padding: .1em .42em;
+    border-radius: 4px;
+    font-size: .88em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.mn-help-flow {
+    background: rgba(84, 110, 122, .1);
+    color: var(--maint-primary-darker, #263238);
+    padding: .9rem 1rem;
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .82rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: .75rem 0 1rem;
+    border: 1px solid var(--help-border);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Figures — limita altura máxima de imágenes (~480px)
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-figure {
+    margin: 1.1rem auto 1.4rem;
+    max-width: 100%;
+    text-align: center;
+}
+
+.mn-help-img {
+    max-width: 100%;
+    /* clave: limitar alto para que la imagen no domine la lectura */
+    max-height: 480px;
+    height: auto;
+    width: auto;
+    display: inline-block;
+    object-fit: contain;
+    border: 1px solid var(--help-border);
+    border-radius: 10px;
+    cursor: zoom-in;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .05);
+    transition: box-shadow .15s, transform .15s;
+    background: #fafafa;
+}
+
+.mn-help-img:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .12);
+    transform: translateY(-1px);
+}
+
+.mn-help-figure figcaption {
+    margin-top: .55rem;
+    font-size: .9rem;
+    color: var(--help-muted);
+    line-height: 1.45;
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Callouts
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-callout {
+    background: rgba(84, 110, 122, .08);
+    border-left: 4px solid var(--maint-primary, #546E7A);
+    padding: .9rem 1.1rem;
+    border-radius: 6px;
+    color: var(--maint-primary-darker, #263238);
+    font-size: .95rem;
+    line-height: 1.55;
+    margin: 1.1rem 0;
+}
+
+.mn-help-callout-warn {
+    background: #fff8e1;
+    border-left-color: var(--maint-warning, #f59e0b);
+    color: #6b4f00;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Lightbox con zoom + pan
+   ───────────────────────────────────────────────────────────────────────── */
+
+.mn-help-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .92);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 10000;
+    padding: 1.5rem 1rem 5rem;
+}
+
+.mn-help-lightbox.is-open {
+    display: flex;
+}
+
+/* Stage = contenedor con overflow hidden donde la imagen vive.
+   `position: relative` + img absoluta en (0,0) hace que las coordenadas
+   del cursor relativas al stage coincidan con el espacio de transformación
+   de la imagen, lo que evita el drift al hacer zoom en imágenes pequeñas. */
+.mn-help-lightbox-stage {
+    position: relative;
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 96vw;
+    overflow: hidden;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;       /* deja que JS maneje pinch/pan */
+}
+
+.mn-help-lightbox-stage.is-panning {
+    cursor: grabbing;
+}
+
+.mn-help-lightbox-stage img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* JS asigna width/height tras medir stage e imagen — no usar max-* aquí */
+    max-width: none;
+    max-height: none;
+    border-radius: 6px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, .5);
+    /* Transform aplicado por JS — sin transición durante pan, sí en zoom-step */
+    transform-origin: 0 0;
+    will-change: transform;
+    transition: transform .12s ease-out;
+}
+
+.mn-help-lightbox-stage.is-panning img {
+    transition: none;          /* pan inmediato sin lag */
+}
+
+/* Controles de zoom */
+.mn-help-lightbox-controls {
+    position: absolute;
+    bottom: 1.4rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    background: rgba(255, 255, 255, .12);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    padding: .4rem .6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, .18);
+}
+
+.mn-help-zoom-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .18);
+    color: #fff;
+    border: none;
+    font-size: .95rem;
+    cursor: pointer;
+    transition: background .15s, transform .12s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mn-help-zoom-btn:hover {
+    background: rgba(255, 255, 255, .35);
+    transform: scale(1.05);
+}
+
+.mn-help-zoom-btn:active {
+    transform: scale(.95);
+}
+
+.mn-help-zoom-btn:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.mn-help-zoom-level {
+    color: #fff;
+    font: 600 .82rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    min-width: 52px;
+    text-align: center;
+    user-select: none;
+}
+
+.mn-help-lightbox-caption {
+    color: #fff;
+    font-size: .92rem;
+    text-align: center;
+    max-width: 80vw;
+    margin-top: .5rem;
+}
+
+.mn-help-lightbox-hint {
+    position: absolute;
+    bottom: .35rem;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, .55);
+    font-size: .72rem;
+    pointer-events: none;
+    text-align: center;
+    width: 100%;
+    padding: 0 1rem;
+}
+
+.mn-help-lightbox-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: rgba(255, 255, 255, .15);
+    color: #fff;
+    border: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background .15s;
+    z-index: 2;
+}
+
+.mn-help-lightbox-close:hover {
+    background: rgba(255, 255, 255, .3);
+}
+
+@media (max-width: 575.98px) {
+    .mn-help-lightbox-hint {
+        font-size: .65rem;
+    }
+    .mn-help-zoom-btn {
+        width: 36px;
+        height: 36px;
+    }
+}

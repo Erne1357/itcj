@@ -1,0 +1,101 @@
+{% extends "maint/help/base_help.html" %}
+
+{% block help_body %}
+
+<section id="intro" class="mn-help-section">
+    <h2>Ayuda para Técnicos</h2>
+    <p>
+        Esta guía es para el personal técnico de Mantenimiento: cómo ver tus asignaciones,
+        iniciar el trabajo, resolver tickets, registrar materiales del almacén y comentar
+        internamente con el dispatcher.
+    </p>
+</section>
+
+<section id="mis-tickets" class="mn-help-section">
+    <h2>1. Mis tickets asignados</h2>
+    <p>
+        Entra al listado de Tickets. Filtra por estado <strong>Asignado</strong> o
+        <strong>En Progreso</strong> para ver únicamente tus tickets activos.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/17_mis_tickets_asignados.png?v={{ sv('img/help/17_mis_tickets_asignados.png') }}"
+             alt="Filtros para tech" class="mn-help-img">
+        <figcaption>(1) Asignado · (2) En Progreso — tus dos vistas principales como técnico.</figcaption>
+    </figure>
+</section>
+
+<section id="iniciar" class="mn-help-section">
+    <h2>2. Iniciar progreso</h2>
+    <p>
+        Cuando vas a empezar un trabajo, abre el ticket y pulsa <strong>Iniciar Progreso</strong>.
+        Esto cambia el estado de Asignado → En Progreso y avisa al solicitante de que el
+        trabajo arrancó.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/18_iniciar_progreso.png?v={{ sv('img/help/18_iniciar_progreso.png') }}"
+             alt="Botón Iniciar Progreso" class="mn-help-img">
+        <figcaption>(1) Iniciar Progreso (cyan) · (2) Resolver (verde) — disponibles solo cuando estás asignado.</figcaption>
+    </figure>
+</section>
+
+<section id="resolver" class="mn-help-section">
+    <h2>3. Resolver un ticket</h2>
+    <p>
+        Al terminar el trabajo, presiona <strong>Resolver</strong>. Se abre el modal de
+        resolución donde debes capturar:
+    </p>
+    <ul>
+        <li><strong>Resultado:</strong> Éxito o Fallido (si no se pudo completar y se requiere reabrir).</li>
+        <li><strong>Tipo de mantenimiento:</strong> Preventivo o Correctivo.</li>
+        <li><strong>Origen:</strong> Interno o Externo (servicio contratado).</li>
+        <li><strong>Tiempo invertido:</strong> minutos reales en el sitio.</li>
+        <li><strong>Notas de resolución:</strong> qué se hizo, qué se reemplazó, observaciones.</li>
+        <li><strong>Evidencia fotográfica:</strong> antes/después (recomendado).</li>
+    </ul>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/19_resolver_paso1_modal.png?v={{ sv('img/help/19_resolver_paso1_modal.png') }}"
+             alt="Modal de resolución" class="mn-help-img">
+        <figcaption>Campos obligatorios: tipo (1), origen (2), tiempo (3), notas (4).</figcaption>
+    </figure>
+</section>
+
+<section id="materiales" class="mn-help-section">
+    <h2>4. Registrar material del almacén</h2>
+    <p>
+        Dentro del modal de resolución hay una sección para consumir materiales del
+        <strong>Almacén Global</strong>. El sistema descuenta automáticamente del stock usando
+        FIFO y registra la acción <code>WAREHOUSE_MATERIAL_ADDED</code> en la auditoría.
+    </p>
+    <div class="mn-help-callout">
+        Si el material no existe en el almacén, repórtalo al dispatcher para que lo dé de alta
+        antes de cerrar el ticket.
+    </div>
+</section>
+
+<section id="comentar-interno" class="mn-help-section">
+    <h2>5. Comentar internamente</h2>
+    <p>
+        Desde la pestaña <strong>Comentarios</strong> puedes marcar un comentario como
+        <em>interno</em> — lo verán solo el dispatcher, admin y otros técnicos. Útil para
+        coordinar sin exponer al solicitante.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso3_comentarios.png?v={{ sv('img/help/04_detalle_paso3_comentarios.png') }}"
+             alt="Tab Comentarios" class="mn-help-img">
+        <figcaption>(1) escribe el comentario · (2) marca como Interno (opcional) · (3) publica.</figcaption>
+    </figure>
+</section>
+
+<section id="evidencia" class="mn-help-section">
+    <h2>6. Evidencia fotográfica</h2>
+    <p>
+        Adjunta fotos en la pestaña <strong>Resolución</strong> o directamente en el modal de
+        resolver. Límites por archivo: <strong>3 MB</strong>, máximo 5 fotos por resolución.
+    </p>
+    <div class="mn-help-callout mn-help-callout-warn">
+        Los adjuntos de tickets resueltos se borran automáticamente a los <strong>7 días</strong>.
+        Descarga lo que necesites antes si lo requieres como respaldo.
+    </div>
+</section>
+
+{% endblock %}

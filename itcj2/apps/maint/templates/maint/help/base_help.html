@@ -1,0 +1,100 @@
+{% extends "maint/base_maint.html" %}
+
+{% block title %}{{ page_title or "Ayuda" }}{% endblock %}
+
+{% block extra_css %}
+<link href="/static/maint/css/help/help.css?v={{ sv('css/help/help.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="mn-help-wrapper">
+
+    <!-- Header sticky con switch de vistas (visible solo si tienes el perm) -->
+    <header class="mn-help-header">
+        <div class="mn-help-header-text">
+            <h1 class="mn-help-title">
+                <i class="fas fa-book-open me-2"></i>{{ page_title }}
+            </h1>
+            <p class="mn-help-subtitle">Guía paso a paso para usar la app de Mantenimiento.</p>
+        </div>
+        <nav class="mn-help-tabs" aria-label="Vistas de ayuda">
+            {% if help_perms.requester %}
+            <a href="/maint/help"
+               class="mn-help-tab {% if active_view == 'requester' %}is-active{% endif %}">
+                <i class="fas fa-user me-1"></i><span class="d-none d-sm-inline">Solicitante</span>
+            </a>
+            {% endif %}
+            {% if help_perms.admin %}
+            <a href="/maint/help/admin"
+               class="mn-help-tab {% if active_view == 'admin' %}is-active{% endif %}">
+                <i class="fas fa-user-shield me-1"></i><span class="d-none d-sm-inline">Admin</span>
+            </a>
+            {% endif %}
+            {% if help_perms.tech %}
+            <a href="/maint/help/tech"
+               class="mn-help-tab {% if active_view == 'tech' %}is-active{% endif %}">
+                <i class="fas fa-tools me-1"></i><span class="d-none d-sm-inline">Técnico</span>
+            </a>
+            {% endif %}
+        </nav>
+    </header>
+
+    <div class="mn-help-layout">
+
+        <!-- TOC desktop sticky / móvil colapsable -->
+        <aside class="mn-help-toc" id="mnHelpToc">
+            <button type="button" class="mn-help-toc-toggle d-lg-none" id="mnHelpTocToggle"
+                    aria-expanded="false" aria-controls="mnHelpTocList">
+                <i class="fas fa-list-ul me-2"></i>
+                <span>Índice de contenido</span>
+                <i class="fas fa-chevron-down mn-help-toc-toggle-arrow ms-auto"></i>
+            </button>
+            <div class="mn-help-toc-title d-none d-lg-block">En esta página</div>
+            <nav id="mnHelpTocList" class="mn-help-toc-list">
+                <!-- generado por help.js -->
+            </nav>
+        </aside>
+
+        <!-- Contenido -->
+        <article class="mn-help-content" id="mnHelpContent">
+            {% block help_body %}{% endblock %}
+        </article>
+
+    </div>
+
+</div>
+
+<!-- Lightbox modal con zoom + pan -->
+<div id="mnHelpLightbox" class="mn-help-lightbox" aria-hidden="true">
+    <button type="button" class="mn-help-lightbox-close" id="mnHelpLightboxClose" aria-label="Cerrar">
+        <i class="fas fa-times"></i>
+    </button>
+
+    <div class="mn-help-lightbox-stage" id="mnHelpLightboxStage">
+        <img id="mnHelpLightboxImg" alt="" draggable="false">
+    </div>
+
+    <div class="mn-help-lightbox-controls" role="toolbar" aria-label="Controles de zoom">
+        <button type="button" class="mn-help-zoom-btn" id="mnHelpZoomOut" title="Alejar (–)" aria-label="Alejar">
+            <i class="fas fa-minus"></i>
+        </button>
+        <span class="mn-help-zoom-level" id="mnHelpZoomLevel">100%</span>
+        <button type="button" class="mn-help-zoom-btn" id="mnHelpZoomIn" title="Acercar (+)" aria-label="Acercar">
+            <i class="fas fa-plus"></i>
+        </button>
+        <button type="button" class="mn-help-zoom-btn" id="mnHelpZoomReset" title="Tamaño original (0)" aria-label="Restaurar zoom">
+            <i class="fas fa-expand"></i>
+        </button>
+    </div>
+
+    <div class="mn-help-lightbox-caption" id="mnHelpLightboxCaption"></div>
+
+    <div class="mn-help-lightbox-hint" id="mnHelpLightboxHint">
+        Rueda del ratón o botones para zoom · Arrastra para mover · ESC para cerrar
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/help/help.js?v={{ sv('js/help/help.js') }}"></script>
+{% endblock %}
