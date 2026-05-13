@@ -67,14 +67,24 @@ _CREATOR_ROLES = {"admin", "dispatcher", "department_head", "secretary", "staff"
 
 
 def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
-    """Construye items de navegación filtrados por rol del usuario."""
-    from itcj2.core.services.authz_service import user_roles_in_app
+    """Construye items de navegación filtrados por rol y permisos del usuario."""
+    from itcj2.core.services.authz_service import (
+        user_roles_in_app,
+        user_direct_perms_in_app,
+        perms_via_roles,
+    )
 
     try:
         roles = set(user_roles_in_app(db, user_id, "maint"))
     except Exception as exc:
         logger.warning("Error obteniendo roles maint para user %s: %s", user_id, exc)
         roles = set()
+
+    try:
+        perms = set(user_direct_perms_in_app(db, user_id, "maint")) | set(perms_via_roles(db, user_id, "maint"))
+    except Exception as exc:
+        logger.warning("Error obteniendo perms maint para user %s: %s", user_id, exc)
+        perms = set()
 
     items = []
 
@@ -83,7 +93,7 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
     items.append({
         "label": "Tickets",
         "icon": "fa-clipboard-list",
-        "url": "/maintenance/tickets",
+        "url": "/maint/tickets",
     })
 
     # ── Nueva Solicitud ───────────────────────────────────────────────────────
@@ -91,7 +101,7 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
         items.append({
             "label": "Nueva Solicitud",
             "icon": "fa-plus-circle",
-            "url": "/maintenance/tickets/create",
+            "url": "/maint/tickets/create",
         })
 
     # ── Administración (dropdown) ─────────────────────────────────────────────
@@ -101,27 +111,27 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             dropdown.append({
                 "label": "Categorías",
                 "icon": "fa-tags",
-                "url": "/maintenance/admin/categories",
+                "url": "/maint/admin/categories",
             })
             dropdown.append({
                 "label": "Áreas Técnicas",
                 "icon": "fa-users-cog",
-                "url": "/maintenance/admin/areas",
+                "url": "/maint/admin/areas",
             })
         dropdown.append({
             "label": "Reportes",
             "icon": "fa-chart-bar",
-            "url": "/maintenance/admin/reports",
+            "url": "/maint/admin/reports",
         })
         dropdown.append({
             "label": "Estadísticas",
             "icon": "fa-chart-pie",
-            "url": "/maintenance/admin/stats",
+            "url": "/maint/admin/stats",
         })
         dropdown.append({
             "label": "Análisis",
             "icon": "fa-microscope",
-            "url": "/maintenance/admin/analysis",
+            "url": "/maint/admin/analysis",
         })
         items.append({
             "label": "Administración",
@@ -129,44 +139,61 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "dropdown": dropdown,
         })
 
-    # ── Almacén (dropdown — solo admin) ──────────────────────────────────────
-    if "admin" in roles:
+    # ── Almacén (dropdown filtrado por perms granulares) ─────────────────────
+    # Cada item aparece si el usuario tiene su perm específico.
+    # Admin global del JWT (rol "admin" en maint) bypassa perms.
+    is_admin_role = "admin" in roles
+    warehouse_items = []
+
+    def _wh(label, icon, url, perm):
+        if is_admin_role or perm in perms:
+            warehouse_items.append({"label": label, "icon": icon, "url": url})
+
+    _wh("Dashboard",         "fa-tachometer-alt", "/maint/warehouse/dashboard",  "maint.warehouse.page.dashboard")
+    _wh("Productos",         "fa-cube",           "/maint/warehouse/products",   "maint.warehouse.page.products")
+    _wh("Categorías",        "fa-folder-open",    "/maint/warehouse/categories", "maint.warehouse.page.categories")
+    _wh("Entradas de Stock", "fa-truck-loading",  "/maint/warehouse/entries",    "maint.warehouse.page.entries")
+    _wh("Movimientos",       "fa-exchange-alt",   "/maint/warehouse/movements",  "maint.warehouse.page.movements")
+
+    if warehouse_items:
         items.append({
             "label": "Almacén",
             "icon": "fa-boxes",
-            "dropdown": [
-                {
-                    "label": "Dashboard",
-                    "icon": "fa-tachometer-alt",
-                    "url": "/maintenance/warehouse/dashboard",
-                },
-                {
-                    "label": "Productos",
-                    "icon": "fa-cube",
-                    "url": "/maintenance/warehouse/products",
-                },
-                {
-                    "label": "Categorías",
-                    "icon": "fa-folder-open",
-                    "url": "/maintenance/warehouse/categories",
-                },
-                {
-                    "label": "Entradas de Stock",
-                    "icon": "fa-truck-loading",
-                    "url": "/maintenance/warehouse/entries",
-                },
-                {
-                    "label": "Movimientos",
-                    "icon": "fa-exchange-alt",
-                    "url": "/maintenance/warehouse/movements",
-                },
-            ],
+            "dropdown": warehouse_items,
+        })
+
+    # ── Ayuda (visible solo si tiene al menos un perm de help) ───────────────
+    is_admin_global = "admin" in roles  # admin global bypassa perms granulares
+    has_requester = is_admin_global or "maint.help.page.requester" in perms
+    has_admin_help = is_admin_global or "maint.help.page.admin" in perms
+    has_tech_help = is_admin_global or "maint.help.page.tech" in perms
+
+    if has_requester or has_admin_help or has_tech_help:
+        # URL preferida = la primera que el usuario tenga acceso, en este orden:
+        # requester > admin > tech (cubre la mayoría de los roles)
+        if has_requester:
+            help_url = "/maint/help"
+        elif has_admin_help:
+            help_url = "/maint/help/admin"
+        else:
+            help_url = "/maint/help/tech"
+
+        items.append({
+            "label": "Ayuda",
+            "icon": "fa-circle-question",
+            "url": help_url,
         })
 
     return {
         "maint_nav_items": items,
         "current_route": current_path,
         "user_roles": list(roles),
+        "user_perms": list(perms),
+        "help_perms": {
+            "requester": has_requester,
+            "admin": has_admin_help,
+            "tech": has_tech_help,
+        },
     }
 
 

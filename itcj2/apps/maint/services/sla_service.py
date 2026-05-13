@@ -24,7 +24,7 @@ from itcj2.apps.maint.utils.timezone_utils import now_local
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = '/maintenance/tickets'
+_BASE_URL = '/maint/tickets'
 
 # Estados considerados "abiertos" para la alerta SLA
 _OPEN_STATUSES = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')

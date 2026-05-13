@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://enlinea.cdjuarez.tecnm.mx/maintenance/tickets"
+_BASE_URL = "https://enlinea.cdjuarez.tecnm.mx/maint/tickets"
 
 # Importación diferida para evitar circulares y mantener blast radius mínimo.
 # maint_templates vive en pages/nav.py y ya tiene el directorio de templates

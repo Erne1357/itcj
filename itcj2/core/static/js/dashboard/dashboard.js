@@ -331,8 +331,8 @@ class WindowsDesktop {
       },
       maint: {
         name: "Mantenimiento",
-        url: "/maintenance/",
-        iframeSrc: "/maintenance/",
+        url: "/maint/",
+        iframeSrc: "/maint/",
         icon: "wrench",
       },
       vistetec: {

@@ -58,7 +58,7 @@ class TestNotificationURLAnchors:
         assert mock_create.called
         call = mock_create.call_args
         url = call.kwargs["data"]["url"]
-        assert url == "/maintenance/tickets/42#resolution"
+        assert url == "/maint/tickets/42#resolution"
 
     @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
     @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
@@ -82,7 +82,7 @@ class TestNotificationURLAnchors:
         # Recipientes: requester (100) + tech 20, sin author
         urls = [c.kwargs["data"]["url"] for c in mock_create.call_args_list]
         for url in urls:
-            assert url == "/maintenance/tickets/15#comments"
+            assert url == "/maint/tickets/15#comments"
 
     @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
     @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
@@ -95,7 +95,7 @@ class TestNotificationURLAnchors:
         MaintNotificationHelper.notify_technician_assigned(db, ticket, technician_id=33)
 
         url = mock_create.call_args.kwargs["data"]["url"]
-        assert url == "/maintenance/tickets/8"
+        assert url == "/maint/tickets/8"
 
     @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
     @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
@@ -115,7 +115,7 @@ class TestNotificationURLAnchors:
 
         urls = [c.kwargs["data"]["url"] for c in mock_create.call_args_list]
         # Al menos un recipient debe haberse notificado con anchor correcto
-        assert any(u == "/maintenance/tickets/11#resolution" for u in urls)
+        assert any(u == "/maint/tickets/11#resolution" for u in urls)
 
 
 # ─────────────────────────────────────────────────────────────────────

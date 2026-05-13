@@ -139,7 +139,7 @@ class TestNotifyOverdue:
 
     @patch("itcj2.core.services.notification_service.NotificationService.create")
     def test_notification_payload_url_anchor(self, mock_create):
-        """data.url debe ser /maintenance/tickets/{id}."""
+        """data.url debe ser /maint/tickets/{id}."""
         ticket = _fake_ticket(
             id=42,
             ticket_number="MANT-2026-000042",
@@ -155,7 +155,7 @@ class TestNotifyOverdue:
 
         sla_service.notify_overdue(db, ticket)
         call = mock_create.call_args_list[0]
-        assert call.kwargs["data"]["url"] == "/maintenance/tickets/42"
+        assert call.kwargs["data"]["url"] == "/maint/tickets/42"
         assert call.kwargs["data"]["ticket_id"] == 42
         assert call.kwargs["type"] == "TICKET_OVERDUE"
 

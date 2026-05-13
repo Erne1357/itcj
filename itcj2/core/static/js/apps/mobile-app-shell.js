@@ -112,7 +112,7 @@
             if (path.includes('/agendatec'))   return 'agendatec';
             if (path.includes('/helpdesk'))    return 'helpdesk';
             if (path.includes('/vistetec'))    return 'vistetec';
-            if (path.includes('/maintenance')) return 'maint';
+            if (path.includes('/maint')) return 'maint';
             return 'app';
         }
 

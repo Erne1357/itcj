@@ -47,7 +47,7 @@ def register_routers(app: FastAPI):
     from itcj2.apps.vistetec.pages.router import vistetec_pages_router
     app.include_router(vistetec_pages_router)
 
-    # Maint pages (prefix /mantenimiento): dashboard, tickets, admin
+    # Maint pages (prefix /maint): dashboard, tickets, admin
     from itcj2.apps.maint.pages.router import maint_pages_router
     app.include_router(maint_pages_router)
 

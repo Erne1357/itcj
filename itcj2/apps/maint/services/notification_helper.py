@@ -13,7 +13,7 @@ from itcj2.utils import async_broadcast as _async_broadcast
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = '/maintenance/tickets'
+_BASE_URL = '/maint/tickets'
 
 
 class MaintNotificationHelper:

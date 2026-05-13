@@ -150,7 +150,7 @@
         if (!url) return null;
         if (url.includes('/agendatec')) return 'agendatec';
         if (url.includes('/help-desk')) return 'helpdesk';
-        if (url.includes('/maintenance')) return 'maint';
+        if (url.includes('/maint')) return 'maint';
         if (url.includes('/vistetec')) return 'vistetec';
         if (url.includes('/compras')) return 'compras';
         if (url.includes('/itcj/config')) return 'settings';
@@ -206,7 +206,7 @@
             // Si root del app, no necesita navegacion adicional
             const isRootUrl = url.endsWith('/agendatec') || url.endsWith('/agendatec/')
                            || url.endsWith('/help-desk') || url.endsWith('/help-desk/')
-                           || url.endsWith('/maintenance') || url.endsWith('/maintenance/')
+                           || url.endsWith('/maint') || url.endsWith('/maint/')
                            || url.endsWith('/vistetec') || url.endsWith('/vistetec/');
             if (!isRootUrl) {
                 setTimeout(navigateToUrl, 500);

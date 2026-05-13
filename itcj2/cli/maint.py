@@ -37,11 +37,17 @@ def init_maint_command():
     """Inicializa la app de Mantenimiento completamente.
 
     Ejecuta en orden:
-      00_insert_app.sql                      → Registra la app en core_apps
-      01_add_maint_permissions.sql           → 20 permisos maint.*
-      02_assign_maint_permissions_to_roles.sql → Roles + asignación + posiciones
-      03_seed_maint_categories.sql           → 6 categorías base con field_templates
-      05_add_stats_permissions.sql           → 4 permisos stats/analysis (admin + dispatcher)
+      00_insert_app.sql                         → Registra la app en core_apps
+      01_add_maint_permissions.sql              → 20 permisos maint.*
+      02_assign_maint_permissions_to_roles.sql  → Roles + asignación + posiciones
+      03_seed_maint_categories.sql              → 6 categorías base
+      04_add_warehouse_permissions.sql          → Perm legacy `maint.admin.page.warehouse` (compat)
+      05_add_stats_permissions.sql              → 4 permisos stats/analysis
+      06_help_permissions.sql                   → Permisos de páginas de ayuda
+      07_warehouse_pages_granular.sql           → 5 permisos granulares por página del almacén
+                                                  (admin/dispatcher/tech_maint con scope distinto)
+
+    Todos los DML son idempotentes (ON CONFLICT DO NOTHING).
 
     Prerequisito: Las tablas maint_* deben existir (alembic upgrade head).
     """
@@ -53,17 +59,22 @@ def init_maint_command():
             "01_add_maint_permissions.sql",
             "02_assign_maint_permissions_to_roles.sql",
             "03_seed_maint_categories.sql",
+            "04_add_warehouse_permissions.sql",
             "05_add_stats_permissions.sql",
+            "06_help_permissions.sql",
+            "07_warehouse_pages_granular.sql",
         ])
         click.echo()
         click.echo("🎉 ¡App de Mantenimiento inicializada exitosamente!")
         click.echo()
-        click.echo("   Roles creados: maint_admin, maint_dispatcher,")
-        click.echo("                  maint_technician, maint_requester")
+        click.echo("   Roles creados: admin, dispatcher, tech_maint,")
+        click.echo("                  department_head, secretary, staff")
         click.echo("   Categorías:    TRANSPORT, GENERAL, ELECTRICAL,")
         click.echo("                  CARPENTRY, AC, GARDENING")
+        click.echo("   Almacén:       admin=5/5, dispatcher=4/5 (sin categories),")
+        click.echo("                  tech_maint=2/5 (dashboard + products)")
         click.echo()
-        click.echo("   Recuerda asignar los permisos de warehouse:")
+        click.echo("   Recuerda asignar los permisos del warehouse global:")
         click.echo("   → python -m itcj2.cli.main warehouse warehouse-maint")
     except Exception as e:
         click.echo(f"\n💥 Error durante la inicialización: {e}")
