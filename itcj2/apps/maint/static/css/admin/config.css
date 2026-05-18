@@ -312,6 +312,35 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   CATÁLOGOS SIMPLES (Tipo de mantenimiento / Origen del servicio)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Handle de drag en tablas de catálogo ────────────────────────────── */
+.mn-cat-handle {
+    cursor: grab;
+    color: var(--maint-muted, #607D8B);
+    opacity: 0.45;
+    transition: opacity 0.15s;
+    user-select: none;
+}
+
+.mn-cat-handle:hover {
+    opacity: 1;
+}
+
+.mn-cat-handle:active {
+    cursor: grabbing;
+}
+
+/* ── Fila fantasma durante el drag ───────────────────────────────────── */
+.mn-cat-row--ghost {
+    opacity: 0.38;
+    border-style: dashed;
+    border-color: var(--maint-primary, #1565C0) !important;
+    background: rgba(21, 101, 192, 0.05) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    AUDITORIA
    ═══════════════════════════════════════════════════════════════════════ */
 

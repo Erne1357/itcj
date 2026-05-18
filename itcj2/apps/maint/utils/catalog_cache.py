@@ -1,11 +1,14 @@
 """
-Cache invalidable de prioridades para maint.
+Cache invalidable de catálogos para maint.
 
-Proporciona acceso rápido al catálogo de prioridades (MaintPriority) con
-degradación defensiva al dict SLA_HOURS hardcoded cuando la tabla no existe
-o la BD no está disponible.
+Proporciona acceso rápido a:
+- MaintPriority          → get_priorities / get_priority_codes / get_sla_hours
+- MaintMaintenanceType   → get_maint_types / get_maint_type_codes
+- MaintServiceOrigin     → get_service_origins / get_service_origin_codes
 
-El cache es de módulo (no lru_cache) para permitir invalidación explícita.
+Cada catálogo tiene degradación defensiva a valores hardcoded cuando la
+tabla no existe o la BD no está disponible. El cache es de módulo (no
+lru_cache) para permitir invalidación explícita tras cada escritura.
 """
 import logging
 from typing import Optional
@@ -137,3 +140,189 @@ def invalidate_priorities() -> None:
     _priority_codes_cache = None
     _sla_hours_cache = None
     logger.debug("catalog_cache: cache de prioridades invalidado")
+
+
+# ==================== MAINT TYPES ====================
+
+_maint_types_cache: Optional[list] = None
+_maint_type_codes_cache: Optional[set] = None
+
+_FALLBACK_MAINT_TYPE_CODES = {'PREVENTIVO', 'CORRECTIVO'}
+
+
+def _load_maint_types_from_db() -> list:
+    """
+    Abre una sesión efímera, consulta maint_maintenance_type, cierra la sesión.
+    Retorna lista de dicts ordenada por display_order.
+    Lanza excepción si falla (el caller hace el try/except).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.maint.models.simple_catalog import MaintMaintenanceType
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(MaintMaintenanceType)
+            .order_by(MaintMaintenanceType.display_order)
+            .all()
+        )
+        return [_maint_type_to_dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _maint_type_to_dict(m) -> dict:
+    return {
+        "id": m.id,
+        "code": m.code,
+        "label": m.label,
+        "display_order": m.display_order,
+        "is_active": m.is_active,
+    }
+
+
+def _ensure_maint_types_cache() -> list:
+    """Rellena el cache si está vacío. Degrada silenciosamente si la BD falla."""
+    global _maint_types_cache, _maint_type_codes_cache
+
+    if _maint_types_cache is not None:
+        return _maint_types_cache
+
+    try:
+        rows = _load_maint_types_from_db()
+        _maint_types_cache = rows
+        _maint_type_codes_cache = {r["code"] for r in rows if r["is_active"]}
+        return _maint_types_cache
+    except Exception as exc:
+        logger.warning(
+            f"catalog_cache: no se pudo cargar maint_types desde BD ({exc!r}); usando fallback"
+        )
+        return []
+
+
+def get_maint_types(db=None) -> list:
+    """
+    Retorna todos los tipos de mantenimiento ordenados por display_order.
+    `db` se acepta por compatibilidad pero no se usa.
+    """
+    rows = _ensure_maint_types_cache()
+    if rows:
+        return rows
+    # Fallback mínimo cuando la BD no está disponible
+    return [
+        {"id": None, "code": c, "label": c.capitalize(),
+         "display_order": i, "is_active": True}
+        for i, c in enumerate(sorted(_FALLBACK_MAINT_TYPE_CODES))
+    ]
+
+
+def get_maint_type_codes(db=None) -> set:
+    """
+    Retorna el set de codes ACTIVOS de tipos de mantenimiento.
+    Fallback: {'PREVENTIVO', 'CORRECTIVO'}.
+    """
+    _ensure_maint_types_cache()
+    if _maint_type_codes_cache is not None:
+        return _maint_type_codes_cache
+    return set(_FALLBACK_MAINT_TYPE_CODES)
+
+
+def invalidate_maint_types() -> None:
+    """Limpia el cache de tipos de mantenimiento para que se recargue."""
+    global _maint_types_cache, _maint_type_codes_cache
+    _maint_types_cache = None
+    _maint_type_codes_cache = None
+    logger.debug("catalog_cache: cache de maint_types invalidado")
+
+
+# ==================== SERVICE ORIGINS ====================
+
+_service_origins_cache: Optional[list] = None
+_service_origin_codes_cache: Optional[set] = None
+
+_FALLBACK_SERVICE_ORIGIN_CODES = {'INTERNO', 'EXTERNO'}
+
+
+def _load_service_origins_from_db() -> list:
+    """
+    Abre una sesión efímera, consulta maint_service_origin, cierra la sesión.
+    Retorna lista de dicts ordenada por display_order.
+    Lanza excepción si falla (el caller hace el try/except).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.maint.models.simple_catalog import MaintServiceOrigin
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(MaintServiceOrigin)
+            .order_by(MaintServiceOrigin.display_order)
+            .all()
+        )
+        return [_service_origin_to_dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _service_origin_to_dict(s) -> dict:
+    return {
+        "id": s.id,
+        "code": s.code,
+        "label": s.label,
+        "display_order": s.display_order,
+        "is_active": s.is_active,
+    }
+
+
+def _ensure_service_origins_cache() -> list:
+    """Rellena el cache si está vacío. Degrada silenciosamente si la BD falla."""
+    global _service_origins_cache, _service_origin_codes_cache
+
+    if _service_origins_cache is not None:
+        return _service_origins_cache
+
+    try:
+        rows = _load_service_origins_from_db()
+        _service_origins_cache = rows
+        _service_origin_codes_cache = {r["code"] for r in rows if r["is_active"]}
+        return _service_origins_cache
+    except Exception as exc:
+        logger.warning(
+            f"catalog_cache: no se pudo cargar service_origins desde BD ({exc!r}); usando fallback"
+        )
+        return []
+
+
+def get_service_origins(db=None) -> list:
+    """
+    Retorna todos los orígenes de servicio ordenados por display_order.
+    `db` se acepta por compatibilidad pero no se usa.
+    """
+    rows = _ensure_service_origins_cache()
+    if rows:
+        return rows
+    # Fallback mínimo cuando la BD no está disponible
+    return [
+        {"id": None, "code": c, "label": c.capitalize(),
+         "display_order": i, "is_active": True}
+        for i, c in enumerate(sorted(_FALLBACK_SERVICE_ORIGIN_CODES))
+    ]
+
+
+def get_service_origin_codes(db=None) -> set:
+    """
+    Retorna el set de codes ACTIVOS de orígenes de servicio.
+    Fallback: {'INTERNO', 'EXTERNO'}.
+    """
+    _ensure_service_origins_cache()
+    if _service_origin_codes_cache is not None:
+        return _service_origin_codes_cache
+    return set(_FALLBACK_SERVICE_ORIGIN_CODES)
+
+
+def invalidate_service_origins() -> None:
+    """Limpia el cache de orígenes de servicio para que se recargue."""
+    global _service_origins_cache, _service_origin_codes_cache
+    _service_origins_cache = None
+    _service_origin_codes_cache = None
+    logger.debug("catalog_cache: cache de service_origins invalidado")

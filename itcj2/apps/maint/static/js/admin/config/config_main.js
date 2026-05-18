@@ -38,6 +38,11 @@ const TAB_INITS = {
             window.MaintConfigPriorities.init();
         }
     },
+    tipos: function () {
+        if (window.MaintConfigCatalogs) {
+            window.MaintConfigCatalogs.init();
+        }
+    },
     audit: function () {
         if (window.MaintConfigAudit) {
             window.MaintConfigAudit.init();

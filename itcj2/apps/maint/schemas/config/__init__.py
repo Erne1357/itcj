@@ -6,6 +6,13 @@ from itcj2.apps.maint.schemas.config.priorities import (
     ReorderItem,
     ReorderPriorities,
 )
+from itcj2.apps.maint.schemas.config.catalogs import (
+    CreateCatalogItem,
+    UpdateCatalogItem,
+    ToggleCatalogItem,
+    ReorderCatalogItem,
+    ReorderCatalog,
+)
 
 __all__ = [
     "CreatePriority",
@@ -13,4 +20,9 @@ __all__ = [
     "TogglePriority",
     "ReorderItem",
     "ReorderPriorities",
+    "CreateCatalogItem",
+    "UpdateCatalogItem",
+    "ToggleCatalogItem",
+    "ReorderCatalogItem",
+    "ReorderCatalog",
 ]

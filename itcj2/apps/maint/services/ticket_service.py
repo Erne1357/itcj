@@ -349,11 +349,22 @@ def resolve_ticket(
     if ticket.status not in ('ASSIGNED', 'IN_PROGRESS'):
         raise HTTPException(status_code=400, detail='El ticket no puede ser resuelto en su estado actual')
 
-    if maintenance_type not in ('PREVENTIVO', 'CORRECTIVO'):
-        raise HTTPException(status_code=400, detail='Tipo de mantenimiento inválido (PREVENTIVO o CORRECTIVO)')
+    from itcj2.apps.maint.utils.catalog_cache import get_maint_type_codes, get_service_origin_codes
+    valid_maint_types = get_maint_type_codes()
+    if maintenance_type not in valid_maint_types:
+        valid_str = ', '.join(sorted(valid_maint_types)) if valid_maint_types else 'ninguno disponible'
+        raise HTTPException(
+            status_code=400,
+            detail=f'Tipo de mantenimiento inválido. Valores válidos: {valid_str}',
+        )
 
-    if service_origin not in ('INTERNO', 'EXTERNO'):
-        raise HTTPException(status_code=400, detail='Origen del servicio inválido (INTERNO o EXTERNO)')
+    valid_service_origins = get_service_origin_codes()
+    if service_origin not in valid_service_origins:
+        valid_str = ', '.join(sorted(valid_service_origins)) if valid_service_origins else 'ninguno disponible'
+        raise HTTPException(
+            status_code=400,
+            detail=f'Origen del servicio inválido. Valores válidos: {valid_str}',
+        )
 
     # Determinar si es técnico asignado o dispatcher
     is_assigned_tech = any(

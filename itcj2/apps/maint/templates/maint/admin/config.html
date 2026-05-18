@@ -186,10 +186,84 @@
 
             <!-- ── Tipo de mantenimiento y origen ─────────────────────── -->
             <div class="tab-pane fade" id="panel-tipos" role="tabpanel" aria-labelledby="tab-tipos">
-                <div class="mn-config-placeholder text-center py-5">
-                    <i class="fas fa-wrench fa-2x mb-3 text-muted"></i>
-                    <h5 class="text-muted">Tipo de mantenimiento y origen del servicio</h5>
-                    <p class="text-muted small mb-0">Esta sección estará disponible próximamente.</p>
+                <div class="row g-4">
+
+                    <!-- Tipo de mantenimiento -->
+                    <div class="col-12 col-xl-6">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                            <div>
+                                <h6 class="mb-0 fw-semibold">
+                                    <i class="fas fa-wrench me-1 text-muted"></i>Tipo de mantenimiento
+                                </h6>
+                                <p class="text-muted small mb-0">Clasifica el trabajo realizado (preventivo, correctivo, etc.). Arrastra para reordenar.</p>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="btn-nuevo-maint-type">
+                                <i class="fas fa-plus me-1"></i>
+                                <span class="d-none d-sm-inline">Nuevo tipo</span>
+                                <span class="d-inline d-sm-none">Nuevo</span>
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="mn-col-icon" style="width:2.2rem;"></th>
+                                        <th>Código</th>
+                                        <th>Etiqueta</th>
+                                        <th class="text-center">Estado</th>
+                                        <th style="width:7rem;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-maint-types">
+                                    <tr>
+                                        <td colspan="5" class="text-center py-4 text-muted">
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                            Cargando tipos de mantenimiento...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Origen del servicio -->
+                    <div class="col-12 col-xl-6">
+                        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                            <div>
+                                <h6 class="mb-0 fw-semibold">
+                                    <i class="fas fa-project-diagram me-1 text-muted"></i>Origen del servicio
+                                </h6>
+                                <p class="text-muted small mb-0">Indica cómo se originó la solicitud (ticket, ronda, externo, etc.). Arrastra para reordenar.</p>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="btn-nuevo-service-origin">
+                                <i class="fas fa-plus me-1"></i>
+                                <span class="d-none d-sm-inline">Nuevo origen</span>
+                                <span class="d-inline d-sm-none">Nuevo</span>
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="mn-col-icon" style="width:2.2rem;"></th>
+                                        <th>Código</th>
+                                        <th>Etiqueta</th>
+                                        <th class="text-center">Estado</th>
+                                        <th style="width:7rem;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-service-origins">
+                                    <tr>
+                                        <td colspan="5" class="text-center py-4 text-muted">
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                            Cargando orígenes del servicio...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -443,6 +517,74 @@
     </div>
 </div>
 
+<!-- ── Modal: Crear / Editar catálogo (Tipo de mant. / Origen) ─────────── -->
+<div class="modal fade" id="modal-catalog" tabindex="-1" aria-labelledby="modal-catalog-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-semibold" id="modal-catalog-label">Nuevo elemento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-catalog" novalidate>
+                    <input type="hidden" id="catalog-edit-id">
+                    <div class="row g-3">
+
+                        <!-- Código (solo en crear) -->
+                        <div class="col-sm-4" id="catalog-code-group">
+                            <label class="form-label fw-medium" for="catalog-code">
+                                Código <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="catalog-code"
+                                   placeholder="ej. PREV" maxlength="30"
+                                   pattern="[A-Z][A-Z0-9_]*"
+                                   title="Empieza con letra mayúscula; solo mayúsculas, dígitos y guion bajo">
+                            <div class="form-text">Mayúsculas, dígitos y _ (no editable tras crear).</div>
+                            <div class="invalid-feedback" id="catalog-code-err"></div>
+                        </div>
+
+                        <!-- Etiqueta -->
+                        <div class="col-sm-8">
+                            <label class="form-label fw-medium" for="catalog-label">
+                                Etiqueta <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="catalog-label"
+                                   placeholder="ej. Preventivo" maxlength="80">
+                            <div class="invalid-feedback" id="catalog-label-err"></div>
+                        </div>
+
+                        <!-- Orden -->
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="catalog-display-order">Orden</label>
+                            <input type="number" class="form-control" id="catalog-display-order"
+                                   min="0" max="9999" value="0">
+                            <div class="form-text">Posición en la lista (0 = primero).</div>
+                        </div>
+
+                        <!-- Aviso contextual -->
+                        <div class="col-12">
+                            <p class="text-muted small mb-0">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Creando <span id="catalog-entity-name">elemento</span>.
+                                El código no podrá cambiarse una vez guardado.
+                            </p>
+                        </div>
+
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-guardar-catalog">
+                    <i class="fas fa-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ── Modal: Diff de auditoría ─────────────────────────────────────────── -->
 <div class="modal fade" id="modal-audit-diff" tabindex="-1" aria-labelledby="modal-audit-diff-label" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -534,6 +676,7 @@
 <script src="/static/maint/js/admin/config/config_main.js?v={{ sv('js/admin/config/config_main.js') }}"></script>
 <script src="/static/maint/js/admin/config/categories_tab.js?v={{ sv('js/admin/config/categories_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/priorities_tab.js?v={{ sv('js/admin/config/priorities_tab.js') }}"></script>
+<script src="/static/maint/js/admin/config/catalogs_tab.js?v={{ sv('js/admin/config/catalogs_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/audit_tab.js?v={{ sv('js/admin/config/audit_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/field_template_builder.js?v={{ sv('js/admin/config/field_template_builder.js') }}"></script>
 {% endblock %}
