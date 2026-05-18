@@ -2,16 +2,21 @@
 Config API — Auditoría de cambios de configuración (maint).
 
 Endpoints de solo lectura sobre MaintConfigChangeLog.
-Export CSV se agrega en Fase 7.
 
 Rutas reales (montado en /api/maint/v2/config/audit):
-  GET /          → paginado con filtros opcionales
-  GET /{log_id}  → detalle completo incluyendo before_data / after_data
+  GET /              → paginado con filtros opcionales
+  GET /export.csv    → descarga CSV con todos los registros (límite 50 000 filas)
+  GET /{log_id}      → detalle completo incluyendo before_data / after_data
 """
+import csv
+import io
+import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 from sqlalchemy.orm import joinedload
 
 from itcj2.dependencies import DbSession, require_perms
@@ -104,6 +109,125 @@ def list_audit_log(
         "per_page": per_page,
         "total_pages": total_pages,
     }
+
+
+_CSV_LIMIT = 50_000
+_CSV_COLUMNS = [
+    "id",
+    "changed_at",
+    "user_id",
+    "user_name",
+    "entity_type",
+    "entity_id",
+    "action",
+    "ip_address",
+    "before_data",
+    "after_data",
+]
+
+
+@router.get("/export.csv")
+def export_audit_csv(
+    request: Request,
+    entity_type: Optional[str] = Query(default=None),
+    action: Optional[str] = Query(default=None),
+    user_id: Optional[int] = Query(default=None),
+    date_from: Optional[str] = Query(default=None, description="ISO date YYYY-MM-DD"),
+    date_to: Optional[str] = Query(default=None, description="ISO date YYYY-MM-DD"),
+    user: dict = require_perms("maint", [
+        "maint.config.audit.api.read",
+        "maint.admin.api.categories",
+    ]),
+    db: DbSession = None,
+):
+    """
+    Exporta el log de auditoría como CSV (BOM UTF-8 para Excel).
+
+    Mismos filtros que el list paginado pero sin paginación.
+    Límite duro: 50 000 filas, orden changed_at DESC.
+    Columnas: id, changed_at, user_id, user_name, entity_type, entity_id,
+              action, ip_address, before_data (JSON), after_data (JSON).
+    """
+    from itcj2.apps.maint.models.config_change_log import MaintConfigChangeLog
+
+    query = (
+        db.query(MaintConfigChangeLog)
+        .options(joinedload(MaintConfigChangeLog.user))
+    )
+
+    if entity_type:
+        query = query.filter(MaintConfigChangeLog.entity_type == entity_type)
+    if action:
+        query = query.filter(MaintConfigChangeLog.action == action)
+    if user_id:
+        query = query.filter(MaintConfigChangeLog.user_id == user_id)
+
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            query = query.filter(MaintConfigChangeLog.changed_at >= dt_from)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="date_from inválido, formato esperado: YYYY-MM-DD",
+            )
+
+    if date_to:
+        try:
+            from datetime import timedelta
+            dt_to = datetime.fromisoformat(date_to) + timedelta(days=1)
+            query = query.filter(MaintConfigChangeLog.changed_at < dt_to)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="date_to inválido, formato esperado: YYYY-MM-DD",
+            )
+
+    query = query.order_by(MaintConfigChangeLog.changed_at.desc()).limit(_CSV_LIMIT)
+    entries = query.all()
+
+    # Construir CSV en memoria con BOM UTF-8 para compatibilidad con Excel
+    buf = io.StringIO()
+    buf.write("﻿")  # BOM UTF-8
+    writer = csv.writer(buf, dialect="excel")
+    writer.writerow(_CSV_COLUMNS)
+
+    for e in entries:
+        user_name = (
+            f"{e.user.first_name} {e.user.last_name}"
+            if e.user else str(e.user_id)
+        )
+        before_str = json.dumps(e.before_data, ensure_ascii=False) if e.before_data is not None else ""
+        after_str = json.dumps(e.after_data, ensure_ascii=False) if e.after_data is not None else ""
+        changed_at_str = e.changed_at.isoformat() if e.changed_at else ""
+
+        writer.writerow([
+            e.id,
+            changed_at_str,
+            e.user_id,
+            user_name,
+            e.entity_type,
+            e.entity_id if e.entity_id is not None else "",
+            e.action,
+            e.ip_address or "",
+            before_str,
+            after_str,
+        ])
+
+    csv_bytes = buf.getvalue().encode("utf-8")
+    now_str = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"maint_config_audit_{now_str}.csv"
+
+    logger.info(
+        "Audit CSV exportado por usuario %s — %d filas, filtros: entity_type=%s action=%s user_id=%s date_from=%s date_to=%s",
+        user["sub"], len(entries), entity_type, action, user_id, date_from, date_to,
+    )
+
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{log_id}")

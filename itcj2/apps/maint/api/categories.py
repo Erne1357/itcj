@@ -150,8 +150,31 @@ async def toggle_category(
 @router.put("/{category_id}/field-template")
 async def update_field_template(
     category_id: int,
+    request: Request,
     body: UpdateFieldTemplateRequest,
     user: dict = require_perms("maint", ["maint.admin.api.categories"]),
     db: DbSession = None,
 ):
-    return category_service.update_field_template(db, category_id, body.fields)
+    # Capturar estado previo antes de que el service haga commit
+    from itcj2.apps.maint.models.category import MaintCategory
+    _cat = db.get(MaintCategory, category_id)
+    before_template = _cat.field_template if _cat else None
+
+    result = category_service.update_field_template(db, category_id, body.fields)
+
+    # Registrar auditoría en transacción separada (el service ya hizo commit)
+    try:
+        log_config_change(
+            db=db,
+            user_id=int(user["sub"]),
+            entity_type="field_template",
+            entity_id=category_id,
+            action="update",
+            before={"fields": before_template},
+            after={"fields": result.field_template if hasattr(result, "field_template") else None},
+            ip=client_ip(request),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    return result

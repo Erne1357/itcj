@@ -57,6 +57,7 @@ function _setup() {
         _loadAudit(1);
     });
     document.getElementById('btn-audit-clear').addEventListener('click', _clearFilters);
+    document.getElementById('btn-audit-csv').addEventListener('click', _handleDownloadCsv);
 
     // Delegación: ver diff en tabla + paginación
     document.getElementById('tbody-audit').addEventListener('click', _handleTableAction);
@@ -447,6 +448,58 @@ function _toggleRawJson() {
     } else {
         rawSection.classList.add('d-none');
         btn.textContent = 'Ver JSON crudo';
+    }
+}
+
+// === DESCARGA CSV ===
+async function _handleDownloadCsv() {
+    var btn = document.getElementById('btn-audit-csv');
+    var filters = _getFilters();
+
+    // Construir query string con los mismos filtros activos
+    var params = new URLSearchParams();
+    if (filters.entity_type) params.set('entity_type', filters.entity_type);
+    if (filters.action)      params.set('action',      filters.action);
+    if (filters.user_id)     params.set('user_id',     filters.user_id);
+    if (filters.date_from)   params.set('date_from',   filters.date_from);
+    if (filters.date_to)     params.set('date_to',     filters.date_to);
+
+    var url = '/api/maint/v2/config/audit/export.csv';
+    var qs  = params.toString();
+    if (qs) url += '?' + qs;
+
+    // Deshabilitar botón + spinner visual mientras verificamos
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+    try {
+        var head = await fetch(url, { method: 'HEAD', credentials: 'include' });
+
+        if (!head.ok) {
+            var msg = head.status === 401
+                ? 'Sesión expirada. Recarga la página.'
+                : head.status === 403
+                    ? 'No tienes permiso para exportar la auditoría.'
+                    : 'Error al verificar la descarga (HTTP ' + head.status + ').';
+            MaintUtils.toast(msg, 'error');
+            return;
+        }
+
+        // Disparar descarga real con anchor temporal (respeta Content-Disposition del servidor)
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = '';      // el navegador usa el filename del header
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+    } catch (e) {
+        MaintUtils.toast('Error de conexión al intentar descargar el CSV.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
     }
 }
 
