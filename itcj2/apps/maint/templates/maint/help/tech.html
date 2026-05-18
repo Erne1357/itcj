@@ -11,6 +11,7 @@
     </p>
 </section>
 
+{% if help_all or 'maint.tickets.page.list' in user_perms %}
 <section id="mis-tickets" class="mn-help-section">
     <h2>1. Mis tickets asignados</h2>
     <p>
@@ -23,7 +24,9 @@
         <figcaption>(1) Asignado · (2) En Progreso — tus dos vistas principales como técnico.</figcaption>
     </figure>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.tickets.api.resolve' in user_perms %}
 <section id="iniciar" class="mn-help-section">
     <h2>2. Iniciar progreso</h2>
     <p>
@@ -71,7 +74,9 @@
         antes de cerrar el ticket.
     </div>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.comments.api.internal' in user_perms %}
 <section id="comentar-interno" class="mn-help-section">
     <h2>5. Comentar internamente</h2>
     <p>
@@ -85,7 +90,9 @@
         <figcaption>(1) escribe el comentario · (2) marca como Interno (opcional) · (3) publica.</figcaption>
     </figure>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.tickets.api.resolve' in user_perms %}
 <section id="evidencia" class="mn-help-section">
     <h2>6. Evidencia fotográfica</h2>
     <p>
@@ -97,5 +104,6 @@
         Descarga lo que necesites antes si lo requieres como respaldo.
     </div>
 </section>
+{% endif %}
 
 {% endblock %}

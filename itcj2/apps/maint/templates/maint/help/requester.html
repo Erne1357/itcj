@@ -50,6 +50,7 @@
     </figure>
 </section>
 
+{% if help_all or 'maint.tickets.api.create' in user_perms %}
 <section id="crear" class="mn-help-section">
     <h2>3. Crear una solicitud</h2>
     <p>Para reportar un problema entra a <strong>Nueva Solicitud</strong> desde la barra superior.</p>
@@ -76,7 +77,9 @@
         <strong>Adjuntos:</strong> imágenes hasta 3 MB (jpg, png, gif, webp), máximo 5 por ticket.
     </div>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.tickets.page.detail' in user_perms %}
 <section id="detalle" class="mn-help-section">
     <h2>4. Ver el detalle de mi ticket</h2>
     <p>Entra al ticket desde el listado. El detalle tiene 5 pestañas:</p>
@@ -106,7 +109,9 @@
         <figcaption><strong>Historial:</strong> auditoría completa con todas las acciones (asignaciones, cambios de estado, comentarios).</figcaption>
     </figure>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.comments.api.create' in user_perms %}
 <section id="comentar" class="mn-help-section">
     <h2>5. Comentar en mi ticket</h2>
     <p>
@@ -119,7 +124,9 @@
         <figcaption>Escribe tu comentario y publícalo. Los comentarios marcados como <em>internos</em> solo los ve el personal de Mantenimiento.</figcaption>
     </figure>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.tickets.api.cancel' in user_perms %}
 <section id="cancelar" class="mn-help-section">
     <h2>6. Cancelar un ticket</h2>
     <p>
@@ -137,7 +144,9 @@
         <figcaption>2. Indica el motivo (ej. duplicado, ya resuelto, no requerido) y confirma.</figcaption>
     </figure>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.tickets.api.rate' in user_perms %}
 <section id="calificar" class="mn-help-section">
     <h2>7. Calificar un ticket resuelto</h2>
     <p>
@@ -151,7 +160,9 @@
         <figcaption>Modal de calificación: estrellas + comentario.</figcaption>
     </figure>
 </section>
+{% endif %}
 
+{% if help_all or 'maint.tickets.api.create' in user_perms %}
 <section id="restriccion-3" class="mn-help-section">
     <h2>8. Restricción: 3 tickets resueltos sin calificar</h2>
     <p>
@@ -168,5 +179,6 @@
         "Nueva Solicitud" mostrará el aviso.
     </div>
 </section>
+{% endif %}
 
 {% endblock %}

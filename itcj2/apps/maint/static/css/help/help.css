@@ -305,6 +305,9 @@
 .mn-help-section {
     padding: .5rem 0 1.75rem;
     border-bottom: 1px solid var(--help-border);
+    /* El target de scrollIntoView es la <section> (no el h2): el ancla
+       debe quedar debajo del .mn-topbar + .mn-help-header sticky. */
+    scroll-margin-top: calc(var(--topbar-h) + var(--help-header-h) + 1rem);
 }
 
 .mn-help-section:last-child {

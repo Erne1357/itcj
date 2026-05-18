@@ -66,8 +66,12 @@ _DEPT_ACCESS = {"department_head", "secretary"}
 _CREATOR_ROLES = {"admin", "dispatcher", "department_head", "secretary", "staff"}
 
 
-def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
-    """Construye items de navegación filtrados por rol y permisos del usuario."""
+def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None = None) -> dict:
+    """Construye items de navegación filtrados por rol y permisos del usuario.
+
+    `jwt_role` es el `role` del JWT: si es "admin" se trata como admin
+    global (bypassa permisos granulares, igual que require_perms).
+    """
     from itcj2.core.services.authz_service import (
         user_roles_in_app,
         user_direct_perms_in_app,
@@ -164,14 +168,17 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
         })
 
     # ── Ayuda (visible solo si tiene al menos un perm de help) ───────────────
-    is_admin_global = "admin" in roles  # admin global bypassa perms granulares
+    # Granular 100% por permiso. Admin (rol maint "admin" o admin global del
+    # JWT) bypassa perms — ve las 3 pestañas y todas las guías.
+    is_admin_global = ("admin" in roles) or (str(jwt_role) == "admin")
     has_requester = is_admin_global or "maint.help.page.requester" in perms
     has_admin_help = is_admin_global or "maint.help.page.admin" in perms
     has_tech_help = is_admin_global or "maint.help.page.tech" in perms
 
     if has_requester or has_admin_help or has_tech_help:
         # URL preferida = la primera que el usuario tenga acceso, en este orden:
-        # requester > admin > tech (cubre la mayoría de los roles)
+        # requester > admin > tech. Un tech_maint sin perm requester aterriza
+        # directo en /maint/help/tech.
         if has_requester:
             help_url = "/maint/help"
         elif has_admin_help:
@@ -199,6 +206,8 @@ def _build_maint_nav(user_id: int, current_path: str, db) -> dict:
             "admin": has_admin_help,
             "tech": has_tech_help,
         },
+        # Si True, las guías de /maint/help/* se muestran todas sin gating.
+        "help_all": is_admin_global,
     }
 
 
@@ -263,7 +272,12 @@ def render_maint(
             from itcj2.database import SessionLocal
             _db = SessionLocal()
             try:
-                nav_ctx = _build_maint_nav(int(user["sub"]), request.url.path, _db)
+                nav_ctx = _build_maint_nav(
+                    int(user["sub"]),
+                    request.url.path,
+                    _db,
+                    jwt_role=user.get("role"),
+                )
             finally:
                 _db.close()
         except Exception as exc:
