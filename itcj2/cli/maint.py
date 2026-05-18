@@ -4,6 +4,7 @@ Comandos CLI de Mantenimiento para itcj2.
 
 Comandos:
     maint init-maint    Registra la app, permisos, roles y categorías base.
+    maint seed-config   Carga SQLs de configuración desde database/DML/maint/config/*.sql.
 """
 from pathlib import Path
 
@@ -14,7 +15,7 @@ DML_MAINT = PROJECT_ROOT / "database" / "DML" / "maint"
 
 
 def _run_sql_files(files: list[str]) -> None:
-    """Ejecuta una lista de archivos SQL usando el helper de core."""
+    """Ejecuta una lista de archivos SQL (nombres relativos a DML_MAINT) usando el helper de core."""
     from itcj2.cli.core import execute_sql_file
 
     for filename in files:
@@ -27,9 +28,67 @@ def _run_sql_files(files: list[str]) -> None:
         click.echo(f"   ✅ Completado: {filename}")
 
 
+def _seed_config_files() -> int:
+    """Glob y ejecuta todos los SQL en DML_MAINT/config/, orden alfabético.
+
+    Cada SQL debe ser idempotente (ON CONFLICT DO NOTHING).
+    Retorna el número de archivos ejecutados.
+    Si la carpeta no existe o está vacía, informa y retorna 0 sin error.
+    """
+    from itcj2.cli.core import execute_sql_file
+
+    config_dir = DML_MAINT / "config"
+
+    if not config_dir.exists():
+        click.echo("   ℹ️  Carpeta config/ no encontrada — se omite seed-config.")
+        return 0
+
+    sql_files = sorted(config_dir.glob("*.sql"), key=lambda p: p.name)
+
+    if not sql_files:
+        click.echo("   ℹ️  Carpeta config/ está vacía — no hay SQLs que ejecutar.")
+        return 0
+
+    for sql_path in sql_files:
+        click.echo(f"   🔄 Ejecutando: config/{sql_path.name}")
+        execute_sql_file(str(sql_path))
+        click.echo(f"   ✅ Completado: config/{sql_path.name}")
+
+    return len(sql_files)
+
+
 @click.group("maint")
 def maint_cli():
     """Comandos de inicialización de la app de Mantenimiento."""
+
+
+@maint_cli.command("seed-config")
+def seed_config_command():
+    """Carga SQLs de configuración desde database/DML/maint/config/*.sql.
+
+    Hace glob de todos los archivos *.sql en esa carpeta, los ordena
+    alfabéticamente y los ejecuta en ese orden usando execute_sql_file
+    (el mismo helper que usa init-maint).
+
+    Diseñado para ser idempotente: cada SQL en config/ DEBE incluir
+    ON CONFLICT DO NOTHING (o equivalente) para que pueda ejecutarse
+    repetidamente sin efectos secundarios.
+
+    Si la carpeta config/ no existe o está vacía, el comando termina
+    sin error con un mensaje informativo.
+    """
+    click.echo("🔧 Cargando configuración de Mantenimiento...")
+    click.echo()
+    try:
+        count = _seed_config_files()
+        click.echo()
+        if count:
+            click.echo(f"🎉 seed-config completado — {count} archivo(s) ejecutado(s).")
+        else:
+            click.echo("ℹ️  seed-config finalizado sin archivos que procesar.")
+    except Exception as e:
+        click.echo(f"\n💥 Error durante seed-config: {e}")
+        raise
 
 
 @maint_cli.command("init-maint")
@@ -47,6 +106,7 @@ def init_maint_command():
                                                   (asignaciones, admin, stats, warehouse vía dispatcher)
       09_assign_warehouse_user_roles.sql        → Propaga UserAppRole maint → warehouse
                                                   (admin/dispatcher/tech_maint)
+      config/*.sql (glob)                       → SQLs de configuración (seed-config)
 
     Todos los DML son idempotentes (ON CONFLICT DO NOTHING).
 
@@ -72,6 +132,9 @@ def init_maint_command():
             "08_insert_position_app_perm.sql",
             "09_assign_warehouse_user_roles.sql",
         ])
+        click.echo()
+        click.echo("   🔄 Ejecutando seed-config (config/*.sql)...")
+        _seed_config_files()
         click.echo()
         click.echo("🎉 ¡App de Mantenimiento inicializada exitosamente!")
         click.echo()

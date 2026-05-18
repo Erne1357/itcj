@@ -1,0 +1,48 @@
+/*
+ * config.css — Estilos para la página de Configuración de Mantenimiento
+ */
+
+/* ── Tab nav ─────────────────────────────────────────────────────── */
+.mn-config-tabs .nav-link {
+    color: var(--maint-muted, #607D8B);
+    font-size: 0.88rem;
+    padding: 0.5rem 0.85rem;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.mn-config-tabs .nav-link:hover:not(.active) {
+    color: var(--maint-primary, #1565C0);
+    border-color: transparent;
+    background: transparent;
+}
+
+.mn-config-tabs .nav-link.active {
+    color: var(--maint-primary-dark, #0D47A1);
+    border-bottom-color: var(--maint-primary, #1565C0);
+    font-weight: 600;
+    background: transparent;
+}
+
+/* ── Placeholder (tabs vacíos) ───────────────────────────────────── */
+.mn-config-placeholder {
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.mn-config-placeholder .fa-2x {
+    color: var(--maint-primary-light, #BBDEFB);
+}
+
+.mn-config-placeholder h5 {
+    color: var(--maint-muted, #607D8B);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.mn-config-placeholder p {
+    color: var(--maint-muted, #607D8B);
+}

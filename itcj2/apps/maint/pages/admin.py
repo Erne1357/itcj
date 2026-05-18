@@ -1,6 +1,6 @@
 """Páginas de administración de Mantenimiento."""
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.maint.pages.nav import render_maint
@@ -8,20 +8,28 @@ from itcj2.apps.maint.pages.nav import render_maint
 router = APIRouter(tags=["maint-pages"])
 
 
+@router.get("/admin/config", name="maint_pages.admin.config")
+async def admin_config(
+    request: Request,
+    user: dict = Depends(require_page_app("maint", perms=["maint.config.page.view"])),
+) -> HTMLResponse:
+    return render_maint(request, "maint/admin/config.html", {"active_page": "admin_config"})
+
+
 @router.get("/admin/categories", name="maint_pages.admin.categories")
 async def admin_categories(
     request: Request,
     user: dict = Depends(require_page_app("maint", perms=["maint.admin.page.categories"])),
-) -> HTMLResponse:
-    return render_maint(request, "maint/admin/categories.html", {"active_page": "admin_categories"})
+) -> RedirectResponse:
+    return RedirectResponse(url="/maint/admin/config#categorias", status_code=302)
 
 
 @router.get("/admin/areas", name="maint_pages.admin.areas")
 async def admin_areas(
     request: Request,
     user: dict = Depends(require_page_app("maint", perms=["maint.admin.page.areas"])),
-) -> HTMLResponse:
-    return render_maint(request, "maint/admin/areas.html", {"active_page": "admin_areas"})
+) -> RedirectResponse:
+    return RedirectResponse(url="/maint/admin/config#areas", status_code=302)
 
 
 @router.get("/admin/reports", name="maint_pages.admin.reports")

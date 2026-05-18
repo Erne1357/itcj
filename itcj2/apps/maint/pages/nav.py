@@ -125,8 +125,6 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
             "icon": "fa-gauge-high",
             "url": "/maint/admin/dashboard",
         })
-    _adm("Categorías",     "fa-tags",       "/maint/admin/categories", "maint.admin.page.categories")
-    _adm("Áreas Técnicas", "fa-users-cog",  "/maint/admin/areas",      "maint.admin.page.areas")
     _adm("Reportes",       "fa-chart-bar",  "/maint/admin/reports",    "maint.admin.page.reports")
     _adm("Estadísticas",   "fa-chart-pie",  "/maint/admin/stats",      "maint.stats.page.list")
     _adm("Análisis",       "fa-microscope", "/maint/admin/analysis",   "maint.analysis.page.list")
@@ -136,6 +134,33 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
             "label": "Administración",
             "icon": "fa-cog",
             "dropdown": admin_dropdown,
+        })
+
+    # ── Configuración (dropdown granular por permiso) ─────────────────────────
+    config_dropdown = []
+
+    def _cfg(label, icon, url, perm):
+        if is_admin_role or perm in perms:
+            config_dropdown.append({"label": label, "icon": icon, "url": url})
+
+    # Categorías usa el permiso heredado del dropdown Administración anterior
+    if is_admin_role or "maint.admin.page.categories" in perms:
+        config_dropdown.append({
+            "label": "Categorías y campos",
+            "icon": "fa-tags",
+            "url": "/maint/admin/config#categorias",
+        })
+    _cfg("Áreas técnicas",  "fa-users-cog", "/maint/admin/config#areas",       "maint.config.areas.api.read")
+    _cfg("Prioridades + SLA", "fa-flag",    "/maint/admin/config#prioridades",  "maint.config.priorities.api.read")
+    _cfg("Tipo y origen",   "fa-wrench",    "/maint/admin/config#tipos",        "maint.config.maint_types.api.read")
+    _cfg("Notificaciones",  "fa-bell",      "/maint/admin/config#notif",        "maint.config.notifications.api.read")
+    _cfg("Auditoría",       "fa-history",   "/maint/admin/config#audit",        "maint.config.audit.api.read")
+
+    if config_dropdown:
+        items.append({
+            "label": "Configuración",
+            "icon": "fa-sliders-h",
+            "dropdown": config_dropdown,
         })
 
     # ── Almacén (dropdown filtrado por perms granulares warehouse) ───────────
