@@ -143,10 +143,44 @@
 
             <!-- ── Prioridades + SLA ───────────────────────────────────── -->
             <div class="tab-pane fade" id="panel-prioridades" role="tabpanel" aria-labelledby="tab-prioridades">
-                <div class="mn-config-placeholder text-center py-5">
-                    <i class="fas fa-flag fa-2x mb-3 text-muted"></i>
-                    <h5 class="text-muted">Prioridades + SLA</h5>
-                    <p class="text-muted small mb-0">Esta sección estará disponible próximamente.</p>
+                <!-- Encabezado del panel -->
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <h6 class="mb-0 fw-semibold">Prioridades de tickets</h6>
+                        <p class="text-muted small mb-0">Gestiona prioridades, colores de badge y tiempo de respuesta SLA. Arrastra para reordenar.</p>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="btn-nueva-prioridad">
+                        <i class="fas fa-plus me-1"></i>
+                        <span class="d-none d-sm-inline">Nueva prioridad</span>
+                        <span class="d-inline d-sm-none">Nueva</span>
+                    </button>
+                </div>
+
+                <!-- Tabla de prioridades -->
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="table-prioridades">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="mn-col-icon" style="width:2.2rem;"></th>
+                                <th>Código</th>
+                                <th>Badge / Etiqueta</th>
+                                <th>SLA</th>
+                                <th class="text-center" style="width:3rem;" title="Predeterminada">
+                                    <i class="fas fa-star text-warning"></i>
+                                </th>
+                                <th class="text-center">Estado</th>
+                                <th style="width:7rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-prioridades">
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Cargando prioridades...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -170,11 +204,86 @@
 
             <!-- ── Auditoría ──────────────────────────────────────────── -->
             <div class="tab-pane fade" id="panel-audit" role="tabpanel" aria-labelledby="tab-audit">
-                <div class="mn-config-placeholder text-center py-5">
-                    <i class="fas fa-history fa-2x mb-3 text-muted"></i>
-                    <h5 class="text-muted">Auditoría</h5>
-                    <p class="text-muted small mb-0">Esta sección estará disponible próximamente.</p>
+                <!-- Encabezado + filtros -->
+                <div class="mb-3">
+                    <h6 class="mb-1 fw-semibold">Registro de auditoría</h6>
+                    <p class="text-muted small mb-3">Historial de cambios en la configuración del sistema.</p>
+
+                    <!-- Filtros -->
+                    <div class="row g-2 align-items-end">
+                        <div class="col-6 col-md-2">
+                            <label class="form-label form-label-sm mb-1">Entidad</label>
+                            <select class="form-select form-select-sm" id="audit-filter-entity">
+                                <option value="">Todas</option>
+                                <option value="priority">Prioridad</option>
+                                <option value="category">Categoría</option>
+                                <option value="field_template">Campo de formulario</option>
+                                <option value="maint_type">Tipo de mantenimiento</option>
+                                <option value="service_origin">Origen de servicio</option>
+                                <option value="area">Área técnica</option>
+                                <option value="notification">Notificación</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label form-label-sm mb-1">Acción</label>
+                            <select class="form-select form-select-sm" id="audit-filter-action">
+                                <option value="">Todas</option>
+                                <option value="create">Crear</option>
+                                <option value="update">Editar</option>
+                                <option value="delete">Eliminar</option>
+                                <option value="toggle">Toggle</option>
+                                <option value="reorder">Reordenar</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label form-label-sm mb-1">Usuario ID</label>
+                            <input type="number" class="form-control form-control-sm" id="audit-filter-user" placeholder="ID numérico" min="1">
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label form-label-sm mb-1">Desde</label>
+                            <input type="date" class="form-control form-control-sm" id="audit-filter-from">
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label form-label-sm mb-1">Hasta</label>
+                            <input type="date" class="form-control form-control-sm" id="audit-filter-to">
+                        </div>
+                        <div class="col-6 col-md-2 d-flex gap-2">
+                            <button class="btn btn-primary btn-sm flex-grow-1" id="btn-audit-apply">
+                                <i class="fas fa-search me-1"></i>Aplicar
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" id="btn-audit-clear" title="Limpiar filtros">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Tabla paginada -->
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="table-audit">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:9rem;">Fecha</th>
+                                <th>Usuario</th>
+                                <th>Entidad</th>
+                                <th style="width:7rem;">Acción</th>
+                                <th>Resumen</th>
+                                <th style="width:3.5rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-audit">
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Cargando auditoría...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginación -->
+                <div class="mt-3" id="audit-pagination"></div>
             </div>
 
         </div>
@@ -229,6 +338,137 @@
                 <button type="button" class="btn btn-primary btn-sm" id="btn-guardar-categoria">
                     <i class="fas fa-save me-1"></i>Guardar
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal: Crear / Editar prioridad ─────────────────────────────────── -->
+<div class="modal fade" id="modal-prioridad" tabindex="-1" aria-labelledby="modal-prioridad-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-semibold" id="modal-prioridad-label">Nueva prioridad</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-prioridad" novalidate>
+                    <input type="hidden" id="pri-edit-id">
+                    <div class="row g-3">
+                        <!-- Código (solo en crear) -->
+                        <div class="col-sm-3" id="pri-code-group">
+                            <label class="form-label fw-medium" for="pri-code">Código <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="pri-code"
+                                   placeholder="ej. ALTA" maxlength="20"
+                                   pattern="[A-Z][A-Z0-9_]*" title="Empieza con letra, solo mayúsculas, dígitos y guion bajo">
+                            <div class="invalid-feedback" id="pri-code-err"></div>
+                        </div>
+
+                        <!-- Etiqueta -->
+                        <div class="col-sm-5">
+                            <label class="form-label fw-medium" for="pri-label">Etiqueta <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="pri-label" placeholder="ej. Alta" maxlength="60">
+                            <div class="invalid-feedback" id="pri-label-err"></div>
+                        </div>
+
+                        <!-- Orden -->
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="pri-display-order">Orden</label>
+                            <input type="number" class="form-control" id="pri-display-order" min="0" max="9999" value="0">
+                        </div>
+
+                        <!-- Color -->
+                        <div class="col-sm-2">
+                            <label class="form-label fw-medium" for="pri-color">Color</label>
+                            <input type="color" class="form-control form-control-color w-100" id="pri-color" value="#607D8B" title="Color del badge">
+                        </div>
+
+                        <!-- Hex -->
+                        <div class="col-sm-3">
+                            <label class="form-label fw-medium" for="pri-hex">Hex</label>
+                            <input type="text" class="form-control" id="pri-hex" placeholder="#607D8B" maxlength="7">
+                        </div>
+
+                        <!-- Badge class -->
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="pri-badge-class">Clase Bootstrap</label>
+                            <select class="form-select" id="pri-badge-class">
+                                <option value="">Por defecto (usa color)</option>
+                                <option value="bg-danger">Rojo (danger)</option>
+                                <option value="bg-warning text-dark">Amarillo (warning)</option>
+                                <option value="bg-success">Verde (success)</option>
+                                <option value="bg-primary">Azul (primary)</option>
+                                <option value="bg-info text-dark">Celeste (info)</option>
+                                <option value="bg-secondary">Gris (secondary)</option>
+                                <option value="bg-dark">Oscuro (dark)</option>
+                            </select>
+                            <div class="form-text">Si se elige clase, el color custom se ignora.</div>
+                        </div>
+
+                        <!-- Predeterminada -->
+                        <div class="col-sm-3 d-flex align-items-end">
+                            <div class="form-check mb-1">
+                                <input class="form-check-input" type="checkbox" id="pri-is-default">
+                                <label class="form-check-label fw-medium" for="pri-is-default">
+                                    <i class="fas fa-star text-warning me-1"></i>Predeterminada
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- SLA horas -->
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="pri-sla-hours">SLA (horas) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="pri-sla-hours" min="1" max="99999" placeholder="ej. 24">
+                            <div class="invalid-feedback" id="pri-sla-hours-err"></div>
+                            <div class="mt-1" id="pri-sla-indicator"></div>
+                        </div>
+
+                        <!-- Preview badge en vivo -->
+                        <div class="col-12">
+                            <label class="form-label fw-medium">Vista previa del badge</label>
+                            <div class="mn-badge-preview-box p-2 border rounded" id="pri-badge-preview">
+                                <span class="badge bg-secondary">Etiqueta</span>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-guardar-prioridad">
+                    <i class="fas fa-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal: Diff de auditoría ─────────────────────────────────────────── -->
+<div class="modal fade" id="modal-audit-diff" tabindex="-1" aria-labelledby="modal-audit-diff-label" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-semibold" id="modal-audit-diff-label">
+                    <i class="fas fa-code-branch me-2 text-primary"></i>Detalle del cambio
+                </h5>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="audit-diff-body">
+                    <div class="text-center py-4 text-muted">
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>Cargando...
+                    </div>
+                </div>
+                <!-- JSON crudo (toggle) -->
+                <div class="d-none mt-3" id="audit-raw-json">
+                    <hr>
+                    <p class="text-muted small fw-medium mb-1">JSON crudo</p>
+                    <pre class="bg-light border rounded p-3 small" style="max-height:300px; overflow:auto;" id="audit-raw-pre"></pre>
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-audit-json">Ver JSON crudo</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
             </div>
         </div>
     </div>
@@ -293,5 +533,7 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script src="/static/maint/js/admin/config/config_main.js?v={{ sv('js/admin/config/config_main.js') }}"></script>
 <script src="/static/maint/js/admin/config/categories_tab.js?v={{ sv('js/admin/config/categories_tab.js') }}"></script>
+<script src="/static/maint/js/admin/config/priorities_tab.js?v={{ sv('js/admin/config/priorities_tab.js') }}"></script>
+<script src="/static/maint/js/admin/config/audit_tab.js?v={{ sv('js/admin/config/audit_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/field_template_builder.js?v={{ sv('js/admin/config/field_template_builder.js') }}"></script>
 {% endblock %}

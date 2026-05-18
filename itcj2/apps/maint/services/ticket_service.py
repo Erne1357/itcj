@@ -5,7 +5,8 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from itcj2.apps.maint.models.ticket import MaintTicket, SLA_HOURS
+from itcj2.apps.maint.models.ticket import MaintTicket, SLA_HOURS  # SLA_HOURS se mantiene como fallback
+from itcj2.apps.maint.utils.catalog_cache import get_priority_codes, get_sla_hours
 from itcj2.apps.maint.models.category import MaintCategory
 from itcj2.apps.maint.models.comment import MaintComment
 from itcj2.apps.maint.models.status_log import MaintStatusLog
@@ -41,8 +42,12 @@ def create_ticket(
     un solo depto activo, se usa; si tiene varios, se requiere selección
     explícita (HTTP 400).
     """
-    if priority not in SLA_HOURS:
-        raise HTTPException(status_code=400, detail='Prioridad inválida. Valores: BAJA, MEDIA, ALTA, URGENTE')
+    valid_codes = get_priority_codes()
+    if priority not in valid_codes:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Prioridad inválida. Valores permitidos: {", ".join(sorted(valid_codes))}',
+        )
 
     requester = db.get(User, requester_id)
     if not requester:
@@ -97,7 +102,7 @@ def create_ticket(
     ticket_number = generate_ticket_number(db)
     created_by = created_by_id or requester_id
     now = now_local()
-    due_at = now + timedelta(hours=SLA_HOURS[priority])
+    due_at = now + timedelta(hours=get_sla_hours(priority))
 
     ticket = MaintTicket(
         ticket_number=ticket_number,
@@ -276,11 +281,15 @@ def update_pending_ticket(
         ticket.custom_fields = {}  # Limpiar campos dinámicos al cambiar categoría
 
     if priority and priority != ticket.priority:
-        if priority not in SLA_HOURS:
-            raise HTTPException(status_code=400, detail='Prioridad inválida')
+        valid_codes = get_priority_codes()
+        if priority not in valid_codes:
+            raise HTTPException(
+                status_code=400,
+                detail=f'Prioridad inválida. Valores permitidos: {", ".join(sorted(valid_codes))}',
+            )
         ticket.priority = priority
         # Recalcular due_at con la nueva prioridad
-        ticket.due_at = now_local() + timedelta(hours=SLA_HOURS[priority])
+        ticket.due_at = now_local() + timedelta(hours=get_sla_hours(priority))
 
     if title is not None:
         ticket.title = title.strip()

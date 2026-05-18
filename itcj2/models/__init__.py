@@ -45,4 +45,5 @@ from itcj2.apps.warehouse.models import (  # noqa: F401
 from itcj2.apps.maint.models import (  # noqa: F401
     MaintCategory, MaintTicket, MaintTicketTechnician, MaintTechnicianArea,
     MaintStatusLog, MaintTicketActionLog, MaintComment, MaintAttachment,
+    MaintPriority, MaintConfigChangeLog,
 )

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.maint.schemas.categories import UpdateFieldTemplateRequest
 from itcj2.apps.maint.services import category_service
+from itcj2.apps.maint.services.config_audit_service import log_config_change, client_ip
 
 router = APIRouter(tags=["maint-config-field-templates"])
 logger = logging.getLogger(__name__)
@@ -57,9 +58,27 @@ def update_field_template(
     body.fields = [] elimina el template (sin campos dinámicos).
     La validación del schema la realiza validate_field_template dentro del service.
     """
+    # Capturar estado previo del field_template
+    from itcj2.apps.maint.models.category import MaintCategory
+    _cat = db.get(MaintCategory, category_id)
+    before_template = _cat.field_template if _cat else None
+
+    category = category_service.update_field_template(db, category_id, body.fields)
+
+    # Registrar auditoría en transacción separada (el service ya hizo commit)
     try:
-        category = category_service.update_field_template(db, category_id, body.fields)
-        return {"success": True, "data": _category_to_dict(category)}
-    except Exception as e:
-        # HTTPException de 404/422/500 ya propagada por el service; re-raise directo
-        raise
+        log_config_change(
+            db=db,
+            user_id=int(user["sub"]),
+            entity_type="field_template",
+            entity_id=category_id,
+            action="update",
+            before={"fields": before_template},
+            after={"fields": category.field_template},
+            ip=client_ip(request),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return {"success": True, "data": _category_to_dict(category)}

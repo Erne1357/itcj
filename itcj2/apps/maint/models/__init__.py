@@ -6,6 +6,8 @@ from itcj2.apps.maint.models.status_log import MaintStatusLog
 from itcj2.apps.maint.models.action_log import MaintTicketActionLog
 from itcj2.apps.maint.models.comment import MaintComment
 from itcj2.apps.maint.models.attachment import MaintAttachment
+from itcj2.apps.maint.models.priority import MaintPriority
+from itcj2.apps.maint.models.config_change_log import MaintConfigChangeLog
 
 __all__ = [
     "MaintCategory",
@@ -16,4 +18,6 @@ __all__ = [
     "MaintTicketActionLog",
     "MaintComment",
     "MaintAttachment",
+    "MaintPriority",
+    "MaintConfigChangeLog",
 ]

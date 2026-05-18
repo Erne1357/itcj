@@ -33,6 +33,16 @@ const TAB_INITS = {
             window.MaintConfigCategories.init();
         }
     },
+    prioridades: function () {
+        if (window.MaintConfigPriorities) {
+            window.MaintConfigPriorities.init();
+        }
+    },
+    audit: function () {
+        if (window.MaintConfigAudit) {
+            window.MaintConfigAudit.init();
+        }
+    },
 };
 
 // === INICIALIZACIÓN ===
