@@ -13,6 +13,7 @@ from itcj2.apps.maint.api.admin import router as admin_router
 from itcj2.apps.maint.api.reports import router as reports_router
 from itcj2.apps.maint.api.stats import router as stats_router
 from itcj2.apps.maint.api.analysis import router as analysis_router
+from itcj2.apps.maint.api.config import config_router
 
 maint_router = APIRouter(prefix="/api/maint/v2", tags=["maint"])
 
@@ -28,3 +29,4 @@ maint_router.include_router(admin_router, prefix="/admin")
 maint_router.include_router(reports_router, prefix="/reports")
 maint_router.include_router(stats_router, prefix="/stats")
 maint_router.include_router(analysis_router, prefix="/analysis")
+maint_router.include_router(config_router, prefix="/config")

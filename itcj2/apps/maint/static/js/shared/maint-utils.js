@@ -285,6 +285,7 @@
 
         if (!res.ok) {
             var msg = (body && body.detail) ? body.detail
+                    : (body && body.error) ? body.error
                     : (body && body.message) ? body.message
                     : 'Error ' + res.status;
             var err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));

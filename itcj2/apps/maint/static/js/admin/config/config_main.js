@@ -5,7 +5,8 @@
  * Lógica:
  *  - Al cargar, activa el tab correspondiente a location.hash (o el primero).
  *  - Al cambiar de tab, actualiza location.hash sin recargar la página.
- * Sin lógica de datos — esqueleto navegable (Fase 1).
+ *  - Coordina la init lazy de sub-módulos: llama a su init() la primera vez
+ *    que se muestra el tab correspondiente.
  */
 
 // === CONSTANTES ===
@@ -19,6 +20,20 @@ const VALID_HASHES = new Set([
     'notif',
     'audit',
 ]);
+
+/**
+ * Mapa hash → función de init lazy.
+ * Cada módulo expone window.MaintConfig{Nombre}.init() y se llama
+ * exactamente una vez cuando el tab se muestra por primera vez.
+ * El flag de "ya inicializado" lo maneja cada módulo internamente.
+ */
+const TAB_INITS = {
+    categorias: function () {
+        if (window.MaintConfigCategories) {
+            window.MaintConfigCategories.init();
+        }
+    },
+};
 
 // === INICIALIZACIÓN ===
 document.addEventListener('DOMContentLoaded', function () {
@@ -43,11 +58,11 @@ function activateTabFromHash() {
     }
 }
 
-// === SINCRONIZACIÓN DE HASH ===
+// === SINCRONIZACIÓN DE HASH + INIT LAZY ===
 /**
- * Escucha el evento `shown.bs.tab` de Bootstrap para actualizar
- * location.hash cada vez que el usuario cambia de tab.
- * Se usa replaceState para no generar entradas de historial extra.
+ * Escucha el evento `shown.bs.tab` de Bootstrap para:
+ *   1. Actualizar location.hash (sin entrada extra en el historial).
+ *   2. Llamar al init lazy del módulo correspondiente (si existe).
  */
 function setupHashSync() {
     const tabsEl = document.getElementById('configTabs');
@@ -57,6 +72,10 @@ function setupHashSync() {
         const hash = e.target.getAttribute('data-hash');
         if (hash) {
             history.replaceState(null, '', '#' + hash);
+            // Init lazy del sub-módulo
+            if (typeof TAB_INITS[hash] === 'function') {
+                TAB_INITS[hash]();
+            }
         }
     });
 }

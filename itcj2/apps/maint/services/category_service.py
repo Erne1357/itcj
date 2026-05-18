@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from itcj2.apps.maint.models.category import MaintCategory
 from itcj2.apps.maint.utils.timezone_utils import now_local
+from itcj2.apps.maint.services.field_template_validator import validate_field_template
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,14 @@ def create_category(
     if existing:
         raise HTTPException(status_code=400, detail=f'Ya existe una categoría con el código {code}')
 
+    validated_fields = validate_field_template(field_template)
+
     category = MaintCategory(
         code=code.upper().strip(),
         name=name.strip(),
         description=description.strip() if description else None,
         icon=icon or 'bi-tools',
-        field_template=field_template,
+        field_template=validated_fields if validated_fields else None,
         display_order=display_order or 0,
     )
     db.add(category)
@@ -116,12 +119,13 @@ def update_field_template(
     if not category:
         raise HTTPException(status_code=404, detail='Categoría no encontrada')
 
-    category.field_template = fields if fields else None
+    validated = validate_field_template(fields)
+    category.field_template = validated if validated else None
     category.updated_at = now_local()
 
     try:
         db.commit()
-        logger.info(f"field_template de {category.code} actualizado ({len(fields)} campos)")
+        logger.info(f"field_template de {category.code} actualizado ({len(validated)} campos)")
         return category
     except Exception as e:
         db.rollback()

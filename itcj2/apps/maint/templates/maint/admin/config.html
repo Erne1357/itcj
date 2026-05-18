@@ -93,10 +93,42 @@
 
             <!-- ── Categorías y campos ─────────────────────────────────── -->
             <div class="tab-pane fade" id="panel-categorias" role="tabpanel" aria-labelledby="tab-categorias">
-                <div class="mn-config-placeholder text-center py-5">
-                    <i class="fas fa-tags fa-2x mb-3 text-muted"></i>
-                    <h5 class="text-muted">Categorías y campos dinámicos</h5>
-                    <p class="text-muted small mb-0">Esta sección estará disponible próximamente.</p>
+                <!-- Encabezado del panel -->
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <h6 class="mb-0 fw-semibold">Categorías de tickets</h6>
+                        <p class="text-muted small mb-0">Gestiona categorías y sus campos dinámicos para la creación de tickets.</p>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="btn-nueva-categoria">
+                        <i class="fas fa-plus me-1"></i>
+                        <span class="d-none d-sm-inline">Nueva categoría</span>
+                        <span class="d-inline d-sm-none">Nueva</span>
+                    </button>
+                </div>
+
+                <!-- Tabla de categorías -->
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="table-categorias">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="mn-col-icon" style="width:2.5rem;"></th>
+                                <th>Código</th>
+                                <th>Nombre</th>
+                                <th class="text-center d-none d-md-table-cell">Orden</th>
+                                <th class="text-center">Campos</th>
+                                <th class="text-center">Activa</th>
+                                <th style="width:8rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-categorias">
+                            <tr id="row-categorias-loading">
+                                <td colspan="7" class="text-center py-4 text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Cargando categorías...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -148,8 +180,118 @@
         </div>
     </div>
 </div>
+
+<!-- ── Modal: Crear / Editar categoría ─────────────────────────────────── -->
+<div class="modal fade" id="modal-categoria" tabindex="-1" aria-labelledby="modal-categoria-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-semibold" id="modal-categoria-label">Nueva categoría</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-categoria" novalidate>
+                    <input type="hidden" id="cat-edit-id">
+                    <div class="row g-3">
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="cat-code">Código <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="cat-code"
+                                   placeholder="ej. ELEC" maxlength="20"
+                                   pattern="[A-Z0-9_]+" title="Solo mayúsculas, dígitos y guion bajo">
+                            <div class="invalid-feedback" id="cat-code-err"></div>
+                        </div>
+                        <div class="col-sm-8">
+                            <label class="form-label fw-medium" for="cat-name">Nombre <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="cat-name" placeholder="Ej. Eléctrico" maxlength="80">
+                            <div class="invalid-feedback" id="cat-name-err"></div>
+                        </div>
+                        <div class="col-sm-8">
+                            <label class="form-label fw-medium" for="cat-description">Descripción</label>
+                            <textarea class="form-control" id="cat-description" rows="2" maxlength="255" placeholder="Descripción breve (opcional)"></textarea>
+                        </div>
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="cat-icon">Icono (FA)</label>
+                            <div class="input-group">
+                                <span class="input-group-text" id="cat-icon-preview"><i class="fas fa-tag" id="cat-icon-preview-i"></i></span>
+                                <input type="text" class="form-control" id="cat-icon" placeholder="fa-tag" maxlength="60">
+                            </div>
+                            <div class="form-text">Clase Font Awesome, ej: <code>fa-bolt</code></div>
+                        </div>
+                        <div class="col-sm-4">
+                            <label class="form-label fw-medium" for="cat-display-order">Orden</label>
+                            <input type="number" class="form-control" id="cat-display-order" min="0" max="9999" value="0">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-guardar-categoria">
+                    <i class="fas fa-save me-1"></i>Guardar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal: Field Template Builder ──────────────────────────────────── -->
+<div class="modal fade" id="modal-builder" tabindex="-1" aria-labelledby="modal-builder-label" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <div>
+                    <h5 class="modal-title fw-semibold" id="modal-builder-label">
+                        <i class="fas fa-th-list me-2 text-primary"></i>Editor de campos — <span id="builder-cat-name"></span>
+                    </h5>
+                    <p class="text-muted small mb-0" id="builder-cat-code"></p>
+                </div>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="row g-0 mn-builder-layout">
+                    <!-- Panel izquierdo: editor -->
+                    <div class="col-lg-7 mn-builder-editor p-3 border-end">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <span class="fw-medium text-muted small">CAMPOS DEL FORMULARIO</span>
+                            <button class="btn btn-outline-primary btn-sm" id="btn-agregar-campo">
+                                <i class="fas fa-plus me-1"></i>Agregar campo
+                            </button>
+                        </div>
+                        <!-- Alerta de error de guardado -->
+                        <div class="alert alert-danger d-none mb-3" id="builder-save-error" role="alert"></div>
+                        <!-- Lista de campos (SortableJS aquí) -->
+                        <div id="builder-fields-list" class="mn-builder-fields-list">
+                            <div class="text-center text-muted py-4" id="builder-fields-empty">
+                                <i class="fas fa-inbox fa-2x mb-2 d-block text-muted opacity-50"></i>
+                                Sin campos. Usa "Agregar campo" para comenzar.
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Panel derecho: vista previa -->
+                    <div class="col-lg-5 mn-builder-preview p-3">
+                        <span class="fw-medium text-muted small d-block mb-3">VISTA PREVIA EN VIVO</span>
+                        <div id="builder-preview-body" class="row g-3">
+                            <div class="col-12 text-muted small text-center py-3" id="builder-preview-empty">
+                                Agrega campos para ver la vista previa.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-guardar-template">
+                    <i class="fas fa-save me-1"></i>Guardar campos
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script src="/static/maint/js/admin/config/config_main.js?v={{ sv('js/admin/config/config_main.js') }}"></script>
+<script src="/static/maint/js/admin/config/categories_tab.js?v={{ sv('js/admin/config/categories_tab.js') }}"></script>
+<script src="/static/maint/js/admin/config/field_template_builder.js?v={{ sv('js/admin/config/field_template_builder.js') }}"></script>
 {% endblock %}
