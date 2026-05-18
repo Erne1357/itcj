@@ -19,11 +19,19 @@ existente de MaintNotificationHelper.notify_technician_assigned(...):
     MaintEmailHelper.send_assigned(db, ticket, technician)
 
 Del mismo modo para resolved, overdue y canceled.
+
+== Subjects desde BD ==
+El asunto (subject) de cada correo se resuelve via render_notification() usando
+la plantilla en maint_notification_template. Si la plantilla está inactiva o
+ausente, se usa el f-string hardcoded original como fallback sin lanzar excepción.
+El cuerpo HTML del correo sigue saliendo de maint/emails/*.html (sin cambios v1).
 """
 import logging
 
 from jinja2 import TemplateNotFound
 from sqlalchemy.orm import Session
+
+from itcj2.apps.maint.services.notification_helper import render_notification
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +120,13 @@ class MaintEmailHelper:
             if html is None:
                 return False
 
-            subject = f"[Mantenimiento ITCJ] Ticket #{ticket.ticket_number} asignado a ti"
+            subject = render_notification(
+                db=db,
+                code='ticket_assigned',
+                context={'ticket': ticket, 'recipient': technician},
+                fallback_subject=f"[Mantenimiento ITCJ] Ticket #{ticket.ticket_number} asignado a ti",
+                fallback_body='',
+            )['subject']
             success = _send(token, subject, html, email)
             if success:
                 logger.info(
@@ -152,7 +166,13 @@ class MaintEmailHelper:
             if html is None:
                 return False
 
-            subject = f"[Mantenimiento ITCJ] Tu solicitud #{ticket.ticket_number} fue atendida"
+            subject = render_notification(
+                db=db,
+                code='ticket_resolved',
+                context={'ticket': ticket, 'recipient': requester},
+                fallback_subject=f"[Mantenimiento ITCJ] Tu solicitud #{ticket.ticket_number} fue atendida",
+                fallback_body='',
+            )['subject']
             success = _send(token, subject, html, email)
             if success:
                 logger.info(
@@ -191,7 +211,13 @@ class MaintEmailHelper:
             if html is None:
                 return False
 
-            subject = f"[Mantenimiento ITCJ] URGENTE — Ticket #{ticket.ticket_number} ha vencido"
+            subject = render_notification(
+                db=db,
+                code='ticket_overdue_sla',
+                context={'ticket': ticket, 'recipient': recipient_user},
+                fallback_subject=f"[Mantenimiento ITCJ] URGENTE — Ticket #{ticket.ticket_number} ha vencido",
+                fallback_body='',
+            )['subject']
             success = _send(token, subject, html, email)
             if success:
                 logger.info(
@@ -230,7 +256,13 @@ class MaintEmailHelper:
             if html is None:
                 return False
 
-            subject = f"[Mantenimiento ITCJ] Ticket #{ticket.ticket_number} cancelado"
+            subject = render_notification(
+                db=db,
+                code='ticket_canceled',
+                context={'ticket': ticket, 'recipient': recipient_user},
+                fallback_subject=f"[Mantenimiento ITCJ] Ticket #{ticket.ticket_number} cancelado",
+                fallback_body='',
+            )['subject']
             success = _send(token, subject, html, email)
             if success:
                 logger.info(

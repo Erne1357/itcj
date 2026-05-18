@@ -449,3 +449,99 @@ def invalidate_areas() -> None:
     _areas_cache = None
     _area_codes_cache = None
     logger.debug("catalog_cache: cache de areas invalidado")
+
+
+# ==================== NOTIFICATION TEMPLATES ====================
+
+_notification_templates_cache: Optional[list] = None
+
+
+def _load_notification_templates_from_db() -> list:
+    """
+    Abre una sesión efímera, consulta maint_notification_template, cierra la sesión.
+    Retorna lista de dicts (todas, activas e inactivas) ordenada por id.
+    Lanza excepción si falla (el caller hace el try/except).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.maint.models.notification_template import MaintNotificationTemplate
+
+    db = SessionLocal()
+    try:
+        rows = db.query(MaintNotificationTemplate).order_by(MaintNotificationTemplate.id).all()
+        return [_notification_template_to_dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _notification_template_to_dict(t) -> dict:
+    return {
+        "id": t.id,
+        "code": t.code,
+        "name": t.name,
+        "channel": t.channel,
+        "subject_template": t.subject_template,
+        "title_template": t.title_template,
+        "body_template": t.body_template,
+        "variables": t.variables,
+        "is_active": t.is_active,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        "updated_by_id": t.updated_by_id,
+    }
+
+
+def _ensure_notification_templates_cache() -> list:
+    """Rellena el cache si está vacío. Degrada silenciosamente si la BD falla."""
+    global _notification_templates_cache
+
+    if _notification_templates_cache is not None:
+        return _notification_templates_cache
+
+    try:
+        rows = _load_notification_templates_from_db()
+        _notification_templates_cache = rows
+        return _notification_templates_cache
+    except Exception as exc:
+        logger.warning(
+            f"catalog_cache: no se pudo cargar notification_templates desde BD ({exc!r}); sin plantillas"
+        )
+        return []
+
+
+def get_notification_template(code: str, db=None) -> Optional[dict]:
+    """
+    Retorna el dict de la plantilla con el code indicado, solo si está activa.
+    Retorna None si la plantilla no existe, está inactiva, o la BD falla.
+    `db` se acepta por compatibilidad pero no se usa (sesión efímera propia).
+    Nunca lanza excepción.
+    """
+    try:
+        rows = _ensure_notification_templates_cache()
+        for row in rows:
+            if row["code"] == code:
+                if row["is_active"]:
+                    return row
+                return None
+    except Exception as exc:
+        logger.warning(f"catalog_cache: error buscando notification_template '{code}' ({exc!r})")
+    return None
+
+
+def get_notification_templates(db=None) -> list:
+    """
+    Retorna todas las plantillas (activas e inactivas) como lista de dicts.
+    Retorna [] si la BD falla.
+    `db` se acepta por compatibilidad pero no se usa.
+    Nunca lanza excepción.
+    """
+    try:
+        return _ensure_notification_templates_cache()
+    except Exception as exc:
+        logger.warning(f"catalog_cache: error cargando notification_templates ({exc!r})")
+        return []
+
+
+def invalidate_notification_templates() -> None:
+    """Limpia el cache de plantillas de notificación para que se recargue en el siguiente acceso."""
+    global _notification_templates_cache
+    _notification_templates_cache = None
+    logger.debug("catalog_cache: cache de notification_templates invalidado")

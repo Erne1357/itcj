@@ -48,4 +48,5 @@ from itcj2.apps.maint.models import (  # noqa: F401
     MaintStatusLog, MaintTicketActionLog, MaintComment, MaintAttachment,
     MaintPriority, MaintConfigChangeLog,
     MaintMaintenanceType, MaintServiceOrigin,
+    MaintNotificationTemplate,
 )

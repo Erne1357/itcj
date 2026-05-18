@@ -20,6 +20,11 @@ from itcj2.apps.maint.schemas.config.areas import (
     ReorderAreaItem,
     ReorderAreas,
 )
+from itcj2.apps.maint.schemas.config.notifications import (
+    UpdateNotificationTemplate,
+    ToggleNotificationTemplate,
+    PreviewNotificationTemplate,
+)
 
 __all__ = [
     "CreatePriority",
@@ -37,4 +42,7 @@ __all__ = [
     "ToggleArea",
     "ReorderAreaItem",
     "ReorderAreas",
+    "UpdateNotificationTemplate",
+    "ToggleNotificationTemplate",
+    "PreviewNotificationTemplate",
 ]

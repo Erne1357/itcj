@@ -3,9 +3,17 @@ Helper de Notificaciones para la app de Mantenimiento.
 
 Notifica a los actores relevantes en cada evento del ciclo de vida de los tickets.
 Incluye broadcasts WebSocket via itcj2.sockets.maint para actualizaciones en tiempo real.
+
+== Plantillas desde BD ==
+render_notification() intenta resolver title/subject/body desde MaintNotificationTemplate
+(via catalog_cache). Si la plantilla está inactiva, ausente, o el render falla por
+cualquier motivo, usa los strings hardcoded pasados como fallback. Esto garantiza que
+el flujo de tickets NUNCA se rompe por un error de plantilla.
 """
 import logging
+from typing import Optional
 
+from jinja2 import Environment, ChainableUndefined
 from sqlalchemy.orm import Session
 
 from itcj2.core.services.notification_service import NotificationService
@@ -15,6 +23,71 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = '/maint/tickets'
 
+
+# ==================== RENDER DE PLANTILLAS ====================
+
+def render_notification(
+    db,
+    code: str,
+    context: dict,
+    *,
+    fallback_title: Optional[str] = None,
+    fallback_subject: Optional[str] = None,
+    fallback_body: str,
+) -> dict:
+    """
+    Intenta renderizar title/subject/body desde la plantilla BD con el code indicado.
+
+    Flujo:
+    1. Busca la plantilla en cache (get_notification_template) — solo retorna si activa.
+    2. Renderiza title_template, subject_template y body_template con Jinja2
+       usando ChainableUndefined (variables faltantes → cadena vacía, sin lanzar).
+    3. Ante CUALQUIER excepción en cualquier paso → devuelve los fallbacks.
+
+    Retorna siempre un dict con claves 'title', 'subject', 'body'. Nunca lanza.
+    """
+    _fallback = {
+        "title": fallback_title,
+        "subject": fallback_subject,
+        "body": fallback_body,
+    }
+    try:
+        from itcj2.apps.maint.utils.catalog_cache import get_notification_template
+
+        tpl = get_notification_template(code)
+        if tpl is None:
+            # Plantilla inactiva, ausente o error de BD → fallback silencioso
+            return _fallback
+
+        env = Environment(undefined=ChainableUndefined, autoescape=False)
+
+        def _render_field(template_str: Optional[str], default: Optional[str]) -> Optional[str]:
+            if not template_str:
+                return default
+            try:
+                return env.from_string(template_str).render(**context)
+            except Exception as render_exc:
+                logger.warning(
+                    "[maint] render_notification: error renderizando campo de plantilla '%s': %s",
+                    code, render_exc,
+                )
+                return default
+
+        return {
+            "title": _render_field(tpl.get("title_template"), fallback_title),
+            "subject": _render_field(tpl.get("subject_template"), fallback_subject),
+            "body": _render_field(tpl.get("body_template"), fallback_body),
+        }
+
+    except Exception as exc:
+        logger.warning(
+            "[maint] render_notification: error inesperado al renderizar plantilla '%s': %s",
+            code, exc,
+        )
+        return _fallback
+
+
+# ==================== HELPER DE NOTIFICACIONES ====================
 
 class MaintNotificationHelper:
 
@@ -47,14 +120,27 @@ class MaintNotificationHelper:
             recipients = {a.user_id for a in assignments}
             recipients.discard(ticket.requester_id)
 
+            context = {
+                'ticket': ticket,
+                'requester': ticket.requester,
+                'requester_name': requester_name,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_created',
+                context=context,
+                fallback_title=f'Nueva solicitud #{ticket.ticket_number}',
+                fallback_body=f'{ticket.category.name if ticket.category else ""} — {ticket.title[:80]}',
+            )
+
             for user_id in recipients:
                 NotificationService.create(
                     db=db,
                     user_id=user_id,
                     app_name='maint',
                     type='TICKET_CREATED',
-                    title=f'Nueva solicitud #{ticket.ticket_number}',
-                    body=f'{ticket.category.name if ticket.category else ""} — {ticket.title[:80]}',
+                    title=rendered['title'],
+                    body=rendered['body'],
                     data={
                         'ticket_id': ticket.id,
                         'url': f'{_BASE_URL}/{ticket.id}',
@@ -93,13 +179,25 @@ class MaintNotificationHelper:
             if not technician:
                 return
 
+            context = {
+                'ticket': ticket,
+                'technician': technician,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_assigned',
+                context=context,
+                fallback_title=f'Ticket #{ticket.ticket_number} asignado a ti',
+                fallback_body=f'{ticket.title[:100]}',
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=technician_id,
                 app_name='maint',
                 type='TICKET_ASSIGNED',
-                title=f'Ticket #{ticket.ticket_number} asignado a ti',
-                body=f'{ticket.title[:100]}',
+                title=rendered['title'],
+                body=rendered['body'],
                 data={
                     'ticket_id': ticket.id,
                     'url': f'{_BASE_URL}/{ticket.id}',
@@ -138,18 +236,32 @@ class MaintNotificationHelper:
 
             active_tech_ids = [t.user_id for t in ticket.active_technicians]
             tech_name = 'Un técnico'
+            tech = None
             if active_tech_ids:
                 from itcj2.core.models.user import User
                 tech = db.get(User, active_tech_ids[0])
                 tech_name = tech.full_name if tech else tech_name
+
+            context = {
+                'ticket': ticket,
+                'technician': tech,
+                'tech_name': tech_name,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_in_progress',
+                context=context,
+                fallback_title=f'Trabajando en tu solicitud #{ticket.ticket_number}',
+                fallback_body=f'{tech_name} comenzó a atender tu solicitud',
+            )
 
             NotificationService.create(
                 db=db,
                 user_id=ticket.requester_id,
                 app_name='maint',
                 type='TICKET_IN_PROGRESS',
-                title=f'Trabajando en tu solicitud #{ticket.ticket_number}',
-                body=f'{tech_name} comenzó a atender tu solicitud',
+                title=rendered['title'],
+                body=rendered['body'],
                 data={
                     'ticket_id': ticket.id,
                     'url': f'{_BASE_URL}/{ticket.id}',
@@ -187,13 +299,26 @@ class MaintNotificationHelper:
                 'RESOLVED_FAILED': 'atendido (sin resolución completa)',
             }.get(ticket.status, 'resuelto')
 
+            context = {
+                'ticket': ticket,
+                'requester': ticket.requester,
+                'status_text': status_text,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_resolved',
+                context=context,
+                fallback_title=f'Tu solicitud #{ticket.ticket_number} fue {status_text}',
+                fallback_body='Por favor califica el servicio recibido.',
+            )
+
             NotificationService.create(
                 db=db,
                 user_id=ticket.requester_id,
                 app_name='maint',
                 type='TICKET_RESOLVED',
-                title=f'Tu solicitud #{ticket.ticket_number} fue {status_text}',
-                body='Por favor califica el servicio recibido.',
+                title=rendered['title'],
+                body=rendered['body'],
                 data={
                     'ticket_id': ticket.id,
                     'url': f'{_BASE_URL}/{ticket.id}#resolution',
@@ -229,14 +354,27 @@ class MaintNotificationHelper:
             from itcj2.sockets.maint import broadcast_ticket_canceled
 
             active_tech_ids = [t.user_id for t in ticket.active_technicians]
+
+            context = {
+                'ticket': ticket,
+                'cancel_reason': ticket.cancel_reason,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_canceled',
+                context=context,
+                fallback_title=f'Ticket #{ticket.ticket_number} cancelado',
+                fallback_body=ticket.cancel_reason or ticket.title[:80],
+            )
+
             for tech_id in active_tech_ids:
                 NotificationService.create(
                     db=db,
                     user_id=tech_id,
                     app_name='maint',
                     type='TICKET_CANCELED',
-                    title=f'Ticket #{ticket.ticket_number} cancelado',
-                    body=ticket.cancel_reason or ticket.title[:80],
+                    title=rendered['title'],
+                    body=rendered['body'],
                     data={
                         'ticket_id': ticket.id,
                         'url': f'{_BASE_URL}/{ticket.id}',
@@ -284,14 +422,28 @@ class MaintNotificationHelper:
             if r_attention and r_speed:
                 avg_rating = round((r_attention + r_speed) / 2, 1)
 
+            context = {
+                'ticket': ticket,
+                'avg_rating': avg_rating,
+                'rating_attention': r_attention,
+                'rating_speed': r_speed,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_rated',
+                context=context,
+                fallback_title=f'Calificación recibida — #{ticket.ticket_number}',
+                fallback_body=f'Promedio: {avg_rating}/5' if avg_rating else 'Nueva calificación recibida',
+            )
+
             for tech_id in recipient_ids:
                 NotificationService.create(
                     db=db,
                     user_id=tech_id,
                     app_name='maint',
                     type='TICKET_RATED',
-                    title=f'Calificación recibida — #{ticket.ticket_number}',
-                    body=f'Promedio: {avg_rating}/5' if avg_rating else 'Nueva calificación recibida',
+                    title=rendered['title'],
+                    body=rendered['body'],
                     data={
                         'ticket_id': ticket.id,
                         'url': f'{_BASE_URL}/{ticket.id}#resolution',
@@ -299,7 +451,6 @@ class MaintNotificationHelper:
                         'rating_speed': r_speed,
                         'rating_efficiency': getattr(ticket, 'rating_efficiency', None),
                     },
-
                 )
 
             logger.info(
@@ -339,6 +490,21 @@ class MaintNotificationHelper:
 
             preview = comment.content[:100] + ('...' if len(comment.content) > 100 else '')
 
+            context = {
+                'ticket': ticket,
+                'comment': comment,
+                'author': author,
+                'author_name': author_name,
+                'preview': preview,
+            }
+            rendered = render_notification(
+                db=db,
+                code='ticket_comment',
+                context=context,
+                fallback_title=f'Nuevo comentario en #{ticket.ticket_number}',
+                fallback_body=f'{author_name}: {preview}',
+            )
+
             for user_id in recipients:
                 # Los comentarios internos solo llegan a técnicos/dispatchers
                 if comment.is_internal and user_id == ticket.requester_id:
@@ -348,13 +514,12 @@ class MaintNotificationHelper:
                     user_id=user_id,
                     app_name='maint',
                     type='TICKET_COMMENT',
-                    title=f'Nuevo comentario en #{ticket.ticket_number}',
-                    body=f'{author_name}: {preview}',
+                    title=rendered['title'],
+                    body=rendered['body'],
                     data={
                         'ticket_id': ticket.id,
                         'url': f'{_BASE_URL}/{ticket.id}#comments',
                     },
-
                 )
 
             logger.info(

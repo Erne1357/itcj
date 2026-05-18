@@ -48,6 +48,11 @@ const TAB_INITS = {
             window.MaintConfigCatalogs.init();
         }
     },
+    notif: function () {
+        if (window.MaintConfigNotifications) {
+            window.MaintConfigNotifications.init();
+        }
+    },
     audit: function () {
         if (window.MaintConfigAudit) {
             window.MaintConfigAudit.init();

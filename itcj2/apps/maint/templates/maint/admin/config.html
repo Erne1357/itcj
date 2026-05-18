@@ -324,10 +324,39 @@
 
             <!-- ── Plantillas de notificación ─────────────────────────── -->
             <div class="tab-pane fade" id="panel-notif" role="tabpanel" aria-labelledby="tab-notif">
-                <div class="mn-config-placeholder text-center py-5">
-                    <i class="fas fa-bell fa-2x mb-3 text-muted"></i>
-                    <h5 class="text-muted">Plantillas de notificación</h5>
-                    <p class="text-muted small mb-0">Esta sección estará disponible próximamente.</p>
+
+                <!-- Encabezado del panel -->
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <h6 class="mb-0 fw-semibold">Plantillas de notificación</h6>
+                        <p class="text-muted small mb-0">
+                            Edita el contenido y canal de cada plantilla. No se pueden crear ni eliminar plantillas desde aquí.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Tabla de plantillas -->
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="table-notif">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:9rem;">Código</th>
+                                <th>Nombre</th>
+                                <th style="width:8rem;">Canal</th>
+                                <th class="text-center" style="width:6rem;">Estado</th>
+                                <th class="d-none d-md-table-cell" style="width:11rem;">Actualizado</th>
+                                <th style="width:9rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-notif">
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Cargando plantillas de notificación...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -766,6 +795,173 @@
     </div>
 </div>
 
+<!-- ── Modal: Editor de plantilla de notificación ──────────────────────── -->
+<div class="modal fade" id="modal-notif-editor" tabindex="-1" aria-labelledby="modal-notif-editor-label" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+
+            <div class="modal-header border-0 pb-0">
+                <div>
+                    <h5 class="modal-title fw-semibold" id="modal-notif-editor-label">
+                        <i class="fas fa-bell me-2 text-primary"></i>
+                        <span id="notif-editor-title">Editar plantilla</span>
+                    </h5>
+                    <p class="text-muted small mb-0" id="notif-editor-subtitle"></p>
+                </div>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body p-0">
+
+                <!-- Spinner de carga inicial -->
+                <div class="text-center py-5" id="notif-editor-spinner">
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    Cargando plantilla...
+                </div>
+
+                <!-- Cuerpo del editor (oculto hasta que carga) -->
+                <div class="d-none" id="notif-editor-body">
+
+                    <!-- Alerta inline de error 422 (Jinja inválido) -->
+                    <div class="alert alert-danger d-none mx-3 mt-3 mb-0 py-2" id="notif-save-error" role="alert">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        <span></span>
+                    </div>
+
+                    <form id="form-notif" novalidate>
+                        <input type="hidden" id="notif-edit-id">
+
+                        <div class="row g-0 mn-notif-editor-layout">
+
+                            <!-- ── Columna izquierda: formulario ─── -->
+                            <div class="col-lg-6 mn-notif-editor-form p-3 border-end">
+
+                                <p class="fw-medium text-muted small text-uppercase mb-3">Configuración de la plantilla</p>
+
+                                <!-- Nombre -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-medium form-label-sm" for="notif-name">
+                                        Nombre <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" class="form-control form-control-sm" id="notif-name"
+                                           placeholder="Nombre descriptivo" maxlength="120">
+                                </div>
+
+                                <!-- Canal -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-medium form-label-sm" for="notif-channel">Canal</label>
+                                    <select class="form-select form-select-sm" id="notif-channel">
+                                        <option value="inapp">In-App (notificación interna)</option>
+                                        <option value="email">E-mail</option>
+                                        <option value="both">Ambos (In-App + E-mail)</option>
+                                    </select>
+                                </div>
+
+                                <!-- Subject template (solo email/both) -->
+                                <div class="mb-3" id="notif-subject-group">
+                                    <label class="form-label fw-medium form-label-sm" for="notif-subject-template">
+                                        Asunto del correo
+                                    </label>
+                                    <input type="text" class="form-control form-control-sm" id="notif-subject-template"
+                                           placeholder="Asunto del correo (Jinja2)" maxlength="255">
+                                    <div class="form-text">Soporta variables Jinja2. Ej: <code>Ticket #&#123;&#123; ticket.folio &#125;&#125; actualizado</code></div>
+                                </div>
+
+                                <!-- Title template (solo inapp/both) -->
+                                <div class="mb-3" id="notif-title-group">
+                                    <label class="form-label fw-medium form-label-sm" for="notif-title-template">
+                                        Título de la notificación
+                                    </label>
+                                    <input type="text" class="form-control form-control-sm" id="notif-title-template"
+                                           placeholder="Título de la notificación (Jinja2)" maxlength="255">
+                                    <div class="form-text">Título breve para la notificación in-app.</div>
+                                </div>
+
+                                <!-- Body template -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-medium form-label-sm" for="notif-body-template">
+                                        Cuerpo <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control form-control-sm mn-notif-body-textarea"
+                                              id="notif-body-template" rows="9"
+                                              placeholder="Contenido del mensaje. Usa variables con {{ variable }}"></textarea>
+                                    <div class="form-text">Haz clic en un chip de variable para insertarla en la posición del cursor.</div>
+                                </div>
+
+                                <!-- Variables disponibles -->
+                                <div class="mb-2">
+                                    <label class="form-label fw-medium form-label-sm mb-1">Variables disponibles</label>
+                                    <div class="mn-notif-vars-container" id="notif-variables-chips">
+                                        <span class="text-muted small fst-italic">Cargando...</span>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <!-- ── Columna derecha: preview ─── -->
+                            <div class="col-lg-6 mn-notif-editor-preview p-3" id="notif-preview-panel">
+
+                                <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
+                                    <p class="fw-medium text-muted small text-uppercase mb-0">Previsualización</p>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="spinner-border spinner-border-sm text-primary d-none" id="notif-preview-spinner" role="status"></span>
+                                        <input type="number" class="form-control form-control-sm mn-notif-ticket-id-input"
+                                               id="notif-preview-ticket-id" min="1"
+                                               placeholder="ID de ticket (opcional)">
+                                        <button type="button" class="btn btn-outline-primary btn-sm" id="btn-notif-preview">
+                                            <i class="fas fa-eye me-1"></i>Ver
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Alerta de warnings (variables sin valor) -->
+                                <div class="alert alert-warning d-none py-2 small mn-notif-warnings" id="notif-preview-warnings" role="alert"></div>
+
+                                <!-- Error de preview -->
+                                <div class="alert alert-danger d-none py-2 small" id="notif-preview-error" role="alert"></div>
+
+                                <!-- Resultado del preview -->
+                                <div class="mn-notif-preview-result">
+
+                                    <!-- Subject (solo email) -->
+                                    <div class="mb-3 d-none" id="notif-preview-subject-wrap">
+                                        <p class="mn-notif-preview-label">Asunto</p>
+                                        <p class="mn-notif-preview-value" id="notif-preview-subject"></p>
+                                    </div>
+
+                                    <!-- Title (solo inapp) -->
+                                    <div class="mb-3 d-none" id="notif-preview-title-wrap">
+                                        <p class="mn-notif-preview-label">Título</p>
+                                        <p class="mn-notif-preview-value" id="notif-preview-title"></p>
+                                    </div>
+
+                                    <!-- Body -->
+                                    <div class="mb-2">
+                                        <p class="mn-notif-preview-label">Cuerpo</p>
+                                        <pre class="mn-notif-preview-body" id="notif-preview-body"></pre>
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+                    </form>
+                </div>
+
+            </div>
+
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-notif-guardar">
+                    <i class="fas fa-save me-1"></i>Guardar cambios
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
 <!-- ── Modal: Diff de auditoría ─────────────────────────────────────────── -->
 <div class="modal fade" id="modal-audit-diff" tabindex="-1" aria-labelledby="modal-audit-diff-label" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -860,5 +1056,6 @@
 <script src="/static/maint/js/admin/config/catalogs_tab.js?v={{ sv('js/admin/config/catalogs_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/areas_tab.js?v={{ sv('js/admin/config/areas_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/audit_tab.js?v={{ sv('js/admin/config/audit_tab.js') }}"></script>
+<script src="/static/maint/js/admin/config/notifications_tab.js?v={{ sv('js/admin/config/notifications_tab.js') }}"></script>
 <script src="/static/maint/js/admin/config/field_template_builder.js?v={{ sv('js/admin/config/field_template_builder.js') }}"></script>
 {% endblock %}

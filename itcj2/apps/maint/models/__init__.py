@@ -10,6 +10,7 @@ from itcj2.apps.maint.models.attachment import MaintAttachment
 from itcj2.apps.maint.models.priority import MaintPriority
 from itcj2.apps.maint.models.config_change_log import MaintConfigChangeLog
 from itcj2.apps.maint.models.simple_catalog import MaintMaintenanceType, MaintServiceOrigin
+from itcj2.apps.maint.models.notification_template import MaintNotificationTemplate
 
 __all__ = [
     "MaintArea",
@@ -25,4 +26,5 @@ __all__ = [
     "MaintConfigChangeLog",
     "MaintMaintenanceType",
     "MaintServiceOrigin",
+    "MaintNotificationTemplate",
 ]

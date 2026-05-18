@@ -112,6 +112,31 @@ def notify_overdue(db: Session, ticket) -> int:
         return 0
 
     due_str = ticket.due_at.strftime('%d/%m %H:%M') if ticket.due_at else '?'
+
+    # Intentar renderizar desde plantilla BD; fallback a strings hardcoded originales
+    try:
+        from itcj2.apps.maint.services.notification_helper import render_notification
+        _overdue_context = {
+            'ticket': ticket,
+            'due_str': due_str,
+        }
+        _rendered = render_notification(
+            db=db,
+            code='ticket_overdue_sla',
+            context=_overdue_context,
+            fallback_title=f'Ticket vencido #{ticket.ticket_number}',
+            fallback_body=f'{ticket.title[:100]} — venció {due_str}',
+        )
+        _title = _rendered['title']
+        _body = _rendered['body']
+    except Exception as _render_exc:
+        logger.warning(
+            "[maint-sla] render_notification falló para ticket_overdue_sla, usando fallback: %s",
+            _render_exc,
+        )
+        _title = f'Ticket vencido #{ticket.ticket_number}'
+        _body = f'{ticket.title[:100]} — venció {due_str}'
+
     count = 0
     for user_id in recipient_ids:
         try:
@@ -120,8 +145,8 @@ def notify_overdue(db: Session, ticket) -> int:
                 user_id=user_id,
                 app_name='maint',
                 type='TICKET_OVERDUE',
-                title=f'Ticket vencido #{ticket.ticket_number}',
-                body=f'{ticket.title[:100]} — venció {due_str}',
+                title=_title,
+                body=_body,
                 data={
                     'ticket_id': ticket.id,
                     'url': f'{_BASE_URL}/{ticket.id}',
