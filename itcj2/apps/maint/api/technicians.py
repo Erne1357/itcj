@@ -10,7 +10,11 @@ from itcj2.apps.maint.services import assignment_service
 router = APIRouter(tags=["maint-technicians"])
 logger = logging.getLogger(__name__)
 
-VALID_AREAS = {'TRANSPORT', 'GENERAL', 'ELECTRICAL', 'CARPENTRY', 'AC', 'GARDENING'}
+# Fallback estático usado si catalog_cache no puede conectar a la BD.
+# Debe mantenerse sincronizado con _FALLBACK_AREA_CODES en catalog_cache.py.
+VALID_AREAS = {
+    'TRANSPORT', 'GENERAL', 'ELECTRICAL', 'CARPENTRY', 'AC', 'GARDENING', 'PAINTING',
+}
 
 
 # ==================== LISTAR TÉCNICOS ====================
@@ -87,8 +91,15 @@ async def assign_area(
     db: DbSession = None,
 ):
     area_code = (body.get("area_code") or "").upper()
-    if area_code not in VALID_AREAS:
-        raise HTTPException(status_code=400, detail=f'Área inválida. Opciones: {", ".join(sorted(VALID_AREAS))}')
+
+    # Validar contra el catálogo dinámico; degradar al set estático si la BD no está disponible.
+    from itcj2.apps.maint.utils.catalog_cache import get_area_codes
+    valid_codes = get_area_codes() or VALID_AREAS
+    if area_code not in valid_codes:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Área inválida. Opciones: {", ".join(sorted(valid_codes))}',
+        )
 
     assigned_by_id = int(user["sub"])
     area = assignment_service.assign_technician_area(db, assigned_by_id, user_id, area_code)

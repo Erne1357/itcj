@@ -33,6 +33,11 @@ const TAB_INITS = {
             window.MaintConfigCategories.init();
         }
     },
+    areas: function () {
+        if (window.MaintConfigAreas) {
+            window.MaintConfigAreas.init();
+        }
+    },
     prioridades: function () {
         if (window.MaintConfigPriorities) {
             window.MaintConfigPriorities.init();

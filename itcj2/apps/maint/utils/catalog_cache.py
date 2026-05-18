@@ -5,6 +5,7 @@ Proporciona acceso rápido a:
 - MaintPriority          → get_priorities / get_priority_codes / get_sla_hours
 - MaintMaintenanceType   → get_maint_types / get_maint_type_codes
 - MaintServiceOrigin     → get_service_origins / get_service_origin_codes
+- MaintArea              → get_areas / get_area_codes / get_area_by_code / invalidate_areas
 
 Cada catálogo tiene degradación defensiva a valores hardcoded cuando la
 tabla no existe o la BD no está disponible. El cache es de módulo (no
@@ -326,3 +327,125 @@ def invalidate_service_origins() -> None:
     _service_origins_cache = None
     _service_origin_codes_cache = None
     logger.debug("catalog_cache: cache de service_origins invalidado")
+
+
+# ==================== AREAS ====================
+
+_areas_cache: Optional[list] = None
+_area_codes_cache: Optional[set] = None
+
+_FALLBACK_AREA_CODES = {
+    'TRANSPORT', 'ELECTRICAL', 'CARPENTRY', 'AC', 'GARDENING', 'GENERAL', 'PAINTING',
+}
+
+
+def _load_areas_from_db() -> list:
+    """
+    Abre una sesión efímera, consulta maint_area, cierra la sesión.
+    Retorna lista de dicts ordenada por display_order.
+    Lanza excepción si falla (el caller hace el try/except).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.maint.models.area import MaintArea
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(MaintArea)
+            .order_by(MaintArea.display_order)
+            .all()
+        )
+        return [_area_to_dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _area_to_dict(a) -> dict:
+    return {
+        "id": a.id,
+        "code": a.code,
+        "label": a.label,
+        "icon": a.icon,
+        "color": a.color,
+        "description": a.description,
+        "display_order": a.display_order,
+        "is_active": a.is_active,
+    }
+
+
+def _ensure_areas_cache() -> list:
+    """Rellena el cache si está vacío. Degrada silenciosamente si la BD falla."""
+    global _areas_cache, _area_codes_cache
+
+    if _areas_cache is not None:
+        return _areas_cache
+
+    try:
+        rows = _load_areas_from_db()
+        _areas_cache = rows
+        _area_codes_cache = {r["code"] for r in rows if r["is_active"]}
+        return _areas_cache
+    except Exception as exc:
+        logger.warning(
+            f"catalog_cache: no se pudo cargar areas desde BD ({exc!r}); usando fallback"
+        )
+        return []
+
+
+def get_areas(db=None) -> list:
+    """
+    Retorna todas las áreas técnicas ordenadas por display_order como lista de dicts.
+    `db` se acepta por compatibilidad pero no se usa (el cache usa sesión efímera propia).
+    Fallback defensivo si BD/tabla falla.
+    """
+    rows = _ensure_areas_cache()
+    if rows:
+        return rows
+    # Fallback mínimo cuando la BD no está disponible
+    return [
+        {
+            "id": None,
+            "code": c,
+            "label": c.capitalize(),
+            "icon": None,
+            "color": None,
+            "description": None,
+            "display_order": i,
+            "is_active": True,
+        }
+        for i, c in enumerate(sorted(_FALLBACK_AREA_CODES))
+    ]
+
+
+def get_area_codes(db=None) -> set:
+    """
+    Retorna el set de codes ACTIVOS de áreas técnicas.
+    Fallback: {'TRANSPORT','ELECTRICAL','CARPENTRY','AC','GARDENING','GENERAL','PAINTING'}.
+    """
+    _ensure_areas_cache()
+    if _area_codes_cache is not None:
+        return _area_codes_cache
+    return set(_FALLBACK_AREA_CODES)
+
+
+def get_area_by_code(code: str, db=None) -> Optional[dict]:
+    """
+    Retorna el dict del área con el code indicado, o None si no existe.
+    Busca en el cache (cargando si es necesario); no lanza excepción.
+    """
+    try:
+        rows = _ensure_areas_cache()
+        for row in rows:
+            if row["code"] == code:
+                return row
+    except Exception as exc:
+        logger.warning(f"catalog_cache: error buscando área '{code}' ({exc!r})")
+    return None
+
+
+def invalidate_areas() -> None:
+    """Limpia el cache de áreas para que se recargue en el siguiente acceso."""
+    global _areas_cache, _area_codes_cache
+    _areas_cache = None
+    _area_codes_cache = None
+    logger.debug("catalog_cache: cache de areas invalidado")

@@ -180,11 +180,15 @@ def assign_technician_area(
     area_code: str,
 ) -> MaintTechnicianArea:
     """Registra un área de especialidad para un técnico (informativa)."""
-    VALID_AREAS = {'TRANSPORT', 'GENERAL', 'ELECTRICAL', 'CARPENTRY', 'AC', 'GARDENING'}
-    if area_code not in VALID_AREAS:
+    # Catálogo dinámico (maint_area) con fallback defensivo si la BD/tabla falla.
+    from itcj2.apps.maint.utils.catalog_cache import get_area_codes
+    valid_areas = get_area_codes(db) or {
+        'TRANSPORT', 'GENERAL', 'ELECTRICAL', 'CARPENTRY', 'AC', 'GARDENING', 'PAINTING',
+    }
+    if area_code not in valid_areas:
         raise HTTPException(
             status_code=400,
-            detail=f'Área inválida. Valores: {", ".join(sorted(VALID_AREAS))}',
+            detail=f'Área inválida. Valores: {", ".join(sorted(valid_areas))}',
         )
 
     technician = db.get(User, user_id)

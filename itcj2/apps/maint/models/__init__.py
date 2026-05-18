@@ -1,3 +1,4 @@
+from itcj2.apps.maint.models.area import MaintArea
 from itcj2.apps.maint.models.category import MaintCategory
 from itcj2.apps.maint.models.ticket import MaintTicket
 from itcj2.apps.maint.models.ticket_technician import MaintTicketTechnician
@@ -11,6 +12,7 @@ from itcj2.apps.maint.models.config_change_log import MaintConfigChangeLog
 from itcj2.apps.maint.models.simple_catalog import MaintMaintenanceType, MaintServiceOrigin
 
 __all__ = [
+    "MaintArea",
     "MaintCategory",
     "MaintTicket",
     "MaintTicketTechnician",

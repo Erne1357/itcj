@@ -13,6 +13,13 @@ from itcj2.apps.maint.schemas.config.catalogs import (
     ReorderCatalogItem,
     ReorderCatalog,
 )
+from itcj2.apps.maint.schemas.config.areas import (
+    CreateArea,
+    UpdateArea,
+    ToggleArea,
+    ReorderAreaItem,
+    ReorderAreas,
+)
 
 __all__ = [
     "CreatePriority",
@@ -25,4 +32,9 @@ __all__ = [
     "ToggleCatalogItem",
     "ReorderCatalogItem",
     "ReorderCatalog",
+    "CreateArea",
+    "UpdateArea",
+    "ToggleArea",
+    "ReorderAreaItem",
+    "ReorderAreas",
 ]
