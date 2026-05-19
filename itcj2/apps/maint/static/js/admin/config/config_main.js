@@ -62,8 +62,18 @@ const TAB_INITS = {
 
 // === INICIALIZACIÓN ===
 document.addEventListener('DOMContentLoaded', function () {
-    activateTabFromHash();
+    // El listener de shown.bs.tab DEBE adjuntarse ANTES de la primera
+    // activación: el botón de tab no tiene clase `fade`, por lo que
+    // Bootstrap 5.3 dispara `shown.bs.tab` de forma SÍNCRONA dentro de
+    // .show(); si el listener no existe aún, el init lazy del tab inicial
+    // nunca corre (spinner infinito).
     setupHashSync();
+    activateTabFromHash();
+
+    // Navegación vía dropdown "Configuración" (links .../config#frag):
+    // estando ya en la página solo cambia el hash, sin recargar. Sin este
+    // listener el tab no cambiaría al usar el menú.
+    window.addEventListener('hashchange', activateTabFromHash);
 });
 
 // === ACTIVACIÓN INICIAL ===
