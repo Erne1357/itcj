@@ -6,7 +6,6 @@ y genera URLs directas (no usa ENDPOINT_MAP ni url_for de Flask).
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 from pathlib import Path
 
@@ -22,45 +21,33 @@ logger = logging.getLogger("itcj2.apps.maint.pages")
 
 _HERE = Path(__file__).parent
 _TEMPLATES_DIR = _HERE.parent / "templates"
-_STATIC_DIR = _HERE.parent / "static"
 
 # Instancia propia de Jinja2Templates — no toca itcj2/templates.py
 maint_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 # ---------------------------------------------------------------------------
-# Versioning de archivos estáticos (MD5 del contenido, cacheado por STATIC_VERSION)
+# Versioning de archivos estáticos — usa el sv() GLOBAL (itcj2/templates.py)
 # ---------------------------------------------------------------------------
-
-# Clave de cache = (STATIC_VERSION, path). Bumpear STATIC_VERSION en
-# itcj2/config.py (recargado por uvicorn --reload al ser .py) invalida el
-# cache y fuerza recalcular el MD5 del archivo ACTUAL. El MD5 sigue siendo
-# por contenido: archivos no modificados conservan su hash → el navegador
-# no re-descarga lo que no cambió, solo lo que sí.
-_hash_cache: dict[tuple[str, str], str] = {}
 
 
 def sv(path: str) -> str:
-    """Hash MD5 (8 chars) del archivo estático de maint para cache-busting.
+    """Versión de un estático de maint vía el manifest global.
 
-    Uso en templates: /static/maint/css/maint.css?v={{ sv('css/maint.css') }}
-
-    El cache se invalida al cambiar STATIC_VERSION (config.py), de modo que
-    bumpear esa versión refresca los estáticos sin depender del manifest.
+    Delega en `itcj2.templates.sv("maint", path)`: si existe
+    `static-manifest.json` usa el hash del manifest; si no, cae a
+    `STATIC_VERSION` (config.py). Los estáticos los sirve nginx
+    (ver docker/compose), por eso el versionado va por el sistema global
+    y no por MD5 local.
     """
     try:
-        from itcj2.config import get_settings
-        version = str(get_settings().STATIC_VERSION)
+        from itcj2.templates import sv as _sv_global
+        return _sv_global("maint", path)
     except Exception:
-        version = "0"
-
-    key = (version, path)
-    if key not in _hash_cache:
-        full = _STATIC_DIR / path
-        if full.exists():
-            _hash_cache[key] = hashlib.md5(full.read_bytes()).hexdigest()[:8]
-        else:
-            _hash_cache[key] = version or "dev"
-    return _hash_cache[key]
+        try:
+            from itcj2.config import get_settings
+            return str(get_settings().STATIC_VERSION)
+        except Exception:
+            return "0"
 
 
 def sv_core(path: str) -> str:
