@@ -269,7 +269,8 @@ def preview_notification_template(
     en el contexto de preview.
     """
     from itcj2.apps.maint.models.notification_template import MaintNotificationTemplate
-    from jinja2 import Environment, ChainableUndefined, meta
+    from jinja2 import ChainableUndefined, meta
+    from jinja2.sandbox import SandboxedEnvironment
 
     tpl = db.get(MaintNotificationTemplate, tpl_id)
     if not tpl:
@@ -300,7 +301,9 @@ def preview_notification_template(
             'technician': technician,
         }
 
-    env = Environment(undefined=ChainableUndefined, autoescape=False)
+    # SandboxedEnvironment + autoescape: preview no debe permitir SSTI→RCE
+    # ni emitir HTML sin escapar (paridad con render_notification).
+    env = SandboxedEnvironment(undefined=ChainableUndefined, autoescape=True)
 
     def _render_safe(template_str):
         if not template_str:

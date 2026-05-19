@@ -13,7 +13,8 @@ el flujo de tickets NUNCA se rompe por un error de plantilla.
 import logging
 from typing import Optional
 
-from jinja2 import Environment, ChainableUndefined
+from jinja2 import ChainableUndefined
+from jinja2.sandbox import SandboxedEnvironment
 from sqlalchemy.orm import Session
 
 from itcj2.core.services.notification_service import NotificationService
@@ -59,7 +60,11 @@ def render_notification(
             # Plantilla inactiva, ausente o error de BD → fallback silencioso
             return _fallback
 
-        env = Environment(undefined=ChainableUndefined, autoescape=False)
+        # SandboxedEnvironment: bloquea acceso a __globals__/__class__/dunders
+        # (impide SSTI→RCE desde plantillas editables por admin de config).
+        # autoescape=True: el title/body se inyecta vía innerHTML en el widget
+        # de notificaciones (core) sin escape — autoescape previene XSS almacenado.
+        env = SandboxedEnvironment(undefined=ChainableUndefined, autoescape=True)
 
         def _render_field(template_str: Optional[str], default: Optional[str]) -> Optional[str]:
             if not template_str:
