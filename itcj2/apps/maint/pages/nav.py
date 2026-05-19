@@ -28,24 +28,39 @@ _STATIC_DIR = _HERE.parent / "static"
 maint_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 # ---------------------------------------------------------------------------
-# Versioning de archivos estáticos (MD5 del contenido, cacheado)
+# Versioning de archivos estáticos (MD5 del contenido, cacheado por STATIC_VERSION)
 # ---------------------------------------------------------------------------
 
-_hash_cache: dict[str, str] = {}
+# Clave de cache = (STATIC_VERSION, path). Bumpear STATIC_VERSION en
+# itcj2/config.py (recargado por uvicorn --reload al ser .py) invalida el
+# cache y fuerza recalcular el MD5 del archivo ACTUAL. El MD5 sigue siendo
+# por contenido: archivos no modificados conservan su hash → el navegador
+# no re-descarga lo que no cambió, solo lo que sí.
+_hash_cache: dict[tuple[str, str], str] = {}
 
 
 def sv(path: str) -> str:
     """Hash MD5 (8 chars) del archivo estático de maint para cache-busting.
 
     Uso en templates: /static/maint/css/maint.css?v={{ sv('css/maint.css') }}
+
+    El cache se invalida al cambiar STATIC_VERSION (config.py), de modo que
+    bumpear esa versión refresca los estáticos sin depender del manifest.
     """
-    if path not in _hash_cache:
+    try:
+        from itcj2.config import get_settings
+        version = str(get_settings().STATIC_VERSION)
+    except Exception:
+        version = "0"
+
+    key = (version, path)
+    if key not in _hash_cache:
         full = _STATIC_DIR / path
         if full.exists():
-            _hash_cache[path] = hashlib.md5(full.read_bytes()).hexdigest()[:8]
+            _hash_cache[key] = hashlib.md5(full.read_bytes()).hexdigest()[:8]
         else:
-            _hash_cache[path] = "dev"
-    return _hash_cache[path]
+            _hash_cache[key] = version or "dev"
+    return _hash_cache[key]
 
 
 def sv_core(path: str) -> str:
