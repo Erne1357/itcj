@@ -140,21 +140,15 @@ def create_app() -> FastAPI:
 
 
 def _register_error_handlers(app: FastAPI):
-    """Manejo centralizado de errores (equivalente a register_error_handlers de Flask)."""
+    """Manejo centralizado de errores (equivalente a register_error_handlers de Flask).
 
-    # ── Páginas: redirecciones en lugar de JSON ──────────────────────────────
+    Los exception handlers de FastAPI son globales (a nivel app, no por router).
+    Para que cada app muestre su página de error con su propia estética, el
+    renderizador elige el template según el prefijo de la ruta.
+    """
+
     from fastapi.responses import RedirectResponse
     from .exceptions import PageForbidden, PageLoginRequired
-
-    @app.exception_handler(PageLoginRequired)
-    async def page_login_required_handler(request: Request, exc: PageLoginRequired):
-        """Redirige a login cuando una página requiere autenticación."""
-        return RedirectResponse("/itcj/login", status_code=302)
-
-    @app.exception_handler(PageForbidden)
-    async def page_forbidden_handler(request: Request, exc: PageForbidden):
-        """Redirige al dashboard cuando el usuario no tiene permisos de página."""
-        return RedirectResponse("/itcj/dashboard", status_code=302)
 
     # ── Errores HTTP generales ────────────────────────────────────────────────
     ERROR_MESSAGES = {
@@ -170,23 +164,137 @@ def _register_error_handlers(app: FastAPI):
         500: {"title": "Error Interno", "message": "Algo salió mal en nuestros servidores."},
     }
 
+    _DASHBOARD_URL = "/itcj/dashboard"
+
+    # Prefijo de ruta → app_key (orden no relevante: prefijos son únicos)
+    _APP_BY_PREFIX = (
+        ("/maint", "maint"),
+        ("/help-desk", "helpdesk"),
+        ("/agendatec", "agendatec"),
+    )
+    _APP_TEMPLATE = {
+        "maint": "maint/errors/error.html",
+        "helpdesk": "helpdesk/errors/error.html",
+        "agendatec": "agendatec/errors/error.html",
+        "core": "core/errors/core_error.html",
+    }
+    # Home de cada app (botón "Ir al inicio" en 404/500). core → dashboard hub.
+    _APP_HOME = {
+        "maint": "/maint",
+        "helpdesk": "/help-desk/",
+        "agendatec": "/agendatec/",
+        "core": _DASHBOARD_URL,
+    }
+
     def _is_page_request(request: Request) -> bool:
         """True si la petición es de una página (no de la API REST)."""
         return not request.url.path.startswith("/api/")
 
-    def _render_error_page(request: Request, status_code: int):
-        """Intenta renderizar el template HTML de error. Retorna None si falla."""
+    def _app_for(path: str) -> str:
+        """Determina la app por el prefijo de la ruta (core como fallback)."""
+        for prefix, app_key in _APP_BY_PREFIX:
+            if path.startswith(prefix):
+                return app_key
+        return "core"
+
+    def _render_error_page(
+        request: Request,
+        status_code: int,
+        *,
+        forbidden: bool = False,
+        has_app_access: bool = False,
+    ):
+        """Renderiza el template HTML de error de la app correspondiente.
+
+        Destino del botón:
+
+        - 403 SIN acceso a la app (``forbidden`` y no ``has_app_access``):
+          "Ir al panel principal" → panel core. Dentro del iframe del
+          dashboard cierra la ventana de la app (no hay inicio de la app).
+        - 403 CON acceso a la app pero sin permiso de esta página
+          (``forbidden`` y ``has_app_access``): "Ir al inicio" → inicio de
+          la app, navegando dentro del iframe (sigue en la app).
+        - resto (404/500/…): "Ir al inicio" → inicio de la app.
+
+        Retorna ``None`` si el render falla (el handler cae a JSON).
+        """
         try:
-            from itcj2.templates import render
-            info = ERROR_MESSAGES.get(status_code, {"title": "Error", "message": "Ocurrió un error inesperado."})
-            return render(request, "core/errors/core_error.html", {
+            info = ERROR_MESSAGES.get(
+                status_code, {"title": "Error", "message": "Ocurrió un error inesperado."}
+            )
+            app_key = _app_for(request.url.path)
+            template = _APP_TEMPLATE[app_key]
+
+            # Solo SALE de la app cuando es 403 sin acceso a la app.
+            exits_app = forbidden and not has_app_access
+
+            if exits_app:
+                button_url = _DASHBOARD_URL
+                button_label = "Ir al panel principal"
+            else:
+                button_url = _APP_HOME[app_key]
+                button_label = "Ir al inicio"
+
+            ctx = {
                 "error_code": status_code,
                 "error_title": info["title"],
                 "error_message": info["message"],
-            }, status_code=status_code)
+                "button_url": button_url,
+                "button_label": button_label,
+                # True → el botón SALE de la app. Dentro del iframe del
+                # dashboard avisa al parent (postMessage CLOSE_APP) para
+                # cerrar la ventana en vez de recargar todo. False →
+                # navegación normal dentro del iframe (home de la app).
+                "button_exits_app": exits_app,
+            }
+
+            if app_key == "maint":
+                # maint usa su propia instancia de Jinja2 (no el loader global
+                # de itcj2/templates.py). Import lazy: evita el circular en el
+                # arranque y respeta el aislamiento de maint_templates.
+                from itcj2.apps.maint.pages.nav import (
+                    maint_templates,
+                    sv as maint_sv,
+                    sv_core as maint_sv_core,
+                )
+
+                ctx_maint = {
+                    "request": request,
+                    "current_user": getattr(request.state, "current_user", None),
+                    "sv": maint_sv,
+                    "sv_core": maint_sv_core,
+                    **ctx,
+                }
+                return maint_templates.TemplateResponse(
+                    request, template, ctx_maint, status_code=status_code
+                )
+
+            from itcj2.templates import render
+            return render(request, template, ctx, status_code=status_code)
         except Exception as e:
             logger.exception("Error al renderizar página de error %d: %s", status_code, e)
             return None
+
+    # ── Páginas: login redirige; forbidden ahora muestra página de error ─────
+    @app.exception_handler(PageLoginRequired)
+    async def page_login_required_handler(request: Request, exc: PageLoginRequired):
+        """Redirige a login cuando una página requiere autenticación."""
+        return RedirectResponse("/itcj/login", status_code=302)
+
+    @app.exception_handler(PageForbidden)
+    async def page_forbidden_handler(request: Request, exc: PageForbidden):
+        """Muestra la página de error 403 de la app (antes redirigía al
+        dashboard). El botón lleva al inicio de la app si el usuario tiene
+        acceso a ella; si no tiene acceso, al panel core."""
+        page = _render_error_page(
+            request, 403,
+            forbidden=True,
+            has_app_access=getattr(exc, "has_app_access", False),
+        )
+        if page:
+            return page
+        # Fallback defensivo si el render falla.
+        return RedirectResponse(_DASHBOARD_URL, status_code=302)
 
     from starlette.exceptions import HTTPException as StarletteHTTPException
 

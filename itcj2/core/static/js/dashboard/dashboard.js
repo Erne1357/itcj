@@ -71,6 +71,12 @@ class WindowsDesktop {
           // Actualizar la URL mostrada en la ventana
           this.updateWindowUrl(event.data.source, event.data.url)
           break
+        case 'CLOSE_APP':
+        case 'GO_TO_DASHBOARD':
+          // La app pide salir (ej: página de error 403 sin acceso).
+          // Cierra solo SU ventana, sin recargar el escritorio.
+          this.closeAppWindowBySource(event.source)
+          break
       }
     })
   }
@@ -114,6 +120,24 @@ class WindowsDesktop {
         }
       }
     })
+  }
+
+  // Cierra la ventana cuyo iframe envió el postMessage (CLOSE_APP).
+  // Usado por la página de error 403 sin acceso a la app.
+  closeAppWindowBySource(source) {
+    const windows = document.querySelectorAll('.app-window')
+    for (const win of windows) {
+      const iframe = win.querySelector('.window-iframe')
+      if (iframe && iframe.contentWindow === source) {
+        const appId = win.dataset.appId
+        if (appId) {
+          this.closeWindow(appId)
+        } else {
+          win.remove()
+        }
+        return
+      }
+    }
   }
   renderDesktopGrid() {
     const grid = document.getElementById('desktop-grid')
