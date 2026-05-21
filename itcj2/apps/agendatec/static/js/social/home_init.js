@@ -1,21 +1,25 @@
-// static/js/social/home_init.js
-// Inicialización de días habilitados para vista de servicio social
-
 /**
- * Carga los días habilitados del período activo y llena el select
+ * social/home_init.js — Inicialización de días habilitados.
+ *
+ * Carga los días del período activo, llena el select #ssDay y dispara
+ * el evento 'socialHomeInitReady' cuando está listo.
+ *
+ * Depende de: AgendaTec.Format (format.js, cargado antes en el template).
+ * Usa Format.formatDayLabel(iso) → "Lun 25 Ago" (formato unificado con coord).
  */
 (async () => {
+  "use strict";
+
   const ssDaySelect = document.getElementById("ssDay");
 
   if (!ssDaySelect) {
-    console.warn("[social_home_init] No se encontró el select de días");
+    console.warn("[social_home_init] No se encontró el select de días (#ssDay)");
     return;
   }
 
   try {
-    // Cargar período activo con días habilitados
     const response = await fetch("/api/agendatec/v2/periods/active", {
-      credentials: "include"
+      credentials: "include",
     });
 
     if (!response.ok) {
@@ -28,62 +32,45 @@
     if (enabledDays.length === 0) {
       ssDaySelect.innerHTML = '<option value="">No hay días habilitados</option>';
       ssDaySelect.disabled = true;
-      showToast("No hay días habilitados en el período activo", "warn");
+      showToast?.("No hay días habilitados en el período activo", "warning");
       return;
     }
 
-    // Formatear y ordenar días
-    const daysWithFormat = enabledDays.map(dateStr => {
-      const date = new Date(dateStr + "T00:00:00");
-      return {
-        value: dateStr,
-        label: formatDayLabelShort(date)
-      };
-    }).sort((a, b) => a.value.localeCompare(b.value));
+    // Formatear y ordenar días usando Format.formatDayLabel (Fase 2+)
+    const formatLabel = window.AgendaTec?.Format?.formatDayLabel
+      || ((iso) => iso); // fallback trivial si el script no cargó
 
-    // Llenar select
+    const daysWithFormat = enabledDays
+      .map((dateStr) => ({
+        value: dateStr,
+        label: formatLabel(dateStr),
+      }))
+      .sort((a, b) => a.value.localeCompare(b.value));
+
     ssDaySelect.innerHTML = daysWithFormat
-      .map(opt => `<option value="${opt.value}">${opt.label}</option>`)
+      .map((opt) => `<option value="${opt.value}">${opt.label}</option>`)
       .join("");
 
-    // Habilitar el select
     ssDaySelect.disabled = false;
 
-    // Seleccionar el día actual si está en la lista
-    const today = new Date().toISOString().split('T')[0];
-    const todayExists = daysWithFormat.some(d => d.value === today);
-    if (todayExists) {
+    // Seleccionar hoy si está disponible
+    const today = new Date().toISOString().split("T")[0];
+    if (daysWithFormat.some((d) => d.value === today)) {
       ssDaySelect.value = today;
     }
 
-    // Disparar evento personalizado para notificar que los días están listos
-    const event = new CustomEvent('socialHomeInitReady', {
-      detail: {
-        selectedDay: ssDaySelect.value,
-        enabledDays: daysWithFormat
-      }
-    });
-    document.dispatchEvent(event);
-
+    document.dispatchEvent(
+      new CustomEvent("socialHomeInitReady", {
+        detail: {
+          selectedDay:  ssDaySelect.value,
+          enabledDays:  daysWithFormat,
+        },
+      })
+    );
   } catch (error) {
     console.error("[social_home_init] Error al cargar días habilitados:", error);
     ssDaySelect.innerHTML = '<option value="">Error al cargar días</option>';
     ssDaySelect.disabled = true;
-    showToast("Error al cargar los días del período activo", "error");
+    showToast?.("Error al cargar los días del período activo", "danger");
   }
 })();
-
-/**
- * Formatea una fecha como "25 Ago" en español (versión corta)
- */
-function formatDayLabelShort(date) {
-  const months = [
-    "Ene", "Feb", "Mar", "Abr", "May", "Jun",
-    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
-  ];
-
-  const dayNumber = date.getDate();
-  const monthName = months[date.getMonth()];
-
-  return `${dayNumber} ${monthName}`;
-}
