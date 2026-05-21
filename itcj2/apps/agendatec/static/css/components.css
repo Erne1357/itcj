@@ -1,0 +1,859 @@
+/* =============================================================================
+   AgendaTec — Component Library
+   -----------------------------------------------------------------------------
+   Clases reutilizables con prefijo .at-*. Consumen tokens de base.css.
+   No hace override de clases Bootstrap; convive con ellas.
+   ============================================================================= */
+
+/* =============================================================================
+   Cards
+   ============================================================================= */
+.at-card {
+  /* Bootstrap define --bs-card-spacer-{y,x} solo en .card; sin esto el
+     .card-body anidado cae a padding: 0 y el contenido queda flush al borde. */
+  --bs-card-spacer-y: 1rem;
+  --bs-card-spacer-x: 1.25rem;
+  background: var(--at-surface);
+  border: 0;
+  border-radius: var(--at-radius-md);
+  box-shadow: var(--at-shadow-sm);
+  transition: box-shadow var(--at-duration-base) var(--at-ease-out);
+}
+
+/* Fallback explicito por si una version futura de Bootstrap cambia el patron. */
+.at-card > .card-body {
+  padding: var(--at-space-4) var(--at-space-5);
+}
+
+@media (max-width: 575.98px) {
+  .at-card > .card-body {
+    padding: var(--at-space-3) var(--at-space-4);
+  }
+}
+
+.at-card--bordered {
+  border: 1px solid var(--at-border-subtle);
+}
+
+.at-card--hover:hover {
+  box-shadow: var(--at-shadow-md);
+}
+
+.at-card-header {
+  background: var(--at-surface-subtle);
+  border-bottom: 1px solid var(--at-border-subtle);
+  padding: var(--at-space-3) var(--at-space-4);
+  border-top-left-radius: var(--at-radius-md);
+  border-top-right-radius: var(--at-radius-md);
+  display: flex;
+  align-items: center;
+  gap: var(--at-space-2);
+}
+
+.at-card-header__title {
+  margin: 0;
+  font-size: var(--at-text-md);
+  font-weight: var(--at-font-weight-semibold);
+  color: var(--at-text);
+}
+
+/* =============================================================================
+   KPI tiles
+   ============================================================================= */
+.at-kpi {
+  background: var(--at-surface);
+  border-radius: var(--at-radius-md);
+  box-shadow: var(--at-shadow-xs);
+  padding: var(--at-space-3) var(--at-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--at-space-1);
+  min-height: 88px;
+}
+
+.at-kpi--accent {
+  border-left: 3px solid var(--at-primary);
+}
+
+.at-kpi--warning {
+  border-left: 3px solid var(--at-warning);
+}
+
+.at-kpi--success {
+  border-left: 3px solid var(--at-success);
+}
+
+.at-kpi__label,
+.at-stat-label {
+  font-size: var(--at-text-xs);
+  color: var(--at-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: var(--at-font-weight-semibold);
+  line-height: var(--at-line-tight);
+}
+
+.at-kpi__value {
+  font-size: var(--at-text-2xl);
+  font-weight: var(--at-font-weight-bold);
+  line-height: var(--at-line-tight);
+  color: var(--at-text);
+}
+
+.at-kpi__delta {
+  font-size: var(--at-text-sm);
+  color: var(--at-text-muted);
+}
+
+/* =============================================================================
+   Period / status badge wrapper (reemplaza style="white-space: nowrap; font-size: 0.75rem")
+   ============================================================================= */
+.at-period-badge {
+  white-space: nowrap;
+  font-size: var(--at-text-sm);
+}
+
+/* =============================================================================
+   Icon circle (reemplaza width:56px;height:56px inline en close.html)
+   ============================================================================= */
+.at-icon-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  font-size: var(--at-text-xl);
+  flex-shrink: 0;
+}
+
+.at-icon-circle--sm  { width: 2.5rem; height: 2.5rem; font-size: var(--at-text-md); }
+.at-icon-circle--lg  { width: 4.5rem; height: 4.5rem; font-size: var(--at-text-2xl); }
+
+.at-icon-circle--success { background: var(--at-success-bg); color: var(--at-success); }
+.at-icon-circle--danger  { background: var(--at-danger-bg);  color: var(--at-danger);  }
+.at-icon-circle--info    { background: var(--at-info-bg);    color: var(--at-info-text);    }
+.at-icon-circle--warning { background: var(--at-warning-bg); color: var(--at-warning-text); }
+.at-icon-circle--primary { background: var(--at-primary-50); color: var(--at-primary); }
+
+/* Icon sizing utility (reemplaza style="font-size:1.6rem" en new_request.html). */
+.at-icon-md { font-size: 1.6rem; line-height: 1; }
+.at-icon-lg { font-size: 2rem;   line-height: 1; }
+
+/* =============================================================================
+   Legend dot (reemplaza style="width:10px;height:10px;vertical-align:middle")
+   ============================================================================= */
+.at-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.at-legend-dot--available    { background: var(--at-slot-available-bg);   border: 1px solid var(--at-slot-available-border); }
+.at-legend-dot--reserved     { background: var(--at-slot-reserved-bg);    border: 1px solid var(--at-slot-reserved-border);  }
+.at-legend-dot--held-self    { background: var(--at-slot-held-self-bg);   border: 1px solid var(--at-slot-held-self-border); }
+.at-legend-dot--taken        { background: var(--at-slot-taken-bg);       border: 1px solid var(--at-slot-taken-border);     }
+.at-legend-dot--no-show      { background: var(--at-slot-no-show-bg);     border: 1px solid var(--at-slot-no-show-border);   }
+.at-legend-dot--disabled     { background: var(--at-slot-disabled-bg);    border: 1px solid var(--at-slot-disabled-border);  }
+
+/* =============================================================================
+   Empty state
+   ============================================================================= */
+.at-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--at-space-6) var(--at-space-4);
+  color: var(--at-text-muted);
+  gap: var(--at-space-3);
+}
+
+.at-empty__icon {
+  font-size: 3rem;
+  color: var(--at-text-disabled);
+  line-height: 1;
+}
+
+.at-empty__title {
+  font-size: var(--at-text-md);
+  font-weight: var(--at-font-weight-semibold);
+  color: var(--at-text);
+  margin: 0;
+}
+
+.at-empty__message {
+  font-size: var(--at-text-base);
+  max-width: 36ch;
+  margin: 0;
+}
+
+.at-empty__cta {
+  margin-top: var(--at-space-2);
+}
+
+/* Variante para charts (sobre canvas o dentro de host). */
+.at-empty--chart {
+  pointer-events: none;
+  color: var(--at-text-muted);
+  text-align: center;
+}
+
+.at-empty--chart .at-empty__icon {
+  font-size: 2.25rem;
+}
+
+/* =============================================================================
+   Multi-select (componente custom para reemplazar select multiple)
+   ============================================================================= */
+.at-multiselect {
+  position: relative;
+}
+
+.at-multiselect__trigger {
+  background-color: var(--at-surface);
+  border-color: var(--at-border);
+}
+
+.at-multiselect__trigger:hover {
+  background-color: var(--at-surface-subtle);
+}
+
+.at-multiselect__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(100% - 20px);
+}
+
+.at-multiselect__menu {
+  min-width: max-content;
+  width: auto !important;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.at-multiselect__menu .form-check {
+  margin: 0;
+  padding: var(--at-space-1) var(--at-space-2);
+  border-radius: var(--at-radius-sm);
+  cursor: pointer;
+}
+
+.at-multiselect__menu .form-check:hover {
+  background-color: var(--at-surface-active);
+}
+
+/* =============================================================================
+   Skeleton (placeholder shimmer)
+   ============================================================================= */
+.at-skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--at-surface-active) 0%,
+    var(--at-surface-hover) 50%,
+    var(--at-surface-active) 100%
+  );
+  background-size: 200% 100%;
+  animation: at-skeleton-shimmer 1.2s linear infinite;
+  border-radius: var(--at-radius-sm);
+  min-height: 1em;
+}
+
+.at-skeleton--line    { height: 0.875em; margin-bottom: var(--at-space-2); }
+.at-skeleton--title   { height: 1.25em;  width: 40%; margin-bottom: var(--at-space-3); }
+.at-skeleton--circle  { width: 2.5rem; height: 2.5rem; border-radius: 50%; }
+.at-skeleton--button  { height: 2.25rem; width: 6rem; border-radius: var(--at-radius-md); }
+.at-skeleton--row     { height: 2.5rem; margin-bottom: var(--at-space-2); }
+
+@keyframes at-skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* =============================================================================
+   Status dot (socket connection indicator)
+   ============================================================================= */
+.at-status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--at-space-1);
+  font-size: var(--at-text-xs);
+  color: var(--at-text-muted);
+}
+
+.at-status-dot::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--at-text-disabled);
+  transition: background var(--at-duration-base) var(--at-ease-out);
+}
+
+.at-status-dot--connected::before    { background: var(--at-success); box-shadow: 0 0 0 3px rgba(25, 135, 84, 0.18); }
+.at-status-dot--reconnecting::before { background: var(--at-warning); animation: at-status-pulse 1s ease-in-out infinite; }
+.at-status-dot--disconnected::before { background: var(--at-danger);  }
+
+@keyframes at-status-pulse {
+  0%, 100% { opacity: 1;   }
+  50%      { opacity: 0.35; }
+}
+
+/* =============================================================================
+   Slot chip / button (estados unificados)
+   ============================================================================= */
+.at-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 90px;
+  padding: var(--at-space-2) var(--at-space-3);
+  border: 1px solid var(--at-slot-available-border);
+  background: var(--at-slot-available-bg);
+  color: var(--at-slot-available-text);
+  border-radius: var(--at-radius-sm);
+  font-size: var(--at-text-base);
+  font-weight: var(--at-font-weight-medium);
+  cursor: pointer;
+  transition:
+    background var(--at-duration-fast) var(--at-ease-standard),
+    border-color var(--at-duration-fast) var(--at-ease-standard),
+    transform var(--at-duration-fast) var(--at-ease-standard);
+}
+
+.at-slot:hover:not(:disabled) {
+  border-color: var(--at-primary);
+  transform: translateY(-1px);
+}
+
+.at-slot:focus-visible {
+  outline: 0;
+  box-shadow: var(--at-shadow-focus);
+}
+
+/* :disabled base — debe ir ANTES de los modificadores semánticos para que
+   las variantes (--held-self, --taken, --no-show, --reserved) ganen aunque el
+   slot esté disabled. La especificidad de `.at-slot.at-slot--X` (0,2,0) gana
+   sobre `.at-slot:disabled` (0,1,1). */
+.at-slot--disabled,
+.at-slot:disabled {
+  background: var(--at-slot-disabled-bg);
+  border-color: var(--at-slot-disabled-border);
+  color: var(--at-slot-disabled-text);
+  cursor: not-allowed;
+}
+
+.at-slot.at-slot--reserved,
+.at-slot.at-slot--reserved:disabled {
+  background: var(--at-slot-reserved-bg);
+  border-color: var(--at-slot-reserved-border);
+  color: var(--at-slot-reserved-text);
+  cursor: not-allowed;
+}
+
+.at-slot.at-slot--held-self,
+.at-slot.at-slot--held-self:disabled {
+  background: var(--at-slot-held-self-bg);
+  border-color: var(--at-slot-held-self-border);
+  color: var(--at-slot-held-self-text);
+  font-weight: var(--at-font-weight-semibold);
+  animation:
+    at-slot-pop 320ms var(--at-ease-out) 1,
+    at-slot-pulse 1.6s var(--at-ease-standard) 320ms infinite;
+  cursor: default;
+}
+
+@keyframes at-slot-pop {
+  0%   { transform: scale(0.95); }
+  55%  { transform: scale(1.08); }
+  100% { transform: scale(1);    }
+}
+
+.at-slot.at-slot--taken,
+.at-slot.at-slot--taken:disabled {
+  background: var(--at-slot-taken-bg);
+  border-color: var(--at-slot-taken-border);
+  color: var(--at-slot-taken-text);
+  cursor: default;
+}
+
+.at-slot.at-slot--no-show,
+.at-slot.at-slot--no-show:disabled {
+  background: var(--at-slot-no-show-bg);
+  border-color: var(--at-slot-no-show-border);
+  color: var(--at-slot-no-show-text);
+  cursor: default;
+}
+
+@keyframes at-slot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(13, 110, 253, 0.35); }
+  50%      { box-shadow: 0 0 0 6px rgba(13, 110, 253, 0);    }
+}
+
+/* Countdown badge inside selected slot. */
+.at-slot__countdown {
+  display: inline-block;
+  margin-left: var(--at-space-1);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--at-text-xs);
+  opacity: 0.85;
+}
+
+/* =============================================================================
+   Responsive table → card stack (< md)
+   ============================================================================= */
+@media (max-width: 767.98px) {
+  table[data-at-table="card"] thead {
+    display: none;
+  }
+  table[data-at-table="card"],
+  table[data-at-table="card"] tbody,
+  table[data-at-table="card"] tr,
+  table[data-at-table="card"] td {
+    display: block;
+    width: 100%;
+  }
+  table[data-at-table="card"] tr {
+    background: var(--at-surface);
+    border: 1px solid var(--at-border-subtle);
+    border-radius: var(--at-radius-md);
+    box-shadow: var(--at-shadow-xs);
+    padding: var(--at-space-3);
+    margin-bottom: var(--at-space-3);
+  }
+  table[data-at-table="card"] td {
+    padding: var(--at-space-1) 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--at-space-3);
+    border: 0;
+  }
+  table[data-at-table="card"] td::before {
+    content: attr(data-at-label);
+    font-size: var(--at-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--at-text-muted);
+    font-weight: var(--at-font-weight-semibold);
+    flex-shrink: 0;
+  }
+  /* Cuando un td no tiene label (acciones), ocupa ancho completo. */
+  table[data-at-table="card"] td[data-at-label=""]::before,
+  table[data-at-table="card"] td:not([data-at-label])::before {
+    content: none;
+  }
+  table[data-at-table="card"] td[data-at-label=""],
+  table[data-at-table="card"] td:not([data-at-label]) {
+    justify-content: flex-end;
+    padding-top: var(--at-space-2);
+    border-top: 1px solid var(--at-border-subtle);
+    margin-top: var(--at-space-2);
+  }
+}
+
+/* =============================================================================
+   Stepper (wizard)
+   -----------------------------------------------------------------------------
+   Mobile-first: en pantallas chicas el stepper compacta — solo bullets visibles
+   con label inline para el paso activo. Desktop muestra labels en todos.
+   ============================================================================= */
+.at-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--at-space-2);
+  margin: var(--at-space-3) 0 var(--at-space-4);
+  padding-bottom: var(--at-space-1);
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.at-stepper::-webkit-scrollbar { display: none; }
+
+/* En móvil ocultar labels de pasos NO activos para que quepan los 4 bullets. */
+@media (max-width: 575.98px) {
+  .at-stepper {
+    gap: var(--at-space-1);
+    justify-content: space-between;
+  }
+  .at-stepper__step:not(.at-stepper__step--active) .at-stepper__label {
+    display: none;
+  }
+  .at-stepper__connector {
+    min-width: 8px;
+  }
+}
+
+.at-stepper__step {
+  display: flex;
+  align-items: center;
+  gap: var(--at-space-2);
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  padding: var(--at-space-1) var(--at-space-2);
+  border-radius: var(--at-radius-md);
+  cursor: default;
+  transition: background var(--at-duration-fast) var(--at-ease-standard);
+}
+
+.at-stepper__step--clickable {
+  cursor: pointer;
+}
+
+.at-stepper__step--clickable:hover {
+  background: var(--at-surface-hover);
+}
+
+.at-stepper__bullet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--at-surface-active);
+  color: var(--at-text-muted);
+  font-size: var(--at-text-sm);
+  font-weight: var(--at-font-weight-semibold);
+  flex-shrink: 0;
+  transform: scale(1);
+  transition:
+    background var(--at-duration-base) var(--at-ease-out),
+    color      var(--at-duration-base) var(--at-ease-out),
+    transform  var(--at-duration-slow) var(--at-ease-out),
+    box-shadow var(--at-duration-base) var(--at-ease-out);
+}
+
+.at-stepper__step--active .at-stepper__bullet {
+  background: var(--at-primary);
+  color: var(--at-text-on-primary);
+  box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.18);
+  transform: scale(1.18);
+  animation: at-bullet-pop 360ms var(--at-ease-out);
+}
+
+.at-stepper__step--done .at-stepper__bullet {
+  background: var(--at-success);
+  color: var(--at-text-on-primary);
+  transform: scale(1);
+}
+
+.at-stepper__step--done .at-stepper__bullet::before {
+  content: "\2713"; /* check */
+  font-size: var(--at-text-base);
+  animation: at-bullet-check 320ms var(--at-ease-out);
+}
+
+.at-stepper__step--done .at-stepper__bullet > * { display: none; }
+
+@keyframes at-bullet-pop {
+  0%   { transform: scale(0.95); box-shadow: 0 0 0 0   rgba(13, 110, 253, 0.45); }
+  60%  { transform: scale(1.25); box-shadow: 0 0 0 8px rgba(13, 110, 253, 0);    }
+  100% { transform: scale(1.18); box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.18); }
+}
+
+@keyframes at-bullet-check {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+.at-stepper__label {
+  font-size: var(--at-text-sm);
+  color: var(--at-text-muted);
+  font-weight: var(--at-font-weight-medium);
+  white-space: nowrap;
+  transition:
+    color var(--at-duration-base) var(--at-ease-out),
+    font-size var(--at-duration-base) var(--at-ease-out),
+    font-weight var(--at-duration-base) var(--at-ease-out);
+}
+
+.at-stepper__step--active .at-stepper__label {
+  color: var(--at-primary);
+  font-size: var(--at-text-base);
+  font-weight: var(--at-font-weight-bold);
+}
+
+.at-stepper__step--done .at-stepper__label {
+  color: var(--at-text);
+}
+
+.at-stepper__connector {
+  position: relative;
+  flex: 1 1 auto;
+  height: 3px;
+  background: var(--at-border);
+  min-width: 16px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.at-stepper__connector::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: var(--at-success);
+  border-radius: inherit;
+  transform-origin: left center;
+  transition: width 560ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.at-stepper__connector--done::after {
+  width: 100%;
+}
+
+/* =============================================================================
+   Inline alert (success/error compact, no Bootstrap dependency)
+   ============================================================================= */
+.at-alert-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--at-space-2);
+  padding: var(--at-space-2) var(--at-space-3);
+  border-radius: var(--at-radius-md);
+  font-size: var(--at-text-base);
+}
+
+.at-alert-inline--success {
+  background: var(--at-success-bg);
+  color: var(--at-success-text);
+  border: 1px solid var(--at-success-border);
+}
+
+.at-alert-inline--danger {
+  background: var(--at-danger-bg);
+  color: var(--at-danger-text);
+  border: 1px solid var(--at-danger-border);
+}
+
+.at-alert-inline--warning {
+  background: var(--at-warning-bg);
+  color: var(--at-warning-text);
+  border: 1px solid var(--at-warning-border);
+}
+
+/* =============================================================================
+   Section dentro de un at-card (subsecciones sin doble-card)
+   ============================================================================= */
+.at-section + .at-section {
+  margin-top: var(--at-space-4);
+  padding-top: var(--at-space-4);
+  border-top: 1px solid var(--at-border-subtle);
+}
+
+.at-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--at-space-2);
+  margin-bottom: var(--at-space-2);
+}
+
+.at-section__title {
+  font-size: var(--at-text-md);
+  font-weight: var(--at-font-weight-semibold);
+  color: var(--at-text);
+}
+
+.at-section--accent {
+  border-left: 3px solid var(--at-primary);
+  padding-left: var(--at-space-3);
+  background: var(--at-primary-50);
+  border-radius: var(--at-radius-sm);
+  padding-top: var(--at-space-3);
+  padding-right: var(--at-space-3);
+  padding-bottom: var(--at-space-3);
+}
+
+.at-section--accent + .at-section,
+.at-section + .at-section--accent {
+  margin-top: var(--at-space-4);
+}
+
+/* =============================================================================
+   Period divider (reemplaza estilos inline en student/requests.js)
+   ============================================================================= */
+.at-period-divider {
+  background: linear-gradient(135deg, var(--at-primary) 0%, var(--at-primary-hover) 100%);
+  color: var(--at-text-on-primary);
+  padding: var(--at-space-2) var(--at-space-3);
+  border-radius: var(--at-radius-md);
+  margin-bottom: var(--at-space-3);
+  font-weight: var(--at-font-weight-semibold);
+  box-shadow: var(--at-shadow-xs);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--at-space-2);
+}
+
+.at-period-divider--past {
+  background: linear-gradient(135deg, var(--at-text-muted) 0%, var(--at-text-strong) 100%);
+}
+
+.at-period-divider__badge {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--at-text-on-primary);
+  border-radius: var(--at-radius-sm);
+  padding: 2px 8px;
+  font-size: var(--at-text-xs);
+}
+
+/* =============================================================================
+   Animations: fade-in, stagger, page-enter
+   ============================================================================= */
+.at-fade-in {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: at-fade-in var(--at-duration-base) var(--at-ease-out) forwards;
+}
+
+.at-stagger > * {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: at-fade-in var(--at-duration-base) var(--at-ease-out) forwards;
+}
+
+.at-stagger > *:nth-child(1) { animation-delay: 30ms;  }
+.at-stagger > *:nth-child(2) { animation-delay: 60ms;  }
+.at-stagger > *:nth-child(3) { animation-delay: 90ms;  }
+.at-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.at-stagger > *:nth-child(5) { animation-delay: 150ms; }
+.at-stagger > *:nth-child(6) { animation-delay: 180ms; }
+.at-stagger > *:nth-child(7) { animation-delay: 210ms; }
+.at-stagger > *:nth-child(8) { animation-delay: 240ms; }
+
+@keyframes at-fade-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Transicion entre steps del wizard: fade + slide-up + scale sutil. */
+.at-step-enter {
+  opacity: 0;
+  transform: translateY(10px) scale(0.985);
+  animation: at-step-in 360ms var(--at-ease-out) forwards;
+}
+
+.at-step-exit {
+  animation: at-step-out var(--at-duration-fast) var(--at-ease-standard) forwards;
+}
+
+@keyframes at-step-in {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes at-step-out {
+  to { opacity: 0; transform: translateY(-8px) scale(0.985); }
+}
+
+/* =============================================================================
+   Drag handle (reemplaza style="cursor: grab" repetido en reports.html)
+   ============================================================================= */
+.at-drag-handle {
+  cursor: grab;
+  color: var(--at-text-muted);
+  padding: 0 var(--at-space-1);
+  user-select: none;
+}
+
+.at-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* =============================================================================
+   Utility helpers
+   ============================================================================= */
+.at-textarea-resizable {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+.at-log-output {
+  max-height: 240px;
+  overflow: auto;
+  background: var(--at-surface-subtle);
+  border-radius: var(--at-radius-sm);
+  padding: var(--at-space-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--at-text-xs);
+}
+
+.at-scroll-md {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Column widths para <th>. */
+.at-col-actions { width: 120px; }
+.at-col-actions-lg { width: 200px; }
+.at-col-id { width: 80px; }
+
+/* Hide visually but keep available to assistive tech. */
+.at-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =============================================================================
+   Chart canvas heights (reemplaza style inline en admin/home.html)
+   ============================================================================= */
+.at-chart-pie    { position: relative; height: 260px; }
+.at-chart-series { position: relative; height: 360px; width: 100%; }
+.at-chart-bar    { position: relative; height: 320px; width: 100%; }
+.at-chart-bar-lg { position: relative; height: 420px; width: 100%; }
+.at-chart-act    { position: relative; height: 280px; width: 100%; }
+
+@media (max-width: 767.98px) {
+  .at-chart-bar-lg { height: 320px; }
+  .at-chart-act    { height: 240px; }
+}
+
+/* =============================================================================
+   Chart empty state helpers (evitan style="" inline en admin/home.js)
+   ============================================================================= */
+/* Oculta el canvas cuando no hay datos (reemplaza canvas.style.display="none") */
+.at-chart-host--empty > canvas {
+  display: none;
+}
+
+/* Garantiza que el host sea position:relative para el overlay centrado
+   (reemplaza host.style.position="relative") */
+.at-chart-host {
+  position: relative;
+}
+
+/* Overlay de empty state dentro del host del chart (reemplaza z-index y pointer-events inline) */
+.at-chart-empty-overlay {
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Toast container de Undo (reemplaza style.zIndex inline en JS de toast dinámico) */
+.at-toast-container {
+  z-index: var(--at-z-toast);
+}
+
+/* =============================================================================
+   KPI value — estado de alerta (reemplaza style="color:var(--at-warning)" inline)
+   ============================================================================= */
+.at-kpi__value--warning {
+  color: var(--at-warning);
+}
