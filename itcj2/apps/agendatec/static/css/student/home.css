@@ -1,5 +1,46 @@
+/* =============================================================================
+   AgendaTec — Student / home.css
+   Estilos especificos de la pagina de inicio del alumno.
+   ============================================================================= */
+
+/* Hero card con un toque de elevacion y borde acento sutil. */
+.student-home-hero {
+    border-top: 3px solid var(--at-primary);
+}
+
+.student-home-hero .at-empty {
+    padding: var(--at-space-5) var(--at-space-4);
+}
+
+.student-home-hero .at-empty__icon {
+    color: var(--at-primary);
+    font-size: 3.25rem;
+}
+
+/* Botones full-width en mobile. */
 @media (max-width: 575.98px) {
-  .student-home-buttons a {
-    width: 100%;
-  }
+    .student-home-buttons .btn {
+        width: 100%;
+    }
+}
+
+/* Lift hover en CTA principal. */
+.student-home-buttons .btn-primary {
+    transition:
+        box-shadow var(--at-duration-base) var(--at-ease-out),
+        transform var(--at-duration-fast) var(--at-ease-out);
+}
+
+.student-home-buttons .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--at-shadow-md);
+}
+
+/* Tips list con mas respiro entre items. */
+.student-home-tips {
+    padding-left: 1.25rem;
+}
+
+.student-home-tips li + li {
+    margin-top: var(--at-space-2);
 }
