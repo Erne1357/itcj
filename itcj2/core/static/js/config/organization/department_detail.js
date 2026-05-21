@@ -892,7 +892,14 @@ class DepartmentDetailManager {
     async handleRemoveUser() {
         if (!this.currentPositionId) return;
 
-        if (!confirm('¿Estás seguro de remover el usuario de este puesto?')) return;
+        const ok = await AppModal.confirm({
+            title: 'Remover usuario',
+            message: '¿Estás seguro de remover el usuario de este puesto?',
+            confirmText: 'Remover',
+            confirmVariant: 'danger',
+            variant: 'warning',
+        });
+        if (!ok) return;
 
         try {
             const response = await fetch(`${this.apiBase}/positions/${this.currentPositionId}/remove-user`, {
@@ -919,7 +926,14 @@ class DepartmentDetailManager {
     async handleRemoveSpecificUser(userId) {
         if (!this.currentPositionId) return;
 
-        if (!confirm('¿Estás seguro de remover este usuario del puesto?')) return;
+        const ok = await AppModal.confirm({
+            title: 'Remover usuario',
+            message: '¿Estás seguro de remover este usuario del puesto?',
+            confirmText: 'Remover',
+            confirmVariant: 'danger',
+            variant: 'warning',
+        });
+        if (!ok) return;
 
         try {
             const response = await fetch(`${this.apiBase}/positions/${this.currentPositionId}/remove-user`, {
