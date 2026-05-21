@@ -1,168 +1,213 @@
 {% extends "agendatec/base.html" %}
 {% block title %}Coordinador - Horario{% endblock %}
 {% block extra_css %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/coord/slots.css') }}?v={{ sv('agendatec', 'css/coord/slots.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/coord/slots.css') }}?v={{ sv('agendatec', 'css/coord/slots.css') }}">
 {% endblock %}
 
 {% block content %}
 <div class="row g-2 g-md-3">
-    <div class="col-12">
-        <div class="card shadow-sm">
-            <div class="card-body py-2 py-md-3">
-                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 mb-md-3">
-                    <h5 class="card-title mb-0 h6">Configurar horario<span class="d-none d-sm-inline"> del día</span></h5>
-                    <div class="badge bg-primary px-2 py-1" id="currentPeriod" style="white-space: nowrap; font-size: 0.75rem;">
-                        <i class="bi bi-calendar3"></i> <span id="periodName">Cargando...</span>
-                    </div>
-                </div>
-                <form id="dayConfigForm" class="row g-2 align-items-end">
-                    <div class="col-12 col-sm-4">
-                        <label class="form-label small mb-1">Día</label>
-                        <select class="form-select form-select-sm" id="cfgDay" required disabled>
-                            <option value="">Cargando días...</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-sm-2">
-                        <label class="form-label small mb-1">Inicio</label>
-                        <input type="time" class="form-control form-control-sm" id="cfgStart" value="09:00" required>
-                    </div>
-                    <div class="col-6 col-sm-2">
-                        <label class="form-label small mb-1">Fin</label>
-                        <input type="time" class="form-control form-control-sm" id="cfgEnd" value="13:00" required>
-                    </div>
-                    <div class="col-6 col-sm-2">
-                        <label class="form-label small mb-1">Min/cita</label>
-                        <select class="form-select form-select-sm" id="cfgMinutes">
-                            <option>5</option>
-                            <option>10</option>
-                            <option>15</option>
-                            <option>20</option>
-                            <option>30</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-sm-2 d-grid">
-                        <button class="btn btn-primary btn-sm" id="btnSaveCfg"><i class="bi bi-check-lg"></i><span class="d-none d-md-inline"> Guardar</span></button>
-                    </div>
-                </form>
-                <div id="cfgResult" class="mt-2 small text-muted"></div>
-            </div>
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body py-2 py-md-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 mb-md-3">
+          <h5 class="card-title d-flex align-items-center gap-2 mb-0 h6">
+            <i class="bi bi-grid-3x3-gap" aria-hidden="true"></i>
+            Configurar horario<span class="d-none d-sm-inline"> del día</span>
+          </h5>
+          <div class="badge bg-primary px-2 py-1 at-period-badge" id="currentPeriod">
+            <i class="bi bi-calendar3" aria-hidden="true"></i>
+            <span id="periodName">Cargando...</span>
+          </div>
         </div>
+
+        <form id="dayConfigForm" class="row g-2 align-items-end">
+          <div class="col-12 col-sm-4">
+            <label class="form-label small mb-1" for="cfgDay">Día</label>
+            <select class="form-select form-select-sm" id="cfgDay" required disabled>
+              <option value="">Cargando días...</option>
+            </select>
+          </div>
+          <div class="col-6 col-sm-2">
+            <label class="form-label small mb-1" for="cfgStart">Inicio</label>
+            <input type="time" class="form-control form-control-sm" id="cfgStart" value="09:00" required>
+          </div>
+          <div class="col-6 col-sm-2">
+            <label class="form-label small mb-1" for="cfgEnd">Fin</label>
+            <input type="time" class="form-control form-control-sm" id="cfgEnd" value="13:00" required>
+          </div>
+          <div class="col-6 col-sm-2">
+            <label class="form-label small mb-1" for="cfgMinutes">Min/cita</label>
+            <select class="form-select form-select-sm" id="cfgMinutes">
+              <option>5</option>
+              <option>10</option>
+              <option>15</option>
+              <option>20</option>
+              <option>30</option>
+            </select>
+          </div>
+          <div class="col-6 col-sm-2 d-grid">
+            <button class="btn btn-primary btn-sm" id="btnSaveCfg" type="submit">
+              <i class="bi bi-check-lg" aria-hidden="true"></i><span class="d-none d-md-inline"> Guardar</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Resultado de guardar — inline alert con auto-dismiss -->
+        <div id="cfgResult" class="mt-2 at-cfg-result" aria-live="polite"></div>
+      </div>
     </div>
+  </div>
 </div>
+
+<!-- Vista del día -->
 <div class="card shadow-sm mt-2 mt-md-3">
-    <div class="card-body py-2 py-md-3">
-        <h5 class="card-title mb-2 mb-md-3 h6" id = "tittleView">Vista del día</h5>
+  <div class="card-body py-2 py-md-3">
+    <h5 class="card-title mb-2 mb-md-3 h6" id="titleView">Vista del día</h5>
 
-        <!-- KPIs -->
-        <div class="row g-2 mb-2 mb-md-3" id="daySummary">
-            <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small" style="font-size: 0.7rem;">Horarios totales</div>
-                    <div class="fs-5 fw-semibold" id="kpiTotal">—</div>
-                </div>
-            </div>
-            <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small" style="font-size: 0.7rem;">Horarios libres</div>
-                    <div class="fs-5 fw-semibold text-success" id="kpiFree">—</div>
-                </div>
-            </div>
-            <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small" style="font-size: 0.7rem;">Reservados</div>
-                    <div class="fs-5 fw-semibold text-primary" id="kpiBooked">—</div>
-                </div>
-            </div>
-            <div class="col-6 col-lg-3">
-                <div class="border rounded-3 p-2 h-100 d-flex flex-column justify-content-center">
-                    <div class="text-muted small" style="font-size: 0.7rem;">Ventanas</div>
-                    <div class="fs-5 fw-semibold" id="kpiWindows">—</div>
-                </div>
-            </div>
+    <!-- KPIs -->
+    <div class="row g-2 mb-2 mb-md-3" id="daySummary">
+      <div class="col-6 col-lg-3">
+        <div class="at-kpi at-kpi--accent h-100">
+          <div class="at-stat-label">Horarios totales</div>
+          <div class="at-kpi__value" id="kpiTotal">—</div>
         </div>
-
-        <!-- Tira de slots (heat-bar) -->
-        <div>
-            <div class="d-flex align-items-center justify-content-between mb-2">
-                <div class="text-muted small">Tira de horarios</div>
-                <div class="d-flex align-items-center gap-3 small">
-                    <span><span class="legend legend-free"></span> Libre</span>
-                    <span><span class="legend legend-booked"></span> Reservado</span>
-                </div>
-            </div>
-            <div id="dayStrip" class="slot-strip"></div>
+      </div>
+      <div class="col-6 col-lg-3">
+        <div class="at-kpi at-kpi--success h-100">
+          <div class="at-stat-label">Libres</div>
+          <div class="at-kpi__value" id="kpiFree">—</div>
         </div>
-
-        <!-- Tabla compacta -->
-        <div class="table-responsive mt-3">
-            <table class="table table-sm align-middle mb-0">
-                <thead>
-                    <tr>
-                        <th style="width:120px">Hora</th>
-                        <th>Estado</th>
-                        <th>Alumno</th>
-                        <th>Carrera</th>
-                    </tr>
-                </thead>
-                <tbody id="dayTableBody"></tbody>
-            </table>
+      </div>
+      <div class="col-6 col-lg-3">
+        <div class="at-kpi h-100">
+          <div class="at-stat-label">Reservados</div>
+          <div class="at-kpi__value" id="kpiBooked">—</div>
         </div>
+      </div>
+      <div class="col-6 col-lg-3">
+        <div class="at-kpi h-100">
+          <div class="at-stat-label">Ventanas</div>
+          <div class="at-kpi__value" id="kpiWindows">—</div>
+        </div>
+      </div>
     </div>
+
+    <!-- Tira de slots (5 estados) -->
+    <div>
+      <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+        <div class="text-muted small">Tira de horarios</div>
+        <!-- Leyenda 5 estados -->
+        <div class="at-slots-legend" aria-label="Leyenda de estados de horario">
+          <span>
+            <span class="at-legend-dot at-legend-dot--available" aria-hidden="true"></span> Libre
+          </span>
+          <span>
+            <span class="at-legend-dot at-legend-dot--reserved" aria-hidden="true"></span> Reservado
+          </span>
+          <span>
+            <span class="at-legend-dot at-legend-dot--taken" aria-hidden="true"></span> Atendida
+          </span>
+          <span>
+            <span class="at-legend-dot at-legend-dot--no-show" aria-hidden="true"></span> No asistió
+          </span>
+          <span>
+            <span class="at-legend-dot at-legend-dot--disabled" aria-hidden="true"></span> No disponible
+          </span>
+        </div>
+      </div>
+      <div id="dayStrip" class="slot-strip" aria-label="Tira de horarios del día"></div>
+    </div>
+
+    <!-- Tabla compacta responsive a cards en mobile -->
+    <div class="table-responsive mt-3">
+      <table class="table table-sm align-middle mb-0" data-at-table="card" id="dayTable">
+        <thead>
+          <tr>
+            <th scope="col" data-at-label="Hora">Hora</th>
+            <th scope="col" data-at-label="Estado">Estado</th>
+            <th scope="col" data-at-label="Alumno">Alumno</th>
+            <th scope="col" data-at-label="Carrera">Carrera</th>
+          </tr>
+        </thead>
+        <tbody id="dayTableBody"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
-
+<!-- Eliminar horas -->
 <div class="card shadow-sm mt-2 mt-md-3">
-    <div class="card-body py-2 py-md-3">
-        <h6 class="card-title mb-2">Eliminar horas</h6>
-        <div class="row g-2 align-items-end">
-            <div class="col-12 col-sm-4">
-                <label class="form-label small mb-1">Día</label>
-                <select class="form-select form-select-sm" id="cfgDayDel" required disabled>
-                    <option value="">Cargando días...</option>
-                </select>
-            </div>
-            <div class="col-6 col-sm-2">
-                <label class="form-label small mb-1">Inicio</label>
-                <input id="delStart" type="time" class="form-control form-control-sm" value="09:00" required />
-            </div>
-            <div class="col-6 col-sm-2">
-                <label class="form-label small mb-1">Fin</label>
-                <input id="delEnd" type="time" class="form-control form-control-sm" value="13:00" required />
-            </div>
-            <div class="col-12 col-sm-3 d-grid">
-                <button id="btnDeleteRange" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i><span class="d-none d-sm-inline"> Eliminar</span></button>
-            </div>
-        </div>
-        <div class="form-text mt-1 small">
-            Solo se eliminan horarios <strong>no reservados</strong>.
-        </div>
+  <div class="card-body py-2 py-md-3">
+    <h6 class="card-title mb-2">Eliminar horas</h6>
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-sm-4">
+        <label class="form-label small mb-1" for="cfgDayDel">Día</label>
+        <select class="form-select form-select-sm" id="cfgDayDel" required disabled>
+          <option value="">Cargando días...</option>
+        </select>
+      </div>
+      <div class="col-6 col-sm-2">
+        <label class="form-label small mb-1" for="delStart">Inicio</label>
+        <input id="delStart" type="time" class="form-control form-control-sm" value="09:00" required>
+      </div>
+      <div class="col-6 col-sm-2">
+        <label class="form-label small mb-1" for="delEnd">Fin</label>
+        <input id="delEnd" type="time" class="form-control form-control-sm" value="13:00" required>
+      </div>
+      <div class="col-12 col-sm-3 d-grid">
+        <button id="btnDeleteRange" class="btn btn-outline-danger btn-sm">
+          <i class="bi bi-trash" aria-hidden="true"></i><span class="d-none d-sm-inline"> Eliminar</span>
+        </button>
+      </div>
     </div>
+    <div class="form-text mt-1 small">
+      Solo se eliminan horarios <strong>no reservados</strong>.
+    </div>
+  </div>
 </div>
-{%endblock%}
+{% endblock %}
 
 {% block modals %}
 <!-- Modal de confirmación para eliminar rango de horarios -->
-<div class="modal fade" id="modalDeleteSlots" tabindex="-1" aria-labelledby="modalDeleteSlotsLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="modalDeleteSlotsLabel">Confirmar eliminación</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body">
-                <p id="modalDeleteSlotsMsg">¿Deseas eliminar este rango de horarios?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-danger" id="btnConfirmDeleteSlots">Eliminar</button>
-            </div>
-        </div>
+<div class="modal fade" id="modalDeleteSlots" tabindex="-1"
+     aria-labelledby="modalDeleteSlotsLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalDeleteSlotsLabel">Confirmar eliminación</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Preview de slots afectados (inyectado por slots_delete.js) -->
+        <div id="modalDeleteSlotsMsg">¿Deseas eliminar este rango de horarios?</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDeleteSlots">Eliminar</button>
+      </div>
     </div>
+  </div>
+</div>
+
+<!-- Popover / mini-modal de detalle de slot -->
+<div class="modal fade" id="slotDetailModal" tabindex="-1"
+     aria-labelledby="slotDetailModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="slotDetailModalLabel">Detalle de horario</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body small" id="slotDetailBody"></div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <!-- IMPORTANTE: slots_init.js debe cargarse PRIMERO para llenar los selects de días -->
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_init.js') }}?v={{ sv('agendatec', 'js/coord/slots_init.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ sv('agendatec', 'js/sockets/slots_client.js') }}"></script>

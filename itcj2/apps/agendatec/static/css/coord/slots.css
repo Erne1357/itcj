@@ -1,53 +1,115 @@
+/* =============================================================================
+   AgendaTec — coord/slots.css
+   Estilos específicos de la página de configuración de horarios.
+   Consume únicamente tokens de base.css y clases de components.css.
+   ============================================================================= */
+
+/* Tira de slots */
 .slot-strip {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
+  display: flex;
+  gap: var(--at-space-2);
+  flex-wrap: wrap;
 }
 
-.slot-chip {
-    min-width: 90px;
-    padding: 6px 8px;
-    border-radius: 10px;
-    border: 1px solid var(--bs-border-color);
-    font-size: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+/* =============================================================================
+   Chip pequeño para la tira (versión compacta de .at-slot).
+   Reutiliza los mismos tokens semánticos --at-slot-*-bg/border.
+   Clase base: at-slot-chip
+   ============================================================================= */
+.at-slot-chip {
+  min-width: 90px;
+  padding: var(--at-space-1) var(--at-space-2);
+  border-radius: var(--at-radius-sm);
+  border: 1px solid var(--at-slot-available-border);
+  background: var(--at-slot-available-bg);
+  color: var(--at-text);
+  font-size: var(--at-text-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background var(--at-duration-fast) var(--at-ease-standard),
+    border-color var(--at-duration-fast) var(--at-ease-standard),
+    box-shadow var(--at-duration-fast) var(--at-ease-standard);
 }
 
-.slot-free {
-    background: #f8f9fa;
+/* Interactivos: cursor pointer + foco visible */
+.at-slot-chip--interactive {
+  cursor: pointer;
 }
 
-.slot-booked {
-    background: #e7f1ff;
-    border-color: #cfe2ff;
+.at-slot-chip--interactive:hover {
+  box-shadow: var(--at-shadow-xs);
+  border-color: var(--at-primary);
 }
 
-.legend {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    margin-right: 6px;
-    vertical-align: -2px;
-    border: 1px solid var(--bs-border-color);
+.at-slot-chip--interactive:focus-visible {
+  outline: 0;
+  box-shadow: var(--at-shadow-focus);
 }
 
-.legend-free {
-    background: #f8f9fa;
+/* Estados semánticos (mismos nombres que .at-slot para consistencia) */
+.at-slot-chip--available {
+  background: var(--at-slot-available-bg);
+  border-color: var(--at-slot-available-border);
+  color: var(--at-text);
 }
 
-.legend-booked {
-    background: #e7f1ff;
-    border-color: #cfe2ff;
+.at-slot-chip--reserved {
+  background: var(--at-slot-reserved-bg);
+  border-color: var(--at-slot-reserved-border);
+  color: var(--at-text);
+  cursor: default;
 }
 
-.tt {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 160px;
-    display: inline-block;
-    vertical-align: bottom;
+.at-slot-chip--taken {
+  background: var(--at-slot-taken-bg);
+  border-color: var(--at-slot-taken-border);
+  color: var(--at-text);
 }
+
+.at-slot-chip--no-show {
+  background: var(--at-slot-no-show-bg);
+  border-color: var(--at-slot-no-show-border);
+  color: var(--at-text);
+}
+
+.at-slot-chip--disabled {
+  background: var(--at-slot-disabled-bg);
+  border-color: var(--at-slot-disabled-border);
+  color: var(--at-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Texto interno del chip */
+.at-slot-chip__time {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+/* =============================================================================
+   Leyenda de 5 estados
+   ============================================================================= */
+.at-slots-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--at-space-3);
+  font-size: var(--at-text-xs);
+  color: var(--at-text-muted);
+}
+
+/* =============================================================================
+   Alert inline resultado guardar configuración
+   ============================================================================= */
+.at-cfg-result {
+  min-height: 1.5rem;
+}
+

@@ -1,0 +1,40 @@
+/* =============================================================================
+   AgendaTec — coord/appointments.css
+   Estilos específicos de la página de citas del coordinador.
+   Consume únicamente tokens de base.css y clases de components.css.
+   ============================================================================= */
+
+/* Descripción truncada en tabla */
+.at-desc-truncate {
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+/* Toast con botón Undo */
+.at-toast-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--at-space-2);
+  margin-left: var(--at-space-2);
+}
+
+.at-toast-undo__btn {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: var(--at-radius-sm);
+  padding: 2px 8px;
+  font-size: var(--at-text-xs);
+  font-weight: var(--at-font-weight-semibold);
+  cursor: pointer;
+  color: inherit;
+  transition: background var(--at-duration-fast) var(--at-ease-standard);
+  white-space: nowrap;
+}
+
+.at-toast-undo__btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}

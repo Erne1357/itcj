@@ -1,0 +1,49 @@
+/* =============================================================================
+   AgendaTec — coord/home.css
+   Estilos específicos de la página de inicio del coordinador.
+   Consume únicamente tokens de base.css y clases de components.css.
+   ============================================================================= */
+
+/* Contenedor principal con animación de entrada */
+.at-coord-home { }
+
+/* KPI Citas con acento primario */
+.at-kpi--citas {
+  border-left: 3px solid var(--at-primary);
+}
+
+/* KPI Bajas con acento success */
+.at-kpi--bajas {
+  border-left: 3px solid var(--at-success);
+}
+
+/* KPI valor pendiente con color warning */
+.at-kpi__value--warning {
+  color: var(--at-slot-reserved-text);
+}
+
+/* Recordatorios: lista escalonada */
+.at-reminder-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--at-space-2);
+}
+
+.at-reminder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--at-space-3);
+  padding: var(--at-space-2) var(--at-space-3);
+  background: var(--at-warning-bg);
+  border: 1px solid var(--at-warning-border);
+  border-radius: var(--at-radius-md);
+  flex-wrap: wrap;
+}
+
+.at-reminder-item__text {
+  font-size: var(--at-text-base);
+  display: flex;
+  align-items: center;
+  gap: var(--at-space-2);
+}
