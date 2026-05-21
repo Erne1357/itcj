@@ -50,6 +50,21 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function loadData() {
+  // Skeleton durante carga
+  const statsContainer = document.getElementById("statsContent");
+  if (statsContainer && window.AgendaTec?.Skeleton) {
+    statsContainer.innerHTML = `
+      <div class="row g-2 text-center">
+        ${Array.from({length:4}, () => `
+          <div class="col-6">
+            <div class="p-2 bg-light rounded">
+              ${window.AgendaTec.Skeleton.line("40%")}
+              <div class="mt-1">${window.AgendaTec.Skeleton.line("60%")}</div>
+            </div>
+          </div>`).join("")}
+      </div>`;
+  }
+
   try {
     // Cargar período y días habilitados en paralelo
     const [periodResp, daysResp, statsResp] = await Promise.all([
@@ -305,6 +320,13 @@ async function saveDays() {
 }
 
 async function performSave() {
+  const btn = document.getElementById("btnSave");
+  const originalHtml = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span><span class="d-none d-sm-inline">Guardando...</span>';
+  }
+
   try {
     const resp = await fetch(cfg.saveEnabledDaysUrl, {
       method: "POST",
@@ -321,10 +343,15 @@ async function performSave() {
 
     showToast(`Días guardados correctamente (${data.enabled_days_count} días habilitados)`, "success");
     hasUnsavedChanges = false;
-    loadData(); // Recargar para actualizar stats
+    loadData();
   } catch (err) {
     console.error(err);
     showToast("Error al guardar: " + err.message, "error");
+  } finally {
+    if (btn && originalHtml) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
   }
 }
 

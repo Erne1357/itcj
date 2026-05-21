@@ -1,4 +1,8 @@
 // static/js/admin/mail_survey.js
+// DEPRECATED (Fase 7): Funcionalidad de envío de encuestas migrada a
+// `admin/surveys.html` + `surveys.js`. Este script ya no se carga desde
+// ningún template. Conservado por referencia histórica; eliminar tras
+// confirmar 0 regresiones en próximos releases.
 (() => {
   const $ = (s) => document.querySelector(s);
   const log = (msg) => {

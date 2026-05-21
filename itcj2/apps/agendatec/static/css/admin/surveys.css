@@ -1,3 +1,6 @@
-.tab-btn {
-    cursor: pointer;
-}
+/* =============================================================================
+   AgendaTec — Admin Surveys
+   -----------------------------------------------------------------------------
+   Reservado para overrides puntuales de la página de encuestas.
+   Las tabs migraron a Bootstrap Tab API (Fase 5) y ya no requieren CSS custom.
+   ============================================================================= */

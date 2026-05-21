@@ -1,76 +1,73 @@
 // static/js/admin/requests.js
 (() => {
   const $ = (s) => document.querySelector(s);
-  const cfg = window.__adminRequestsCfg || {};
-  const listUrl = cfg.listUrl || "/api/agendatec/v2/admin/requests";
-  const detailBase = cfg.detailBase || "/api/agendatec/v2/admin/requests/"; // + id
-  const statusBase = cfg.statusBase || "/api/agendatec/v2/admin/requests/"; // + id + /status
+  const cfg       = window.__adminRequestsCfg || {};
+  const listUrl   = cfg.listUrl   || "/api/agendatec/v2/admin/requests";
+  const detailBase = cfg.detailBase || "/api/agendatec/v2/admin/requests/";
+  const statusBase  = cfg.statusBase  || "/api/agendatec/v2/admin/requests/";
   const programsUrl = cfg.programsUrl || "/api/agendatec/v2/programs";
-  const coordsUrl = cfg.coordsUrl || "/api/agendatec/v2/admin/users/coordinators";
-  const periodsUrl = cfg.periodsUrl || "/api/agendatec/v2/periods";
+  const coordsUrl   = cfg.coordsUrl   || "/api/agendatec/v2/admin/users/coordinators";
+  const periodsUrl  = cfg.periodsUrl  || "/api/agendatec/v2/periods";
 
-  let page = 0;
-  const pageSize = 10;
+  // === ESTADO GLOBAL DEL MÓDULO ===
+  let page         = 0;
+  let pageSize     = 10;
+  let totalItems   = 0;
   let activePeriodId = null;
+  let sortCol      = "";
+  let sortDir      = "";
 
-  const statusTone = (s) =>
-    ({
-      PENDING: "warning",
-      RESOLVED_SUCCESS: "success",
-      RESOLVED_NOT_COMPLETED: "secondary",
-      NO_SHOW: "danger",
-      ATTENDED_OTHER_SLOT: "info",
-      CANCELED: "secondary",
-    }[s] || "secondary");
-  const statusES = (s) =>
-    ({
-      PENDING: "Pendiente",
-      RESOLVED_SUCCESS: "Resuelta",
-      RESOLVED_NOT_COMPLETED: "No resuelta",
-      NO_SHOW: "No asistió",
-      ATTENDED_OTHER_SLOT: "Otro horario",
-      CANCELED: "Cancelada",
-    }[s] || s);
+  // === MAPS ===
+  const statusTone = (s) => ({
+    PENDING:                "warning",
+    RESOLVED_SUCCESS:       "success",
+    RESOLVED_NOT_COMPLETED: "secondary",
+    NO_SHOW:                "danger",
+    ATTENDED_OTHER_SLOT:    "info",
+    CANCELED:               "secondary",
+  }[s] || "secondary");
 
+  const statusES = (s) => ({
+    PENDING:                "Pendiente",
+    RESOLVED_SUCCESS:       "Resuelta",
+    RESOLVED_NOT_COMPLETED: "No resuelta",
+    NO_SHOW:                "No asistió",
+    ATTENDED_OTHER_SLOT:    "Otro horario",
+    CANCELED:               "Cancelada",
+  }[s] || s);
+
+  // === FECHAS INICIALES ===
   function initDates() {
-    const to = new Date();
+    const to   = new Date();
     const from = new Date(Date.now() - 7 * 86400000);
-    $("#fltTo").value = to.toISOString().slice(0, 10);
+    $("#fltTo").value   = to.toISOString().slice(0, 10);
     $("#fltFrom").value = from.toISOString().slice(0, 10);
   }
 
+  // === CARGA SELECTS FILTROS ===
   async function loadProgramsAndCoords() {
     try {
       const [rp, rc, rper] = await Promise.all([
         fetch(programsUrl, { credentials: "include" }),
-        fetch(coordsUrl, { credentials: "include" }),
-        fetch(periodsUrl, { credentials: "include" }),
+        fetch(coordsUrl,   { credentials: "include" }),
+        fetch(periodsUrl,  { credentials: "include" }),
       ]);
-      const pj = (await rp.json());
-      const cj = (await rc.json());
-      const perj = (await rper.json());
+      const pj   = await rp.json();
+      const cj   = await rc.json();
+      const perj = await rper.json();
 
-      const progs = Array.isArray(pj) ? pj : (pj.items || pj.programs || []);
-      const coords = (cj.items || []);
-      const periods = Array.isArray(perj) ? perj : (perj.items || perj.periods || []);
+      const progs   = Array.isArray(pj)   ? pj   : (pj.items   || pj.programs   || []);
+      const coords  = (cj.items || []);
+      const periods = Array.isArray(perj) ? perj : (perj.items || perj.periods   || []);
 
-      fillSelect($("#fltProgram"), [{ id: "", name: "Programa" }, ...progs]);
-      fillSelect($("#fltCoordinator"), [{ id: "", name: "Coordinador" }, ...coords.map(c => ({ id: c.id, name: c.name }))]);
+      fillSelect($("#fltProgram"),     [{ id: "", name: "Programa" },    ...progs]);
+      fillSelect($("#fltCoordinator"), [{ id: "", name: "Coordinador" }, ...coords.map((c) => ({ id: c.id, name: c.name }))]);
 
-      // Find active period
-      const activePeriod = periods.find(p => p.status === "ACTIVE");
-      if (activePeriod) {
-        activePeriodId = activePeriod.id;
-      }
+      const activePeriod = periods.find((p) => p.status === "ACTIVE");
+      if (activePeriod) activePeriodId = activePeriod.id;
 
-      // Fill periods select with "Todos" as first option and active period preselected
-      const periodOptions = [{ id: "", name: "Todos los períodos" }, ...periods.map(p => ({ id: p.id, name: p.name }))];
-      fillSelect($("#fltPeriod"), periodOptions);
-
-      // Set active period as default
-      if (activePeriodId) {
-        $("#fltPeriod").value = activePeriodId;
-      }
+      fillSelect($("#fltPeriod"), [{ id: "", name: "Todos los períodos" }, ...periods.map((p) => ({ id: p.id, name: p.name }))]);
+      if (activePeriodId) $("#fltPeriod").value = activePeriodId;
     } catch { /* silent */ }
   }
 
@@ -81,172 +78,193 @@
       .join("");
   }
 
+  // === QUERY STRING ===
   function buildQs() {
     const q = new URLSearchParams();
-    const from = $("#fltFrom")?.value;
-    const to = $("#fltTo")?.value;
+    const from   = $("#fltFrom")?.value;
+    const to     = $("#fltTo")?.value;
     const status = $("#fltStatus")?.value;
-    const prog = $("#fltProgram")?.value;
-    const coord = $("#fltCoordinator")?.value;
+    const prog   = $("#fltProgram")?.value;
+    const coord  = $("#fltCoordinator")?.value;
     const period = $("#fltPeriod")?.value;
-    const text = $("#txtQ")?.value?.trim();
+    const text   = $("#txtQ")?.value?.trim();
 
-    if (from) q.set("from", from);
-    if (to) q.set("to", to);
+    if (from)   q.set("from", from);
+    if (to)     q.set("to", to);
     if (status) q.set("status", status);
-    if (prog) q.set("program_id", prog);
-    if (coord) q.set("coordinator_id", coord);
+    if (prog)   q.set("program_id", prog);
+    if (coord)  q.set("coordinator_id", coord);
     if (period) q.set("period_id", period);
-    if (text) q.set("q", text);
-    q.set("limit", pageSize);
+    if (text)   q.set("q", text);
+    if (sortCol) { q.set("order_by", sortCol); q.set("order_dir", sortDir || "asc"); }
+    q.set("limit",  pageSize);
     q.set("offset", page * pageSize);
     return q.toString();
   }
 
+  // === RECARGA ===
   async function reload() {
+    const tb = $("#tblReqBody");
+    if (!tb) return;
+
+    // Skeleton
+    if (window.AgendaTec?.Skeleton) {
+      tb.innerHTML = window.AgendaTec.Skeleton.tableRows(pageSize > 10 ? 6 : 4, 8, { withActions: true });
+    }
+
     try {
       const r = await fetch(`${listUrl}?${buildQs()}`, { credentials: "include" });
       if (!r.ok) throw new Error();
       const j = await r.json();
-      console.log("Loaded requests:", j);
+      totalItems = j.total || 0;
 
       renderTable(j.items || []);
-      $("#lblTotal").textContent = `${j.total || 0} registros`;
-      togglePager(j.total || 0);
+      renderPagination();
+      $("#lblTotal").textContent = `${totalItems} registros`;
     } catch {
       showToast?.("Error al cargar solicitudes", "error");
+      if (tb) tb.innerHTML = `<tr><td colspan="8" class="text-center text-danger small py-3">
+        <i class="bi bi-exclamation-triangle me-1"></i>Error al cargar datos</td></tr>`;
     }
   }
 
+  // === RENDER TABLA ===
   function renderTable(items) {
     const tb = $("#tblReqBody");
     if (!items.length) {
-      tb.innerHTML = `<tr><td colspan="8" class="text-muted">Sin resultados.</td></tr>`;
-      return;
-    }
-    tb.innerHTML = items
-      .map((r) => {
-        const badge = `<span class="badge text-bg-${statusTone(r.status)}">${statusES(r.status)}</span>`;
-        return `<tr data-req-id="${r.id}" style="cursor: pointer;">
-          <td>#${r.id}</td>
-          <td>${escapeHtml(r.type == "DROP" ? "Baja" : "Cita")}</td>
-          <td>${badge}</td>
-          <td>${escapeHtml(r.program || "—")}</td>
-          <td>${escapeHtml(r.student || "—")}</td>
-          <td>${escapeHtml(r.coordinator_name || "—")}</td>
-          <td>${fmtDate(r.created_at)}</td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-info me-1" data-view="${r.id}" title="Ver detalles">
-              <i class="bi bi-eye"></i>
-            </button>
-            ${
-              r.status === "PENDING"
-                ? `<button class="btn btn-sm btn-outline-primary" data-change="${r.id}" data-type="${r.type}">
-                     Cambiar
-                   </button>`
-                : `<button class="btn btn-sm btn-outline-secondary" data-change="${r.id}" data-type="${r.type}">
-                     Re-etiquetar
-                   </button>`
-            }
+      tb.innerHTML = `
+        <tr>
+          <td colspan="8">
+            <div class="at-empty py-4">
+              <i class="bi bi-funnel fs-3" aria-hidden="true"></i>
+              <p class="mt-2 mb-1">Sin resultados con estos filtros</p>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btnClearFilters">
+                <i class="bi bi-x-lg me-1"></i>Limpiar filtros
+              </button>
+            </div>
           </td>
         </tr>`;
-      })
-      .join("");
-  }
+      document.getElementById("btnClearFilters")?.addEventListener("click", clearFilters);
+      return;
+    }
+    tb.innerHTML = items.map((r) => {
+      const badge = `<span class="badge text-bg-${statusTone(r.status)}">${statusES(r.status)}</span>`;
+      return `<tr data-req-id="${r.id}" role="button" tabindex="0" aria-label="Ver solicitud #${r.id}" style="cursor:pointer;">
+        <td data-at-label="ID">#${r.id}</td>
+        <td data-at-label="Tipo">${escapeHtml(r.type === "DROP" ? "Baja" : "Cita")}</td>
+        <td data-at-label="Estado">${badge}</td>
+        <td data-at-label="Programa">${escapeHtml(r.program || "—")}</td>
+        <td data-at-label="Alumno">${escapeHtml(r.student || "—")}</td>
+        <td data-at-label="Coordinador">${escapeHtml(r.coordinator_name || "—")}</td>
+        <td data-at-label="Creado">${fmtDate(r.created_at)}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-info me-1" data-view="${r.id}" title="Ver detalles" aria-label="Ver detalles solicitud #${r.id}">
+            <i class="bi bi-eye" aria-hidden="true"></i>
+          </button>
+          <button class="btn btn-sm ${r.status === "PENDING" ? "btn-outline-primary" : "btn-outline-secondary"}"
+                  data-change="${r.id}" data-type="${r.type}"
+                  title="${r.status === "PENDING" ? "Cambiar estado" : "Re-etiquetar"}"
+                  aria-label="Cambiar estado solicitud #${r.id}">
+            ${r.status === "PENDING" ? "Cambiar" : "Re-etiquetar"}
+          </button>
+        </td>
+      </tr>`;
+    }).join("");
 
-  function fmtDate(iso) {
-    if (!iso) return "—";
-    try {
-      return new Date(iso).toLocaleString("es-MX", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return iso;
+    // Sincronizar labels para mobile cards
+    if (window.AgendaTec?.TableCard) {
+      window.AgendaTec.TableCard.syncLabels(tb.closest("table"));
     }
   }
 
-  function escapeHtml(s) {
-    return (s || "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
+  // === PAGINACIÓN NUMÉRICA ===
+  function renderPagination() {
+    const totalPages = Math.max(Math.ceil(totalItems / pageSize), 1);
+    const pager = document.getElementById("pagerContainer");
+    if (!pager) return;
 
-  // Paginación
-  $("#btnPrev")?.addEventListener("click", () => {
-    if (page > 0) {
-      page--;
-      reload();
+    // Texto de página
+    const pageInfo = document.getElementById("lblPageInfo");
+    if (pageInfo) pageInfo.textContent = `Página ${page + 1} de ${totalPages}`;
+
+    // Rango de 5 páginas alrededor de la actual
+    const half  = 2;
+    let start = Math.max(0, page - half);
+    let end   = Math.min(totalPages - 1, page + half);
+    if (end - start < 4) {
+      if (start === 0) end   = Math.min(totalPages - 1, 4);
+      else             start = Math.max(0, end - 4);
     }
-  });
-  $("#btnNext")?.addEventListener("click", () => {
-    page++;
-    reload();
-  });
-  function togglePager(total) {
-    const maxPage = Math.max(Math.ceil(total / pageSize) - 1, 0);
-    $("#btnPrev").disabled = page <= 0;
-    $("#btnNext").disabled = page >= maxPage;
+
+    let html = "";
+    // Primera
+    if (start > 0) {
+      html += `<li class="page-item"><button class="page-link" data-pg="0">1</button></li>`;
+      if (start > 1) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+    }
+    // Rango
+    for (let i = start; i <= end; i++) {
+      html += `<li class="page-item ${i === page ? "active" : ""}">
+        <button class="page-link" data-pg="${i}"${i === page ? ' aria-current="page"' : ''}>${i + 1}</button>
+      </li>`;
+    }
+    // Última
+    if (end < totalPages - 1) {
+      if (end < totalPages - 2) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+      html += `<li class="page-item"><button class="page-link" data-pg="${totalPages - 1}">${totalPages}</button></li>`;
+    }
+    pager.innerHTML = html;
+
+    // Botones prev/next
+    const btnPrev = document.getElementById("btnPrev");
+    const btnNext = document.getElementById("btnNext");
+    if (btnPrev) btnPrev.disabled = page <= 0;
+    if (btnNext) btnNext.disabled = page >= totalPages - 1;
   }
 
-  // Filtros
-  $("#btnSearch")?.addEventListener("click", () => {
+  // === ORDENAMIENTO POR COLUMNA ===
+  function updateSortIndicators() {
+    document.querySelectorAll("#tblReqHead th[data-sort]").forEach((th) => {
+      th.querySelectorAll(".bi-arrow-up, .bi-arrow-down, .bi-arrow-up-down").forEach((i) => i.remove());
+      const col = th.dataset.sort;
+      const icon = document.createElement("i");
+      if (col === sortCol) {
+        icon.className = `bi ms-1 ${sortDir === "desc" ? "bi-arrow-down" : "bi-arrow-up"}`;
+        icon.setAttribute("aria-hidden", "true");
+      } else {
+        icon.className = "bi bi-arrow-up-down ms-1 opacity-50";
+        icon.setAttribute("aria-hidden", "true");
+      }
+      th.appendChild(icon);
+    });
+  }
+
+  // === LIMPIAR FILTROS ===
+  function clearFilters() {
+    ["fltFrom", "fltTo", "fltStatus", "fltProgram", "fltCoordinator", "txtQ"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+    if (activePeriodId && document.getElementById("fltPeriod")) {
+      document.getElementById("fltPeriod").value = activePeriodId;
+    }
     page = 0;
     reload();
-  });
-  $("#txtQ")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      page = 0;
-      reload();
-    }
-  });
-  $("#fltPeriod")?.addEventListener("change", () => {
-    page = 0;
-    reload();
-  });
+  }
 
-  // Cambio de estado (modal)
+  // === ESTADO ACTUAL DE SOLICITUD (para cambio) ===
   let currentReqId = null;
 
-  // Ver detalles (modal)
-  document.addEventListener("click", async (e) => {
-    const viewBtn = e.target.closest("button[data-view]");
-    const row = e.target.closest("tr[data-req-id]");
-    
-    // Si hace clic en el botón "Ver detalles" o en la fila (pero no en botones de acción)
-    if (viewBtn || (row && !e.target.closest("button[data-change]"))) {
-      const reqId = viewBtn ? viewBtn.getAttribute("data-view") : row.getAttribute("data-req-id");
-      if (reqId) {
-        await showRequestDetails(reqId);
-        return;
-      }
-    }
-
-    // Cambio de estado
-    const changeBtn = e.target.closest("button[data-change]");
-    if (!changeBtn) return;
-    currentReqId = changeBtn.getAttribute("data-change");
-    const rowForStatus = changeBtn.closest("tr");
-    $("#curReqInfo").innerHTML = rowForStatus ? rowForStatus.cells[0].innerText + " · " + rowForStatus.cells[2].innerText : `#${currentReqId}`;
-    $("#fNewStatus").value = "RESOLVED_SUCCESS";
-    $("#fReason").value = "";
-    new bootstrap.Modal($("#mdlStatus")).show();
-  });
-
+  // === VER DETALLES ===
   async function showRequestDetails(reqId) {
     currentReqId = reqId;
     const modal = new bootstrap.Modal($("#mdlDetails"));
     modal.show();
 
-    // Mostrar loading
-    $("#detLoading").style.display = "block";
-    $("#detContent").style.display = "none";
+    const detLoading = $("#detLoading");
+    const detContent = $("#detContent");
+    if (detLoading) { detLoading.hidden = false; }
+    if (detContent) { detContent.hidden = true;  }
     $("#detReqId").textContent = `#${reqId}`;
 
     try {
@@ -254,50 +272,42 @@
       if (!r.ok) throw new Error("Error al cargar detalles");
       const data = await r.json();
 
-      // Alumno
-      $("#detStudentName").textContent = data.student?.name || "—";
+      $("#detStudentName").textContent    = data.student?.name           || "—";
       $("#detStudentControl").textContent = data.student?.control_number || "—";
-      $("#detStudentEmail").textContent = data.student?.email || "—";
+      $("#detStudentEmail").textContent   = data.student?.email          || "—";
 
-      // Info general
-      const typeBadge = data.type === "DROP" 
-        ? '<span id="detType" class="badge text-bg-warning">Baja</span>' 
-        : '<span id="detType" class="badge text-bg-info">Cita</span>';
-      $("#detTypeContainer").innerHTML = typeBadge;
-      
-      const statusBadge = `<span id="detStatus" class="badge text-bg-${statusTone(data.status)}">${statusES(data.status)}</span>`;
-      $("#detStatusContainer").innerHTML = statusBadge;
-      
-      $("#detProgram").textContent = data.program || "—";
-      $("#detPeriod").textContent = data.period || "—";
+      const typeBadge   = data.type === "DROP"
+        ? '<span class="badge text-bg-warning">Baja</span>'
+        : '<span class="badge text-bg-info">Cita</span>';
+      $("#detTypeContainer").innerHTML    = typeBadge;
+      $("#detStatusContainer").innerHTML  = `<span class="badge text-bg-${statusTone(data.status)}">${statusES(data.status)}</span>`;
+      $("#detProgram").textContent        = data.program || "—";
+      $("#detPeriod").textContent         = data.period  || "—";
 
-      // Cita (si aplica)
+      const apptSec = $("#detAppointmentSection");
       if (data.appointment) {
-        $("#detAppointmentSection").style.display = "block";
-        $("#detSlotDay").textContent = data.appointment.slot?.day 
-          ? new Date(data.appointment.slot.day + "T00:00:00").toLocaleDateString("es-MX", { 
-              weekday: "long", year: "numeric", month: "long", day: "numeric" 
+        if (apptSec) apptSec.hidden = false;
+        $("#detSlotDay").textContent  = data.appointment.slot?.day
+          ? new Date(data.appointment.slot.day + "T00:00:00").toLocaleDateString("es-MX", {
+              weekday: "long", year: "numeric", month: "long", day: "numeric",
             })
           : "—";
-        $("#detSlotTime").textContent = data.appointment.slot 
-          ? `${data.appointment.slot.start_time} - ${data.appointment.slot.end_time}`
-          : "—";
+        $("#detSlotTime").textContent = data.appointment.slot
+          ? `${data.appointment.slot.start_time} - ${data.appointment.slot.end_time}` : "—";
         $("#detCoordName").textContent = data.coordinator?.name || "—";
-        
         const appStatusMap = {
-          "SCHEDULED": { text: "Programada", tone: "primary" },
-          "DONE": { text: "Completada", tone: "success" },
-          "NO_SHOW": { text: "No asistió", tone: "danger" },
-          "CANCELED": { text: "Cancelada", tone: "secondary" },
+          SCHEDULED: { text: "Programada",  tone: "primary" },
+          DONE:      { text: "Completada",  tone: "success" },
+          NO_SHOW:   { text: "No asistió",  tone: "danger"  },
+          CANCELED:  { text: "Cancelada",   tone: "secondary" },
         };
         const appSt = appStatusMap[data.appointment.status] || { text: data.appointment.status, tone: "secondary" };
-        $("#detAppStatusContainer").innerHTML = `<span id="detAppStatus" class="badge text-bg-${appSt.tone}">${appSt.text}</span>`;
+        $("#detAppStatusContainer").innerHTML = `<span class="badge text-bg-${appSt.tone}">${appSt.text}</span>`;
       } else {
-        $("#detAppointmentSection").style.display = "none";
+        if (apptSec) apptSec.hidden = true;
       }
 
-      // Descripción
-      if (data.description && data.description.trim()) {
+      if (data.description?.trim()) {
         $("#detDescription").textContent = data.description;
         $("#detDescription").classList.remove("text-muted", "fst-italic");
       } else {
@@ -305,8 +315,7 @@
         $("#detDescription").classList.add("text-muted", "fst-italic");
       }
 
-      // Comentario del coordinador
-      if (data.coordinator_comment && data.coordinator_comment.trim()) {
+      if (data.coordinator_comment?.trim()) {
         $("#detCoordComment").textContent = data.coordinator_comment;
         $("#detCoordComment").classList.remove("text-muted", "fst-italic");
       } else {
@@ -314,53 +323,150 @@
         $("#detCoordComment").classList.add("text-muted", "fst-italic");
       }
 
-      // Fechas
       $("#detCreatedAt").textContent = fmtDate(data.created_at);
       $("#detUpdatedAt").textContent = fmtDate(data.updated_at);
 
-      // Mostrar contenido
-      $("#detLoading").style.display = "none";
-      $("#detContent").style.display = "block";
+      if (detLoading) detLoading.hidden = true;
+      if (detContent) detContent.hidden = false;
 
-    } catch (err) {
-      console.error(err);
-      $("#detLoading").innerHTML = `<div class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Error al cargar detalles</div>`;
+    } catch {
+      if (detLoading) detLoading.innerHTML =
+        `<div class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Error al cargar detalles</div>`;
     }
   }
 
-  // Botón "Cambiar Estado" desde modal de detalles
+  // === EVENT LISTENERS ===
+
+  // Paginación numérica (delegación)
+  document.getElementById("pagerContainer")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-pg]");
+    if (!btn) return;
+    const pg = parseInt(btn.dataset.pg, 10);
+    if (!isNaN(pg)) { page = pg; reload(); }
+  });
+
+  document.getElementById("btnPrev")?.addEventListener("click", () => {
+    if (page > 0) { page--; reload(); }
+  });
+  document.getElementById("btnNext")?.addEventListener("click", () => {
+    const totalPages = Math.ceil(totalItems / pageSize);
+    if (page < totalPages - 1) { page++; reload(); }
+  });
+
+  // Selector de page-size
+  document.getElementById("selPageSize")?.addEventListener("change", (e) => {
+    pageSize = parseInt(e.target.value, 10) || 10;
+    page = 0;
+    reload();
+  });
+
+  // Ordenamiento por columna
+  document.querySelectorAll("#tblReqHead th[data-sort]").forEach((th) => {
+    th.style.cursor = "pointer";
+    th.setAttribute("role", "button");
+    th.addEventListener("click", () => {
+      const col = th.dataset.sort;
+      if (sortCol === col) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortCol = col;
+        sortDir = "asc";
+      }
+      page = 0;
+      updateSortIndicators();
+      reload();
+    });
+  });
+
+  // Filtros
+  document.getElementById("btnSearch")?.addEventListener("click", () => { page = 0; reload(); });
+  $("#txtQ")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { page = 0; reload(); }
+  });
+  $("#fltPeriod")?.addEventListener("change", () => { page = 0; reload(); });
+
+  // Click en tabla — ver detalles / cambiar estado
+  document.addEventListener("click", async (e) => {
+    const viewBtn  = e.target.closest("button[data-view]");
+    const row      = e.target.closest("tr[data-req-id]");
+    const changeBtn = e.target.closest("button[data-change]");
+
+    if (changeBtn) {
+      currentReqId = changeBtn.dataset.change;
+      const rowEl  = changeBtn.closest("tr");
+      $("#curReqInfo").innerHTML = rowEl
+        ? `${rowEl.cells[0]?.innerText || ""} · ${rowEl.cells[2]?.innerHTML || ""}`
+        : `#${currentReqId}`;
+      $("#fNewStatus").value = "RESOLVED_SUCCESS";
+      $("#fReason").value    = "";
+      new bootstrap.Modal($("#mdlStatus")).show();
+      return;
+    }
+
+    if (viewBtn) {
+      await showRequestDetails(viewBtn.dataset.view);
+      return;
+    }
+
+    if (row && !e.target.closest("button")) {
+      await showRequestDetails(row.dataset.reqId);
+    }
+  });
+
+  // Teclado para filas de tabla
+  document.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const row = e.target.closest("tr[data-req-id]");
+    if (row && !e.target.closest("button")) {
+      e.preventDefault();
+      await showRequestDetails(row.dataset.reqId);
+    }
+  });
+
+  // Botón cambiar estado desde modal de detalles
   $("#btnChangeStatusFromDetails")?.addEventListener("click", () => {
     bootstrap.Modal.getInstance($("#mdlDetails"))?.hide();
     if (currentReqId) {
       $("#curReqInfo").innerHTML = `#${currentReqId}`;
-      $("#fNewStatus").value = "RESOLVED_SUCCESS";
-      $("#fReason").value = "";
+      $("#fNewStatus").value    = "RESOLVED_SUCCESS";
+      $("#fReason").value       = "";
       setTimeout(() => new bootstrap.Modal($("#mdlStatus")).show(), 200);
     }
   });
 
-  $("#btnApplyStatus")?.addEventListener("click", async () => {
-    const newStatus = $("#fNewStatus").value;
-    const reason = $("#fReason").value.trim();
-    if (!currentReqId) return;
+  // Aplicar nuevo estado
+  const btnApply = $("#btnApplyStatus");
+  if (btnApply) {
+    btnApply.addEventListener("click", async () => {
+      const newStatus = $("#fNewStatus").value;
+      const reason    = $("#fReason")?.value.trim();
+      if (!currentReqId) return;
 
-    try {
-      const r = await fetch(`${statusBase}${currentReqId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(reason ? { status: newStatus, reason } : { status: newStatus }),
-      });
-      if (!r.ok) throw new Error();
-      showToast?.("Estado actualizado", "success");
-      bootstrap.Modal.getInstance($("#mdlStatus"))?.hide();
-      reload();
-    } catch {
-      showToast?.("No se pudo actualizar el estado", "error");
-    }
-  });
+      btnApply.disabled = true;
+      const orig = btnApply.innerHTML;
+      btnApply.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Aplicando...';
 
-  // Realtime con tu socket /requests
+      try {
+        const r = await fetch(`${statusBase}${currentReqId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(reason ? { status: newStatus, reason } : { status: newStatus }),
+        });
+        if (!r.ok) throw new Error();
+        showToast?.("Estado actualizado", "success");
+        bootstrap.Modal.getInstance($("#mdlStatus"))?.hide();
+        reload();
+      } catch {
+        showToast?.("No se pudo actualizar el estado", "error");
+      } finally {
+        btnApply.disabled = false;
+        btnApply.innerHTML = orig;
+      }
+    });
+  }
+
+  // Tiempo real
   (function wireRealtime() {
     const tryBind = () => {
       const s = window.__reqSocket;
@@ -376,15 +482,30 @@
     tryBind();
   })();
 
+  // === UTILIDADES ===
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("es-MX", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
+    } catch { return iso; }
+  }
+
+  function escapeHtml(s) {
+    return (s || "")
+      .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+  }
+
   function debounce(fn, t) {
     let h;
     return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), t); };
   }
 
-  // Boot
+  // === ARRANQUE ===
+  updateSortIndicators();
   initDates();
-  loadProgramsAndCoords().then(() => {
-    // Reload after loading periods so the active period is preselected
-    reload();
-  });
+  loadProgramsAndCoords().then(() => reload());
 })();

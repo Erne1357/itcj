@@ -3,7 +3,10 @@
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-  <h1 class="h5 h4-md mb-0">Crear Solicitud<span class="d-none d-sm-inline"> por Estudiante</span></h1>
+  <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-plus-circle" aria-hidden="true"></i>
+    Crear Solicitud<span class="d-none d-sm-inline"> por Estudiante</span>
+  </h1>
   <a href="{{ url_for('agendatec_pages.admin_pages.admin_requests') }}" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-arrow-left"></i><span class="d-none d-sm-inline"> Volver</span>
   </a>
@@ -18,7 +21,7 @@
           <div class="mb-3">
             <label for="txtSearchStudent" class="form-label">Estudiante <span class="text-danger">*</span></label>
             <input type="text" id="txtSearchStudent" class="form-control mb-2" placeholder="Buscar por nombre o número de control...">
-            <select id="selStudent" class="form-select" required size="8" style="height: auto;">
+            <select id="selStudent" class="form-select" required size="8">
               <option value="">Seleccionar estudiante...</option>
             </select>
             <div class="form-text">Escribe para buscar, luego selecciona un estudiante de la lista</div>
@@ -43,12 +46,12 @@
           </div>
 
           <!-- Campos de alta/baja -->
-          <div id="detailsSection" style="display: none;">
-            <div id="altaFields" class="mb-3" style="display: none;">
+          <div id="detailsSection" hidden>
+            <div id="altaFields" class="mb-3" hidden>
               <h6 class="mb-2"><i class="bi bi-plus-circle me-1"></i>Alta de materia</h6>
               <div class="row g-2">
                 <div class="col-12 col-sm-6">
-                  <label class="form-label">Materia a dar de alta</label>
+                  <label class="form-label" for="altaMateria">Materia a dar de alta</label>
                   <input type="text" class="form-control" id="altaMateria" placeholder="Ej. Cálculo Integral">
                 </div>
                 <div class="col-12 col-sm-6 d-flex align-items-end">
@@ -58,7 +61,7 @@
                   </div>
                 </div>
                 <div class="col-12 col-sm-6">
-                  <label class="form-label">Horario de la materia (si lo conoces)</label>
+                  <label class="form-label" for="altaHorario">Horario de la materia (si lo conoces)</label>
                   <input type="text" class="form-control" id="altaHorario" placeholder="Ej. Lu-Mi 9:00–10:50">
                 </div>
               </div>
@@ -67,15 +70,15 @@
               </div>
             </div>
 
-            <div id="bajaFields" class="mb-3" style="display: none;">
-              <h6 class="mb-2"><i class="bi bi-dash-circle me-1"></i>Baja de materia</h6>
+            <div id="bajaFields" class="mb-3" hidden>
+              <h6 class="mb-2"><i class="bi bi-dash-circle me-1" aria-hidden="true"></i>Baja de materia</h6>
               <div class="row g-2">
                 <div class="col-12 col-sm-6">
-                  <label class="form-label">Materia a dar de baja <span class="text-danger">*</span></label>
+                  <label class="form-label" for="bajaMateria">Materia a dar de baja <span class="text-danger">*</span></label>
                   <input type="text" class="form-control" id="bajaMateria" placeholder="Ej. Física I">
                 </div>
                 <div class="col-12 col-sm-6">
-                  <label class="form-label">Horario de la materia <span class="text-danger">*</span></label>
+                  <label class="form-label" for="bajaHorario">Horario de la materia <span class="text-danger">*</span></label>
                   <input type="text" class="form-control" id="bajaHorario" placeholder="Ej. Ma-Ju 11:00–12:50">
                 </div>
               </div>
@@ -86,7 +89,7 @@
           </div>
 
           <!-- Sección de cita (solo visible si tipo = APPOINTMENT) -->
-          <div id="appointmentSection" class="border rounded p-3 mb-3" style="display: none;">
+          <div id="appointmentSection" class="border rounded p-3 mb-3" hidden>
             <h6 class="mb-3">Detalles de la Cita</h6>
 
             <!-- Día -->
@@ -112,7 +115,7 @@
             <button type="submit" class="btn btn-primary">
               <i class="bi bi-check-circle me-1"></i> Crear Solicitud
             </button>
-            <button type="button" class="btn btn-outline-secondary" onclick="window.history.back()">
+            <button type="button" class="btn btn-outline-secondary" id="btnCancel">
               Cancelar
             </button>
           </div>
@@ -158,14 +161,14 @@
 
 {% block modals %}
 <!-- Modal de confirmación -->
-<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-labelledby="mdlConfirmTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">
-          <i class="bi bi-question-circle text-primary me-2"></i>Confirmar creación
+        <h5 class="modal-title" id="mdlConfirmTitle">
+          <i class="bi bi-question-circle text-primary me-2" aria-hidden="true"></i>Confirmar creación
         </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <p id="mdlConfirmMessage" class="mb-0"></p>
@@ -192,5 +195,6 @@
     createUrl: "{{ url_for('agendatec_api.api_admin.admin_requests.admin_create_request') }}"
   };
 </script>
+<script src="{{ url_for('static', filename='agendatec/js/shared/skeleton.js') }}?v={{ sv('agendatec', 'js/shared/skeleton.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/create_request.js') }}?v={{ sv('agendatec', 'js/admin/create_request.js') }}"></script>
 {% endblock %}

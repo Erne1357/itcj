@@ -1,5 +1,11 @@
-// static/js/admin/reports.js
+/**
+ * AgendaTec Admin — Reportes
+ * Exportación de reportes Excel con filtros avanzados,
+ * configuración de columnas (drag-and-drop + touch), y resúmenes.
+ */
 (() => {
+  "use strict";
+
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => document.querySelectorAll(s);
   const cfg = window.__adminReportsCfg || {};
@@ -10,25 +16,29 @@
 
   let activePeriodId = null;
 
-  initDates();
-  initMultiSelects();
-  initDropdownAutoPosition();
-  loadProgramsAndCoords();
-  initColumnConfig();
-  initSummaryConfig();
-  initSearchList();
+  // === INICIALIZACIÓN ===
+  document.addEventListener("DOMContentLoaded", function () {
+    initDates();
+    initMultiSelects();
+    initDropdownAutoPosition();
+    loadProgramsAndCoords();
+    initColumnConfig();
+    initSummaryConfig();
+    initSearchList();
+    $("#btnXlsx")?.addEventListener("click", exportXlsx);
+  });
 
-  $("#btnXlsx")?.addEventListener("click", exportXlsx);
-
+  // === FECHAS ===
   function initDates() {
     const to = new Date();
     const from = new Date(Date.now() - 30 * 86400000);
-    $("#repTo").value = to.toISOString().slice(0, 10);
-    $("#repFrom").value = from.toISOString().slice(0, 10);
+    const toEl = $("#repTo");
+    const fromEl = $("#repFrom");
+    if (toEl) toEl.value = to.toISOString().slice(0, 10);
+    if (fromEl) fromEl.value = from.toISOString().slice(0, 10);
   }
 
-  // ==================== SEARCH LIST ====================
-
+  // === SEARCH LIST ===
   function initSearchList() {
     const textarea = $("#repQ");
     const hint = $("#searchCountHint");
@@ -38,22 +48,17 @@
 
     if (!textarea) return;
 
-    // Update hint on textarea change
     textarea.addEventListener("input", () => updateSearchHint());
 
-    // Separator selection
     separatorOptions.forEach((opt) => {
       opt.addEventListener("click", (e) => {
         e.preventDefault();
-        // Remove active from all
         separatorOptions.forEach((o) => o.classList.remove("active"));
-        // Add active to clicked
         opt.classList.add("active");
         updateSearchHint();
       });
     });
 
-    // Clear button
     clearBtn?.addEventListener("click", (e) => {
       e.preventDefault();
       textarea.value = "";
@@ -64,93 +69,54 @@
     function updateSearchHint() {
       const items = getSearchItems();
       if (hint && countSpan) {
-        if (items.length === 0) {
-          hint.style.display = "none";
-        } else {
-          hint.style.display = "block";
-          countSpan.textContent = items.length;
-        }
+        hint.hidden = items.length === 0;
+        countSpan.textContent = items.length;
       }
     }
   }
 
-  /**
-   * Get selected separator value from active option
-   * @returns {string} separator key
-   */
   function getSelectedSeparator() {
     const active = $(".separator-option.active");
     return active?.dataset.separator || "newline";
   }
 
-  /**
-   * Parse search textarea content based on selected separator
-   * @returns {string[]} Array of search terms
-   */
   function getSearchItems() {
     const textarea = $("#repQ");
     if (!textarea) return [];
-
     const text = textarea.value?.trim();
     if (!text) return [];
 
     const sep = getSelectedSeparator();
     let separator;
-
     switch (sep) {
-      case "comma":
-        separator = /[,]/;
-        break;
-      case "space":
-        separator = /\s+/;
-        break;
-      case "semicolon":
-        separator = /[;]/;
-        break;
-      case "tab":
-        separator = /\t/;
-        break;
+      case "comma":     separator = /[,]/; break;
+      case "space":     separator = /\s+/; break;
+      case "semicolon": separator = /[;]/; break;
+      case "tab":       separator = /\t/; break;
       case "newline":
-      default:
-        separator = /[\r\n]+/;
-        break;
+      default:          separator = /[\r\n]+/; break;
     }
-
-    return text
-      .split(separator)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    return text.split(separator).map((s) => s.trim()).filter((s) => s.length > 0);
   }
 
-  // ==================== MULTI-SELECT ====================
-
+  // === MULTI-SELECT (dropdown con checkboxes, existente en reports) ===
   function initMultiSelects() {
-    // Configurar listeners para los dropdowns multi-select existentes
     setupMultiSelectListeners("#repStatusMenu");
     setupMultiSelectListeners("#repAppStatusMenu");
     setupMultiSelectListeners("#repProgramMenu");
     setupMultiSelectListeners("#repCoordMenu");
   }
 
-  /**
-   * Ajusta automáticamente la posición del dropdown si se sale del viewport
-   */
   function initDropdownAutoPosition() {
     document.querySelectorAll(".multi-select-dropdown").forEach((dropdown) => {
       dropdown.addEventListener("shown.bs.dropdown", () => {
         const menu = dropdown.querySelector(".dropdown-menu");
         if (!menu) return;
-
-        // Reset para medir correctamente
         menu.classList.remove("dropdown-menu-end");
         menu.style.left = "";
         menu.style.right = "";
-
         const rect = menu.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-
-        // Si el menú se sale por la derecha, alinearlo a la derecha
-        if (rect.right > viewportWidth - 10) {
+        if (rect.right > window.innerWidth - 10) {
           menu.classList.add("dropdown-menu-end");
         }
       });
@@ -160,7 +126,6 @@
   function setupMultiSelectListeners(menuSelector) {
     const menu = $(menuSelector);
     if (!menu) return;
-
     menu.addEventListener("change", (e) => {
       if (e.target.type === "checkbox") {
         updateMultiSelectLabel(menu);
@@ -171,17 +136,14 @@
   function updateMultiSelectLabel(menu) {
     const dropdown = menu.closest(".multi-select-dropdown");
     if (!dropdown) return;
-
     const label = dropdown.querySelector(".multi-select-label");
     const defaultText = label?.dataset.default || "Todos";
     const checkboxes = menu.querySelectorAll('input[type="checkbox"]');
     const checked = [...checkboxes].filter((cb) => cb.checked);
-
     if (checked.length === 0) {
       label.textContent = defaultText;
       label.classList.remove("fw-semibold");
     } else if (checked.length === 1) {
-      // Mostrar el nombre de la opción seleccionada
       const labelText = checked[0].closest("label")?.textContent?.trim() || checked[0].value;
       label.textContent = labelText;
       label.classList.add("fw-semibold");
@@ -194,61 +156,43 @@
   function getMultiSelectValues(menuSelector) {
     const menu = $(menuSelector);
     if (!menu) return [];
-    const checkboxes = menu.querySelectorAll('input[type="checkbox"]:checked');
-    return [...checkboxes].map((cb) => cb.value);
+    return [...menu.querySelectorAll('input[type="checkbox"]:checked')].map((cb) => cb.value);
   }
 
   function fillMultiSelectMenu(menuSelector, items) {
     const menu = $(menuSelector);
     if (!menu || !Array.isArray(items)) return;
-
-    menu.innerHTML = items
-      .map(
-        (item) => `
-        <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
-          <input type="checkbox" class="form-check-input m-0" value="${item.id}"> ${escapeHtml(item.name)}
-        </label></li>
-      `
-      )
-      .join("");
-
-    // Re-attach listeners
+    menu.innerHTML = items.map((item) => `
+      <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
+        <input type="checkbox" class="form-check-input m-0" value="${escapeHtml(String(item.id))}"> ${escapeHtml(item.name)}
+      </label></li>
+    `).join("");
     setupMultiSelectListeners(menuSelector);
   }
 
-  // ==================== COLUMN CONFIG ====================
-
+  // === COLUMN CONFIG ===
   function initColumnConfig() {
-    // Configurar drag-and-drop para ambas listas
     setupDragAndDrop("#citasColumns");
     setupDragAndDrop("#bajasColumns");
 
-    // Botones de seleccionar todas/ninguna
     $("#selectAllCitas")?.addEventListener("click", () => toggleAllChecks("#citasColumns", true));
     $("#selectNoneCitas")?.addEventListener("click", () => toggleAllChecks("#citasColumns", false));
     $("#selectAllBajas")?.addEventListener("click", () => toggleAllChecks("#bajasColumns", true));
     $("#selectNoneBajas")?.addEventListener("click", () => toggleAllChecks("#bajasColumns", false));
 
-    // Toggle del chevron al abrir/cerrar
     const collapseEl = $("#columnsConfig");
     if (collapseEl) {
       collapseEl.addEventListener("show.bs.collapse", () => {
-        $("#columnsChevron")?.classList.remove("bi-chevron-down");
-        $("#columnsChevron")?.classList.add("bi-chevron-up");
+        $("#columnsChevron")?.classList.replace("bi-chevron-down", "bi-chevron-up");
       });
       collapseEl.addEventListener("hide.bs.collapse", () => {
-        $("#columnsChevron")?.classList.remove("bi-chevron-up");
-        $("#columnsChevron")?.classList.add("bi-chevron-down");
+        $("#columnsChevron")?.classList.replace("bi-chevron-up", "bi-chevron-down");
       });
     }
   }
 
   function toggleAllChecks(listSelector, checked) {
-    const list = $(listSelector);
-    if (!list) return;
-    list.querySelectorAll(".col-check").forEach((cb) => {
-      cb.checked = checked;
-    });
+    $(listSelector)?.querySelectorAll(".col-check").forEach((cb) => { cb.checked = checked; });
   }
 
   function setupDragAndDrop(listSelector) {
@@ -256,10 +200,15 @@
     if (!list) return;
 
     let draggedItem = null;
+    // Touch drag state
+    let touchDragItem = null;
+    let touchClone = null;
+    let touchStartY = 0;
 
     list.querySelectorAll(".list-group-item").forEach((item) => {
       item.setAttribute("draggable", "true");
 
+      // === Mouse drag events ===
       item.addEventListener("dragstart", (e) => {
         draggedItem = item;
         item.classList.add("dragging");
@@ -269,9 +218,7 @@
 
       item.addEventListener("dragend", () => {
         item.classList.remove("dragging");
-        list.querySelectorAll(".list-group-item").forEach((i) => {
-          i.classList.remove("drag-over");
-        });
+        list.querySelectorAll(".list-group-item").forEach((i) => i.classList.remove("drag-over"));
         draggedItem = null;
       });
 
@@ -294,13 +241,80 @@
           const allItems = [...list.querySelectorAll(".list-group-item")];
           const draggedIndex = allItems.indexOf(draggedItem);
           const targetIndex = allItems.indexOf(item);
-
           if (draggedIndex < targetIndex) {
             item.parentNode.insertBefore(draggedItem, item.nextSibling);
           } else {
             item.parentNode.insertBefore(draggedItem, item);
           }
         }
+      });
+
+      // === Touch drag events ===
+      item.addEventListener("touchstart", (e) => {
+        const handle = item.querySelector(".drag-handle");
+        if (handle && !handle.contains(e.target) && e.target !== handle) return;
+
+        touchDragItem = item;
+        touchStartY = e.touches[0].clientY;
+        item.classList.add("dragging");
+
+        // Create floating clone for visual feedback
+        touchClone = item.cloneNode(true);
+        touchClone.style.position = "fixed";
+        touchClone.style.zIndex = "9999";
+        touchClone.style.opacity = "0.8";
+        touchClone.style.pointerEvents = "none";
+        touchClone.style.width = item.offsetWidth + "px";
+        const rect = item.getBoundingClientRect();
+        touchClone.style.left = rect.left + "px";
+        touchClone.style.top = rect.top + "px";
+        document.body.appendChild(touchClone);
+      }, { passive: true });
+
+      item.addEventListener("touchmove", (e) => {
+        if (!touchDragItem || touchDragItem !== item) return;
+        e.preventDefault();
+
+        const touch = e.touches[0];
+        if (touchClone) {
+          touchClone.style.top = (touch.clientY - touchStartY + touchClone.getBoundingClientRect().top + (touch.clientY - e.changedTouches[0].clientY)) + "px";
+          // Simpler: track by current touch Y
+          touchClone.style.top = (touch.clientY - 20) + "px";
+        }
+
+        // Find drop target
+        const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+        const targetItem = elementBelow?.closest(".list-group-item");
+        if (targetItem && targetItem !== touchDragItem && targetItem.closest(listSelector)) {
+          list.querySelectorAll(".list-group-item").forEach((i) => i.classList.remove("drag-over"));
+          targetItem.classList.add("drag-over");
+        }
+      }, { passive: false });
+
+      item.addEventListener("touchend", (e) => {
+        if (!touchDragItem || touchDragItem !== item) return;
+
+        const touch = e.changedTouches[0];
+        const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+        const targetItem = elementBelow?.closest(".list-group-item");
+
+        if (targetItem && targetItem !== touchDragItem && targetItem.closest(listSelector)) {
+          const allItems = [...list.querySelectorAll(".list-group-item")];
+          const draggedIndex = allItems.indexOf(touchDragItem);
+          const targetIndex = allItems.indexOf(targetItem);
+          if (draggedIndex < targetIndex) {
+            targetItem.parentNode.insertBefore(touchDragItem, targetItem.nextSibling);
+          } else {
+            targetItem.parentNode.insertBefore(touchDragItem, targetItem);
+          }
+        }
+
+        // Cleanup
+        touchDragItem.classList.remove("dragging");
+        list.querySelectorAll(".list-group-item").forEach((i) => i.classList.remove("drag-over"));
+        touchClone?.remove();
+        touchClone = null;
+        touchDragItem = null;
       });
     });
   }
@@ -311,50 +325,52 @@
     const columns = [];
     list.querySelectorAll(".list-group-item").forEach((item) => {
       const checkbox = item.querySelector(".col-check");
-      if (checkbox?.checked) {
-        columns.push(item.dataset.col);
-      }
+      if (checkbox?.checked) columns.push(item.dataset.col);
     });
     return columns;
   }
 
-  // ==================== SUMMARY CONFIG ====================
-
+  // === SUMMARY CONFIG ===
   function initSummaryConfig() {
-    // Botones de seleccionar todas/ninguna para resumen de citas
     $("#selectAllCitasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".citas-summary-check", true));
     $("#selectNoneCitasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".citas-summary-check", false));
     $("#selectAllBajasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".bajas-summary-check", true));
     $("#selectNoneBajasSummary")?.addEventListener("click", () => toggleAllSummaryChecks(".bajas-summary-check", false));
 
-    // Toggle del chevron al abrir/cerrar
     const collapseEl = $("#summaryConfig");
     if (collapseEl) {
       collapseEl.addEventListener("show.bs.collapse", () => {
-        $("#summaryChevron")?.classList.remove("bi-chevron-down");
-        $("#summaryChevron")?.classList.add("bi-chevron-up");
+        $("#summaryChevron")?.classList.replace("bi-chevron-down", "bi-chevron-up");
       });
       collapseEl.addEventListener("hide.bs.collapse", () => {
-        $("#summaryChevron")?.classList.remove("bi-chevron-up");
-        $("#summaryChevron")?.classList.add("bi-chevron-down");
+        $("#summaryChevron")?.classList.replace("bi-chevron-up", "bi-chevron-down");
       });
     }
   }
 
   function toggleAllSummaryChecks(selector, checked) {
-    $$(selector).forEach((cb) => {
-      cb.checked = checked;
-    });
+    $$(selector).forEach((cb) => { cb.checked = checked; });
   }
 
   function getSummaryConfig(selector) {
-    const checkboxes = $$(selector);
-    return [...checkboxes].filter((cb) => cb.checked).map((cb) => cb.value);
+    return [...$$(selector)].filter((cb) => cb.checked).map((cb) => cb.value);
   }
 
-  // ==================== DATA LOADING ====================
-
+  // === DATA LOADING ===
   async function loadProgramsAndCoords() {
+    // Skeleton en selects dinámicos durante carga
+    const programMenu = $("#repProgramMenu");
+    const coordMenu = $("#repCoordMenu");
+    const periodSel = $("#repPeriod");
+    const skLine = window.AgendaTec?.Skeleton?.line;
+
+    if (skLine) {
+      const skHtml = `<li class="px-2 py-1">${skLine("80%")}</li>`.repeat(4);
+      if (programMenu) programMenu.innerHTML = skHtml;
+      if (coordMenu) coordMenu.innerHTML = skHtml;
+    }
+    if (periodSel) periodSel.innerHTML = '<option value="">Cargando...</option>';
+
     try {
       const [rp, rc, rper] = await Promise.all([
         fetch(programsUrl, { credentials: "include" }),
@@ -369,31 +385,23 @@
       const coords = cj.items || [];
       const periods = Array.isArray(perj) ? perj : perj.items || perj.periods || [];
 
-      // Llenar multi-selects de programas y coordinadores
       fillMultiSelectMenu("#repProgramMenu", progs.map((p) => ({ id: p.id, name: p.name })));
       fillMultiSelectMenu("#repCoordMenu", coords.map((c) => ({ id: c.id, name: c.name })));
 
-      // Find active period
       const activePeriod = periods.find((p) => p.status === "ACTIVE");
-      if (activePeriod) {
-        activePeriodId = activePeriod.id;
-      }
+      if (activePeriod) activePeriodId = activePeriod.id;
 
-      // Fill periods select with "Todos" as first option and active period preselected
       const periodOptions = [{ id: "", name: "Todos los períodos" }, ...periods.map((p) => ({ id: p.id, name: p.name }))];
-      fillSelect($("#repPeriod"), periodOptions);
-
-      // Set active period as default
-      if (activePeriodId) {
-        $("#repPeriod").value = activePeriodId;
-      }
+      fillSelect(periodSel, periodOptions);
+      if (activePeriodId && periodSel) periodSel.value = activePeriodId;
     } catch {
-      /* silent */
+      if (programMenu) programMenu.innerHTML = '<li class="px-2 py-1 text-muted small">Error al cargar</li>';
+      if (coordMenu) coordMenu.innerHTML = '<li class="px-2 py-1 text-muted small">Error al cargar</li>';
+      if (periodSel) periodSel.innerHTML = '<option value="">Error al cargar</option>';
     }
   }
 
-  // ==================== QUERY STRING & EXPORT ====================
-
+  // === QUERY STRING & EXPORT ===
   function buildQs() {
     const q = new URLSearchParams();
     const from = $("#repFrom")?.value;
@@ -405,15 +413,14 @@
     const orderDir = $("#repOrderDir")?.value;
     const fileName = $("#repFileName")?.value?.trim();
 
-    // Multi-selects
     const statuses = getMultiSelectValues("#repStatusMenu");
     const appStatuses = getMultiSelectValues("#repAppStatusMenu");
     const programs = getMultiSelectValues("#repProgramMenu");
     const coords = getMultiSelectValues("#repCoordMenu");
-
-    // Obtener configuración de columnas
     const citasCols = getColumnsConfig("#citasColumns");
     const bajasCols = getColumnsConfig("#bajasColumns");
+    const citasSummary = getSummaryConfig(".citas-summary-check");
+    const bajasSummary = getSummaryConfig(".bajas-summary-check");
 
     if (from) q.set("from", from);
     if (to) q.set("to", to);
@@ -423,21 +430,12 @@
     if (orderBy) q.set("order_by", orderBy);
     if (orderDir) q.set("order_dir", orderDir);
     if (fileName) q.set("filename", fileName);
-
-    // Multi-valores (separados por coma)
     if (statuses.length > 0) q.set("status", statuses.join(","));
     if (appStatuses.length > 0) q.set("appointment_status", appStatuses.join(","));
     if (programs.length > 0) q.set("program_id", programs.join(","));
     if (coords.length > 0) q.set("coordinator_id", coords.join(","));
-
-    // Agregar columnas seleccionadas y su orden
     if (citasCols.length > 0) q.set("citas_cols", citasCols.join(","));
     if (bajasCols.length > 0) q.set("bajas_cols", bajasCols.join(","));
-
-    // Agregar configuración de resúmenes
-    const citasSummary = getSummaryConfig(".citas-summary-check");
-    const bajasSummary = getSummaryConfig(".bajas-summary-check");
-
     if (citasSummary.length > 0) q.set("citas_summary", citasSummary.join(","));
     if (bajasSummary.length > 0) q.set("bajas_summary", bajasSummary.join(","));
 
@@ -446,25 +444,20 @@
 
   function getFileName() {
     const custom = $("#repFileName")?.value?.trim();
-    if (custom) {
-      // Sanitizar nombre de archivo
-      return custom.replace(/[<>:"/\\|?*]/g, "_") + ".xlsx";
-    }
+    if (custom) return custom.replace(/[<>:"/\\|?*]/g, "_") + ".xlsx";
     return `reporte_agendatec_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.xlsx`;
   }
 
   async function exportXlsx() {
     const btn = $("#btnXlsx");
-    const originalText = btn.innerHTML;
+    if (!btn) return;
+    const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Generando...';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Generando...';
 
     try {
-      const r = await fetch(`${xlsxUrl}?${buildQs()}`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error();
+      const r = await fetch(`${xlsxUrl}?${buildQs()}`, { method: "POST", credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -475,19 +468,18 @@
       a.remove();
       URL.revokeObjectURL(url);
       showToast?.("Reporte generado correctamente", "success");
-    } catch {
-      showToast?.("No se pudo generar el reporte", "error");
+    } catch (err) {
+      showToast?.(`No se pudo generar el reporte: ${err.message}`, "error");
     } finally {
       btn.disabled = false;
-      btn.innerHTML = originalText;
+      btn.innerHTML = originalHtml;
     }
   }
 
-  // ==================== HELPERS ====================
-
+  // === HELPERS ===
   function fillSelect(sel, items) {
     if (!sel || !Array.isArray(items)) return;
-    sel.innerHTML = items.map((x) => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("");
+    sel.innerHTML = items.map((x) => `<option value="${escapeHtml(String(x.id))}">${escapeHtml(x.name)}</option>`).join("");
   }
 
   function escapeHtml(s) {
