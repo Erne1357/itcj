@@ -1,48 +1,400 @@
-.slot-btn {
-    transition: transform .08s ease;
+/* =============================================================================
+   AgendaTec — Student / new_request.css
+   Estilos específicos del wizard de nueva solicitud.
+   Consume tokens de base.css; no hardcodea hex.
+   ============================================================================= */
+
+/* =============================================================================
+   Type cards (Baja / Alta / Alta y Baja) — paso 1 del wizard
+   ============================================================================= */
+.at-type-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--at-space-3);
 }
 
-.slot-btn.active {
-    transform: scale(0.98);
+@media (max-width: 767.98px) {
+    .at-type-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
-.slot-btn.held {
-    background-color: #ffe9b3;
-    border-color: #ffda6a;
+.at-type-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--at-space-2);
+    padding: var(--at-space-4);
+    border-radius: var(--at-radius-md);
+    border: 1.5px solid var(--at-border);
+    background: var(--at-surface);
+    color: var(--at-text);
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    transition:
+        border-color var(--at-duration-fast) var(--at-ease-out),
+        background var(--at-duration-fast) var(--at-ease-out),
+        box-shadow var(--at-duration-base) var(--at-ease-out),
+        transform var(--at-duration-fast) var(--at-ease-out);
+}
+
+.at-type-card:hover:not(:disabled) {
+    border-color: var(--at-primary);
+    background: var(--at-primary-50);
+    transform: translateY(-2px);
+    box-shadow: var(--at-shadow-sm);
+}
+
+.at-type-card:focus-visible {
+    outline: 0;
+    box-shadow: var(--at-shadow-focus);
+}
+
+.at-type-card--active {
+    border-color: var(--at-primary);
+    background: var(--at-primary-50);
+    box-shadow: var(--at-shadow-md);
+}
+
+/* Check verde flotante en card seleccionada. */
+.at-type-card::after {
+    content: "\2713";
+    position: absolute;
+    top: var(--at-space-2);
+    right: var(--at-space-2);
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--at-success);
+    color: var(--at-text-on-primary);
+    font-size: 0.85rem;
+    line-height: 1.5rem;
+    text-align: center;
+    transform: scale(0);
+    opacity: 0;
+    transition:
+        transform var(--at-duration-base) var(--at-ease-out),
+        opacity var(--at-duration-base) var(--at-ease-out);
+}
+
+.at-type-card--active::after {
+    transform: scale(1);
+    opacity: 1;
+}
+
+.at-type-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    background: var(--at-primary-50);
+    color: var(--at-primary);
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.at-type-card--drop .at-type-card__icon  { background: var(--at-warning-bg); color: var(--at-warning-text); }
+.at-type-card--alta .at-type-card__icon  { background: var(--at-success-bg); color: var(--at-success-text); }
+.at-type-card--both .at-type-card__icon  { background: var(--at-primary-50); color: var(--at-primary); }
+
+.at-type-card__title {
+    font-size: var(--at-text-md);
+    font-weight: var(--at-font-weight-semibold);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.at-type-card__desc {
+    font-size: var(--at-text-sm);
+    color: var(--at-text-muted);
+    margin: 0;
+    line-height: 1.35;
+}
+
+/* =============================================================================
+   Resumen final (paso Confirmar)
+   ============================================================================= */
+.at-summary {
+    display: grid;
+    grid-template-columns: minmax(140px, max-content) 1fr;
+    gap: var(--at-space-2) var(--at-space-4);
+    margin: 0;
+    padding: var(--at-space-3) var(--at-space-4);
+    background: var(--at-surface-subtle);
+    border: 1px solid var(--at-border-subtle);
+    border-radius: var(--at-radius-md);
+}
+
+.at-summary dt {
+    font-size: var(--at-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--at-text-muted);
+    font-weight: var(--at-font-weight-semibold);
+    align-self: start;
+    padding-top: 2px;
+}
+
+.at-summary dd {
+    margin: 0;
+    font-size: var(--at-text-md);
+    color: var(--at-text);
+    font-weight: var(--at-font-weight-medium);
+    word-break: break-word;
+}
+
+.at-summary dd .at-summary__meta {
+    display: block;
+    font-size: var(--at-text-sm);
+    color: var(--at-text-muted);
+    font-weight: var(--at-font-weight-regular);
+    margin-top: 2px;
+}
+
+@media (max-width: 575.98px) {
+    .at-summary {
+        grid-template-columns: 1fr;
+        gap: var(--at-space-1) 0;
+    }
+    .at-summary dt {
+        padding-top: var(--at-space-2);
+    }
+    .at-summary dt + dd {
+        padding-bottom: var(--at-space-2);
+        border-bottom: 1px solid var(--at-border-subtle);
+    }
+    .at-summary dt:first-of-type {
+        padding-top: 0;
+    }
+    .at-summary > dd:last-of-type {
+        border-bottom: 0;
+    }
+}
+
+/* =============================================================================
+   Carrera + Coordinador info card (paso 3)
+   ============================================================================= */
+.at-info-card {
+    background: var(--at-surface-subtle);
+    border: 1px solid var(--at-border-subtle);
+    border-radius: var(--at-radius-md);
+    padding: var(--at-space-3) var(--at-space-4);
+    margin-bottom: var(--at-space-4);
+    animation: at-info-slide 380ms var(--at-ease-out);
+}
+
+@keyframes at-info-slide {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.at-info-card__row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--at-space-2);
+    padding: var(--at-space-2) 0;
+}
+
+.at-info-card__row + .at-info-card__row {
+    border-top: 1px solid var(--at-border-subtle);
+}
+
+.at-info-card__icon {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--at-primary-50);
+    color: var(--at-primary);
+    font-size: 1rem;
+}
+
+.at-info-card__label {
+    font-size: var(--at-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--at-text-muted);
+    font-weight: var(--at-font-weight-semibold);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.at-info-card__value {
+    font-size: var(--at-text-md);
+    font-weight: var(--at-font-weight-semibold);
+    color: var(--at-text);
+    margin: 2px 0 0;
+    line-height: 1.3;
+}
+
+.at-info-card__meta {
+    font-size: var(--at-text-sm);
+    color: var(--at-text-muted);
+    margin: 2px 0 0;
+}
+
+/* =============================================================================
+   Leyenda visible (dots con buen contraste)
+   ============================================================================= */
+.at-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--at-space-3) var(--at-space-4);
+    margin-bottom: var(--at-space-2);
+    font-size: var(--at-text-sm);
+    color: var(--at-text-muted);
+}
+
+.at-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--at-space-1);
+}
+
+.at-legend__item .at-legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05) inset;
+}
+
+/* =============================================================================
+   Fieldset visual para Alta/Baja sections (separación clara dentro del card)
+   ============================================================================= */
+.at-fieldset {
+    padding: var(--at-space-3) var(--at-space-3) var(--at-space-2);
+    border: 1px solid var(--at-border-subtle);
+    border-radius: var(--at-radius-md);
+    background: var(--at-surface-subtle);
+}
+
+.at-fieldset + .at-fieldset {
+    margin-top: var(--at-space-3);
+}
+
+.at-fieldset__title {
+    font-size: var(--at-text-base);
+    font-weight: var(--at-font-weight-semibold);
+    margin-bottom: var(--at-space-2);
+    color: var(--at-text);
+    display: flex;
+    align-items: center;
+}
+
+/* Scroll horizontal en tabs de hora (mobile) */
+.slot-hour-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: var(--at-space-1);
+}
+
+.slot-hour-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+/* =============================================================================
+   Slots — estado visual (clases legacy removidas; .at-slot en components.css)
+   ============================================================================= */
+
+/* Animación hold del slot "reservado por otro" */
+@keyframes holdPulse {
+    0%   { box-shadow: 0 0 0 0   rgba(255, 193, 7, .7); }
+    70%  { box-shadow: 0 0 0 10px rgba(255, 193, 7, 0); }
+    100% { box-shadow: 0 0 0 0   rgba(255, 193, 7, 0); }
+}
+
+/* Estado held (otro usuario tiene el hold) */
+.at-slot--reserved {
     animation: holdPulse 1.2s ease-out infinite;
 }
 
-/* ámbar suave */
-.slot-btn.booked,
-.slot-btn:disabled {
-    background-color: #e9ecef;
-    color: #6c757d;
-}
-
+/* Hold bar + timer debajo de los slots */
 .slot-hold-controls {
-    gap: .5rem;
+    gap: var(--at-space-2);
+    display: flex;
+    align-items: center;
 }
 
 .slot-hold-timer {
-    font-size: .85rem;
-    color: #6c757d;
+    font-size: var(--at-text-base);
+    color: var(--at-text-muted);
 }
 
-@keyframes holdPulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(255, 193, 7, .7);
-    }
-
-    70% {
-        box-shadow: 0 0 0 10px rgba(255, 193, 7, 0);
-    }
-
-    100% {
-        box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
-    }
+/* =============================================================================
+   Wizard — transición slide entre steps
+   ============================================================================= */
+.wizard-step-wrap {
+    overflow: hidden;
 }
 
-.slot-btn.held-self {
-    animation: none !important;
-    border-color: #00ff55 !important;
+/* =============================================================================
+   Botones de día del calendario
+   ============================================================================= */
+.day-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 64px;
+    padding: var(--at-space-2) var(--at-space-3);
+    border-radius: var(--at-radius-md);
+    transition:
+        background var(--at-duration-fast) var(--at-ease-standard),
+        border-color var(--at-duration-fast) var(--at-ease-standard),
+        transform var(--at-duration-base) var(--at-ease-out),
+        box-shadow var(--at-duration-base) var(--at-ease-out);
+}
+
+.day-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
+
+.day-btn.active,
+.day-btn[aria-pressed="true"] {
+    animation: at-day-bounce 380ms var(--at-ease-out);
+    box-shadow: var(--at-shadow-sm);
+}
+
+@keyframes at-day-bounce {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.08) translateY(-3px); }
+    100% { transform: scale(1) translateY(0); }
+}
+
+.day-btn .day-name {
+    font-size: var(--at-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+}
+
+.day-btn .day-number {
+    font-size: var(--at-text-lg);
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.day-btn .month-name {
+    font-size: var(--at-text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+}
+
+/* =============================================================================
+   Home CSS — botón CTA full-width en xs
+   ============================================================================= */
+@media (max-width: 575.98px) {
+    .student-home-buttons a,
+    .student-home-buttons button {
+        width: 100%;
+    }
 }
