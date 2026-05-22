@@ -1,0 +1,241 @@
+{% extends "agendatec/help/base_help.html" %}
+
+{% block help_subtitle %}
+Crea, agenda y da seguimiento a tus solicitudes desde tu celular en pocos pasos.
+{% endblock %}
+
+{% block help_body %}
+
+{# ============================================================
+   ESTUDIANTE — guía mobile-first
+   ============================================================ #}
+
+<section id="login" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">1</span>
+    <span>Iniciar sesión</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Entra al portal del ITCJ para acceder a AgendaTec con tu número de control
+    y tu NIP.
+  </p>
+  <ol class="at-help-steps">
+    <li>Abre el navegador y ve a <strong>enlinea.cdjuarez.tecnm.mx</strong>.</li>
+    <li>Captura tu <strong>número de control</strong> y tu <strong>NIP</strong>.</li>
+    <li>Toca <strong>Iniciar sesión</strong>.</li>
+  </ol>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/01_login.png') }}?v={{ sv('agendatec', 'img/help/student/01_login.png') }}"
+         alt="Pantalla de inicio de sesión" loading="lazy">
+    <figcaption>Pantalla de login del portal ITCJ en celular.</figcaption>
+  </figure>
+</section>
+
+<section id="abrir-agendatec" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">2</span>
+    <span>Abrir AgendaTec</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Al entrar al portal verás la lista de tus aplicaciones. Toca el ícono de
+    <strong>AgendaTec</strong> para abrirla.
+  </p>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/02_dashboard.png') }}?v={{ sv('agendatec', 'img/help/student/02_dashboard.png') }}"
+         alt="Dashboard móvil con la app AgendaTec" loading="lazy">
+    <figcaption>Toca el ícono de AgendaTec para entrar a la app.</figcaption>
+  </figure>
+</section>
+
+<section id="inicio" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">3</span>
+    <span>Pantalla de Inicio</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Al entrar verás tu estado actual: si el periodo de admisión está abierto,
+    podrás crear una nueva solicitud o consultar las que ya tienes.
+  </p>
+  <ul class="list-unstyled mb-3">
+    <li><i class="bi bi-check-circle-fill text-success me-2"></i>Botón <strong>“Iniciar solicitud”</strong> para crear una nueva.</li>
+    <li><i class="bi bi-check-circle-fill text-success me-2"></i>Botón <strong>“Ver mis solicitudes”</strong> para revisar las que ya tienes.</li>
+    <li><i class="bi bi-info-circle-fill text-info me-2"></i>Si el periodo está cerrado, te indicará cuándo abre el siguiente.</li>
+  </ul>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/04_inicio.png') }}?v={{ sv('agendatec', 'img/help/student/04_inicio.png') }}"
+         alt="Pantalla principal del estudiante" loading="lazy">
+    <figcaption>Inicio del estudiante con el periodo de admisión abierto.</figcaption>
+  </figure>
+</section>
+
+<section id="periodo-cerrado" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">4</span>
+    <span>Cuando el periodo está cerrado</span>
+  </h2>
+  <p>
+    Si entras fuera del periodo de admisión, AgendaTec te mostrará una pantalla
+    con la fecha en que se habilita el próximo. No podrás crear solicitudes
+    nuevas hasta esa fecha.
+  </p>
+  <div class="at-help-callout at-help-callout--warn">
+    <i class="bi bi-info-circle-fill"></i>
+    <p>Las solicitudes ya creadas siguen visibles en <strong>“Mis solicitudes”</strong> aunque el periodo esté cerrado.</p>
+  </div>
+</section>
+
+<section id="wizard" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">5</span>
+    <span>Crear una nueva solicitud</span>
+  </h2>
+  <p class="at-help-section__intro">
+    El asistente de nueva solicitud te lleva paso a paso. Dependiendo del tipo
+    que elijas verás <strong>4 ó 5 pasos</strong>.
+  </p>
+
+  <h3 class="h6 fw-semibold mt-3 mb-2">Paso 1 · Tipo de solicitud</h3>
+  <p>Elige una de las tres tarjetas:</p>
+  <ul>
+    <li><strong>Baja</strong> — dar de baja una materia (no agendas cita).</li>
+    <li><strong>Alta</strong> — agendar cita con el coordinador para inscribir una materia.</li>
+    <li><strong>Alta y Baja</strong> — combinas ambas; agendas cita.</li>
+  </ul>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/06_wizard_tipo.png') }}?v={{ sv('agendatec', 'img/help/student/06_wizard_tipo.png') }}"
+         alt="Selección del tipo de solicitud" loading="lazy">
+    <figcaption>Selecciona el tipo de solicitud.</figcaption>
+  </figure>
+
+  <h3 class="h6 fw-semibold mt-4 mb-2">Paso 2 · Carrera</h3>
+  <p>Selecciona la carrera correspondiente. AgendaTec carga automáticamente al coordinador asignado.</p>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/07_wizard_carrera.png') }}?v={{ sv('agendatec', 'img/help/student/07_wizard_carrera.png') }}"
+         alt="Selección de carrera" loading="lazy">
+    <figcaption>La carrera define al coordinador que te atenderá.</figcaption>
+  </figure>
+
+  <h3 class="h6 fw-semibold mt-4 mb-2">Paso 3 · Detalles de la solicitud</h3>
+  <p>
+    Llena los datos de la o las materias según el tipo de solicitud: materias
+    que quieres dar de alta y/o las que quieres dar de baja, junto con su
+    horario.
+  </p>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/08_wizard_detalles.png') }}?v={{ sv('agendatec', 'img/help/student/08_wizard_detalles.png') }}"
+         alt="Captura de detalles de la solicitud" loading="lazy">
+    <figcaption>Captura los datos de cada materia.</figcaption>
+  </figure>
+
+  <h3 class="h6 fw-semibold mt-4 mb-2">Paso 4 · Agendar horario <small class="text-muted">(solo Alta / Alta y Baja)</small></h3>
+  <p>Elige el día y selecciona un bloque disponible con el coordinador. La duración de cada bloque la define cada coordinador, así que puede variar.</p>
+  <div class="at-help-callout at-help-callout--warn">
+    <i class="bi bi-clock-history"></i>
+    <p>
+      Al seleccionar un horario, se aparta para ti durante <strong>60 segundos</strong>.
+      Si no confirmas antes de que termine el contador, el horario vuelve a quedar
+      disponible para otros estudiantes.
+    </p>
+  </div>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/09_wizard_horario.png') }}?v={{ sv('agendatec', 'img/help/student/09_wizard_horario.png') }}"
+         alt="Selección de horario en el calendario" loading="lazy">
+    <figcaption>Calendario con los bloques disponibles del coordinador.</figcaption>
+  </figure>
+
+  <h3 class="h6 fw-semibold mt-4 mb-2">Paso 5 · Revisar y confirmar</h3>
+  <p>Revisa el resumen completo y toca <strong>Confirmar</strong> para enviar.</p>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/10_wizard_confirmar.png') }}?v={{ sv('agendatec', 'img/help/student/10_wizard_confirmar.png') }}"
+         alt="Resumen final de la solicitud" loading="lazy">
+    <figcaption>Resumen final antes de enviar la solicitud.</figcaption>
+  </figure>
+</section>
+
+<section id="mis-solicitudes" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">6</span>
+    <span>Mis solicitudes</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Aquí ves tus solicitudes agrupadas por estado: activa, agendada, concluida o cancelada.
+  </p>
+  <ul>
+    <li><strong>Activa</strong> — la que estás procesando ahora mismo (resaltada).</li>
+    <li><strong>Agendada</strong> — ya tiene cita asignada con el coordinador.</li>
+    <li><strong>Concluida</strong> — resuelta (con asistencia o sin asistencia).</li>
+    <li><strong>Cancelada</strong> — la cancelaste o se canceló desde admin.</li>
+  </ul>
+  <figure class="at-help-figure at-help-figure--mobile">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/student/11_mis_solicitudes.png') }}?v={{ sv('agendatec', 'img/help/student/11_mis_solicitudes.png') }}"
+         alt="Pantalla de mis solicitudes" loading="lazy">
+    <figcaption>Mis solicitudes organizadas por estado.</figcaption>
+  </figure>
+</section>
+
+<section id="cancelar" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">7</span>
+    <span>Cancelar una solicitud</span>
+  </h2>
+  <p>Si todavía está pendiente, puedes cancelarla desde <strong>Mis solicitudes</strong>.</p>
+  <ol class="at-help-steps">
+    <li>Abre la solicitud activa.</li>
+    <li>Toca <strong>Cancelar solicitud</strong>.</li>
+    <li>Confirma la acción.</li>
+  </ol>
+  <div class="at-help-callout at-help-callout--danger">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <p>Cada periodo tiene un <strong>límite de cancelaciones</strong>. Si lo alcanzas, no podrás cancelar más solicitudes en ese mismo periodo.</p>
+  </div>
+</section>
+
+<section id="dia-cita" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">8</span>
+    <span>El día de tu cita</span>
+  </h2>
+  <p>
+    Llega <strong>5 minutos antes</strong> al área de Servicio Social. Después, el
+    coordinador te atenderá en el horario asignado.
+  </p>
+  <ol class="at-help-steps">
+    <li>Presentarte con Servicio Social.</li>
+    <li>El coordinador te atiende y marca el resultado de la cita.</li>
+    <li>Recibirás una notificación en AgendaTec cuando tu solicitud quede resuelta.</li>
+  </ol>
+  <div class="at-help-callout at-help-callout--tip">
+    <i class="bi bi-lightbulb-fill"></i>
+    <p>Si no puedes asistir, cancela tu solicitud con anticipación para liberar el horario.</p>
+  </div>
+</section>
+
+<section id="notificaciones" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">9</span>
+    <span>Notificaciones y estado en tiempo real</span>
+  </h2>
+  <p>
+    AgendaTec actualiza el estado de tu solicitud en tiempo real. Verás un
+    indicador de conexión y recibirás avisos cuando:
+  </p>
+  <ul>
+    <li>El coordinador asigna tu solicitud.</li>
+    <li>El coordinador marca el resultado de la cita.</li>
+    <li>Tu solicitud se concluye.</li>
+  </ul>
+</section>
+
+<section id="cerrar-sesion" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">10</span>
+    <span>Cerrar sesión</span>
+  </h2>
+  <p>
+    Cuando termines, abre el menú lateral (ícono de hamburguesa
+    <i class="bi bi-list"></i> en la barra superior) y toca
+    <strong>Cerrar sesión</strong>.
+  </p>
+</section>
+
+{% endblock %}

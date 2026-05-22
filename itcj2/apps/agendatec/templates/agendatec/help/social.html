@@ -1,0 +1,87 @@
+{% extends "agendatec/help/base_help.html" %}
+
+{% block help_subtitle %}
+Consulta la agenda del día y atiende a los estudiantes en el área de Servicio Social.
+{% endblock %}
+
+{% block help_body %}
+
+<section id="rol-social" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">1</span>
+    <span>¿Qué hace servicio social en AgendaTec?</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Servicio Social es el punto de contacto físico con el estudiante: aquí
+    consultas la agenda del día para saber quién va a llegar a su cita, en
+    qué horario y con qué coordinador.
+  </p>
+  <div class="at-help-callout">
+    <i class="bi bi-diagram-3"></i>
+    <p>El flujo es <strong>Estudiante agenda → Servicio Social recibe y guía → Coordinador atiende</strong>.</p>
+  </div>
+</section>
+
+<section id="citas-dia" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">2</span>
+    <span>Citas del día</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Verás la tabla con todas las citas agendadas para hoy: horario, número de
+    control, nombre del estudiante, carrera y estado.
+  </p>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/social/01_citas_pendientes.png') }}?v={{ sv('agendatec', 'img/help/social/01_citas_pendientes.png') }}"
+         alt="Listado de citas del día" loading="lazy">
+    <figcaption>Pantalla principal de Servicio Social (vista de consulta).</figcaption>
+  </figure>
+</section>
+
+<section id="filtros" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">3</span>
+    <span>Filtrar por día y carrera</span>
+  </h2>
+  <p>Usa los filtros superiores para enfocarte en una carrera específica o cambiar al día deseado.</p>
+  <ol class="at-help-steps">
+    <li>Selecciona el <strong>Día</strong> del período activo.</li>
+    <li>Selecciona la <strong>Carrera</strong> (o deja “Todas”).</li>
+    <li>Toca <strong>Cargar</strong> para actualizar la tabla.</li>
+  </ol>
+  <div class="at-help-callout at-help-callout--tip">
+    <i class="bi bi-lightbulb-fill"></i>
+    <p>La tabla se actualiza automáticamente en tiempo real cuando un estudiante agenda o cancela una cita.</p>
+  </div>
+</section>
+
+<section id="atender" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">4</span>
+    <span>Atender al estudiante en ventanilla</span>
+  </h2>
+  <p>
+    Cuando un estudiante se presenta, búscalo por <strong>número de control</strong> o
+    <strong>nombre</strong> en la tabla y verifica:
+  </p>
+  <ul>
+    <li>Que el horario coincida con la hora actual.</li>
+    <li>Que la carrera reportada por el estudiante sea la que aparece en la tabla.</li>
+    <li>Indícale al estudiante con qué coordinador debe presentarse.</li>
+  </ul>
+</section>
+
+<section id="tiempo-real" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">5</span>
+    <span>Sincronización en tiempo real</span>
+  </h2>
+  <p>
+    El indicador <strong>Conectado</strong> en la parte superior te avisa si
+    estás recibiendo cambios en tiempo real. Si pierdes conexión, cambia a
+    <strong>Reconectando</strong> y la tabla volverá a sincronizarse en cuanto
+    regrese la conexión.
+  </p>
+</section>
+
+{% endblock %}

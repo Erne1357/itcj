@@ -1,0 +1,153 @@
+{% extends "agendatec/help/base_help.html" %}
+
+{% block help_subtitle %}
+Configura periodos, usuarios y supervisa el flujo completo de AgendaTec.
+{% endblock %}
+
+{% block help_body %}
+
+<section id="dashboard" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">1</span>
+    <span>Dashboard de administrador</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Vista general del sistema: total de solicitudes, tasas de asistencia y
+    accesos directos a cada módulo del panel.
+  </p>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/admin/01_dashboard.png') }}?v={{ sv('agendatec', 'img/help/admin/01_dashboard.png') }}"
+         alt="Dashboard del administrador" loading="lazy">
+    <figcaption>Dashboard del administrador.</figcaption>
+  </figure>
+</section>
+
+<section id="periodos" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">2</span>
+    <span>Periodos académicos</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Cada semestre se modela como un <strong>periodo</strong> con código <code>YYYYN</code>
+    (por ejemplo, <code>20261</code> = Ene-Jun 2026). Solo puede haber
+    <strong>uno activo</strong> a la vez.
+  </p>
+  <ol class="at-help-steps">
+    <li>Entra al menú <strong>Períodos</strong>.</li>
+    <li>Crea un nuevo periodo con su rango de fechas y configuración.</li>
+    <li>Activa el periodo deseado — el anterior pasa automáticamente a INACTIVE.</li>
+    <li>Configura el límite de cancelaciones por estudiante y los tipos de solicitudes habilitados.</li>
+  </ol>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/admin/02_periodos.png') }}?v={{ sv('agendatec', 'img/help/admin/02_periodos.png') }}"
+         alt="Listado de periodos académicos" loading="lazy">
+    <figcaption>Listado y administración de periodos.</figcaption>
+  </figure>
+  <div class="at-help-callout at-help-callout--warn">
+    <i class="bi bi-exclamation-octagon-fill"></i>
+    <p>Al activar un nuevo periodo, las solicitudes nuevas se crean contra él. Las solicitudes existentes mantienen su periodo original.</p>
+  </div>
+</section>
+
+<section id="dias-admision" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">3</span>
+    <span>Días de admisión y citas</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Dentro de un periodo activas qué días específicos los estudiantes pueden
+    crear solicitudes y agendar citas.
+  </p>
+  <ol class="at-help-steps">
+    <li>Desde <strong>Períodos</strong>, abre el periodo y entra a <strong>Configurar días</strong>.</li>
+    <li>Activa o desactiva cada día del rango.</li>
+    <li>Guarda los cambios — los coordinadores podrán configurar horarios solo en los días habilitados.</li>
+  </ol>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/admin/03_dias_admision.png') }}?v={{ sv('agendatec', 'img/help/admin/03_dias_admision.png') }}"
+         alt="Configuración de días habilitados" loading="lazy">
+    <figcaption>Cada día se puede habilitar o deshabilitar.</figcaption>
+  </figure>
+</section>
+
+<section id="usuarios" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">4</span>
+    <span>Gestión de usuarios</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Administra coordinadores, personal de servicio social y otros
+    administradores. Los estudiantes se cargan masivamente por CSV (ver el CLI
+    de AgendaTec).
+  </p>
+  <ol class="at-help-steps">
+    <li>Entra a <strong>Usuarios</strong>.</li>
+    <li>Crea, edita o desactiva usuarios.</li>
+    <li>Asigna el rol correcto (coordinador, servicio social, administrador).</li>
+  </ol>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/admin/04_usuarios.png') }}?v={{ sv('agendatec', 'img/help/admin/04_usuarios.png') }}"
+         alt="Pantalla de gestión de usuarios" loading="lazy">
+    <figcaption>Listado de usuarios con filtros por rol.</figcaption>
+  </figure>
+</section>
+
+<section id="solicitudes-globales" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">5</span>
+    <span>Solicitudes globales</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Vista de todas las solicitudes (cualquier estudiante, cualquier estado).
+    Útil para soporte y resolución de incidencias.
+  </p>
+  <ul>
+    <li>Filtra por carrera, estado o periodo.</li>
+    <li>Abre el detalle para ver el historial completo.</li>
+    <li>Puedes forzar cambios de estado en casos especiales.</li>
+  </ul>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/admin/05_solicitudes.png') }}?v={{ sv('agendatec', 'img/help/admin/05_solicitudes.png') }}"
+         alt="Pantalla de solicitudes globales" loading="lazy">
+    <figcaption>Búsqueda y filtros de todas las solicitudes.</figcaption>
+  </figure>
+</section>
+
+<section id="crear-solicitud" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">6</span>
+    <span>Crear solicitud manualmente</span>
+  </h2>
+  <p>
+    En casos excepcionales (estudiante sin acceso, caso especial), el
+    administrador puede crear una solicitud a nombre del estudiante.
+  </p>
+  <ol class="at-help-steps">
+    <li>Entra a <strong>Crear solicitud</strong>.</li>
+    <li>Busca al estudiante por número de control.</li>
+    <li>Captura los datos de la solicitud como lo haría el alumno.</li>
+    <li>Asigna directamente al coordinador.</li>
+  </ol>
+</section>
+
+<section id="reportes" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">7</span>
+    <span>Reportes</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Métricas operativas: asistencia, no-shows, tiempos de atención por
+    coordinador y por carrera.
+  </p>
+  <ul>
+    <li>Filtra por rango de fechas o periodo completo.</li>
+    <li>Exporta a CSV/Excel para compartir.</li>
+  </ul>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/admin/07_reportes.png') }}?v={{ sv('agendatec', 'img/help/admin/07_reportes.png') }}"
+         alt="Pantalla de reportes" loading="lazy">
+    <figcaption>Reportes de actividad y desempeño.</figcaption>
+  </figure>
+</section>
+
+{% endblock %}

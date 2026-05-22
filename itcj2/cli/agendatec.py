@@ -591,6 +591,35 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
             raise
 
 
+@click.command("load-help")
+def load_help_command():
+    """Carga permisos y asignaciones de la pestaña de Ayuda de AgendaTec.
+
+    Ejecuta en orden alfabético los scripts de ``database/DML/agendatec/help/``:
+      - 01_insert_help_permissions.sql
+      - 02_insert_help_role_permissions.sql
+
+    Idempotente (los INSERT usan ON CONFLICT DO NOTHING).
+    """
+    from itcj2.database import SessionLocal
+
+    click.echo("=" * 60)
+    click.echo("📖 AGENDATEC — Cargando permisos de Ayuda")
+    click.echo("=" * 60)
+
+    scripts_dir = PROJECT_ROOT / "database" / "DML" / "agendatec" / "help"
+
+    with SessionLocal() as db:
+        try:
+            executed = _execute_sql_scripts(db, str(scripts_dir))
+            db.commit()
+            click.echo(f"\n✅ {executed} script(s) ejecutado(s) correctamente")
+        except Exception as e:
+            db.rollback()
+            click.echo(f"\n❌ Error: {str(e)}")
+            raise
+
+
 @click.group("agendatec")
 def agendatec_cli():
     """Comandos CLI del módulo AgendaTec."""
@@ -601,3 +630,4 @@ agendatec_cli.add_command(activate_period_command)
 agendatec_cli.add_command(list_periods_command)
 agendatec_cli.add_command(import_students_command)
 agendatec_cli.add_command(sync_students_agendatec_command)
+agendatec_cli.add_command(load_help_command)

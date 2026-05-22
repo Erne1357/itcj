@@ -197,6 +197,11 @@ ENDPOINT_MAP: dict[str, str] = {
     "agendatec_pages.admin_surveys_pages.admin_surveys": "/agendatec/surveys/",
     # Social
     "agendatec_pages.social_pages.social_home":          "/agendatec/social/home",
+    # Help (mini-manual por rol)
+    "agendatec_pages.help_pages.help_student":           "/agendatec/help",
+    "agendatec_pages.help_pages.help_coord":             "/agendatec/help/coord",
+    "agendatec_pages.help_pages.help_social":            "/agendatec/help/social",
+    "agendatec_pages.help_pages.help_admin":             "/agendatec/help/admin",
 
     # ── AgendaTec: API ───────────────────────────────────────────────────────
     # Periods

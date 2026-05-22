@@ -9,7 +9,7 @@ class WindowsDesktop {
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'maint', name: 'Mantenimiento', icon: 'wrench', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
-      { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
+      //{ id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
       { id: 'papelera', name: 'Papelera de reciclaje', icon: 'trash-2', pin: 'last-col-first-row', readonly: true },
@@ -120,24 +120,6 @@ class WindowsDesktop {
         }
       }
     })
-  }
-
-  // Cierra la ventana cuyo iframe envió el postMessage (CLOSE_APP).
-  // Usado por la página de error 403 sin acceso a la app.
-  closeAppWindowBySource(source) {
-    const windows = document.querySelectorAll('.app-window')
-    for (const win of windows) {
-      const iframe = win.querySelector('.window-iframe')
-      if (iframe && iframe.contentWindow === source) {
-        const appId = win.dataset.appId
-        if (appId) {
-          this.closeWindow(appId)
-        } else {
-          win.remove()
-        }
-        return
-      }
-    }
   }
   renderDesktopGrid() {
     const grid = document.getElementById('desktop-grid')
@@ -341,12 +323,12 @@ class WindowsDesktop {
         iframeSrc: "/agendatec/",
         icon: "calendar",
       },
-      compras: {
+      /* compras: {
         name: "Compras",
         url: "/compras/dashboard",
         iframeSrc: "/compras/",
         icon: "shopping-cart",
-      },
+      },*/
       helpdesk: {
         name: "Help-Desk",
         url: "/help-desk/",
