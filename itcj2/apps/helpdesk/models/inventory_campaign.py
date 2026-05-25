@@ -51,6 +51,11 @@ class InventoryCampaign(Base):
     validation_notes = Column(Text, nullable=True)   # observaciones del jefe al aprobar
     rejection_reason = Column(Text, nullable=True)   # motivo de rechazo
 
+    # Snapshot del estado de grupos AL CERRAR la campaña (antes de validación)
+    # Permite mostrar al jefe los cambios: items que entraron/salieron de cada grupo.
+    initial_groups_snapshot = Column(JSON, nullable=True)
+    # Formato: [{id, name, code, item_ids: [int]}, ...]
+
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=True, onupdate=func.now())
 

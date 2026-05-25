@@ -147,6 +147,28 @@
 
     </div>
 
+    <!-- Sección: Grupos / Salones del Departamento -->
+    <div class="card shadow mb-4" id="groups-validation-card">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+            <h6 class="m-0 font-weight-bold text-primary" style="font-size:.9rem;">
+                <i class="fas fa-door-open"></i> Grupos / Salones del Departamento
+                <span class="badge badge-secondary ml-1" id="groups-validation-count">0</span>
+            </h6>
+            <div class="small text-muted" id="groups-validation-summary">
+                <span class="text-success"><i class="fas fa-plus"></i> <span id="groups-summary-added">0</span> agregados</span>
+                ·
+                <span class="text-danger"><i class="fas fa-minus"></i> <span id="groups-summary-removed">0</span> removidos</span>
+                ·
+                <span class="text-primary"><i class="fas fa-star"></i> <span id="groups-summary-new">0</span> grupos nuevos</span>
+            </div>
+        </div>
+        <div class="card-body p-3" id="groups-validation-container">
+            <div class="text-center text-muted small py-3">
+                <i class="fas fa-spinner fa-spin"></i> Cargando estado de grupos...
+            </div>
+        </div>
+    </div>
+
     <!-- Panel de decisión (sticky en desktop) -->
     <div class="card shadow mb-4 border-top border-2 border-primary" id="decision-panel">
         <div class="card-body p-3">

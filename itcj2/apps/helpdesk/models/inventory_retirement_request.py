@@ -21,7 +21,7 @@ class InventoryRetirementRequest(Base):
     folio = Column(String(20), unique=True, nullable=False, index=True)
     # Formato: BAJA-{YEAR}-{SEQ:03d}  ej: BAJA-2026-001
 
-    status = Column(String(20), nullable=False, default='DRAFT', index=True)
+    status = Column(String(40), nullable=False, default='DRAFT', index=True)
     # DRAFT | PENDING | AWAITING_RECURSOS_MATERIALES | AWAITING_SUBDIRECTOR | AWAITING_DIRECTOR | APPROVED | REJECTED | CANCELLED
 
     reason = Column(Text, nullable=False)

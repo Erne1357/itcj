@@ -236,18 +236,24 @@ async def attach_document(
         raise HTTPException(500, detail={"success": False, "error": str(e)})
 
 
-# ── Generar documento (PDF / Excel) ───────────────────────────────────────────
+# ── Generar oficio Excel (plantilla oficial) ──────────────────────────────────
 
 @router.get("/{request_id}/generate-document")
 def generate_document(
     request_id: int,
-    format: str = "pdf",   # "pdf" | "xlsx"
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.create"]),
+    format: str = "xlsx",   # PDF deshabilitado; sólo xlsx
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory.retirement.api.create",
+        "helpdesk.inventory.retirement.api.read",
+        "helpdesk.retirement.sign.recursos_materiales",
+        "helpdesk.retirement.sign.subdirector",
+        "helpdesk.retirement.sign.director",
+    ]),
     db: DbSession = None,
 ):
     """
-    Genera el documento oficial de baja en PDF (ReportLab) o Excel (openpyxl).
-    El parámetro `format` acepta "pdf" (por defecto) o "xlsx".
+    Genera el oficio oficial de baja en Excel editando la plantilla oficial.
+    PDF está deshabilitado para preservar el formato institucional.
     """
     from fastapi.responses import Response
     from itcj2.apps.helpdesk.services.retirement_document_service import RetirementDocumentService
@@ -258,18 +264,20 @@ def generate_document(
         raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
 
     user_id = int(user["sub"])
+    # Permitir acceso a: admin, solicitante, y firmantes (pos head_mat/subdirector/director)
     if not _is_admin(db, user_id) and req.requested_by_id != user_id:
-        raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
+        from itcj2.core.services.authz_service import _get_users_with_position
+        signer_ids = set(_get_users_with_position(db, [
+            "head_mat_services", "subdirector_admin_services", "director",
+        ]))
+        if user_id not in signer_ids:
+            raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
 
+    # Sólo se genera Excel. PDF deshabilitado para preservar el formato oficial.
     try:
-        if format == "xlsx":
-            content = RetirementDocumentService.fill_excel_template(req)
-            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            filename = f"{req.folio}.xlsx"
-        else:
-            content = RetirementDocumentService.generate_pdf(req)
-            media_type = "application/pdf"
-            filename = f"{req.folio}.pdf"
+        content = RetirementDocumentService.fill_excel_template(req, db=db)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"{req.folio}.xlsx"
     except RuntimeError as e:
         raise HTTPException(500, detail={"success": False, "error": str(e)})
     except Exception as e:
@@ -287,40 +295,6 @@ def generate_document(
         content=content,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@router.get("/{request_id}/generate-format")
-def generate_format(
-    request_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.create"]),
-    db: DbSession = None,
-):
-    """Alias de compatibilidad → delega a generate-document con format=pdf."""
-    from fastapi.responses import Response
-    from itcj2.apps.helpdesk.services.retirement_document_service import RetirementDocumentService
-    from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest
-
-    req = db.get(InventoryRetirementRequest, request_id)
-    if not req:
-        raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
-
-    user_id = int(user["sub"])
-    if not _is_admin(db, user_id) and req.requested_by_id != user_id:
-        raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
-
-    try:
-        content = RetirementDocumentService.generate_pdf(req)
-    except RuntimeError as e:
-        raise HTTPException(500, detail={"success": False, "error": str(e)})
-    except Exception as e:
-        logger.error(f"generate_format error (request_id={request_id}): {e}")
-        raise HTTPException(500, detail={"success": False, "error": "Error al generar el PDF"})
-
-    return Response(
-        content=content,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{req.folio}.pdf"'},
     )
 
 
@@ -356,7 +330,11 @@ def submit_for_approval(
 def sign_request(
     request_id: int,
     body: dict = Body(...),
-    user: dict = require_perms("helpdesk", []),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.retirement.sign.recursos_materiales",
+        "helpdesk.retirement.sign.subdirector",
+        "helpdesk.retirement.sign.director",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService

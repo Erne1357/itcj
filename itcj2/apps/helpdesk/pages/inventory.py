@@ -493,9 +493,9 @@ async def retirement_request_detail(
 
     _db = SessionLocal()
     try:
-        mat_ids = {u.id for u in _get_users_with_position(_db, ["head_mat_services"])}
-        sub_ids = {u.id for u in _get_users_with_position(_db, ["secretary_sub_admin_services"])}
-        dir_ids = {u.id for u in _get_users_with_position(_db, ["director"])}
+        mat_ids = set(_get_users_with_position(_db, ["head_mat_services"]))
+        sub_ids = set(_get_users_with_position(_db, ["subdirector_admin_services"]))
+        dir_ids = set(_get_users_with_position(_db, ["director"]))
     finally:
         _db.close()
 

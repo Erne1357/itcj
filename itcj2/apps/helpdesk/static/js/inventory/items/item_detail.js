@@ -526,23 +526,41 @@ function renderHistory(history) {
         return;
     }
 
-    let html = '<div class="timeline">';
+    let html = '<div class="audit-timeline">';
 
-    history.forEach(event => {
-        const eventClass = getEventClass(event.event_type);
-        
+    history.forEach((event, idx) => {
+        const meta = getEventMeta(event.event_type);
+        const diffBlock = renderEventDiff(event);
+        const ticketLink = event.related_ticket
+            ? `<a href="/help-desk/admin/tickets/${event.related_ticket.id}" class="badge bg-info text-white ms-1">
+                   <i class="fas fa-ticket-alt"></i> #${escapeHtml(event.related_ticket.ticket_number || event.related_ticket.id)}
+               </a>`
+            : '';
+        const ipBadge = event.ip_address
+            ? `<small class="text-muted ms-2"><i class="fas fa-network-wired"></i> ${escapeHtml(event.ip_address)}</small>`
+            : '';
         html += `
-            <div class="timeline-item ${eventClass}">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <strong>${event.event_description || event.event_type}</strong>
-                        <br>
-                        <small class="text-muted">
-                            ${event.performed_by?.full_name || 'Sistema'} · 
-                            ${formatDateTime(event.timestamp)}
-                        </small>
-                        ${event.notes ? `<p class="mb-0 mt-2 text-muted"><small>${escapeHtml(event.notes)}</small></p>` : ''}
+            <div class="audit-event d-flex gap-3 pb-3 ${idx === history.length - 1 ? '' : 'border-bottom mb-3'}">
+                <div class="audit-icon flex-shrink-0">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center bg-${meta.color} bg-opacity-25 text-${meta.color}"
+                         style="width:42px; height:42px;">
+                        <i class="fas ${meta.icon}"></i>
                     </div>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between flex-wrap align-items-start">
+                        <div>
+                            <strong class="text-${meta.color}">${escapeHtml(event.event_description || meta.label || event.event_type)}</strong>
+                            ${ticketLink}
+                        </div>
+                        <small class="text-muted">${formatDateTime(event.timestamp)}</small>
+                    </div>
+                    <div class="small text-muted mt-1">
+                        <i class="fas fa-user"></i> ${escapeHtml(event.performed_by?.full_name || 'Sistema')}
+                        ${ipBadge}
+                    </div>
+                    ${event.notes ? `<p class="mb-0 mt-2 small fst-italic">${escapeHtml(event.notes)}</p>` : ''}
+                    ${diffBlock}
                 </div>
             </div>
         `;
@@ -550,6 +568,75 @@ function renderHistory(history) {
 
     html += '</div>';
     container.innerHTML = html;
+}
+
+function renderEventDiff(event) {
+    const oldV = event.old_value;
+    const newV = event.new_value;
+    if (!oldV && !newV) return '';
+
+    // Caso simple: ambos objetos JSON con keys
+    const oldObj = (oldV && typeof oldV === 'object') ? oldV : {};
+    const newObj = (newV && typeof newV === 'object') ? newV : {};
+    const keys = new Set([...Object.keys(oldObj), ...Object.keys(newObj)]);
+    if (keys.size === 0) return '';
+
+    let rows = '';
+    for (const k of keys) {
+        const o = oldObj[k];
+        const n = newObj[k];
+        if (JSON.stringify(o) === JSON.stringify(n)) continue;  // sin cambio
+        rows += `
+            <tr>
+                <td class="text-muted small">${escapeHtml(k)}</td>
+                <td class="small text-danger" style="text-decoration:line-through;">${escapeHtml(formatDiffValue(o))}</td>
+                <td class="text-muted">→</td>
+                <td class="small text-success fw-semibold">${escapeHtml(formatDiffValue(n))}</td>
+            </tr>
+        `;
+    }
+    if (!rows) return '';
+    return `
+        <div class="mt-2 audit-diff bg-light rounded p-2">
+            <table class="table table-sm mb-0 small">
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+function formatDiffValue(v) {
+    if (v === null || v === undefined || v === '') return '∅';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+}
+
+function getEventMeta(eventType) {
+    const map = {
+        'REGISTERED':            {icon: 'fa-plus-circle',    color: 'success', label: 'Equipo registrado'},
+        'ASSIGNED_TO_DEPT':      {icon: 'fa-building',       color: 'primary', label: 'Asignado al departamento'},
+        'ASSIGNED_TO_USER':      {icon: 'fa-user-check',     color: 'primary', label: 'Asignado a usuario'},
+        'REASSIGNED':            {icon: 'fa-exchange-alt',   color: 'info',    label: 'Reasignado'},
+        'UNASSIGNED':            {icon: 'fa-user-times',     color: 'warning', label: 'Liberado'},
+        'TRANSFERRED':           {icon: 'fa-truck',          color: 'info',    label: 'Transferido a otro depto'},
+        'LOCATION_CHANGED':      {icon: 'fa-map-marker-alt', color: 'info',    label: 'Ubicación actualizada'},
+        'STATUS_CHANGED':        {icon: 'fa-flag',           color: 'warning', label: 'Estado modificado'},
+        'SPECS_UPDATED':         {icon: 'fa-cog',            color: 'secondary', label: 'Especificaciones actualizadas'},
+        'MAINTENANCE_SCHEDULED': {icon: 'fa-calendar-check', color: 'info',    label: 'Mantenimiento programado'},
+        'MAINTENANCE_COMPLETED': {icon: 'fa-wrench',         color: 'success', label: 'Mantenimiento completado'},
+        'DEACTIVATED':           {icon: 'fa-trash',          color: 'danger',  label: 'Dado de baja'},
+        'REACTIVATED':           {icon: 'fa-undo',           color: 'success', label: 'Reactivado'},
+        'CAMPAIGN_ASSIGNED':     {icon: 'fa-clipboard-list', color: 'primary', label: 'Asignado a campaña'},
+        'CAMPAIGN_UNASSIGNED':   {icon: 'fa-clipboard',      color: 'warning', label: 'Desvinculado de campaña'},
+        'CAMPAIGN_VALIDATED':    {icon: 'fa-lock',           color: 'success', label: 'Validado por jefe de depto'},
+        'ITEM_UNLOCKED':         {icon: 'fa-unlock',         color: 'warning', label: 'Desbloqueado por admin'},
+        'VERIFIED':              {icon: 'fa-check-double',   color: 'success', label: 'Verificación física'},
+        'GROUP_ASSIGNED':        {icon: 'fa-door-open',      color: 'info',    label: 'Asignado a grupo/salón'},
+        'GROUP_UNASSIGNED':      {icon: 'fa-door-closed',    color: 'warning', label: 'Removido del grupo'},
+        'VERSION_LINKED':        {icon: 'fa-link',           color: 'info',    label: 'Vinculado a versión anterior'},
+        'VERSION_UNLINKED':      {icon: 'fa-unlink',         color: 'secondary', label: 'Desvinculado de versión'},
+    };
+    return map[eventType] || {icon: 'fa-circle', color: 'secondary', label: eventType};
 }
 
 // ==================== TICKETS ====================

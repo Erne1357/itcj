@@ -493,6 +493,144 @@
         initViewFilters();
         initDecisionPanel();
         loadValidationData();
+        loadValidationGroups();
+    }
+
+    // ── Grupos / Salones (vista de validación) ───────────────────────────────
+
+    function escHtml(s) {
+        return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function loadValidationGroups() {
+        const cont = document.getElementById('groups-validation-container');
+        if (!cont) return;
+        try {
+            const res = await fetch(`/api/help-desk/v2/inventory/campaigns/${CAMPAIGN_ID}/validation-groups`);
+            const json = await res.json();
+            if (!json.success) throw new Error(json.error || json.detail?.error || 'Error');
+
+            const groups = json.data.groups || [];
+            const summary = json.data.summary || {};
+
+            document.getElementById('groups-validation-count').textContent = summary.total_groups || 0;
+            document.getElementById('groups-summary-added').textContent = summary.total_added || 0;
+            document.getElementById('groups-summary-removed').textContent = summary.total_removed || 0;
+            document.getElementById('groups-summary-new').textContent = summary.new_groups || 0;
+
+            if (!json.data.has_initial_snapshot) {
+                cont.innerHTML = `
+                    <div class="alert alert-warning small mb-3">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Esta campaña se cerró antes de la incorporación de snapshots de grupos. Sólo se muestra el estado actual.
+                    </div>` + renderGroupsList(groups, false);
+                return;
+            }
+            if (groups.length === 0) {
+                cont.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Sin grupos en este departamento.</p>';
+                return;
+            }
+
+            cont.innerHTML = renderGroupsList(groups, true);
+        } catch (err) {
+            cont.innerHTML = `<p class="text-danger small text-center mb-0">Error: ${escHtml(err.message)}</p>`;
+        }
+    }
+
+    function renderGroupsList(groups, showDiff) {
+        return groups.map(g => renderGroupCard(g, showDiff)).join('');
+    }
+
+    function renderGroupCard(g, showDiff) {
+        const newBadge = g.new_group
+            ? '<span class="badge badge-success ml-2" title="Grupo creado durante la campaña"><i class="fas fa-star"></i> Nuevo</span>'
+            : '';
+        const deletedBadge = g.deleted
+            ? '<span class="badge badge-danger ml-2"><i class="fas fa-trash"></i> Eliminado</span>'
+            : '';
+        const meta = [g.code, g.group_type].filter(Boolean).join(' · ');
+        const locBits = [g.building, g.floor ? 'P' + g.floor : null].filter(Boolean).join(', ');
+
+        const changeCount = (g.added_count || 0) + (g.removed_count || 0);
+        const headerCls = changeCount > 0 ? 'bg-warning bg-opacity-10' : '';
+
+        const itemsCurrent = (g.items_current || []).map(it => `
+            <div class="d-flex justify-content-between align-items-center border-bottom py-1 small">
+                <span>
+                    <strong>${escHtml(it.inventory_number)}</strong>
+                    <span class="text-muted">${escHtml(it.brand || '')} ${escHtml(it.model || '')}</span>
+                    ${it.in_current_campaign ? '<span class="badge badge-primary ml-1">Campaña actual</span>' : ''}
+                    ${it.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Bloqueado"></i>' : ''}
+                </span>
+            </div>
+        `).join('') || '<p class="text-muted small mb-0">Sin equipos.</p>';
+
+        const itemsAdded = (g.items_added || []).map(it => `
+            <div class="d-flex justify-content-between align-items-center py-1 small bg-success bg-opacity-10 px-2 rounded mb-1">
+                <span>
+                    <i class="fas fa-plus-circle text-success"></i>
+                    <strong>${escHtml(it.inventory_number)}</strong>
+                    <span class="text-muted">${escHtml(it.brand || '')} ${escHtml(it.model || '')}</span>
+                </span>
+            </div>
+        `).join('');
+
+        const itemsRemoved = (g.items_removed || []).map(it => `
+            <div class="d-flex justify-content-between align-items-center py-1 small bg-danger bg-opacity-10 px-2 rounded mb-1">
+                <span>
+                    <i class="fas fa-minus-circle text-danger"></i>
+                    <strong>${escHtml(it.inventory_number)}</strong>
+                    <span class="text-muted">${escHtml(it.brand || '')} ${escHtml(it.model || '')}</span>
+                </span>
+                <small class="text-muted">${escHtml(it.destino || '')}</small>
+            </div>
+        `).join('');
+
+        const diffBlock = showDiff && (itemsAdded || itemsRemoved) ? `
+            <div class="mt-2">
+                ${g.added_count > 0 ? `
+                    <div class="small font-weight-bold text-success mb-1">
+                        <i class="fas fa-plus"></i> Agregados durante la campaña (${g.added_count})
+                    </div>
+                    ${itemsAdded}
+                ` : ''}
+                ${g.removed_count > 0 ? `
+                    <div class="small font-weight-bold text-danger mt-2 mb-1">
+                        <i class="fas fa-minus"></i> Salieron del grupo (${g.removed_count})
+                    </div>
+                    ${itemsRemoved}
+                ` : ''}
+            </div>
+        ` : '';
+
+        return `
+            <div class="card border mb-3">
+                <div class="card-header py-2 ${headerCls} d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${escHtml(g.name)}</strong>
+                        ${newBadge}${deletedBadge}
+                        <div class="small text-muted">
+                            ${escHtml(meta)}${locBits ? ' · ' + escHtml(locBits) : ''}
+                        </div>
+                    </div>
+                    ${showDiff ? `
+                        <div class="text-right small">
+                            <span class="badge badge-light">${g.kept_count} sin cambio</span>
+                            ${g.added_count > 0 ? `<span class="badge badge-success">+${g.added_count}</span>` : ''}
+                            ${g.removed_count > 0 ? `<span class="badge badge-danger">-${g.removed_count}</span>` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="card-body py-2">
+                    <div class="small font-weight-bold mb-1">
+                        <i class="fas fa-list"></i> Equipos actuales (${(g.items_current || []).length})
+                    </div>
+                    ${itemsCurrent}
+                    ${diffBlock}
+                </div>
+            </div>
+        `;
     }
 
     document.addEventListener('DOMContentLoaded', init);

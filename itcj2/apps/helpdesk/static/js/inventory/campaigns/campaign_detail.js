@@ -291,6 +291,7 @@
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast('Equipo desvinculado', 'success');
             loadItems();
+            loadGroupsView();
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
         }
@@ -310,14 +311,17 @@
             el('btn-confirm-bulk-assign').disabled = true;
             const searchInput = el('bulk-search-input');
             if (searchInput) searchInput.value = '';
+            const groupFilter = el('bulk-group-filter');
+            if (groupFilter) groupFilter.value = '';
             // Poner spinner inmediatamente para que no se vea contenido viejo
             el('bulk-items-list').innerHTML =
                 '<div class="text-center py-3"><i class="fas fa-spinner fa-spin text-primary"></i></div>';
             $('#modal-bulk-assign').modal('show');
         });
 
-        // Cargar items sólo cuando el modal terminó de abrirse (evita conflictos con animación)
-        $('#modal-bulk-assign').on('shown.bs.modal', () => {
+        // Cargar items + grupos cuando el modal terminó de abrirse
+        $('#modal-bulk-assign').on('shown.bs.modal', async () => {
+            await loadGroupFilterOptions();
             const searchInput = el('bulk-search-input');
             searchAvailableItems(searchInput ? searchInput.value.trim() : '');
         });
@@ -330,9 +334,44 @@
             });
         }
 
+        const groupFilter = el('bulk-group-filter');
+        if (groupFilter) {
+            groupFilter.addEventListener('change', () => {
+                const s = el('bulk-search-input');
+                searchAvailableItems(s ? s.value.trim() : '');
+            });
+        }
+
         const btnConfirm = el('btn-confirm-bulk-assign');
         if (btnConfirm) {
             btnConfirm.addEventListener('click', confirmBulkAssign);
+        }
+    }
+
+    // Caché local de grupos del depto (id → nombre)
+    let bulkGroupsCache = {};
+
+    async function loadGroupFilterOptions() {
+        const select = el('bulk-group-filter');
+        if (!select || !campaignData) return;
+        const deptId = campaignData.department_id;
+        try {
+            const res = await fetch(`/api/help-desk/v2/inventory/groups/department/${deptId}`);
+            const data = await res.json();
+            const groups = data.data || [];
+            bulkGroupsCache = {};
+            for (const g of groups) bulkGroupsCache[g.id] = g.name;
+            // Repintar las opciones (mantener primeras 2 fijas)
+            const fixed = `
+                <option value="">📦 Todos los equipos</option>
+                <option value="__global__">🌐 Sólo globales (sin grupo)</option>
+            `;
+            const grpOptions = groups.map(g =>
+                `<option value="${g.id}">🏫 ${g.name}</option>`
+            ).join('');
+            select.innerHTML = fixed + grpOptions;
+        } catch (err) {
+            console.error('loadGroupFilterOptions:', err);
         }
     }
 
@@ -341,22 +380,62 @@
         list.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin text-primary"></i></div>';
 
         const deptId = campaignData ? campaignData.department_id : '';
-        const params = new URLSearchParams({ per_page: 100, sort: 'recent' });
+        const groupFilter = el('bulk-group-filter');
+        const filterVal = groupFilter ? groupFilter.value : '';
+
+        const params = new URLSearchParams({ per_page: 200, sort: 'recent', include_relations: 'true' });
         if (deptId) params.set('department_id', deptId);
         if (search) params.set('search', search);
 
         try {
             const res = await fetch(`/api/help-desk/v2/inventory/items?${params}`);
             const data = await res.json();
-            const items = (data.data || []).filter(i => !i.campaign_id);
+            let items = (data.data || []).filter(i => !i.campaign_id);
+
+            // Aplicar filtro por grupo
+            if (filterVal === '__global__') {
+                items = items.filter(i => !i.group_id);
+            } else if (filterVal) {
+                const gid = parseInt(filterVal, 10);
+                items = items.filter(i => i.group_id === gid);
+            }
 
             if (items.length === 0) {
                 list.innerHTML = `<div class="text-center text-muted py-4 small">
-                    <i class="fas fa-inbox fa-lg d-block mb-1"></i>Sin equipos disponibles para asignar</div>`;
+                    <i class="fas fa-inbox fa-lg d-block mb-1"></i>Sin equipos disponibles con este filtro</div>`;
                 return;
             }
 
-            list.innerHTML = items.map(i => _buildBulkCard(i)).join('');
+            // Agrupar visualmente: Globales primero, luego por grupo
+            const globals = items.filter(i => !i.group_id);
+            const byGroup = {};
+            for (const it of items) {
+                if (!it.group_id) continue;
+                const gid = it.group_id;
+                if (!byGroup[gid]) byGroup[gid] = [];
+                byGroup[gid].push(it);
+            }
+
+            const sections = [];
+            if (globals.length > 0) {
+                sections.push(`
+                    <div class="bulk-section-header py-1 px-2 bg-light small fw-bold border-bottom">
+                        🌐 Globales (sin grupo) <span class="badge badge-secondary ml-1">${globals.length}</span>
+                    </div>
+                    ${globals.map(_buildBulkCard).join('')}
+                `);
+            }
+            for (const gid of Object.keys(byGroup)) {
+                const gName = bulkGroupsCache[gid] || `Grupo ${gid}`;
+                sections.push(`
+                    <div class="bulk-section-header py-1 px-2 bg-info bg-opacity-10 small fw-bold border-bottom mt-2">
+                        🏫 ${gName} <span class="badge badge-info ml-1">${byGroup[gid].length}</span>
+                    </div>
+                    ${byGroup[gid].map(_buildBulkCard).join('')}
+                `);
+            }
+
+            list.innerHTML = sections.join('');
         } catch (err) {
             list.innerHTML = `<div class="text-center text-danger py-3 small">
                 <i class="fas fa-exclamation-circle"></i> ${err.message}</div>`;
@@ -367,6 +446,13 @@
         const sel = selectedItemIds.has(item.id);
         const desc = [item.brand, item.model].filter(Boolean).join(' ') +
                      (item.itcj_serial ? ' · ' + item.itcj_serial : '');
+        const groupBadge = item.group_id
+            ? `<span class="badge badge-info ml-1" title="Pertenece al grupo">
+                   🏫 ${bulkGroupsCache[item.group_id] || 'Grupo'}
+               </span>`
+            : `<span class="badge badge-secondary ml-1" title="Equipo global sin grupo">
+                   🌐 Global
+               </span>`;
         return `
         <div class="bulk-item-card${sel ? ' selected' : ''}" data-id="${item.id}"
              onclick="toggleBulkItem(${item.id})">
@@ -378,7 +464,8 @@
                     <div class="d-flex align-items-center flex-wrap">
                         <strong class="mr-2">${item.inventory_number}</strong>
                         ${itemStatusBadge(item.status)}
-                        ${item.is_locked ? '<i class="fas fa-lock text-warning" title="Bloqueado"></i>' : ''}
+                        ${groupBadge}
+                        ${item.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Bloqueado"></i>' : ''}
                     </div>
                     ${desc ? `<div class="small text-muted text-truncate">${desc}</div>` : ''}
                 </div>
@@ -421,6 +508,7 @@
             $('#modal-bulk-assign').modal('hide');
             HelpdeskUtils.showToast(data.message, 'success');
             loadItems();
+            loadGroupsView();
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -436,8 +524,228 @@
         if (btnReopen) btnReopen.addEventListener('click', reopenCampaign);
 
         initBulkAssign();
-        loadCampaign();
+        initGroups();
+        loadCampaign().then(() => loadGroupsView());
     }
+
+    // ── Grupos / Salones de la campaña ─────────────────────────────────────────
+
+    let groupsData = [];
+
+    function escGroup(str) {
+        return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function loadGroupsView() {
+        const cont = el('groups-container');
+        if (!cont) return;
+        try {
+            const res = await fetch(`${API_BASE}/groups-view`);
+            const json = await res.json();
+            if (!json.success) throw new Error(json.error || 'Error');
+            groupsData = json.data.groups || [];
+            const canEdit = json.data.can_edit;
+            el('groups-count').textContent = groupsData.length;
+
+            const btnNew = el('btn-new-group');
+            if (btnNew) btnNew.classList.toggle('d-none', !canEdit || !CAN_MANAGE);
+
+            if (groupsData.length === 0 && (json.data.unassigned_count === 0)) {
+                cont.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Sin grupos en este departamento aún.</p>';
+                return;
+            }
+
+            const groupCards = groupsData.map(g => renderGroupCard(g, canEdit)).join('');
+            const unassigned = json.data.unassigned_items || [];
+            let unassignedBlock = '';
+            if (unassigned.length > 0) {
+                unassignedBlock = `
+                    <div class="card border-warning mb-2">
+                        <div class="card-header py-2 bg-warning bg-opacity-10">
+                            <strong class="small"><i class="fas fa-exclamation-circle"></i> Equipos de la campaña sin grupo (${unassigned.length})</strong>
+                        </div>
+                        <div class="card-body py-2 small">
+                            ${unassigned.map(it => renderItemRow(it, null, canEdit)).join('')}
+                        </div>
+                    </div>`;
+            }
+            cont.innerHTML = unassignedBlock + groupCards;
+        } catch (err) {
+            cont.innerHTML = `<p class="text-danger small text-center py-3 mb-0">Error: ${escGroup(err.message)}</p>`;
+        }
+    }
+
+    function renderGroupCard(g, canEdit) {
+        const inCamp = g.items.filter(i => i.in_current_campaign).length;
+        return `
+            <div class="card border mb-2">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong class="small">${escGroup(g.name)}</strong>
+                        <span class="text-muted small ml-2">${escGroup(g.code)} · ${escGroup(g.group_type)}</span>
+                        ${g.building ? `<span class="badge bg-light text-dark ml-1">${escGroup(g.building)}${g.floor ? ' P'+escGroup(g.floor) : ''}</span>` : ''}
+                    </div>
+                    <span class="badge bg-info text-white">${g.items_count} equipos${inCamp ? ' · ' + inCamp + ' en campaña' : ''}</span>
+                </div>
+                <div class="card-body py-2">
+                    ${g.items.length === 0
+                        ? '<p class="text-muted small mb-0 text-center">Sin equipos en este grupo</p>'
+                        : g.items.map(it => renderItemRow(it, g.id, canEdit)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderItemRow(item, groupId, canEdit) {
+        const badge = item.in_current_campaign
+            ? '<span class="badge bg-primary text-white ml-1">Campaña actual</span>'
+            : '';
+        const lockedBadge = item.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Validado/Bloqueado"></i>' : '';
+        const actionBtns = canEdit && CAN_MANAGE
+            ? `<button class="btn btn-sm btn-link p-0 ml-2 btn-move-item"
+                       data-item-id="${item.id}"
+                       data-item-label="${escGroup(item.inventory_number)} - ${escGroup(item.brand || '')} ${escGroup(item.model || '')}">
+                   <i class="fas fa-arrows-alt"></i>
+               </button>${groupId ? `<button class="btn btn-sm btn-link p-0 ml-1 text-danger btn-remove-from-group"
+                       data-item-id="${item.id}" data-group-id="${groupId}" title="Quitar del grupo">
+                   <i class="fas fa-times"></i>
+               </button>` : ''}`
+            : '';
+        return `
+            <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+                <div class="small">
+                    <strong>${escGroup(item.inventory_number)}</strong>
+                    <span class="text-muted">${escGroup(item.brand || '')} ${escGroup(item.model || '')}</span>
+                    ${badge}${lockedBadge}
+                </div>
+                <div>${actionBtns}</div>
+            </div>
+        `;
+    }
+
+    function initGroups() {
+        const btnNewGroup = el('btn-new-group');
+        if (btnNewGroup) {
+            btnNewGroup.addEventListener('click', () => {
+                el('form-new-group').reset();
+                $('#modal-new-group').modal('show');
+            });
+        }
+
+        const formNewGroup = el('form-new-group');
+        if (formNewGroup) {
+            formNewGroup.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                try {
+                    const res = await fetch(`${API_BASE}/groups`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            name:            el('new-group-name').value.trim(),
+                            group_type:      el('new-group-type').value,
+                            building:        el('new-group-building').value.trim() || null,
+                            floor:           el('new-group-floor').value.trim() || null,
+                            location_notes:  el('new-group-location-notes').value.trim() || null,
+                            description:     el('new-group-description').value.trim() || null,
+                        }),
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error(data.error || data.detail?.error || 'Error');
+                    HelpdeskUtils.showToast('Grupo creado', 'success');
+                    $('#modal-new-group').modal('hide');
+                    loadGroupsView();
+                } catch (err) {
+                    HelpdeskUtils.showToast(err.message, 'danger');
+                }
+            });
+        }
+
+        // Delegated click handler para mover/quitar items
+        const cont = el('groups-container');
+        if (cont) {
+            cont.addEventListener('click', async (e) => {
+                const moveBtn = e.target.closest('.btn-move-item');
+                if (moveBtn) {
+                    openMoveItemModal(moveBtn.dataset.itemId, moveBtn.dataset.itemLabel);
+                    return;
+                }
+                const removeBtn = e.target.closest('.btn-remove-from-group');
+                if (removeBtn) {
+                    const itemId = removeBtn.dataset.itemId;
+                    const groupId = removeBtn.dataset.groupId;
+                    const ok = await HelpdeskUtils.confirmDialog(
+                        'Quitar equipo del grupo',
+                        '¿Confirmas que quieres remover este equipo del grupo? Quedará sin grupo asignado.',
+                        'Quitar',
+                        'Cancelar'
+                    );
+                    if (!ok) return;
+                    try {
+                        const res = await fetch(`${API_BASE}/groups/${groupId}/items/${itemId}`, {method: 'DELETE'});
+                        const data = await res.json();
+                        if (!data.success) throw new Error(data.error || data.detail?.error || 'Error');
+                        HelpdeskUtils.showToast('Equipo removido del grupo', 'success');
+                        loadGroupsView();
+                    } catch (err) {
+                        HelpdeskUtils.showToast(err.message, 'danger');
+                    }
+                }
+            });
+        }
+
+        const btnConfirmMove = el('btn-confirm-move-item');
+        if (btnConfirmMove) {
+            btnConfirmMove.addEventListener('click', async () => {
+                const itemId = btnConfirmMove.dataset.itemId;
+                const groupId = el('move-item-group-select').value;
+                if (!itemId) return;
+                try {
+                    let res, data;
+                    if (groupId) {
+                        res = await fetch(`${API_BASE}/groups/${groupId}/items/${itemId}`, {method: 'POST'});
+                    } else {
+                        // Quitar de cualquier grupo: necesita group_id actual
+                        const item = findItemAcrossGroups(itemId);
+                        if (!item || !item.group_id) {
+                            HelpdeskUtils.showToast('No tiene grupo asignado', 'info');
+                            $('#modal-move-item').modal('hide');
+                            return;
+                        }
+                        res = await fetch(`${API_BASE}/groups/${item.group_id}/items/${itemId}`, {method: 'DELETE'});
+                    }
+                    data = await res.json();
+                    if (!data.success) throw new Error(data.error || data.detail?.error || 'Error');
+                    HelpdeskUtils.showToast('Equipo movido', 'success');
+                    $('#modal-move-item').modal('hide');
+                    loadGroupsView();
+                } catch (err) {
+                    HelpdeskUtils.showToast(err.message, 'danger');
+                }
+            });
+        }
+    }
+
+    function findItemAcrossGroups(itemId) {
+        for (const g of groupsData) {
+            for (const it of g.items) {
+                if (String(it.id) === String(itemId)) return { ...it, group_id: g.id };
+            }
+        }
+        return null;
+    }
+
+    function openMoveItemModal(itemId, itemLabel) {
+        el('move-item-label').textContent = itemLabel;
+        const select = el('move-item-group-select');
+        select.innerHTML = '<option value="">— Sin grupo —</option>' +
+            groupsData.map(g => `<option value="${g.id}">${escGroup(g.name)}</option>`).join('');
+        const btn = el('btn-confirm-move-item');
+        btn.dataset.itemId = itemId;
+        $('#modal-move-item').modal('show');
+    }
+
+    // Exponer recarga manual de grupos
+    window.reloadCampaignGroups = loadGroupsView;
 
     document.addEventListener('DOMContentLoaded', init);
 

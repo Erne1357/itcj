@@ -40,7 +40,11 @@ def _get_user_department_id(db, user_id: int):
 
 @router.get("/pending-tasks")
 def get_pending_tasks(
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.read"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.dashboard.department",
+        "helpdesk.inventory.retirement.api.read",
+        "helpdesk.inventory.campaign.api.read",
+    ]),
     db: DbSession = None,
 ):
     """
@@ -73,7 +77,7 @@ def get_pending_tasks(
                 "title":         c.title,
                 "status":        c.status,
                 "pending_count": c.items_count,
-                "url":           f"/help-desk/inventory/campaigns/{c.id}",
+                "url":           f"/help-desk/inventory/campaigns/{c.id}/validate",
             })
     except Exception as e:
         logger.error(f"[pending-tasks] Error consultando campañas para user {user_id}: {e}", exc_info=True)
@@ -90,7 +94,7 @@ def get_pending_tasks(
         # Mapeo: status de la solicitud → position_code que debe firmar
         STATUS_TO_POSITION = {
             "AWAITING_RECURSOS_MATERIALES": "head_mat_services",
-            "AWAITING_SUBDIRECTOR":         "secretary_sub_admin_services",
+            "AWAITING_SUBDIRECTOR":         "subdirector_admin_services",
             "AWAITING_DIRECTOR":            "director",
         }
 

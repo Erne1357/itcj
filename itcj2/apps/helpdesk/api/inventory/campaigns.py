@@ -447,6 +447,377 @@ def unassign_item(
         raise HTTPException(500, detail={"success": False, "error": "Error interno al desvincular el equipo"})
 
 
+# ── GET /{id}/validation-groups — Grupos con diff para vista de validación ────
+
+@router.get("/{campaign_id}/validation-groups")
+def get_validation_groups(
+    campaign_id: int,
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory.campaign.api.read",
+        "helpdesk.inventory.campaign.api.validate",
+    ]),
+    db: DbSession = None,
+):
+    """
+    Devuelve los grupos del departamento de la campaña, comparando el estado
+    capturado al cerrar (initial_groups_snapshot) contra el estado actual.
+
+    Por cada grupo retorna:
+      - items_current: items actualmente en el grupo
+      - items_added:   items que entraron durante la campaña
+      - items_removed: items que salieron del grupo (con su destino actual:
+                       'sin grupo' o 'movido a otro grupo X')
+      - new_group:     True si el grupo se creó durante la campaña
+    """
+    from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+
+    campaign = _get_campaign_or_404(db, campaign_id)
+    initial_snapshot = campaign.initial_groups_snapshot or []
+
+    # Índice del snapshot inicial por id de grupo
+    initial_by_id = {g["id"]: g for g in initial_snapshot}
+
+    # Estado actual de grupos del depto
+    current_groups = (
+        db.query(InventoryGroup)
+        .filter(
+            InventoryGroup.department_id == campaign.department_id,
+            InventoryGroup.is_active.is_(True),
+        )
+        .order_by(InventoryGroup.name.asc())
+        .all()
+    )
+
+    def _item_lite(it: InventoryItem) -> dict:
+        return {
+            "id": it.id,
+            "inventory_number": it.inventory_number,
+            "brand": it.brand,
+            "model": it.model,
+            "in_current_campaign": it.campaign_id == campaign_id,
+            "is_locked": it.is_locked,
+            "group_id": it.group_id,
+        }
+
+    # Cache: id -> nombre de grupo (para mostrar destino de items movidos)
+    group_name_by_id = {g.id: g.name for g in current_groups}
+
+    result = []
+    seen_ids = set()
+
+    for g in current_groups:
+        seen_ids.add(g.id)
+        current_items = list(g.items.filter(InventoryItem.is_active.is_(True)).all())
+        current_ids = {it.id for it in current_items}
+
+        initial = initial_by_id.get(g.id)
+        initial_ids = set(initial["item_ids"]) if initial else set()
+
+        added_ids   = current_ids - initial_ids
+        removed_ids = initial_ids - current_ids
+        kept_ids    = current_ids & initial_ids
+
+        items_added = [
+            _item_lite(it) for it in current_items if it.id in added_ids
+        ]
+        items_current = [_item_lite(it) for it in current_items]
+
+        # Para items removidos, buscar su estado actual (otro grupo o NULL)
+        removed_items_data = []
+        if removed_ids:
+            removed_items = (
+                db.query(InventoryItem)
+                .filter(InventoryItem.id.in_(removed_ids))
+                .all()
+            )
+            for it in removed_items:
+                destino = "Sin grupo"
+                if it.group_id and it.group_id != g.id:
+                    destino = f"Movido a: {group_name_by_id.get(it.group_id, '?')}"
+                if not it.is_active:
+                    destino = "Dado de baja"
+                removed_items_data.append({
+                    **_item_lite(it),
+                    "destino": destino,
+                })
+
+        result.append({
+            "id":           g.id,
+            "name":         g.name,
+            "code":         g.code,
+            "group_type":   g.group_type,
+            "building":     g.building,
+            "floor":        g.floor,
+            "new_group":    initial is None,  # grupo creado durante campaña
+            "items_current": items_current,
+            "items_added":   items_added,
+            "items_removed": removed_items_data,
+            "kept_count":    len(kept_ids),
+            "added_count":   len(items_added),
+            "removed_count": len(removed_items_data),
+        })
+
+    # Grupos que existían al cerrar pero ya no están activos (eliminados)
+    for initial in initial_snapshot:
+        if initial["id"] in seen_ids:
+            continue
+        result.append({
+            "id":           initial["id"],
+            "name":         initial["name"],
+            "code":         initial["code"],
+            "group_type":   initial.get("group_type"),
+            "building":     None,
+            "floor":        None,
+            "new_group":    False,
+            "deleted":      True,
+            "items_current": [],
+            "items_added":   [],
+            "items_removed": [],
+            "kept_count":    0,
+            "added_count":   0,
+            "removed_count": len(initial.get("item_ids", [])),
+        })
+
+    return {
+        "success": True,
+        "data": {
+            "campaign_id": campaign_id,
+            "has_initial_snapshot": bool(initial_snapshot),
+            "groups": result,
+            "summary": {
+                "total_groups":   len(result),
+                "new_groups":     sum(1 for g in result if g.get("new_group")),
+                "total_added":    sum(g["added_count"] for g in result),
+                "total_removed":  sum(g["removed_count"] for g in result),
+            },
+        },
+    }
+
+
+# ── GET /{id}/groups-view — Vista consolidada grupos del depto en la campaña ───
+
+@router.get("/{campaign_id}/groups-view")
+def get_groups_view(
+    campaign_id: int,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.campaign.api.read"]),
+    db: DbSession = None,
+):
+    """
+    Vista consolidada para gestión de grupos durante la campaña.
+    Devuelve grupos del depto con sus items + items de la campaña sin grupo.
+    """
+    from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+
+    campaign = _get_campaign_or_404(db, campaign_id)
+
+    groups = (
+        db.query(InventoryGroup)
+        .filter(
+            InventoryGroup.department_id == campaign.department_id,
+            InventoryGroup.is_active.is_(True),
+        )
+        .order_by(InventoryGroup.name.asc())
+        .all()
+    )
+
+    groups_data = []
+    for g in groups:
+        items = list(g.items.filter(InventoryItem.is_active.is_(True)).all())
+        groups_data.append({
+            **g.to_dict(include_capacities=True),
+            "items": [
+                {
+                    "id": it.id,
+                    "inventory_number": it.inventory_number,
+                    "brand": it.brand,
+                    "model": it.model,
+                    "status": it.status,
+                    "is_locked": it.is_locked,
+                    "campaign_id": it.campaign_id,
+                    "in_current_campaign": it.campaign_id == campaign_id,
+                }
+                for it in items
+            ],
+            "items_count": len(items),
+        })
+
+    # Items en la campaña sin grupo
+    unassigned = (
+        db.query(InventoryItem)
+        .filter(
+            InventoryItem.campaign_id == campaign_id,
+            InventoryItem.group_id.is_(None),
+            InventoryItem.is_active.is_(True),
+        )
+        .order_by(InventoryItem.inventory_number.asc())
+        .all()
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "campaign": campaign.to_dict(include_relations=True),
+            "groups": groups_data,
+            "unassigned_items": [
+                {
+                    "id": it.id,
+                    "inventory_number": it.inventory_number,
+                    "brand": it.brand,
+                    "model": it.model,
+                    "status": it.status,
+                    "is_locked": it.is_locked,
+                }
+                for it in unassigned
+            ],
+            "unassigned_count": len(unassigned),
+            "can_edit": campaign.is_open,
+        },
+    }
+
+
+# ── POST /{id}/groups — Crear grupo en contexto de campaña ─────────────────────
+
+@router.post("/{campaign_id}/groups", status_code=201)
+def create_group_in_campaign(
+    campaign_id: int,
+    request: Request,
+    body: dict,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.campaign.api.manage"]),
+    db: DbSession = None,
+):
+    """
+    Crea un grupo nuevo dentro del depto de la campaña. Solo OPEN.
+    Body: {name, group_type, description?, building?, floor?, location_notes?}
+    """
+    from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not campaign.is_open:
+        raise HTTPException(400, detail={
+            "success": False,
+            "error": f"Solo se pueden crear grupos en campañas OPEN (actual: {campaign.status})",
+        })
+    if not body.get("name"):
+        raise HTTPException(400, detail={"success": False, "error": "Nombre requerido"})
+
+    user_id = int(user["sub"])
+    try:
+        group = InventoryGroupService.create_group(
+            db,
+            {
+                "name": body["name"],
+                "department_id": campaign.department_id,
+                "group_type": body.get("group_type", "CLASSROOM"),
+                "description": body.get("description"),
+                "building": body.get("building"),
+                "floor": body.get("floor"),
+                "location_notes": body.get("location_notes"),
+            },
+            created_by_id=user_id,
+        )
+        return {"success": True, "message": f"Grupo {group.name} creado", "data": group.to_dict()}
+    except ValueError as e:
+        raise HTTPException(400, detail={"success": False, "error": str(e)})
+    except Exception as e:
+        db.rollback()
+        logger.error("create_group_in_campaign %d: %s", campaign_id, e, exc_info=True)
+        raise HTTPException(500, detail={"success": False, "error": "Error interno al crear el grupo"})
+
+
+# ── POST /{id}/groups/{group_id}/items/{item_id} — Asignar item a grupo ────────
+
+@router.post("/{campaign_id}/groups/{group_id}/items/{item_id}")
+def assign_item_to_group(
+    campaign_id: int,
+    group_id: int,
+    item_id: int,
+    request: Request,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.campaign.api.manage"]),
+    db: DbSession = None,
+):
+    """
+    Asigna un item al grupo dentro del contexto de la campaña.
+    Solo permitido en campañas OPEN. El item debe pertenecer al depto.
+    """
+    from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not campaign.is_open:
+        raise HTTPException(400, detail={
+            "success": False,
+            "error": "Solo se pueden mover items en campañas OPEN",
+        })
+
+    group = db.get(InventoryGroup, group_id)
+    if not group or group.department_id != campaign.department_id:
+        raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado en el depto"})
+
+    item = db.get(InventoryItem, item_id)
+    if not item or not item.is_active:
+        raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
+    if item.department_id != campaign.department_id:
+        raise HTTPException(400, detail={"success": False, "error": "El equipo no pertenece al depto"})
+
+    old_group_id = item.group_id
+    item.group_id = group_id
+    InventoryHistoryService.log_event(
+        db=db,
+        item_id=item_id,
+        event_type="GROUP_ASSIGNED",
+        performed_by_id=int(user["sub"]),
+        old_value={"group_id": old_group_id},
+        new_value={"group_id": group_id, "campaign_id": campaign_id},
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    db.refresh(item)
+    return {"success": True, "message": f"Equipo movido al grupo {group.name}", "data": item.to_dict()}
+
+
+# ── DELETE /{id}/groups/{group_id}/items/{item_id} — Quitar item de grupo ──────
+
+@router.delete("/{campaign_id}/groups/{group_id}/items/{item_id}")
+def remove_item_from_group(
+    campaign_id: int,
+    group_id: int,
+    item_id: int,
+    request: Request,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.campaign.api.manage"]),
+    db: DbSession = None,
+):
+    """Quita un item del grupo (lo deja sin grupo) durante la campaña OPEN."""
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+
+    campaign = _get_campaign_or_404(db, campaign_id)
+    if not campaign.is_open:
+        raise HTTPException(400, detail={
+            "success": False,
+            "error": "Solo se pueden mover items en campañas OPEN",
+        })
+
+    item = db.get(InventoryItem, item_id)
+    if not item or item.group_id != group_id:
+        raise HTTPException(404, detail={"success": False, "error": "Equipo no pertenece a ese grupo"})
+
+    item.group_id = None
+    InventoryHistoryService.log_event(
+        db=db,
+        item_id=item_id,
+        event_type="GROUP_UNASSIGNED",
+        performed_by_id=int(user["sub"]),
+        old_value={"group_id": group_id},
+        new_value={"group_id": None, "campaign_id": campaign_id},
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    return {"success": True, "message": "Equipo removido del grupo"}
+
+
 # ── POST /{id}/items/{item_id}/unlock — Desbloquear item (admin only) ──────────
 
 @router.post("/{campaign_id}/items/{item_id}/unlock")

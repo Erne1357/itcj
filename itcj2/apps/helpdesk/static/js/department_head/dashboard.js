@@ -302,7 +302,7 @@ async function loadRecentActivity() {
                          'secondary';
             
             return `
-                <div class="activity-item border-bottom">
+                <div class="activity-item px-3 py-2 border-bottom">
                     <div class="d-flex align-items-center gap-3">
                         <div class="activity-icon bg-${color} bg-opacity-10 text-${color}">
                             <i class="fas fa-${icon}"></i>
@@ -370,15 +370,6 @@ function applyFilters() {
     
     renderTickets(filtered);
 }
-
-// ==================== MODALS ====================
-function openCreateUserModal() {
-    const modal = new bootstrap.Modal(document.getElementById('createUserModal'));
-    modal.show();
-}
-window.openCreateUserModal = openCreateUserModal;
-
-
 
 // ==================== STATISTICS ====================
 async function loadStatistics() {

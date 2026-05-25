@@ -99,6 +99,34 @@ def _get_comp_center_ids(db: Session) -> list[int]:
     return list(set(secretary_ids + tech_ids))
 
 
+def _snapshot_dept_groups(db: Session, department_id: int) -> list[dict]:
+    """
+    Captura el estado actual de grupos del depto + sus items.
+    Usado para `initial_groups_snapshot` al cerrar la campaña.
+    """
+    from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+
+    groups = (
+        db.query(InventoryGroup)
+        .filter(
+            InventoryGroup.department_id == department_id,
+            InventoryGroup.is_active.is_(True),
+        )
+        .all()
+    )
+    snapshot = []
+    for g in groups:
+        items = list(g.items.filter(InventoryItem.is_active.is_(True)).all())
+        snapshot.append({
+            "id": g.id,
+            "name": g.name,
+            "code": g.code,
+            "group_type": g.group_type,
+            "item_ids": [it.id for it in items],
+        })
+    return snapshot
+
+
 def _notify_users(
     db: Session,
     user_ids: list[int],
@@ -200,6 +228,13 @@ class CampaignService:
             created_by_id=created_by_id,
             started_at=datetime.now(),
         )
+
+        # Snapshot inicial de grupos AHORA (al abrir) — baseline para diff
+        try:
+            campaign.initial_groups_snapshot = _snapshot_dept_groups(db, department_id)
+        except Exception as exc:
+            logger.error(f"create_campaign: error capturando snapshot inicial grupos: {exc}")
+
         db.add(campaign)
         db.commit()
         db.refresh(campaign)
@@ -464,10 +499,33 @@ class CampaignService:
         )
         dept_existing_ids = [r[0] for r in dept_existing_ids]
 
+        # Snapshot de grupos del depto + sus items
+        from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+        groups = (
+            db.query(InventoryGroup)
+            .filter(
+                InventoryGroup.department_id == campaign.department_id,
+                InventoryGroup.is_active.is_(True),
+            )
+            .all()
+        )
+        groups_snapshot = []
+        for g in groups:
+            g_items = list(g.items.filter(InventoryItem.is_active.is_(True)).all())
+            groups_snapshot.append({
+                'id': g.id,
+                'name': g.name,
+                'code': g.code,
+                'group_type': g.group_type,
+                'item_ids': [it.id for it in g_items],
+                'item_count': len(g_items),
+            })
+
         snapshot = {
             'total': len(campaign_item_ids) + len(dept_existing_ids),
             'new_items': campaign_item_ids,
             'existing_items': dept_existing_ids,
+            'groups': groups_snapshot,
         }
 
         # Actualizar campaña

@@ -372,7 +372,7 @@ class InventoryRetirementService:
             },
             "AWAITING_SUBDIRECTOR": {
                 "step": 2,
-                "code": "secretary_sub_admin_services",
+                "code": "subdirector_admin_services",
                 "title": "Subdirector de Servicios Administrativos",
             },
             "AWAITING_DIRECTOR": {
@@ -433,7 +433,7 @@ class InventoryRetirementService:
             for u in signers:
                 NotificationService.create(
                     db=db,
-                    user_id=u.id,
+                    user_id=u,
                     app_name="helpdesk",
                     type="RETIREMENT_SIGN_REQUESTED",
                     title=f"Solicitud de baja {req.folio} requiere tu firma",
@@ -474,7 +474,7 @@ class InventoryRetirementService:
 
         # Verificar que el usuario tiene el position requerido para este step
         signers = _get_users_with_position(db, [pos["code"]])
-        signer_ids = {u.id for u in signers}
+        signer_ids = set(signers)
         if user_id not in signer_ids:
             raise ValueError(f"No tienes el cargo requerido para firmar en este paso ({pos['title']})")
 
@@ -584,7 +584,7 @@ class InventoryRetirementService:
                 for u in next_signers:
                     NotificationService.create(
                         db=db,
-                        user_id=u.id,
+                        user_id=u,
                         app_name="helpdesk",
                         type="RETIREMENT_SIGN_REQUESTED",
                         title=f"Solicitud de baja {req.folio} requiere tu firma",

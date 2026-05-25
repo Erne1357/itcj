@@ -82,6 +82,28 @@
                 </div>
             </div>
 
+            <!-- Grupos / Salones del departamento -->
+            <div class="card shadow mb-3" id="groups-card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-door-open"></i> Grupos / Salones del Departamento
+                        <span class="badge bg-secondary text-white ml-1" id="groups-count">0</span>
+                    </h6>
+                    {% if can_manage %}
+                    <button class="btn btn-sm btn-outline-success d-none" id="btn-new-group">
+                        <i class="fas fa-plus"></i> Nuevo grupo
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="card-body p-0">
+                    <div id="groups-container" class="p-3">
+                        <div class="text-center text-muted small py-3">
+                            <i class="fas fa-spinner fa-spin"></i> Cargando grupos...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Items de la campaña -->
             <div class="card shadow mb-3">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -162,6 +184,90 @@
         </div>
     </div>
 
+    <!-- Modal: nuevo grupo -->
+    <div class="modal fade" id="modal-new-group" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header py-3">
+                    <h5 class="modal-title"><i class="fas fa-door-open"></i> Nuevo Grupo / Salón</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <form id="form-new-group">
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label class="small mb-1">Nombre *</label>
+                            <input type="text" class="form-control form-control-sm" id="new-group-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="small mb-1">Tipo</label>
+                            <select class="form-control form-control-sm" id="new-group-type">
+                                <option value="CLASSROOM">Salón</option>
+                                <option value="LABORATORY">Laboratorio</option>
+                                <option value="OFFICE">Oficina</option>
+                                <option value="MEETING_ROOM">Sala de Reunión</option>
+                                <option value="WORKSHOP">Taller</option>
+                                <option value="OTHER">Otro</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="col-6 form-group">
+                                <label class="small mb-1">Edificio</label>
+                                <input type="text" class="form-control form-control-sm" id="new-group-building">
+                            </div>
+                            <div class="col-6 form-group">
+                                <label class="small mb-1">Piso</label>
+                                <input type="text" class="form-control form-control-sm" id="new-group-floor">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="small mb-1">Notas de ubicación</label>
+                            <input type="text" class="form-control form-control-sm" id="new-group-location-notes">
+                        </div>
+                        <div class="form-group">
+                            <label class="small mb-1">Descripción</label>
+                            <textarea class="form-control form-control-sm" id="new-group-description" rows="2"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="fas fa-plus"></i> Crear grupo
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: mover item a grupo -->
+    <div class="modal fade" id="modal-move-item" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header py-3">
+                    <h5 class="modal-title"><i class="fas fa-arrows-alt"></i> Mover equipo a grupo</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted mb-2">
+                        Equipo: <strong id="move-item-label"></strong>
+                    </p>
+                    <div class="form-group">
+                        <label class="small mb-1">Grupo destino</label>
+                        <select class="form-control form-control-sm" id="move-item-group-select">
+                            <option value="">— Sin grupo —</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-confirm-move-item">
+                        <i class="fas fa-check"></i> Mover
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: asignar equipos en masa -->
     <div class="modal fade" id="modal-bulk-assign" tabindex="-1">
         <div class="modal-dialog modal-lg">
@@ -174,9 +280,20 @@
                     <p class="small text-muted mb-2">
                         Busca equipos del departamento que aún no tienen campaña asignada y agrégalos a esta campaña.
                     </p>
-                    <input type="text" class="form-control form-control-sm mb-3" id="bulk-search-input"
-                           placeholder="Buscar por número, marca, modelo o serial...">
-                    <div id="bulk-items-list" style="max-height:350px; overflow-y:auto;">
+                    <div class="row g-2 mb-3">
+                        <div class="col-12 col-md-7">
+                            <input type="text" class="form-control form-control-sm" id="bulk-search-input"
+                                   placeholder="Buscar por número, marca, modelo o serial...">
+                        </div>
+                        <div class="col-12 col-md-5">
+                            <select class="form-control form-control-sm" id="bulk-group-filter">
+                                <option value="">📦 Todos los equipos</option>
+                                <option value="__global__">🌐 Sólo globales (sin grupo)</option>
+                                <!-- Grupos del depto se cargan dinámicamente -->
+                            </select>
+                        </div>
+                    </div>
+                    <div id="bulk-items-list" style="max-height:400px; overflow-y:auto;">
                         <div class="text-center text-muted py-3 small">
                             <i class="fas fa-search"></i> Escribe para buscar equipos
                         </div>
