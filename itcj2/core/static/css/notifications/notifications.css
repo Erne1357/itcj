@@ -423,6 +423,15 @@
         right: 16px;
     }
 
+    /* En iframe móvil del dashboard, el FAB sube por encima del bottom-nav. */
+    body.in-mobile-iframe #notifFab {
+        bottom: calc(var(--mobile-bottom-nav-height, 64px) + var(--mobile-safe-bottom, 0px) + 16px);
+    }
+
+    body.in-mobile-iframe #notifPanel {
+        bottom: calc(var(--mobile-bottom-nav-height, 64px) + var(--mobile-safe-bottom, 0px) + 80px);
+    }
+
     .notification-toast {
         min-width: calc(100vw - 32px);
         max-width: calc(100vw - 32px);

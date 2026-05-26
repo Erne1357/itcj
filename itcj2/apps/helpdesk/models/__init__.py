@@ -13,7 +13,15 @@ from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
 from itcj2.apps.helpdesk.models.inventory_group_capacity import InventoryGroupCapacity
 from itcj2.apps.helpdesk.models.ticket_inventory_item import TicketInventoryItem
 from itcj2.apps.helpdesk.models.inventory_verification import InventoryVerification
-from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest, InventoryRetirementRequestItem
+from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest, InventoryRetirementRequestItem, InventoryRetirementSignature
+from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
+from itcj2.apps.helpdesk.models.inventory_campaign_validation import InventoryCampaignValidation
+from itcj2.apps.helpdesk.models.priority import Priority
+from itcj2.apps.helpdesk.models.config_change_log import ConfigChangeLog
+from itcj2.apps.helpdesk.models.ticket_status import TicketStatus
+from itcj2.apps.helpdesk.models.status_transition import StatusTransition
+from itcj2.apps.helpdesk.models.area import Area
+from itcj2.apps.helpdesk.models.notification_template import NotificationTemplate
 
 __all__ = [
     "Ticket",
@@ -33,4 +41,13 @@ __all__ = [
     "InventoryVerification",
     "InventoryRetirementRequest",
     "InventoryRetirementRequestItem",
+    "InventoryRetirementSignature",
+    "InventoryCampaign",
+    "InventoryCampaignValidation",
+    "Priority",
+    "ConfigChangeLog",
+    "TicketStatus",
+    "StatusTransition",
+    "Area",
+    "NotificationTemplate",
 ]

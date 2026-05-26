@@ -1,19 +1,253 @@
+/* =============================================================================
+   AgendaTec — Design Tokens
+   -----------------------------------------------------------------------------
+   Punto único de verdad para colores, spacing, tipografía, sombras, motion y
+   z-index. NO agregar valores hardcodeados en archivos consumidores; siempre
+   referenciar var(--at-*). Tokens preparados para dark-mode futuro vía
+   redeclaración en [data-theme="dark"].
+   ============================================================================= */
+
 :root {
-  --app-primary: #0d6efd;
-  --app-primary-dark: #0a58ca;
-  --app-primary-light: #cfe2ff;
+  /* ---- Color: Primary scale -------------------------------------------- */
+  --at-primary:         #0d6efd;
+  --at-primary-hover:   #0a58ca;
+  --at-primary-pressed: #0b5ed7;
+  --at-primary-50:      #e7f1ff;
+  --at-primary-100:     #cfe2ff;
+  --at-primary-900:     #052c65;
+
+  /* ---- Color: Semantic ------------------------------------------------- */
+  --at-success:         #198754;
+  --at-success-50:      #f8fff9;
+  --at-success-bg:      #d1e7dd;
+  --at-success-border:  #a3cfbb;
+  --at-success-text:    #0a3622;  /* texto legible sobre success-bg (WCAG AA) */
+
+  --at-warning:         #ffc107;
+  --at-warning-bg:      #ffe9b3;
+  --at-warning-border:  #ffda6a;
+  --at-warning-text:    #6c5500;  /* texto legible sobre warning-bg */
+
+  --at-danger:          #dc3545;
+  --at-danger-bg:       #f8d7da;
+  --at-danger-border:   #f1aeb5;
+  --at-danger-text:     #58151c;  /* texto legible sobre danger-bg */
+
+  --at-info:            #0dcaf0;
+  --at-info-bg:         #cff4fc;
+  --at-info-text:       #055160;  /* texto legible sobre info-bg */
+
+  /* ---- Color: Neutrals (surface / text / border) ----------------------- */
+  --at-surface:           #ffffff;
+  --at-surface-subtle:    #f8f9fa;
+  --at-surface-active:    #f0f2f4;
+  --at-surface-hover:     #f5f6f8;
+
+  --at-text:              #212529;
+  --at-text-strong:       #495057;  /* gris oscuro intermedio */
+  --at-text-muted:        #6c757d;
+  --at-text-disabled:     #adb5bd;
+  --at-text-on-primary:   #ffffff;
+
+  --at-border:            #dee2e6;
+  --at-border-subtle:     #eef0f2;
+  --at-border-strong:     #ced4da;
+
+  /* ---- Color: Slot states (dominio AgendaTec) -------------------------- */
+  --at-slot-available-bg:     #ffffff;
+  --at-slot-available-border: #dee2e6;
+  --at-slot-available-text:   #495057;
+
+  --at-slot-reserved-bg:      #fff7e6;   /* hold por otro usuario */
+  --at-slot-reserved-border:  #ffda6a;
+  --at-slot-reserved-text:    #6c5500;
+
+  --at-slot-held-self-bg:     #cfe2ff;   /* hold propio (reemplaza #00ff55 neon) */
+  --at-slot-held-self-border: #0d6efd;
+  --at-slot-held-self-text:   #052c65;
+
+  --at-slot-taken-bg:         #d1e7dd;   /* atendido / resuelto */
+  --at-slot-taken-border:     #198754;
+  --at-slot-taken-text:       #0a3622;
+
+  --at-slot-no-show-bg:       #f8d7da;
+  --at-slot-no-show-border:   #dc3545;
+  --at-slot-no-show-text:     #6a1a21;
+
+  --at-slot-disabled-bg:      #e9ecef;
+  --at-slot-disabled-border:  #ced4da;
+  --at-slot-disabled-text:    #adb5bd;
+
+  /* ---- Spacing scale (Bootstrap-aligned) ------------------------------- */
+  --at-space-0: 0;
+  --at-space-1: 0.25rem;   /* 4 */
+  --at-space-2: 0.5rem;    /* 8 */
+  --at-space-3: 0.75rem;   /* 12 */
+  --at-space-4: 1rem;      /* 16 */
+  --at-space-5: 1.5rem;    /* 24 */
+  --at-space-6: 2rem;      /* 32 */
+  --at-space-7: 3rem;      /* 48 */
+  --at-space-8: 4rem;      /* 64 */
+
+  /* ---- Radius ---------------------------------------------------------- */
+  --at-radius-xs:   2px;
+  --at-radius-sm:   4px;
+  --at-radius-md:   8px;
+  --at-radius-lg:   12px;
+  --at-radius-xl:   16px;
+  --at-radius-pill: 9999px;
+
+  /* ---- Shadow ---------------------------------------------------------- */
+  --at-shadow-xs:    0 1px 2px rgba(0, 0, 0, 0.04);
+  --at-shadow-sm:    0 2px 8px rgba(0, 0, 0, 0.06);
+  --at-shadow-md:    0 4px 16px rgba(0, 0, 0, 0.08);
+  --at-shadow-lg:    0 8px 28px rgba(0, 0, 0, 0.18);
+  --at-shadow-focus: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+  --at-shadow-navbar: 0 2px 10px rgba(0, 0, 0, 0.08);
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --at-duration-fast: 120ms;
+  --at-duration-base: 180ms;
+  --at-duration-slow: 280ms;
+  --at-ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --at-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Typography ------------------------------------------------------ */
+  --at-text-xs:    0.7rem;     /* 11.2px */
+  --at-text-sm:    0.75rem;    /* 12px   */
+  --at-text-base:  0.875rem;   /* 14px   */
+  --at-text-md:    1rem;       /* 16px   */
+  --at-text-lg:    1.125rem;   /* 18px   */
+  --at-text-xl:    1.5rem;     /* 24px   */
+  --at-text-2xl:   1.8rem;     /* 28.8px (KPI value) */
+  --at-text-hero:  3rem;
+
+  --at-font-weight-regular: 400;
+  --at-font-weight-medium:  500;
+  --at-font-weight-semibold: 600;
+  --at-font-weight-bold:    700;
+
+  --at-line-tight: 1.15;
+  --at-line-base:  1.5;
+
+  /* ---- Z-index --------------------------------------------------------- */
+  --at-z-sticky:   1020;
+  --at-z-fixed:    1030;
+  --at-z-dropdown: 1050;
+  --at-z-modal:    1060;
+  --at-z-popover:  1070;
+  --at-z-toast:    1080;
+
+  /* ---- Layout ---------------------------------------------------------- */
+  --at-container-narrow: 720px;
+
 }
 
+/* =============================================================================
+   Reduced-motion override
+   ============================================================================= */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --at-duration-fast: 0.01ms;
+    --at-duration-base: 0.01ms;
+    --at-duration-slow: 0.01ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =============================================================================
+   Base elements
+   ============================================================================= */
 #toastContainer {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    z-index: 1080;
+  position: fixed;
+  top: var(--at-space-4);
+  right: var(--at-space-4);
+  z-index: var(--at-z-toast);
 }
 
 .toast.show {
-    display: block;
+  display: block;
 }
-.navbar.sticky-top, .navbar.fixed-top {
-    box-shadow: 0 2px 10px rgba(0,0,0,.08);
+
+.navbar.sticky-top,
+.navbar.fixed-top {
+  box-shadow: var(--at-shadow-navbar);
+}
+
+/* Logo invertido en navbar (reemplaza style inline en base.html). */
+.at-logo-invert {
+  filter: brightness(0) invert(1);
+}
+
+/* =============================================================================
+   [hidden] hard-override
+   -----------------------------------------------------------------------------
+   El atributo HTML5 `hidden` aplica `display: none` por user-agent (specificity
+   0,0,0). Cuando un elemento también lleva `.d-flex`, `.d-block`, etc. de
+   Bootstrap (0,1,0), la clase gana y el elemento sigue visible. Esta regla
+   recupera el comportamiento esperado del atributo.
+   ============================================================================= */
+[hidden] {
+  display: none !important;
+}
+
+/* =============================================================================
+   Mobile spacing & FAB clearance
+   -----------------------------------------------------------------------------
+   El FAB de notificaciones (core) queda fixed bottom-right (≈ 56px + 16px gap).
+   El contenido del <main> debe tener espacio inferior suficiente para que el
+   último elemento no quede tapado. En iframe móvil del dashboard, además se
+   suma la altura visible del bottom-nav del dashboard padre.
+   ============================================================================= */
+main.container {
+  padding-bottom: 5rem;
+}
+
+@media (max-width: 575.98px) {
+  main.container {
+    padding-bottom: 6rem;
+  }
+  /* Iframe del dashboard móvil: el FAB sube para no chocar con el bottom-nav. */
+  body.in-mobile-iframe main.container {
+    padding-bottom: 7rem;
+  }
+}
+
+/* Wizard / stepper: respiro superior consistente y separación entre cards. */
+.at-stepper {
+  margin-top: var(--at-space-3);
+  margin-bottom: var(--at-space-4);
+}
+
+/* Separación robusta entre cards del wizard (mobile siente cramped sin esto). */
+.at-card + .at-card,
+.at-card + .at-card-section {
+  margin-top: var(--at-space-4);
+}
+
+/* Action bar separado del card previo. */
+#actionBar {
+  margin-top: var(--at-space-4);
+  flex-wrap: wrap;
+  gap: var(--at-space-2);
+}
+
+@media (max-width: 575.98px) {
+  #actionBar .btn,
+  #actionBar a {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+/* Botón "Regresar" superior con respiro inferior. */
+#btnBack {
+  margin-bottom: var(--at-space-3);
 }

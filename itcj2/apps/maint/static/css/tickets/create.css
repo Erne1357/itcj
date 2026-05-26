@@ -9,10 +9,16 @@
     border: 2px solid #CFD8DC;
     border-radius: 10px;
     background: #fff;
-    padding: 1rem;
+    padding: 1rem 0.75rem;
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 110px;
+    height: 100%;
 }
 
 .mn-category-card:hover {
@@ -29,12 +35,18 @@
     font-size: 1.8rem;
     color: var(--maint-primary);
     margin-bottom: 0.4rem;
+    line-height: 1;
 }
 
 .mn-category-card .cat-name {
     font-weight: 600;
     font-size: 0.85rem;
     color: var(--maint-primary-dark);
+    line-height: 1.25;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 /* ── Tarjetas de prioridad ───────────────────────────────────────────────── */
@@ -42,11 +54,19 @@
 .mn-priority-card {
     border: 2px solid #CFD8DC;
     border-radius: 8px;
-    padding: 0.5rem 1rem;
+    padding: 0.55rem 1rem;
     cursor: pointer;
     transition: border-color 0.15s ease;
     font-size: 0.85rem;
     font-weight: 600;
+    flex: 1 1 0;
+    min-width: 110px;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    user-select: none;
 }
 
 .mn-priority-card:hover           { border-color: var(--maint-accent); }
@@ -55,3 +75,26 @@
 .mn-priority-media.selected       { border-color: #1E40AF; background: #DBEAFE; }
 .mn-priority-alta.selected        { border-color: #D97706; background: #FEF3C7; }
 .mn-priority-urgente.selected     { border-color: #DC2626; background: #FEE2E2; }
+
+/* ── Dropzone de adjuntos ────────────────────────────────────────────────── */
+
+.mn-dropzone {
+    border: 2px dashed #CFD8DC;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    font-size: 0.875rem;
+    color: var(--maint-muted);
+}
+
+.mn-dropzone:hover,
+.mn-dropzone.dragover {
+    border-color: var(--maint-primary);
+    background: var(--maint-primary-light);
+}
+
+.mn-dropzone input[type="file"] {
+    display: none;
+}

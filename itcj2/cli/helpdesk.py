@@ -11,6 +11,28 @@ from pathlib import Path
 import click
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+DML_INVENTORY_CAMPAIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory_campaign"
+DML_INVENTORY = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory"
+DML_CONFIG = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "config"
+
+
+def _run_sql_files(base_dir: Path, files: list[str]) -> None:
+    """Ejecuta una lista de archivos SQL desde el directorio base indicado."""
+    from itcj2.cli.core import execute_sql_file
+
+    for filename in files:
+        file_path = base_dir / filename
+        if not file_path.exists():
+            click.echo(f"   ⚠️  Archivo no encontrado: {file_path}")
+            continue
+        click.echo(f"   🔄 Ejecutando: {filename}")
+        execute_sql_file(str(file_path))
+        click.echo(f"   ✅ Completado: {filename}")
+
+
+def _run_inventory_campaign_sql(files: list[str]) -> None:
+    """Ejecuta una lista de archivos SQL del módulo inventory_campaign."""
+    _run_sql_files(DML_INVENTORY_CAMPAIGN, files)
 
 # ==================== MAPEO DE DEPARTAMENTOS ====================
 DEPARTMENT_MAPPING = {
@@ -262,9 +284,96 @@ def load_inventory_csv():
         raise
 
 
+@click.command("init-inventory-campaign")
+def init_inventory_campaign_command():
+    """Carga los permisos de Campañas de Inventario y los asigna a roles.
+
+    Ejecuta en orden:
+      01_add_campaign_permissions.sql    — Inserta los 8 permisos de campaña
+      02_assign_campaign_permissions.sql — Los asigna a admin, técnicos, jefe dpto y CC
+    """
+    click.echo("🗂️  Inicializando permisos de Campañas de Inventario...")
+    try:
+        _run_inventory_campaign_sql([
+            "01_add_campaign_permissions.sql",
+            "02_assign_campaign_permissions.sql",
+        ])
+        click.echo("\n🎉 ¡Permisos de campañas de inventario aplicados exitosamente!")
+    except Exception as e:
+        click.echo(f"\n💥 Error durante la inicialización: {e}")
+        raise
+
+
+@click.command("init-retirement-permissions")
+def init_retirement_permissions_command():
+    """Carga los permisos de Solicitudes de Baja (incluyendo firma multi-paso) y los asigna a roles/positions.
+
+    Ejecuta en orden:
+      04_add_retirement_request_permissions.sql   — Inserta los permisos base de baja
+      05_assign_retirement_permissions_to_roles.sql — Los asigna a admin, tech_desarrollo, tech_soporte
+      06_add_retirement_sign_permissions.sql       — Inserta permisos de firma y los asigna a los 3 positions firmantes
+    """
+    click.echo("📄 Inicializando permisos de Solicitudes de Baja de Inventario...")
+    try:
+        _run_sql_files(DML_INVENTORY, [
+            "04_add_retirement_request_permissions.sql",
+            "05_assign_retirement_permissions_to_roles.sql",
+            "06_add_retirement_sign_permissions.sql",
+        ])
+        click.echo("\n🎉 ¡Permisos de solicitudes de baja aplicados exitosamente!")
+        click.echo("   Positions con permisos de firma asignados:")
+        click.echo("   • head_mat_services            → sign.recursos_materiales")
+        click.echo("   • secretary_sub_admin_services → sign.subdirector")
+        click.echo("   • director                     → sign.director")
+    except Exception as e:
+        click.echo(f"\n💥 Error durante la inicialización: {e}")
+        raise
+
+
+@click.command("seed-config")
+def seed_config_command():
+    """Ejecuta los SQL de la pestaña de Configuración del Helpdesk.
+
+    Lee y ejecuta en orden alfabético todos los archivos .sql dentro de:
+        database/DML/helpdesk/config/
+
+    Archivos esperados (se irán agregando por fase):
+      01_insert_permissions.sql        — Permisos helpdesk.config.* (Fase 1)
+      02_seed_priorities.sql           — Catálogo de prioridades + SLA (Fase 3)
+      03_seed_statuses.sql             — Estados de ticket (Fase 4)
+      04_seed_status_transitions.sql   — Matriz de transiciones (Fase 4)
+      05_seed_areas.sql                — Áreas DESARROLLO/SOPORTE (Fase 5)
+      06_seed_notification_templates.sql — Plantillas de notificación (Fase 6)
+
+    Idempotente: los SQL deben usar ON CONFLICT DO NOTHING.
+    """
+    click.echo("⚙️  Sembrando configuración del Helpdesk...")
+    click.echo(f"📂 Directorio: {DML_CONFIG}")
+
+    if not DML_CONFIG.exists():
+        click.echo(click.style(f"❌ No existe el directorio {DML_CONFIG}", fg="red"))
+        raise click.Abort()
+
+    sql_files = sorted(p.name for p in DML_CONFIG.glob("*.sql"))
+    if not sql_files:
+        click.echo(click.style("⚠️  No se encontraron archivos .sql en config/", fg="yellow"))
+        return
+
+    click.echo(f"🗂️  Archivos a ejecutar: {len(sql_files)}\n")
+    try:
+        _run_sql_files(DML_CONFIG, sql_files)
+        click.echo("\n🎉 ¡Configuración del Helpdesk sembrada exitosamente!")
+    except Exception as e:
+        click.echo(click.style(f"\n💥 Error durante la siembra: {e}", fg="red"))
+        raise
+
+
 @click.group("helpdesk")
 def helpdesk_cli():
     """Comandos CLI del módulo Helpdesk."""
 
 
 helpdesk_cli.add_command(load_inventory_csv)
+helpdesk_cli.add_command(init_inventory_campaign_command)
+helpdesk_cli.add_command(init_retirement_permissions_command)
+helpdesk_cli.add_command(seed_config_command)

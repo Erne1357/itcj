@@ -143,6 +143,7 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.admin_pages.stats":                  "/help-desk/admin/stats",
     "helpdesk_pages.admin_pages.analysis":               "/help-desk/admin/analysis",
     "helpdesk_pages.admin_pages.documents":              "/help-desk/admin/documents",
+    "helpdesk_pages.admin_pages.config":                 "/help-desk/admin/config",
 
     # ── Help-Desk: Almacén (Warehouse) ──────────────────────────────────────
     "helpdesk_pages.warehouse_pages.dashboard":          "/help-desk/warehouse/dashboard",
@@ -168,6 +169,10 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.inventory_pages.retirement_requests_list":      "/help-desk/inventory/retirement-requests",
     "helpdesk_pages.inventory_pages.retirement_request_create":     "/help-desk/inventory/retirement-requests/create",
     "helpdesk_pages.inventory_pages.retirement_request_detail":     "/help-desk/inventory/retirement-requests/{request_id}",
+    "helpdesk_pages.inventory_pages.campaigns_list":                "/help-desk/inventory/campaigns",
+    "helpdesk_pages.inventory_pages.campaign_create":               "/help-desk/inventory/campaigns/create",
+    "helpdesk_pages.inventory_pages.campaign_detail":               "/help-desk/inventory/campaigns/{campaign_id}",
+    "helpdesk_pages.inventory_pages.campaign_validate":             "/help-desk/inventory/campaigns/{campaign_id}/validate",
 
     # ── AgendaTec: Páginas ───────────────────────────────────────────────────
     # Student
@@ -192,6 +197,11 @@ ENDPOINT_MAP: dict[str, str] = {
     "agendatec_pages.admin_surveys_pages.admin_surveys": "/agendatec/surveys/",
     # Social
     "agendatec_pages.social_pages.social_home":          "/agendatec/social/home",
+    # Help (mini-manual por rol)
+    "agendatec_pages.help_pages.help_student":           "/agendatec/help",
+    "agendatec_pages.help_pages.help_coord":             "/agendatec/help/coord",
+    "agendatec_pages.help_pages.help_social":            "/agendatec/help/social",
+    "agendatec_pages.help_pages.help_admin":             "/agendatec/help/admin",
 
     # ── AgendaTec: API ───────────────────────────────────────────────────────
     # Periods

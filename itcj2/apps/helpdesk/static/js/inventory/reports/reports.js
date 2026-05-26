@@ -30,10 +30,17 @@
         'MAINTENANCE_SCHEDULED': 'Mant. Programado',
         'MAINTENANCE_COMPLETED': 'Mant. Completado',
         'SPECS_UPDATED': 'Specs Actualizadas',
-        'TRANSFERRED': 'Transferido',
-        'DEACTIVATED': 'Dado de Baja',
-        'REACTIVATED': 'Reactivado',
-        'VERIFIED':    'Verificación Física'
+        'TRANSFERRED':          'Transferido',
+        'DEACTIVATED':          'Dado de Baja',
+        'REACTIVATED':          'Reactivado',
+        'VERIFIED':             'Verificación Física',
+        'LOCKED_FIELD_MODIFIED':'Campo Bloq. Modificado',
+        'CAMPAIGN_VALIDATED':   'Validación de Campaña',
+        'CAMPAIGN_ASSIGNED':    'Asignado a Campaña',
+        'CAMPAIGN_UNASSIGNED':  'Desasignado de Campaña',
+        'ITEM_UNLOCKED':        'Equipo Desbloqueado',
+        'VERSION_LINKED':       'Versión Vinculada',
+        'VERSION_UNLINKED':     'Versión Desvinculada',
     };
 
     const STATUS_LABELS = {

@@ -1,0 +1,111 @@
+{% extends "agendatec/help/base_help.html" %}
+
+{% block help_subtitle %}
+Configura tu horario, valida citas del día y aprueba bajas desde un solo panel.
+{% endblock %}
+
+{% block help_body %}
+
+<section id="dashboard" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">1</span>
+    <span>Tu dashboard</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Al entrar a AgendaTec ves un resumen con las citas del día, bajas pendientes
+    y accesos rápidos a horarios y reportes operativos.
+  </p>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/coord/01_dashboard.png') }}?v={{ sv('agendatec', 'img/help/coord/01_dashboard.png') }}"
+         alt="Dashboard del coordinador" loading="lazy">
+    <figcaption>Dashboard inicial del coordinador.</figcaption>
+  </figure>
+</section>
+
+<section id="horario" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">2</span>
+    <span>Configurar tu horario</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Define las ventanas en las que estarás disponible para citas. AgendaTec
+    genera automáticamente bloques de <strong>10 minutos</strong> dentro de cada ventana.
+  </p>
+  <ol class="at-help-steps">
+    <li>Entra a <strong>Horario</strong> desde el menú lateral.</li>
+    <li>Elige el día habilitado por el administrador.</li>
+    <li>Agrega ventanas de disponibilidad (ej. 10:00–12:00 y 14:00–17:00).</li>
+    <li>Guarda; los bloques se generan automáticamente.</li>
+    <li>Si necesitas bloquear un día completo, deshabilítalo.</li>
+  </ol>
+  <div class="at-help-callout">
+    <i class="bi bi-broadcast"></i>
+    <p>Los cambios se sincronizan en tiempo real para los estudiantes que están viendo el calendario.</p>
+  </div>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/coord/02_horario.png') }}?v={{ sv('agendatec', 'img/help/coord/02_horario.png') }}"
+         alt="Configuración del horario" loading="lazy">
+    <figcaption>Pantalla de configuración de horario.</figcaption>
+  </figure>
+</section>
+
+<section id="citas-dia" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">3</span>
+    <span>Citas del día</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Lista de citas agendadas para hoy. Marca el resultado cuando termines de
+    atender a cada estudiante.
+  </p>
+  <ol class="at-help-steps">
+    <li>Entra a <strong>Citas del día</strong>.</li>
+    <li>Revisa los datos del estudiante: materias, notas y carrera.</li>
+    <li>Al finalizar, marca <strong>Atendida</strong> o <strong>No asistió</strong>.</li>
+    <li>Agrega notas si es necesario.</li>
+  </ol>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/coord/03_citas_dia.png') }}?v={{ sv('agendatec', 'img/help/coord/03_citas_dia.png') }}"
+         alt="Listado de citas del día" loading="lazy">
+    <figcaption>Citas del día — cada renglón es una solicitud.</figcaption>
+  </figure>
+</section>
+
+<section id="bajas" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">4</span>
+    <span>Aprobar o rechazar bajas directas</span>
+  </h2>
+  <p class="at-help-section__intro">
+    Las solicitudes de tipo <strong>Baja</strong> no requieren cita; se resuelven
+    directamente desde este panel.
+  </p>
+  <ol class="at-help-steps">
+    <li>Entra a <strong>Bajas</strong>.</li>
+    <li>Revisa la materia que el estudiante pide dar de baja.</li>
+    <li>Toca <strong>Aprobar</strong> o <strong>Rechazar</strong> según corresponda.</li>
+    <li>Agrega un motivo si rechazas.</li>
+  </ol>
+  <figure class="at-help-figure">
+    <img class="at-help-img" src="{{ url_for('static', filename='agendatec/img/help/coord/04_bajas.png') }}?v={{ sv('agendatec', 'img/help/coord/04_bajas.png') }}"
+         alt="Pantalla de aprobación de bajas" loading="lazy">
+    <figcaption>Listado de solicitudes de baja pendientes.</figcaption>
+  </figure>
+</section>
+
+<section id="tiempo-real" class="at-help-section">
+  <h2 class="at-help-section__title">
+    <span class="at-help-num">5</span>
+    <span>Sincronización en tiempo real</span>
+  </h2>
+  <p>
+    Las acciones que realizas (validar, marcar atendida, aprobar) se reflejan
+    automáticamente en el panel del estudiante y de servicio social.
+  </p>
+  <div class="at-help-callout at-help-callout--tip">
+    <i class="bi bi-shield-check"></i>
+    <p>Si pierdes conexión, el indicador del navbar cambia a “Reconectando”. Cuando vuelva la conexión, las actualizaciones se reanudan solas.</p>
+  </div>
+</section>
+
+{% endblock %}

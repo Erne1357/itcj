@@ -5,22 +5,37 @@
 
 (function () {
 
-    var API = '/api/maint/v2/warehouse';
+    var API = '/api/warehouse/v2';
 
     function load() {
         MaintUtils.api.fetch(API + '/dashboard')
             .then(function (d) {
-                document.getElementById('kpiProducts').textContent   = d.total_products ?? '—';
-                document.getElementById('kpiLowStock').textContent   = d.low_stock_count ?? '—';
-                document.getElementById('kpiMovements').textContent  = d.movements_today ?? '—';
+                _animKpi('kpiProducts',  Number(d.total_products)  || 0);
+                _animKpi('kpiLowStock',  Number(d.low_stock_count) || 0);
+                _animKpi('kpiMovements', Number(d.movements_today) || 0);
                 var val = parseFloat(d.total_stock_value || 0);
-                document.getElementById('kpiValue').textContent = '$' + val.toFixed(2);
+                var valEl = document.getElementById('kpiValue');
+                if (window.MaintUtils && MaintUtils.animate) {
+                    MaintUtils.animate.countUp(valEl, val, { duration: 800, decimals: 2, prefix: '$' });
+                } else {
+                    valEl.textContent = '$' + val.toFixed(2);
+                }
                 _renderLowStock(d.low_stock_products || []);
             })
             .catch(function () {
                 document.getElementById('lowStockTable').innerHTML =
                     '<div class="alert alert-danger m-3">Error al cargar el dashboard.</div>';
             });
+    }
+
+    function _animKpi(id, n) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (window.MaintUtils && MaintUtils.animate) {
+            MaintUtils.animate.countUp(el, n, { duration: 700 });
+        } else {
+            el.textContent = n;
+        }
     }
 
     function _renderLowStock(products) {
@@ -34,7 +49,7 @@
             return;
         }
         var rows = products.map(function (p) {
-            return '<tr>' +
+            return '<tr class="mn-fade-in-up">' +
                 '<td><span class="badge bg-secondary">' + _esc(p.code || '—') + '</span></td>' +
                 '<td>' + _esc(p.name) + '</td>' +
                 '<td><span class="text-danger fw-bold">' + p.total_stock + '</span> ' + _esc(p.unit_of_measure || '') + '</td>' +
@@ -45,7 +60,7 @@
             '<div class="table-responsive">' +
             '<table class="table table-hover mb-0">' +
             '<thead class="table-light"><tr><th>Código</th><th>Producto</th><th>Stock Actual</th><th>Punto Restock</th></tr></thead>' +
-            '<tbody>' + rows + '</tbody>' +
+            '<tbody class="mn-stagger">' + rows + '</tbody>' +
             '</table></div>';
     }
 

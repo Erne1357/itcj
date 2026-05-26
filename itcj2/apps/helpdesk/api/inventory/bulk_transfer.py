@@ -47,6 +47,9 @@ def bulk_transfer_items(
         raise HTTPException(400, detail={"success": False, "error": "Departamento destino no encontrado"})
     target_department_id = target_dept.id  # garantizar int desde objeto ORM
 
+    from itcj2.core.services.authz_service import user_roles_in_app
+    is_admin = "admin" in user_roles_in_app(db, user_id, "helpdesk")
+
     transferred = []
     errors = []
 
@@ -58,6 +61,9 @@ def bulk_transfer_items(
                 continue
             if not item.is_active:
                 errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Equipo dado de baja"})
+                continue
+            if item.is_locked and not is_admin:
+                errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Equipo bloqueado por campaña validada"})
                 continue
             if item.department_id == target_department_id:
                 errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Ya pertenece al departamento destino"})
@@ -83,6 +89,19 @@ def bulk_transfer_items(
                 ip_address=ip,
             )
             db.add(history)
+
+            # Si el equipo está bloqueado, registrar que se modificó un campo crítico (department_id)
+            if item.is_locked:
+                db.add(InventoryHistory(
+                    item_id=item.id,
+                    event_type='LOCKED_FIELD_MODIFIED',
+                    old_value={"department_id": old_dept_id, "department_name": old_dept_name},
+                    new_value={"department_id": int(target_department_id), "department_name": target_dept.name},
+                    notes=f"Campo bloqueado department_id modificado por admin mediante transferencia masiva.",
+                    performed_by_id=user_id,
+                    ip_address=ip,
+                ))
+
             transferred.append(item_id)
 
         except Exception as e:
@@ -136,6 +155,9 @@ def bulk_send_to_limbo(
     if not item_ids or not isinstance(item_ids, list):
         raise HTTPException(400, detail={"success": False, "error": "item_ids (array) requerido"})
 
+    from itcj2.core.services.authz_service import user_roles_in_app
+    is_admin = "admin" in user_roles_in_app(db, user_id, "helpdesk")
+
     sent = []
     errors = []
 
@@ -147,6 +169,9 @@ def bulk_send_to_limbo(
                 continue
             if not item.is_active:
                 errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Equipo dado de baja"})
+                continue
+            if item.is_locked and not is_admin:
+                errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Equipo bloqueado por campaña validada"})
                 continue
 
             old_dept_id = item.department_id
@@ -166,6 +191,19 @@ def bulk_send_to_limbo(
                 ip_address=ip,
             )
             db.add(history)
+
+            # Si el equipo está bloqueado, registrar modificación de campo crítico (department_id)
+            if item.is_locked:
+                db.add(InventoryHistory(
+                    item_id=item.id,
+                    event_type='LOCKED_FIELD_MODIFIED',
+                    old_value={"department_id": old_dept_id},
+                    new_value={"department_id": None},
+                    notes="Campo bloqueado department_id modificado por admin al enviar equipo al limbo.",
+                    performed_by_id=user_id,
+                    ip_address=ip,
+                ))
+
             sent.append(item_id)
 
         except Exception as e:

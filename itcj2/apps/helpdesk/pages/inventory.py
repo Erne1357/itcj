@@ -137,6 +137,7 @@ async def item_detail(
         "item_id": item_id,
         "user_roles": user_roles,
         "can_edit": can_edit,
+        "is_admin": "admin" in user_roles,
         "active_page": "inventory_items",
     })
 
@@ -317,6 +318,123 @@ async def verification_report(
     return RedirectResponse("/help-desk/inventory/reports?tab=verificacion", status_code=302)
 
 
+@router.get("/campaigns", name="helpdesk.pages.inventory.campaigns_list")
+async def campaigns_list(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.campaign.page.list"])),
+):
+    """Lista de campañas de inventario (CC/Admin/Jefe de dpto)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    from itcj2.core.services.departments_service import get_user_department
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    _db = SessionLocal()
+    try:
+        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+        user_dept = get_user_department(_db, user_id) if "department_head" in user_roles else None
+    finally:
+        _db.close()
+
+    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaigns_list.html", {
+        "user_roles": user_roles,
+        "can_view_all": can_view_all,
+        "can_create": "admin" in user_roles or can_view_all,
+        "user_dept_id": user_dept.id if user_dept else None,
+        "active_page": "inventory_campaigns",
+    })
+
+
+@router.get("/campaigns/create", name="helpdesk.pages.inventory.campaign_create")
+async def campaign_create(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.campaign.api.create"])),
+):
+    """Formulario para crear una nueva campaña de inventario."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.models.department import Department
+    from itcj2.core.models.academic_period import AcademicPeriod
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    _db = SessionLocal()
+    try:
+        departments = (
+            _db.query(Department)
+            .filter_by(is_active=True)
+            .order_by(Department.name)
+            .all()
+        )
+        periods = (
+            _db.query(AcademicPeriod)
+            .filter(AcademicPeriod.status != "ARCHIVED")
+            .order_by(AcademicPeriod.start_date.desc())
+            .all()
+        )
+        departments_data = [{"id": d.id, "name": d.name, "code": d.code} for d in departments]
+        periods_data = [{"id": p.id, "name": p.name} for p in periods]
+    finally:
+        _db.close()
+
+    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaign_create.html", {
+        "user_roles": user_roles,
+        "departments": departments_data,
+        "periods": periods_data,
+        "active_page": "inventory_campaigns",
+    })
+
+
+@router.get("/campaigns/{campaign_id}/validate", name="helpdesk.pages.inventory.campaign_validate")
+async def campaign_validate(
+    request: Request,
+    campaign_id: int,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.campaign.api.validate"])),
+):
+    """Vista de validación del jefe de departamento."""
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaign_validate.html", {
+        "campaign_id": campaign_id,
+        "user_roles": user_roles,
+        "active_page": "inventory_campaigns",
+    })
+
+
+@router.get("/campaigns/{campaign_id}", name="helpdesk.pages.inventory.campaign_detail")
+async def campaign_detail(
+    request: Request,
+    campaign_id: int,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.campaign.page.list"])),
+):
+    """Detalle completo de una campaña de inventario."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    _db = SessionLocal()
+    try:
+        can_manage = has_full_inventory_access(_db, user_id, user_roles)
+        can_validate = "department_head" in user_roles
+        is_admin = "admin" in user_roles
+    finally:
+        _db.close()
+
+    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaign_detail.html", {
+        "campaign_id": campaign_id,
+        "user_roles": user_roles,
+        "can_manage": can_manage,
+        "can_validate": can_validate,
+        "is_admin": is_admin,
+        "active_page": "inventory_campaigns",
+    })
+
+
 @router.get("/retirement-requests", name="helpdesk.pages.inventory.retirement_requests_list")
 async def retirement_requests_list(
     request: Request,
@@ -366,14 +484,34 @@ async def retirement_request_detail(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.detail"])),
 ):
     """Detalle de una solicitud de baja."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.services.authz_service import _get_users_with_position
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
     can_approve = "admin" in user_roles
+
+    _db = SessionLocal()
+    try:
+        mat_ids = set(_get_users_with_position(_db, ["head_mat_services"]))
+        sub_ids = set(_get_users_with_position(_db, ["subdirector_admin_services"]))
+        dir_ids = set(_get_users_with_position(_db, ["director"]))
+    finally:
+        _db.close()
+
+    sign_perms = []
+    if user_id in mat_ids:
+        sign_perms.append("helpdesk.retirement.sign.recursos_materiales")
+    if user_id in sub_ids:
+        sign_perms.append("helpdesk.retirement.sign.subdirector")
+    if user_id in dir_ids:
+        sign_perms.append("helpdesk.retirement.sign.director")
 
     return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_request_detail.html", {
         "request_id": request_id,
         "user_roles": user_roles,
         "can_approve": can_approve,
+        "sign_perms": sign_perms,
         "active_page": "inventory_retirement_requests",
     })
 

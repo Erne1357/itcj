@@ -1,369 +1,322 @@
-// static/js/admin/create_request.js
+/**
+ * AgendaTec Admin — Crear Solicitud por Estudiante
+ * Formulario guiado para crear solicitudes en nombre de un estudiante.
+ */
 (() => {
+  "use strict";
+
   const $ = (s) => document.querySelector(s);
   const cfg = window.__createRequestCfg || {};
   const studentsUrl = cfg.studentsUrl || "/api/agendatec/v2/admin/users/students";
   const programsUrl = cfg.programsUrl || "/api/agendatec/v2/programs";
-  const periodsUrl = cfg.periodsUrl || "/api/agendatec/v2/periods/active";
-  const createUrl = cfg.createUrl || "/api/agendatec/v2/admin/requests/create";
+  const periodsUrl  = cfg.periodsUrl  || "/api/agendatec/v2/periods/active";
+  const createUrl   = cfg.createUrl   || "/api/agendatec/v2/admin/requests/create";
 
+  // === ESTADO (module-scoped, sin globales) ===
   let enabledDays = [];
   let activePeriod = null;
   let allSlots = [];
-  let selectedProgram = null;
-  let allStudents = []; // Almacenar todos los estudiantes para filtrado
+  let allStudents = [];
+  let pendingPayload = null;   // payload del modal de confirmación (scoped, sin global)
+  let mdlConfirmInst = null;
 
-  // Cargar datos iniciales
+  // === INICIALIZACIÓN ===
+  document.addEventListener("DOMContentLoaded", function () {
+    init();
+    setupEventListeners();
+  });
+
   async function init() {
+    showInitSkeleton();
     try {
-      await Promise.all([
-        loadStudents(),
-        loadPrograms(),
-        loadActivePeriod()
-      ]);
+      await Promise.all([loadStudents(), loadPrograms(), loadActivePeriod()]);
     } catch (e) {
       console.error("Error initializing:", e);
       showToast?.("Error al cargar datos iniciales", "error");
+    } finally {
+      hideInitSkeleton();
+    }
+
+    mdlConfirmInst = new bootstrap.Modal($("#mdlConfirm"));
+  }
+
+  // === SKELETON DURANTE CARGA INICIAL ===
+  function showInitSkeleton() {
+    const sk = window.AgendaTec?.Skeleton;
+    if (!sk) return;
+    const studentSel = $("#selStudent");
+    const programSel = $("#selProgram");
+    if (studentSel) {
+      studentSel.innerHTML = `<option disabled>Cargando...</option>`;
+      studentSel.disabled = true;
+    }
+    if (programSel) {
+      programSel.innerHTML = `<option disabled>Cargando...</option>`;
+      programSel.disabled = true;
     }
   }
 
-  // Cargar estudiantes
+  function hideInitSkeleton() {
+    const studentSel = $("#selStudent");
+    const programSel = $("#selProgram");
+    if (studentSel) studentSel.disabled = false;
+    if (programSel) programSel.disabled = false;
+  }
+
+  // === EVENT LISTENERS ===
+  function setupEventListeners() {
+    $("#txtSearchStudent")?.addEventListener("input", handleStudentSearch);
+    $("#selType")?.addEventListener("change", handleTypeChange);
+    $("#altaNoSe")?.addEventListener("change", handleAltaNoSeChange);
+    $("#selProgram")?.addEventListener("change", handleProgramChange);
+    $("#selDay")?.addEventListener("change", handleDayChange);
+    $("#frmCreateRequest")?.addEventListener("submit", handleFormSubmit);
+    $("#btnConfirmCreate")?.addEventListener("click", handleConfirmCreate);
+    $("#btnCancel")?.addEventListener("click", () => window.history.back());
+  }
+
+  // === CARGA DE DATOS ===
   async function loadStudents() {
-    try {
-      const r = await fetch(studentsUrl, { credentials: "include" });
-      if (!r.ok) throw new Error();
-      const data = await r.json();
-      allStudents = data.items || data.students || [];
+    const r = await fetch(studentsUrl, { credentials: "include" });
+    if (!r.ok) throw new Error("Error al cargar estudiantes");
+    const data = await r.json();
+    allStudents = data.items || data.students || [];
+    renderStudents(allStudents);
+  }
 
-      renderStudents(allStudents);
+  async function loadPrograms() {
+    const r = await fetch(programsUrl, { credentials: "include" });
+    if (!r.ok) throw new Error("Error al cargar programas");
+    const data = await r.json();
+    const programs = Array.isArray(data) ? data : (data.items || data.programs || []);
+    const select = $("#selProgram");
+    if (!select) return;
+    select.innerHTML = `<option value="">Seleccionar programa...</option>` +
+      programs.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join("");
+  }
+
+  async function loadActivePeriod() {
+    const r = await fetch(periodsUrl, { credentials: "include" });
+    if (!r.ok) throw new Error("Error al cargar período activo");
+    const data = await r.json();
+    activePeriod = data;
+    enabledDays = (data.enabled_days || []).map(d => d);
+
+    const daySelect = $("#selDay");
+    if (!daySelect) return;
+    if (enabledDays.length === 0) {
+      daySelect.innerHTML = `<option value="">No hay días habilitados</option>`;
+      return;
+    }
+    daySelect.innerHTML = `<option value="">Seleccionar día...</option>` +
+      enabledDays.map(day => {
+        const d = new Date(day + "T00:00:00");
+        const formatted = d.toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        return `<option value="${escapeHtml(day)}">${formatted}</option>`;
+      }).join("");
+  }
+
+  async function loadSlotsForDay(day, programId) {
+    const slotSelect = $("#selSlot");
+    if (!slotSelect) return;
+    slotSelect.innerHTML = `<option value="">Cargando horarios...</option>`;
+    slotSelect.disabled = true;
+
+    try {
+      const url = `/api/agendatec/v2/availability/program/${encodeURIComponent(programId)}/slots?day=${encodeURIComponent(day)}`;
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const slots = data.items || data.slots || [];
+      const availableSlots = slots.filter(slot => !slot.is_booked);
+
+      if (availableSlots.length === 0) {
+        slotSelect.innerHTML = `<option value="">No hay horarios disponibles</option>`;
+        showToast?.("No hay horarios disponibles para este día y programa", "warn");
+      } else {
+        slotSelect.innerHTML = `<option value="">Seleccionar horario...</option>` +
+          availableSlots.map(slot =>
+            `<option value="${escapeHtml(String(slot.slot_id))}">${escapeHtml(slot.start_time)} - ${escapeHtml(slot.end_time)}</option>`
+          ).join("");
+        allSlots = availableSlots;
+      }
     } catch (e) {
-      console.error("Error loading students:", e);
-      showToast?.("Error al cargar estudiantes", "error");
+      slotSelect.innerHTML = `<option value="">Error al cargar horarios</option>`;
+      showToast?.("Error al cargar horarios disponibles", "error");
+    } finally {
+      slotSelect.disabled = false;
     }
   }
 
-  // Renderizar estudiantes en el select
+  // === RENDER ===
   function renderStudents(students) {
     const select = $("#selStudent");
+    if (!select) return;
+    if (students.length === 0) {
+      select.innerHTML = `<option value="">No se encontraron estudiantes</option>`;
+      return;
+    }
     select.innerHTML = `<option value="">Seleccionar estudiante...</option>` +
-      students.map(s => `<option value="${s.id}">${escapeHtml(s.control_number || s.username)} - ${escapeHtml(s.full_name || s.name)}</option>`).join("");
+      students.map(s => `<option value="${escapeHtml(String(s.id))}">${escapeHtml(s.control_number || s.username)} - ${escapeHtml(s.full_name || s.name)}</option>`).join("");
   }
 
-  // Filtrar estudiantes mientras se escribe
-  $("#txtSearchStudent")?.addEventListener("input", (e) => {
+  // === HANDLERS ===
+  function handleStudentSearch(e) {
     const query = e.target.value.toLowerCase().trim();
-
     if (!query) {
-      // Si no hay búsqueda, mostrar todos
       renderStudents(allStudents);
       return;
     }
-
-    // Filtrar por nombre o número de control
     const filtered = allStudents.filter(s => {
       const name = (s.full_name || s.name || "").toLowerCase();
       const control = (s.control_number || "").toLowerCase();
       const username = (s.username || "").toLowerCase();
-
       return name.includes(query) || control.includes(query) || username.includes(query);
     });
-
     renderStudents(filtered);
-
-    // Mostrar mensaje si no hay resultados
-    if (filtered.length === 0) {
-      $("#selStudent").innerHTML = `<option value="">No se encontraron estudiantes</option>`;
-    }
-  });
-
-  // Cargar programas
-  async function loadPrograms() {
-    try {
-      const r = await fetch(programsUrl, { credentials: "include" });
-      if (!r.ok) throw new Error();
-      const data = await r.json();
-      const programs = Array.isArray(data) ? data : (data.items || data.programs || []);
-
-      const select = $("#selProgram");
-      select.innerHTML = `<option value="">Seleccionar programa...</option>` +
-        programs.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
-    } catch (e) {
-      console.error("Error loading programs:", e);
-      showToast?.("Error al cargar programas", "error");
-    }
   }
 
-  // Cargar período activo y días habilitados
-  async function loadActivePeriod() {
-    try {
-      const r = await fetch(periodsUrl, { credentials: "include" });
-      if (!r.ok) throw new Error();
-      const data = await r.json();
-
-      activePeriod = data;
-      enabledDays = (data.enabled_days || []).map(d => d);
-
-      // Llenar select de días
-      const daySelect = $("#selDay");
-      if (enabledDays.length === 0) {
-        daySelect.innerHTML = `<option value="">No hay días habilitados</option>`;
-        return;
-      }
-
-      daySelect.innerHTML = `<option value="">Seleccionar día...</option>` +
-        enabledDays.map(day => {
-          const d = new Date(day);
-          const formatted = d.toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-          return `<option value="${day}">${formatted}</option>`;
-        }).join("");
-    } catch (e) {
-      console.error("Error loading active period:", e);
-      showToast?.("Error al cargar período activo", "error");
-    }
-  }
-
-  // Cambio de tipo de solicitud
-  $("#selType")?.addEventListener("change", (e) => {
+  function handleTypeChange(e) {
     const type = e.target.value;
-    const appointmentSection = $("#appointmentSection");
-    const detailsSection = $("#detailsSection");
-    const altaFields = $("#altaFields");
-    const bajaFields = $("#bajaFields");
+    clearFieldError("selType");
 
-    // Mostrar/ocultar sección de detalles
+    const detailsSection   = $("#detailsSection");
+    const altaFields       = $("#altaFields");
+    const bajaFields       = $("#bajaFields");
+    const appointmentSection = $("#appointmentSection");
+
     if (type) {
-      detailsSection.style.display = "block";
+      detailsSection.hidden = false;
     } else {
-      detailsSection.style.display = "none";
+      detailsSection.hidden = true;
     }
 
-    // Mostrar campos según el tipo
     if (type === "APPOINTMENT") {
-      // APPOINTMENT = Alta o Alta y Baja (mostrar ambos campos)
-      altaFields.style.display = "block";
-      bajaFields.style.display = "block";
-      appointmentSection.style.display = "block";
+      altaFields.hidden = false;
+      bajaFields.hidden = false;
+      appointmentSection.hidden = false;
       $("#selDay").required = true;
       $("#selSlot").required = true;
     } else if (type === "DROP") {
-      // DROP = Solo baja
-      altaFields.style.display = "none";
-      bajaFields.style.display = "block";
-      appointmentSection.style.display = "none";
+      altaFields.hidden = true;
+      bajaFields.hidden = false;
+      appointmentSection.hidden = true;
       $("#selDay").required = false;
       $("#selSlot").required = false;
     } else {
-      altaFields.style.display = "none";
-      bajaFields.style.display = "none";
-      appointmentSection.style.display = "none";
+      altaFields.hidden = true;
+      bajaFields.hidden = true;
+      appointmentSection.hidden = true;
       $("#selDay").required = false;
       $("#selSlot").required = false;
     }
-  });
+  }
 
-  // Checkbox "No sé qué materia"
-  $("#altaNoSe")?.addEventListener("change", (e) => {
+  function handleAltaNoSeChange(e) {
     const altaMateria = $("#altaMateria");
+    if (!altaMateria) return;
     if (e.target.checked) {
       altaMateria.value = "No especificada";
       altaMateria.disabled = true;
     } else {
-      if (altaMateria.value === "No especificada") {
-        altaMateria.value = "";
-      }
+      if (altaMateria.value === "No especificada") altaMateria.value = "";
       altaMateria.disabled = false;
     }
-  });
+  }
 
-  // Cambio de programa (para cargar slots del coordinador)
-  $("#selProgram")?.addEventListener("change", async (e) => {
+  async function handleProgramChange(e) {
     const programId = e.target.value;
-    selectedProgram = programId;
-
-    // Si ya hay un día seleccionado, recargar slots
-    const day = $("#selDay").value;
+    clearFieldError("selProgram");
+    const day = $("#selDay")?.value;
     if (day && programId) {
       await loadSlotsForDay(day, programId);
     }
-  });
+  }
 
-  // Cambio de día
-  $("#selDay")?.addEventListener("change", async (e) => {
+  async function handleDayChange(e) {
     const day = e.target.value;
-    const programId = $("#selProgram").value;
-
+    clearFieldError("selDay");
+    const programId = $("#selProgram")?.value;
     if (!programId) {
       showToast?.("Por favor selecciona un programa primero", "warn");
-      $("#selSlot").innerHTML = `<option value="">Primero selecciona un programa</option>`;
+      const slotSelect = $("#selSlot");
+      if (slotSelect) slotSelect.innerHTML = `<option value="">Primero selecciona un programa</option>`;
       return;
     }
-
     if (day) {
       await loadSlotsForDay(day, programId);
     } else {
-      $("#selSlot").innerHTML = `<option value="">Selecciona un día primero</option>`;
-    }
-  });
-
-  // Cargar slots disponibles para un día y programa
-  async function loadSlotsForDay(day, programId) {
-    try {
-      // Usar el mismo endpoint que usa el estudiante: filtra automáticamente por coordinador del programa
-      const url = `/api/agendatec/v2/availability/program/${programId}/slots?day=${day}`;
-
-      const r = await fetch(url, { credentials: "include" });
-      if (!r.ok) throw new Error();
-      const data = await r.json();
-      const slots = data.items || data.slots || [];
-
-      // Filtrar solo slots disponibles (no reservados)
-      const availableSlots = slots.filter(slot => !slot.is_booked);
-
       const slotSelect = $("#selSlot");
-      if (availableSlots.length === 0) {
-        slotSelect.innerHTML = `<option value="">No hay horarios disponibles</option>`;
-        showToast?.("No hay horarios disponibles para este día y programa", "warn");
-        return;
-      }
-
-      slotSelect.innerHTML = `<option value="">Seleccionar horario...</option>` +
-        availableSlots.map(slot =>
-          `<option value="${slot.slot_id}">${slot.start_time} - ${slot.end_time}</option>`
-        ).join("");
-
-      allSlots = availableSlots;
-    } catch (e) {
-      console.error("Error loading slots:", e);
-      showToast?.("Error al cargar horarios disponibles", "error");
-      $("#selSlot").innerHTML = `<option value="">Error al cargar horarios</option>`;
+      if (slotSelect) slotSelect.innerHTML = `<option value="">Selecciona un día primero</option>`;
     }
   }
 
-  // Construir descripción a partir de los campos estructurados
-  // Usa exactamente el mismo formato que el formulario del estudiante
-  function buildDescription() {
-    const type = $("#selType").value;
-
-    const materiaAlta = $("#altaMateria").value.trim();
-    const noSeAlta = $("#altaNoSe").checked;
-    const horarioAlta = $("#altaHorario").value.trim();
-    const materiaBaja = $("#bajaMateria").value.trim();
-    const horarioBaja = $("#bajaHorario").value.trim();
-
-    // DROP: solo baja
-    if (type === "DROP") {
-      if (!materiaBaja || !horarioBaja) {
-        showToast?.("Completa materia y horario para la baja.", "warn");
-        return "";
-      }
-      return `Solicitud de baja de la materia ${materiaBaja} en el horario ${horarioBaja}.`;
-    }
-
-    // APPOINTMENT: puede ser solo alta, solo baja, o ambas
-    if (type === "APPOINTMENT") {
-      const tieneAlta = noSeAlta || (materiaAlta && horarioAlta);
-      const tieneBaja = materiaBaja && horarioBaja;
-
-      // Caso 1: Solo alta
-      if (tieneAlta && !tieneBaja) {
-        if (noSeAlta) {
-          return "Solicitud de alta (materia y horario no especificados).";
-        }
-        return `Solicitud de alta de la materia ${materiaAlta} en el horario ${horarioAlta}.`;
-      }
-
-      // Caso 2: Solo baja (aunque sea tipo APPOINTMENT)
-      if (!tieneAlta && tieneBaja) {
-        return `Solicitud de baja de la materia ${materiaBaja} en el horario ${horarioBaja}.`;
-      }
-
-      // Caso 3: Alta y baja (BOTH)
-      if (tieneAlta && tieneBaja) {
-        let altaTxt = "";
-        let bajaTxt = `baja de la materia ${materiaBaja} en el horario ${horarioBaja}`;
-
-        if (noSeAlta) {
-          altaTxt = "alta (materia y horario no especificados)";
-        } else {
-          altaTxt = `alta de la materia ${materiaAlta} en el horario ${horarioAlta}`;
-        }
-
-        return `Se solicita ${bajaTxt} y ${altaTxt}.`;
-      }
-
-      // Si no llenó nada
-      showToast?.("Completa al menos la información de una materia (alta o baja).", "warn");
-      return "";
-    }
-
-    return "";
-  }
-
-  // Submit del formulario
-  $("#frmCreateRequest")?.addEventListener("submit", async (e) => {
+  function handleFormSubmit(e) {
     e.preventDefault();
+    clearAllErrors();
 
-    const studentId = $("#selStudent").value;
-    const type = $("#selType").value;
-    const programId = $("#selProgram").value;
+    const studentId = $("#selStudent")?.value;
+    const type      = $("#selType")?.value;
+    const programId = $("#selProgram")?.value;
 
-    if (!studentId || !type || !programId) {
-      showToast?.("Por favor completa todos los campos obligatorios", "warn");
-      return;
+    let hasError = false;
+
+    if (!studentId) {
+      setFieldError("selStudent", "Selecciona un estudiante");
+      hasError = true;
+    }
+    if (!type) {
+      setFieldError("selType", "Selecciona un tipo de solicitud");
+      hasError = true;
+    }
+    if (!programId) {
+      setFieldError("selProgram", "Selecciona un programa");
+      hasError = true;
     }
 
-    // Validar que se haya llenado al menos un campo de materia
+    if (hasError) return;
+
     const description = buildDescription();
-    if (!description) {
-      showToast?.("Por favor completa la información de la materia", "warn");
-      return;
-    }
+    if (!description) return;   // buildDescription muestra errores inline
 
     const payload = {
-      student_id: parseInt(studentId),
+      student_id: parseInt(studentId, 10),
       type: type,
-      program_id: parseInt(programId),
+      program_id: parseInt(programId, 10),
       description: description
     };
 
     if (type === "APPOINTMENT") {
-      const slotId = $("#selSlot").value;
-      if (!slotId || slotId === "") {
-        showToast?.("Por favor selecciona un horario", "warn");
+      const slotId = $("#selSlot")?.value;
+      if (!slotId) {
+        setFieldError("selSlot", "Selecciona un horario");
         return;
       }
-      payload.slot_id = parseInt(slotId);
+      payload.slot_id = parseInt(slotId, 10);
     }
 
-    // Mostrar modal de confirmación
-    const studentName = $("#selStudent").selectedOptions[0].text;
+    const studentName = $("#selStudent")?.selectedOptions?.[0]?.text || "el estudiante";
     const typeName = type === "APPOINTMENT" ? "cita" : "baja";
     const confirmMsg = `¿Estás seguro de crear una solicitud de ${typeName} para ${studentName}?`;
 
-    const mdlConfirmMessage = $("#mdlConfirmMessage");
-    const mdlConfirm = new bootstrap.Modal($("#mdlConfirm"));
+    $("#mdlConfirmMessage").textContent = confirmMsg;
+    pendingPayload = payload;
+    mdlConfirmInst?.show();
+  }
 
-    mdlConfirmMessage.textContent = confirmMsg;
-    mdlConfirm.show();
+  async function handleConfirmCreate() {
+    if (!pendingPayload) return;
+    const payload = pendingPayload;
+    pendingPayload = null;
 
-    // Guardar payload para usar en el callback del modal
-    window.__pendingRequestPayload = payload;
-  });
+    mdlConfirmInst?.hide();
 
-  // Manejar confirmación del modal
-  $("#btnConfirmCreate")?.addEventListener("click", async () => {
-    const payload = window.__pendingRequestPayload;
-    if (!payload) return;
-
-    // Cerrar modal
-    const mdlConfirm = bootstrap.Modal.getInstance($("#mdlConfirm"));
-    mdlConfirm?.hide();
-
-    // Deshabilitar botón del formulario
-    const submitBtn = $("#frmCreateRequest").querySelector('button[type="submit"]');
-    const originalText = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creando...';
+    const submitBtn = $("#frmCreateRequest")?.querySelector('button[type="submit"]');
+    const originalHtml = submitBtn?.innerHTML;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Creando...';
+    }
 
     try {
       const r = await fetch(createUrl, {
@@ -375,27 +328,88 @@
 
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.message || "Error al crear solicitud");
+        throw new Error(err.detail || err.message || `Error HTTP ${r.status}`);
       }
 
-      const data = await r.json();
       showToast?.("Solicitud creada exitosamente", "success");
-
-      // Redirigir a solicitudes después de 1 segundo
-      setTimeout(() => {
-        window.location.href = "/agendatec/admin/requests";
-      }, 1000);
+      setTimeout(() => { window.location.href = "/agendatec/admin/requests"; }, 1000);
     } catch (e) {
-      console.error("Error creating request:", e);
       showToast?.(e.message || "Error al crear solicitud", "error");
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = originalText;
-    } finally {
-      // Limpiar payload
-      window.__pendingRequestPayload = null;
+      if (submitBtn && originalHtml) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalHtml;
+      }
     }
-  });
+  }
 
+  // === LÓGICA DE DESCRIPCIÓN ===
+  function buildDescription() {
+    const type = $("#selType")?.value;
+    const materiaAlta  = $("#altaMateria")?.value.trim() || "";
+    const noSeAlta     = $("#altaNoSe")?.checked || false;
+    const horarioAlta  = $("#altaHorario")?.value.trim() || "";
+    const materiaBaja  = $("#bajaMateria")?.value.trim() || "";
+    const horarioBaja  = $("#bajaHorario")?.value.trim() || "";
+
+    if (type === "DROP") {
+      if (!materiaBaja) { setFieldError("bajaMateria", "Campo obligatorio"); return ""; }
+      if (!horarioBaja) { setFieldError("bajaHorario", "Campo obligatorio"); return ""; }
+      return `Solicitud de baja de la materia ${materiaBaja} en el horario ${horarioBaja}.`;
+    }
+
+    if (type === "APPOINTMENT") {
+      const tieneAlta = noSeAlta || (materiaAlta && horarioAlta);
+      const tieneBaja = materiaBaja && horarioBaja;
+
+      if (!tieneAlta && !tieneBaja) {
+        showToast?.("Completa al menos la información de una materia (alta o baja).", "warn");
+        return "";
+      }
+
+      if (tieneAlta && !tieneBaja) {
+        if (noSeAlta) return "Solicitud de alta (materia y horario no especificados).";
+        return `Solicitud de alta de la materia ${materiaAlta} en el horario ${horarioAlta}.`;
+      }
+      if (!tieneAlta && tieneBaja) {
+        return `Solicitud de baja de la materia ${materiaBaja} en el horario ${horarioBaja}.`;
+      }
+      // ambas
+      const altaTxt = noSeAlta ? "alta (materia y horario no especificados)" : `alta de la materia ${materiaAlta} en el horario ${horarioAlta}`;
+      const bajaTxt = `baja de la materia ${materiaBaja} en el horario ${horarioBaja}`;
+      return `Se solicita ${bajaTxt} y ${altaTxt}.`;
+    }
+
+    return "";
+  }
+
+  // === INLINE VALIDATION ===
+  function setFieldError(fieldId, message) {
+    const el = document.getElementById(fieldId);
+    if (!el) return;
+    el.classList.add("is-invalid");
+    let fb = el.nextElementSibling;
+    if (!fb || !fb.classList.contains("invalid-feedback")) {
+      fb = document.createElement("div");
+      fb.className = "invalid-feedback";
+      el.insertAdjacentElement("afterend", fb);
+    }
+    fb.textContent = message;
+  }
+
+  function clearFieldError(fieldId) {
+    const el = document.getElementById(fieldId);
+    if (!el) return;
+    el.classList.remove("is-invalid");
+    const fb = el.nextElementSibling;
+    if (fb?.classList.contains("invalid-feedback")) fb.textContent = "";
+  }
+
+  function clearAllErrors() {
+    document.querySelectorAll(".is-invalid").forEach(el => el.classList.remove("is-invalid"));
+    document.querySelectorAll(".invalid-feedback").forEach(el => { el.textContent = ""; });
+  }
+
+  // === UTILIDADES ===
   function escapeHtml(s) {
     return (s || "")
       .replaceAll("&", "&amp;")
@@ -404,7 +418,4 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
   }
-
-  // Inicializar
-  init();
 })();

@@ -5,72 +5,101 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/student/new_request.css') }}?v={{ sv('agendatec', 'css/student/new_request.css') }}">
 {% endblock %}
 {% block content %}
-<div class="row g-3">
-    <div class="col-12 col-lg-10">
-        <a href="{{ url_for('agendatec_pages.student_pages.student_home') }}" class="btn btn-link p-0 mb-2">
-            <i class="bi bi-arrow-left"></i> Regresar
-        </a>
+<div class="row g-3 justify-content-center">
+    <div class="col-12 col-lg-9 col-xl-8">
 
-        <div class="card shadow-sm mb-3 first-phase" id="stepType">
+        <!-- Botón Regresar con confirmación JS -->
+        <button type="button" class="btn btn-link p-0 mb-2" id="btnBack" aria-label="Regresar a inicio">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i> Regresar
+        </button>
+
+        <!-- Stepper dinamico: JS reconstruye segun tipo (DROP=4 pasos, otros=5). -->
+        <nav class="at-stepper" id="wizardSteps" aria-label="Pasos de solicitud"></nav>
+
+        <!-- Step 1: Tipo de solicitud -->
+        <div class="at-card mb-3 at-step-enter" id="stepType">
             <div class="card-body">
-                <h5 class="card-title d-flex align-items-center gap-2">
-                    <i class="bi bi-sliders2"></i> 1) ¿Qué deseas hacer?
+                <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-sliders2" aria-hidden="true"></i> 1) ¿Qué deseas hacer?
                 </h5>
-                <div class="d-flex flex-wrap gap-2">
-                    <button class="btn btn-outline-primary" data-type="DROP">Baja</button>
-                    <button class="btn btn-outline-primary" data-type="APPOINTMENT">Alta</button>
-                    <button class="btn btn-outline-primary" data-type="BOTH">Alta y Baja</button>
+                <div class="at-type-grid" role="group" aria-label="Tipo de solicitud">
+                    <button type="button" class="at-type-card at-type-card--drop" data-type="DROP" aria-pressed="false">
+                        <span class="at-type-card__icon" aria-hidden="true"><i class="bi bi-dash-circle"></i></span>
+                        <span class="at-type-card__title">Baja</span>
+                        <span class="at-type-card__desc">Solo baja de materia. No requiere cita con coordinador.</span>
+                    </button>
+                    <button type="button" class="at-type-card at-type-card--alta" data-type="APPOINTMENT" aria-pressed="false">
+                        <span class="at-type-card__icon" aria-hidden="true"><i class="bi bi-plus-circle"></i></span>
+                        <span class="at-type-card__title">Alta</span>
+                        <span class="at-type-card__desc">Alta de materia. Requiere agendar cita con tu coordinador.</span>
+                    </button>
+                    <button type="button" class="at-type-card at-type-card--both" data-type="BOTH" aria-pressed="false">
+                        <span class="at-type-card__icon" aria-hidden="true"><i class="bi bi-arrow-left-right"></i></span>
+                        <span class="at-type-card__title">Alta y Baja</span>
+                        <span class="at-type-card__desc">Cambio de materia: requiere agendar cita.</span>
+                    </button>
                 </div>
-                <div id="typeHint" class="form-text mt-2"></div>
+                <div id="typeHint" class="form-text mt-3" role="status" aria-live="polite"></div>
             </div>
         </div>
 
-        <div class="card shadow-sm mb-3" id="stepProgram" hidden>
+        <!-- Step 2: Carrera -->
+        <div class="at-card mb-3" id="stepProgram" hidden>
             <div class="card-body">
-                <h5 class="card-title d-flex align-items-center gap-2">
-                    <i class="bi bi-mortarboard"></i> 2) Elige tu carrera
+                <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-mortarboard" aria-hidden="true"></i> 2) Elige tu carrera
                 </h5>
                 <div class="row g-2 align-items-end">
                     <div class="col-12 col-sm-6">
-                        <label class="form-label">Programa</label>
-                        <select class="form-select" id="programSelect"></select>
+                        <label class="form-label" for="programSelect">Programa</label>
+                        <select class="form-select" id="programSelect" disabled>
+                            <option value="">Cargando…</option>
+                        </select>
                     </div>
                     <div class="col-12 col-sm">
-                        <button class="btn btn-outline-secondary" id="btnReloadPrograms">
-                            <i class="bi bi-arrow-repeat me-1"></i> Recargar
+                        <button class="btn btn-outline-secondary" id="btnReloadPrograms" type="button">
+                            <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i> Recargar
                         </button>
                     </div>
                 </div>
-
-
-
             </div>
         </div>
-        <div class="card shadow-sm mb-3" id="stepForms" hidden>
-            <div id="coordCard" class="mt-3" hidden>
-                <div class="card border-0 bg-light">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="bi bi-person-badge" style="font-size:1.6rem;"></i>
-                            <div>
-                                <h3 class="center">Coordinador</h3>
-                                <div class="fw-semibold" id="coordName">Coordinador</div>
-                                <div class="small text-muted" id="coordEmail"></div>
-                                <div class="small" id="coordHours"></div>
-                            </div>
+
+        <!-- Step 3: Detalles -->
+        <div class="at-card mb-3" id="stepForms" hidden>
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-clipboard2-check" aria-hidden="true"></i> 3) Detalles de la solicitud
+                </h5>
+
+                <!-- Carrera + Coordinador (resumen de pasos previos) -->
+                <div id="coordCard" class="at-info-card" hidden>
+                    <div class="at-info-card__row">
+                        <span class="at-info-card__icon" aria-hidden="true"><i class="bi bi-mortarboard"></i></span>
+                        <div>
+                            <p class="at-info-card__label">Carrera</p>
+                            <p class="at-info-card__value" id="careerName">—</p>
+                        </div>
+                    </div>
+                    <div class="at-info-card__row">
+                        <span class="at-info-card__icon" aria-hidden="true"><i class="bi bi-person-badge"></i></span>
+                        <div>
+                            <p class="at-info-card__label">Coordinador</p>
+                            <p class="at-info-card__value" id="coordName">Coordinador</p>
+                            <p class="at-info-card__meta" id="coordEmail"></p>
+                            <p class="at-info-card__meta" id="coordHours"></p>
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="card-body">
-                <h5 class="card-title d-flex align-items-center gap-2">
-                    <i class="bi bi-clipboard2-check"></i> 3) Detalles de la solicitud
-                </h5>
-                <div id="altaFields" class="mb-3" hidden>
-                    <h6 class="mb-2">Alta de materia</h6>
+
+                <div id="altaFields" class="at-fieldset mb-3" hidden>
+                    <h6 class="at-fieldset__title">
+                        <i class="bi bi-plus-circle text-success me-1" aria-hidden="true"></i>
+                        Alta de materia
+                    </h6>
                     <div class="row g-2">
                         <div class="col-12 col-sm-6">
-                            <label class="form-label">Materia a dar de alta</label>
+                            <label class="form-label" for="altaMateria">Materia a dar de alta</label>
                             <input type="text" class="form-control" id="altaMateria" placeholder="Ej. Cálculo Integral">
                         </div>
                         <div class="col-12 col-sm-6 d-flex align-items-end">
@@ -80,7 +109,7 @@
                             </div>
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label class="form-label">Horario de la materia (si lo conoces)</label>
+                            <label class="form-label" for="altaHorario">Horario de la materia (si lo conoces)</label>
                             <input type="text" class="form-control" id="altaHorario" placeholder="Ej. Lu-Mi 9:00–10:50">
                         </div>
                     </div>
@@ -89,15 +118,18 @@
                     </div>
                 </div>
 
-                <div id="bajaFields" class="mb-3" hidden>
-                    <h6 class="mb-2">Baja de materia</h6>
+                <div id="bajaFields" class="at-fieldset mb-3" hidden>
+                    <h6 class="at-fieldset__title">
+                        <i class="bi bi-dash-circle text-danger me-1" aria-hidden="true"></i>
+                        Baja de materia
+                    </h6>
                     <div class="row g-2">
                         <div class="col-12 col-sm-6">
-                            <label class="form-label">Materia a dar de baja</label>
+                            <label class="form-label" for="bajaMateria">Materia a dar de baja</label>
                             <input type="text" class="form-control" id="bajaMateria" placeholder="Ej. Física I">
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label class="form-label">Horario de la materia</label>
+                            <label class="form-label" for="bajaHorario">Horario de la materia</label>
                             <input type="text" class="form-control" id="bajaHorario"
                                 placeholder="Ej. Ma-Ju 11:00–12:50">
                         </div>
@@ -106,24 +138,29 @@
                         Verifica que al dar de baja no quedes con <strong>&lt; 20 créditos</strong>.
                     </div>
                 </div>
-                <!-- Boton para confirmar form-->
-                <button class="btn btn-primary" id="btnConfirmForms">
-                    <i class="bi bi-check2-circle me-1"></i> Confirmar detalles
+
+                <!-- Boton siempre visible; valida al click. -->
+                <div class="d-flex justify-content-end gap-2">
+                    <button class="btn btn-primary" id="btnConfirmForms" type="button">
+                        Continuar <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div class="card shadow-sm mb-3" id="stepCalendar" hidden>
+        <!-- Step 4: Horario -->
+        <div class="at-card mb-3" id="stepCalendar" hidden>
             <div class="card-body">
-                <h5 class="card-title d-flex align-items-center gap-2">
-                    <i class="bi bi-calendar-event"></i> 4) Selecciona el día y el horario
+                <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-calendar-event" aria-hidden="true"></i> 4) Selecciona el día y el horario
                 </h5>
 
                 <div id="calendarBlock" class="expand-fade-enter">
                     <div class="row g-2 align-items-end">
                         <div class="col-12">
                             <label class="form-label">Días disponibles</label>
-                            <div class="d-flex gap-2 flex-wrap day-buttons-container">
-                                <!-- Los botones se generan dinámicamente desde el período activo -->
+                            <div class="d-flex gap-2 flex-wrap day-buttons-container" role="group"
+                                 aria-label="Días disponibles">
                                 <p class="text-muted">Cargando días habilitados...</p>
                             </div>
                             <div class="form-text">Solo los días habilitados en el período actual están disponibles.</div>
@@ -133,47 +170,73 @@
                     <div id="slotsWrap" class="mt-3" hidden>
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <div class="fw-semibold">Horarios</div>
-                            <button class="btn btn-sm btn-outline-secondary" id="btnChangeDay">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Elegir otro día
+                            <button class="btn btn-sm btn-outline-secondary" id="btnChangeDay" type="button">
+                                <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i> Elegir otro día
                             </button>
                         </div>
 
-                        <!-- Leyenda compacta -->
-                        <div class="small text-muted mb-2">
-                            <span class="me-3">
-                                <span class="d-inline-block rounded-circle bg-secondary me-1"
-                                    style="width:10px;height:10px;vertical-align:middle;"></span>
+                        <!-- Leyenda con dots visibles -->
+                        <div class="at-legend">
+                            <span class="at-legend__item">
+                                <span class="at-legend-dot at-legend-dot--available" aria-hidden="true"></span>
                                 Disponible
                             </span>
-                            <span class="me-3">
-                                <span class="d-inline-block rounded-circle bg-success me-1"
-                                    style="width:10px;height:10px;vertical-align:middle;"></span>
+                            <span class="at-legend__item">
+                                <span class="at-legend-dot at-legend-dot--held-self" aria-hidden="true"></span>
                                 Seleccionado
                             </span>
-                            <span>
-                                <span class="d-inline-block rounded-circle bg-warning me-1"
-                                    style="width:10px;height:10px;vertical-align:middle;"></span>
+                            <span class="at-legend__item">
+                                <span class="at-legend-dot at-legend-dot--reserved" aria-hidden="true"></span>
                                 En espera
                             </span>
                         </div>
 
                         <!-- Tabs por hora -->
-                        <ul class="nav nav-pills mb-2 flex-wrap gap-1 btn-outline-light" id="hourTabs"></ul>
+                        <ul class="nav nav-pills mb-2 flex-nowrap gap-1 slot-hour-tabs" id="hourTabs"
+                            role="tablist" aria-label="Filtro por hora"></ul>
 
                         <!-- Contenedor de slots -->
-                        <div id="slotGrid" class="d-flex flex-wrap gap-2"></div>
+                        <div id="slotGrid" class="d-flex flex-wrap gap-2" role="group"
+                             aria-label="Slots disponibles"></div>
                     </div>
+                </div>
+
+                <!-- Boton continuar (aparece al tener slot reservado). -->
+                <div class="d-flex justify-content-end mt-3" id="calendarNextWrap" hidden>
+                    <button class="btn btn-primary" id="btnNextFromCalendar" type="button">
+                        Continuar <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                    </button>
                 </div>
 
             </div>
         </div>
 
+        <!-- Step final: Confirmar (resumen) -->
+        <div class="at-card mb-3" id="stepConfirm" hidden>
+            <div class="card-body">
+                <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+                    <i class="bi bi-shield-check text-success" aria-hidden="true"></i>
+                    <span id="confirmStepTitle">5) Revisa y confirma</span>
+                </h5>
+
+                <p class="text-muted mb-3">
+                    Verifica que toda la información sea correcta. Una vez enviada, no podrás modificarla.
+                </p>
+
+                <dl class="at-summary mb-4" id="confirmSummary"></dl>
+            </div>
+        </div>
+
+        <!-- Barra de accion final (visible solo en step Confirmar) -->
         <div class="d-flex gap-2" id="actionBar" hidden>
-            <button id="btnSubmit" class="btn btn-primary" disabled>
-                 
+            <button id="btnSubmit" class="btn btn-success btn-lg" type="button" disabled>
+                <i class="bi bi-check2-circle me-1" aria-hidden="true"></i> Confirmar solicitud
             </button>
-            <a href="{{ url_for('agendatec_pages.student_pages.student_home') }}" class="btn btn-outline-secondary">
-                <i class="bi bi-x-circle me-1"></i> Cancelar
+            <button id="btnBackFromConfirm" type="button" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1" aria-hidden="true"></i> Volver
+            </button>
+            <a href="{{ url_for('agendatec_pages.student_pages.student_home') }}" class="btn btn-outline-danger">
+                <i class="bi bi-x-circle me-1" aria-hidden="true"></i> Cancelar
             </a>
         </div>
 
@@ -182,7 +245,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='agendatec/js/student/request.js') }}?v={{ sv('agendatec', 'js/student/request.js') }}"></script>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ sv('agendatec', 'js/sockets/slots_client.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/student/request.js') }}?v={{ sv('agendatec', 'js/student/request.js') }}"></script>
 {% endblock %}

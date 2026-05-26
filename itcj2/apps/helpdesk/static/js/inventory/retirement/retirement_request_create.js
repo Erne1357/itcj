@@ -4,16 +4,20 @@
     const API_BASE = '/api/help-desk/v2/inventory';
 
     const el = {
-        reasonInput:   document.getElementById('reason-input'),
-        reasonChars:   document.getElementById('reason-chars'),
-        itemSearch:    document.getElementById('item-search-input'),
-        searchResults: document.getElementById('items-search-results'),
-        selectedList:  document.getElementById('selected-items-list'),
-        itemsCount:    document.getElementById('items-count'),
-        summaryCount:  document.getElementById('summary-items-count'),
-        docInput:      document.getElementById('document-input'),
-        btnDraft:      document.getElementById('btn-save-draft'),
-        btnSubmit:     document.getElementById('btn-save-submit'),
+        reasonInput:       document.getElementById('reason-input'),
+        reasonChars:       document.getElementById('reason-chars'),
+        itemSearch:        document.getElementById('item-search-input'),
+        searchResults:     document.getElementById('items-search-results'),
+        selectedList:      document.getElementById('selected-items-list'),
+        itemsCount:        document.getElementById('items-count'),
+        summaryCount:      document.getElementById('summary-items-count'),
+        docInput:          document.getElementById('document-input'),
+        btnDraft:          document.getElementById('btn-save-draft'),
+        btnSubmit:         document.getElementById('btn-save-submit'),
+        optOficio:         document.getElementById('opt-oficio'),
+        optDocumento:      document.getElementById('opt-documento'),
+        docUploadWrapper:  document.getElementById('doc-upload-wrapper'),
+        approvalModeError: document.getElementById('approval-mode-error'),
     };
 
     // Selected items: Map<item_id, { item, notes }>
@@ -159,18 +163,52 @@
         });
     }
 
+    // ── Approval mode ─────────────────────────────────────────────────────────
+    document.querySelectorAll('input[name="approvalMode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const isDocumento = el.optDocumento.checked;
+            el.docUploadWrapper.style.display = isDocumento ? 'block' : 'none';
+            el.approvalModeError.classList.add('d-none');
+            updateButtons();
+            updateSummaryFlow();
+        });
+    });
+
+    function updateSummaryFlow() {
+        const summaryFlow = document.getElementById('summary-flow');
+        if (!summaryFlow) return;
+        if (el.optOficio.checked) {
+            summaryFlow.textContent = 'Oficio \u2192 Jefe RM \u2192 Subdirector \u2192 Director';
+        } else if (el.optDocumento.checked) {
+            summaryFlow.textContent = 'Documento \u2192 Aprobaci\u00f3n Centro de C\u00f3mputo';
+        } else {
+            summaryFlow.textContent = 'Selecciona un modo (Paso 3)';
+        }
+    }
+
     // ── Buttons state ─────────────────────────────────────────────────────────
     function updateButtons() {
         const hasReason = el.reasonInput.value.trim().length >= 5;
         const hasItems  = selectedItems.size > 0;
+        const hasMode   = el.optOficio.checked || el.optDocumento.checked;
         el.btnDraft.disabled  = !(hasReason && hasItems);
-        el.btnSubmit.disabled = !(hasReason && hasItems);
+        el.btnSubmit.disabled = !(hasReason && hasItems && hasMode);
     }
 
     // ── Save ──────────────────────────────────────────────────────────────────
     async function save(andSubmit) {
         const reason = el.reasonInput.value.trim();
         if (!reason || selectedItems.size === 0) return;
+
+        // Validate approval mode when submitting
+        if (andSubmit) {
+            const hasMode = el.optOficio.checked || el.optDocumento.checked;
+            if (!hasMode) {
+                el.approvalModeError.classList.remove('d-none');
+                el.approvalModeError.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                return;
+            }
+        }
 
         el.btnDraft.disabled  = true;
         el.btnSubmit.disabled = true;
@@ -199,20 +237,39 @@
             const created = await createRes.json();
             const reqId = created.data.id;
 
-            // Attach document if provided
-            const docFile = el.docInput.files[0];
-            if (docFile) {
-                const fd = new FormData();
-                fd.append('file', docFile);
-                await fetch(`${API_BASE}/retirement-requests/${reqId}/attach`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-                    body: fd,
-                });
-            }
-
-            // Submit if requested
             if (andSubmit) {
+                if (el.optOficio.checked) {
+                    // Modo oficio: generar PDF (marca oficio_data en backend) + descarga automática
+                    const genRes = await fetch(`${API_BASE}/retirement-requests/${reqId}/generate-document?format=pdf`, {
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+                    });
+                    if (!genRes.ok) {
+                        const err = await genRes.json().catch(() => ({}));
+                        throw new Error((err.detail && err.detail.error) || 'Error al generar el oficio');
+                    }
+                    const blob = await genRes.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${reqId}-oficio.pdf`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                } else if (el.optDocumento.checked) {
+                    // Modo documento físico: adjuntar archivo si se proporcionó
+                    const docFile = el.docInput ? el.docInput.files[0] : null;
+                    if (docFile) {
+                        const fd = new FormData();
+                        fd.append('file', docFile);
+                        await fetch(`${API_BASE}/retirement-requests/${reqId}/attach`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                            body: fd,
+                        });
+                    }
+                }
+
+                // Enviar a revisión (ambos modos)
                 const submitRes = await fetch(`${API_BASE}/retirement-requests/${reqId}/submit`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
@@ -221,12 +278,25 @@
                     const err = await submitRes.json();
                     throw new Error(err.detail || 'Error al enviar la solicitud');
                 }
+
+            } else {
+                // Modo borrador: adjuntar documento si ya fue seleccionado (opcional)
+                const docFile = el.docInput ? el.docInput.files[0] : null;
+                if (docFile && el.optDocumento.checked) {
+                    const fd = new FormData();
+                    fd.append('file', docFile);
+                    await fetch(`${API_BASE}/retirement-requests/${reqId}/attach`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                        body: fd,
+                    });
+                }
             }
 
             window.location.href = `/help-desk/inventory/retirement-requests/${reqId}`;
 
         } catch (err) {
-            showToast('Error: ' + err.message, 'error');
+            window.HelpdeskUtils.showToast('Error: ' + err.message, 'danger');
             el.btnDraft.disabled  = false;
             el.btnSubmit.disabled = false;
             updateButtons();

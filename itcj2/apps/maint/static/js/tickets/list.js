@@ -27,16 +27,40 @@
     // ── Estado ────────────────────────────────────────────────────────────────
     var _state = {
         status: '', category_id: '', priority: '', search: '',
-        page: 1, per_page: 20,
+        page: 1, per_page: 20, assigned_to: '',
     };
     var _searchTimer = null;
+    var _isTechMaint = false;
 
     // ── Init ──────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
+        _detectRoleAndSetDefault();
         _loadCategories();
         _bindFilters();
         _fetchTickets();
     });
+
+    function _detectRoleAndSetDefault() {
+        // Default chip por rol:
+        //   tech_maint puro (NO admin/dispatcher) → "Asignados a mí".
+        //   Otros → "Todos".
+        // MAINT_CTX viene inyectado en el template Jinja con los roles del user.
+        var ctx = window.MAINT_CTX || {};
+        _isTechMaint = !!ctx.isTechMaint && !ctx.isAdmin && !ctx.isDispatcher;
+
+        var btns = document.querySelectorAll('.mn-status-filter');
+        btns.forEach(function (b) { b.classList.remove('active'); });
+        var defaultBtn;
+        if (_isTechMaint) {
+            defaultBtn = document.querySelector('[data-assigned="me"]');
+            _state.assigned_to = 'me';
+        } else {
+            // "Todos" es el último botón con data-status="" sin data-assigned.
+            var all = document.querySelectorAll('.mn-status-filter[data-status=""]:not([data-assigned])');
+            defaultBtn = all[all.length - 1];
+        }
+        if (defaultBtn) defaultBtn.classList.add('active');
+    }
 
     function _loadCategories() {
         MaintUtils.api.fetch(API_BASE + '/categories')
@@ -59,6 +83,7 @@
             document.querySelectorAll('.mn-status-filter').forEach(function (b) { b.classList.remove('active'); });
             btn.classList.add('active');
             _state.status = btn.dataset.status || '';
+            _state.assigned_to = btn.dataset.assigned || '';
             _state.page = 1;
             _fetchTickets();
         });
@@ -86,25 +111,33 @@
         });
 
         document.getElementById('clearFilters').addEventListener('click', function () {
-            _state = { status: '', category_id: '', priority: '', search: '', page: 1, per_page: 20 };
+            _state = { status: '', category_id: '', priority: '', search: '', page: 1, per_page: 20, assigned_to: '' };
             document.getElementById('searchInput').value = '';
             document.getElementById('categoryFilter').value = '';
             document.getElementById('priorityFilter').value = '';
             document.querySelectorAll('.mn-status-filter').forEach(function (b) { b.classList.remove('active'); });
-            document.querySelector('[data-status=""]').classList.add('active');
+            // "Todos" es el último botón con data-status="" sin data-assigned.
+            var all = document.querySelectorAll('.mn-status-filter[data-status=""]:not([data-assigned])');
+            if (all.length) all[all.length - 1].classList.add('active');
             _fetchTickets();
         });
     }
 
     function _fetchTickets() {
         var container = document.getElementById('ticketList');
-        container.innerHTML = _skeletonHTML();
+        container.classList.remove('mn-stagger');
+        if (window.MaintUtils && MaintUtils.skeleton) {
+            MaintUtils.skeleton.show(container, 'ticket-card', 4);
+        } else {
+            container.innerHTML = _skeletonHTML();
+        }
 
         var params = new URLSearchParams({ page: _state.page, per_page: _state.per_page });
         if (_state.status)      params.set('status', _state.status);
         if (_state.category_id) params.set('category_id', _state.category_id);
         if (_state.priority)    params.set('priority', _state.priority);
         if (_state.search)      params.set('search', _state.search);
+        if (_state.assigned_to) params.set('assigned_to', _state.assigned_to);
 
         MaintUtils.api.fetch(API_BASE + '/tickets?' + params.toString())
             .then(function (data) {
@@ -128,7 +161,7 @@
 
         if (tickets.length === 0) {
             container.innerHTML =
-                '<div class="text-center py-5 text-muted">' +
+                '<div class="text-center py-5 text-muted mn-empty">' +
                 '<i class="bi bi-clipboard-x fs-1 d-block mb-2"></i>' +
                 '<p class="mb-0">No se encontraron tickets</p>' +
                 '</div>';
@@ -137,6 +170,11 @@
         }
 
         container.innerHTML = tickets.map(_renderCard).join('');
+        container.classList.add('mn-stagger');
+        // ensure each direct child has the entrance class (CSS handles the rest)
+        Array.prototype.forEach.call(container.children, function (a) {
+            a.classList.add('mn-fade-in-up');
+        });
         _renderPagination(data);
     }
 
@@ -162,12 +200,19 @@
         var catName = t.category ? t.category.name : '—';
         var requesterName = t.requester ? t.requester.name : '—';
 
-        return '<a href="/maintenance/tickets/' + t.id + '" class="text-decoration-none">' +
+        // Usar is_overdue del servidor si está disponible; si no, calcularlo localmente
+        var serverOverdue = (t.is_overdue === true);
+        var overdueBadge = (isOverdue || serverOverdue)
+            ? '<span class="mn-badge-overdue ms-1"><i class="bi bi-exclamation-triangle-fill"></i>Vencido</span>'
+            : '';
+
+        return '<a href="/maint/tickets/' + t.id + '" class="text-decoration-none">' +
             '<div class="mn-ticket-card ' + cardBorderClass + ' mb-3 p-3">' +
                 '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2">' +
                     '<div class="d-flex align-items-start gap-2 flex-wrap">' +
                         '<span class="mn-badge-status ' + (STATUS_CSS[t.status] || '') + '">' +
                             (STATUS_LABEL[t.status] || t.status) + '</span>' +
+                        overdueBadge +
                         '<span class="mn-badge-status ' + (PRIORITY_CSS[t.priority] || '') + '">' +
                             (PRIORITY_LABEL[t.priority] || t.priority) + '</span>' +
                         '<span class="mn-category-badge"><i class="bi ' + _esc(catIcon) + ' me-1"></i>' + _esc(catName) + '</span>' +
@@ -249,5 +294,289 @@
         d.appendChild(document.createTextNode(String(s || '')));
         return d.innerHTML;
     }
+
+})();
+
+// =============================================================================
+// MaintLiveListSync — WebSocket live updates para la lista de tickets
+// =============================================================================
+(function () {
+    'use strict';
+
+    var _newBannerCount = 0;
+    var _bannerEl = null;
+
+    // ── Esperar a que el socket esté listo (máx 3 s) ─────────────────────────
+
+    function _waitForSocket(callback) {
+        var attempts = 0;
+        var maxAttempts = 30; // 30 × 100 ms = 3 s
+        var interval = setInterval(function () {
+            if (window.__maintSocket) {
+                clearInterval(interval);
+                callback(window.__maintSocket);
+                return;
+            }
+            attempts++;
+            if (attempts >= maxAttempts) {
+                clearInterval(interval);
+                console.warn('[MaintLiveListSync] Socket no disponible después de 3 s — sin actualizaciones en tiempo real');
+            }
+        }, 100);
+    }
+
+    // ── Unirse a los rooms según el rol del usuario ───────────────────────────
+
+    function _joinRooms() {
+        var ctx = window.MAINT_CTX || {};
+
+        // Siempre unirse al room personal (recibe ticket_assigned)
+        window.__maintJoinTech();
+
+        // Dispatcher y admin ven todos los tickets
+        if (ctx.isDispatcher) {
+            window.__maintJoinDispatcher();
+        }
+
+        // department_head / secretary: no se une a dept room porque el
+        // department_id del usuario no está disponible en esta página sin una
+        // llamada adicional al backend. El room personal (join_tech) es suficiente
+        // para ticket_assigned; los eventos de estado llegarán al dispatcher si aplica.
+    }
+
+    // ── Banner de "hay N tickets nuevos" ─────────────────────────────────────
+
+    function _ensureBanner() {
+        if (_bannerEl) return;
+        _bannerEl = document.createElement('div');
+        _bannerEl.id = 'liveNewBanner';
+        _bannerEl.style.cssText =
+            'display:none;cursor:pointer;background:#0d6efd;color:#fff;' +
+            'text-align:center;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:0.875rem;';
+        _bannerEl.addEventListener('click', function () {
+            _newBannerCount = 0;
+            _hideBanner();
+            if (typeof _fetchTickets === 'function') _fetchTickets();
+        });
+
+        var listEl = document.getElementById('ticketList');
+        if (listEl && listEl.parentNode) {
+            listEl.parentNode.insertBefore(_bannerEl, listEl);
+        }
+    }
+
+    function _showBanner() {
+        _ensureBanner();
+        _bannerEl.style.display = 'block';
+        _bannerEl.textContent =
+            'Hay ' + _newBannerCount + ' ticket' + (_newBannerCount !== 1 ? 's' : '') +
+            ' nuevo' + (_newBannerCount !== 1 ? 's' : '') + '. Haz clic para actualizar.';
+    }
+
+    function _hideBanner() {
+        if (_bannerEl) _bannerEl.style.display = 'none';
+    }
+
+    // ── Comprobar si un ticket recién creado pasa los filtros actuales ────────
+
+    function _matchesCurrentFilters(payload) {
+        // _state es la variable de estado del IIFE principal (closure compartido
+        // entre los dos IIFEs en el mismo archivo).
+        // Como ambos IIFEs están en el mismo archivo, _state NO es accesible aquí.
+        // Se accede a través de los filtros activos del DOM, que es la fuente de
+        // verdad observable desde el exterior.
+        var activeStatusBtn = document.querySelector('.mn-status-filter.active');
+        var statusFilter   = activeStatusBtn ? (activeStatusBtn.dataset.status || '') : '';
+        var catFilter      = (document.getElementById('categoryFilter') || {}).value || '';
+        var priorityFilter = (document.getElementById('priorityFilter') || {}).value || '';
+        var searchFilter   = ((document.getElementById('searchInput') || {}).value || '').toLowerCase().trim();
+
+        if (statusFilter && payload.status !== statusFilter) return false;
+        if (catFilter && String(payload.category_id) !== String(catFilter)) return false;
+        if (priorityFilter && payload.priority !== priorityFilter) return false;
+        if (searchFilter) {
+            var title  = (payload.title || '').toLowerCase();
+            var number = (payload.ticket_number || '').toLowerCase();
+            if (title.indexOf(searchFilter) === -1 && number.indexOf(searchFilter) === -1) return false;
+        }
+        return true;
+    }
+
+    // ── Flash animation en tarjeta nueva ─────────────────────────────────────
+
+    function _flashCard(cardEl) {
+        if (window.MaintUtils && MaintUtils.animate) {
+            MaintUtils.animate.highlight(cardEl);
+            return;
+        }
+        cardEl.style.transition = 'background-color 0.4s ease';
+        cardEl.style.backgroundColor = '#d1e7dd';
+        setTimeout(function () { cardEl.style.backgroundColor = ''; }, 1200);
+    }
+
+    // ── Actualizar tarjeta existente en la lista ──────────────────────────────
+
+    var STATUS_LABEL = {
+        PENDING: 'Pendiente', ASSIGNED: 'Asignado', IN_PROGRESS: 'En Progreso',
+        RESOLVED_SUCCESS: 'Resuelto', RESOLVED_FAILED: 'Atendido',
+        CLOSED: 'Cerrado', CANCELED: 'Cancelado',
+    };
+    var STATUS_CSS = {
+        PENDING: 'mn-status-pending', ASSIGNED: 'mn-status-assigned',
+        IN_PROGRESS: 'mn-status-in-progress', RESOLVED_SUCCESS: 'mn-status-resolved-ok',
+        RESOLVED_FAILED: 'mn-status-resolved-fail', CLOSED: 'mn-status-closed',
+        CANCELED: 'mn-status-canceled',
+    };
+    var PRIORITY_CSS = {
+        BAJA: 'mn-priority-baja', MEDIA: 'mn-priority-media',
+        ALTA: 'mn-priority-alta', URGENTE: 'mn-priority-urgente',
+    };
+    var PRIORITY_LABEL = { BAJA: 'Baja', MEDIA: 'Media', ALTA: 'Alta', URGENTE: 'Urgente' };
+
+    function _updateCardInPlace(payload) {
+        // Las tarjetas son <a href="..."><div class="mn-ticket-card ...">
+        // Buscamos por ticket_number o construimos el href
+        var ticketId = payload.ticket_id;
+        if (!ticketId) return false;
+
+        var link = document.querySelector('#ticketList a[href="/maint/tickets/' + ticketId + '"]');
+        if (!link) return false;
+
+        // Actualizar badge de estado
+        if (payload.status) {
+            var badges = link.querySelectorAll('.mn-badge-status');
+            // El primer badge es el de estado, el segundo es prioridad
+            if (badges[0]) {
+                badges[0].textContent = STATUS_LABEL[payload.status] || payload.status;
+                badges[0].className = 'mn-badge-status ' + (STATUS_CSS[payload.status] || '');
+            }
+        }
+
+        // Actualizar badge de prioridad
+        if (payload.priority) {
+            var badges2 = link.querySelectorAll('.mn-badge-status');
+            if (badges2[1]) {
+                badges2[1].textContent = PRIORITY_LABEL[payload.priority] || payload.priority;
+                badges2[1].className = 'mn-badge-status ' + (PRIORITY_CSS[payload.priority] || '');
+            }
+        }
+
+        // Actualizar chips de técnicos
+        if (payload.active_technicians !== undefined) {
+            var techsContainer = link.querySelector('.mn-ticket-card > div:last-child > div:first-child');
+            if (techsContainer) {
+                var techs = (payload.active_technicians || []).map(function (tech) {
+                    return '<span class="mn-technician-chip">' +
+                        '<i class="bi bi-person-fill" style="font-size:0.7rem;"></i> ' +
+                        _escLocal(tech.name || tech.user_name || '') + '</span>';
+                }).join(' ');
+                techsContainer.innerHTML = techs || '<small class="text-muted">Sin técnico asignado</small>';
+            }
+        }
+
+        return true;
+    }
+
+    function _escLocal(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s || '')));
+        return d.innerHTML;
+    }
+
+    // ── Prepend de tarjeta nueva ──────────────────────────────────────────────
+
+    function _prependNewCard(payload) {
+        var container = document.getElementById('ticketList');
+        if (!container) return;
+
+        // Construir un <a> wrapper mínimo con la data del payload
+        var wrapper = document.createElement('a');
+        wrapper.href = '/maint/tickets/' + payload.id;
+        wrapper.className = 'text-decoration-none';
+
+        var card = document.createElement('div');
+        card.className = 'mn-ticket-card mb-3 p-3';
+        card.innerHTML =
+            '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2">' +
+                '<div class="d-flex align-items-start gap-2 flex-wrap">' +
+                    '<span class="mn-badge-status ' + (STATUS_CSS[payload.status] || '') + '">' +
+                        (STATUS_LABEL[payload.status] || payload.status) + '</span>' +
+                    '<span class="mn-badge-status ' + (PRIORITY_CSS[payload.priority] || '') + '">' +
+                        (PRIORITY_LABEL[payload.priority] || payload.priority) + '</span>' +
+                '</div>' +
+                '<span class="mn-ticket-number">' + _escLocal(payload.ticket_number || '') + '</span>' +
+            '</div>' +
+            '<div class="mt-2">' +
+                '<div class="fw-semibold" style="color: var(--maint-primary-darker);">' + _escLocal(payload.title || '') + '</div>' +
+                (payload.location ? '<small class="text-muted"><i class="bi bi-geo-alt me-1"></i>' + _escLocal(payload.location) + '</small>' : '') +
+            '</div>' +
+            '<div class="mn-progress-bar mt-2 mb-2"><div class="mn-progress-fill" style="width:0%"></div></div>' +
+            '<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">' +
+                '<small class="text-muted">Sin técnico asignado</small>' +
+                '<small class="text-muted"><i class="bi bi-person me-1"></i>' +
+                    _escLocal((payload.requester && payload.requester.name) || '') + '</small>' +
+            '</div>';
+
+        wrapper.appendChild(card);
+        wrapper.classList.add('mn-fade-in-down');
+
+        // Insertar antes del primer hijo (o como único hijo si la lista estaba vacía)
+        if (container.firstChild && !container.querySelector('.text-center')) {
+            container.insertBefore(wrapper, container.firstChild);
+        } else {
+            container.innerHTML = '';
+            container.appendChild(wrapper);
+        }
+
+        _flashCard(card);
+    }
+
+    // ── Registro de eventos ───────────────────────────────────────────────────
+
+    function _bindEvents(socket) {
+        // Ticket creado: solo dispatcher/admin lo reciben (vía dispatcher:all y dept room)
+        socket.on('ticket_created', function (payload) {
+            if (_matchesCurrentFilters(payload)) {
+                _prependNewCard(payload);
+                _hideBanner();
+            } else {
+                _newBannerCount++;
+                _showBanner();
+            }
+        });
+
+        // Cambios de estado/asignación: actualizar tarjeta existente si está renderizada
+        var _updateEvents = [
+            'ticket_assigned',
+            'ticket_unassigned',
+            'ticket_status_changed',
+            'ticket_resolved',
+            'ticket_canceled',
+            'ticket_rated',
+        ];
+
+        _updateEvents.forEach(function (eventName) {
+            socket.on(eventName, function (payload) {
+                // Normalizar ticket_id (puede venir como id en algunos payloads)
+                var tid = payload.ticket_id || payload.id;
+                if (!tid) return;
+                var normalized = Object.assign({}, payload, { ticket_id: tid });
+                _updateCardInPlace(normalized);
+                // No tocar el estado interno — la próxima carga del servidor
+                // traerá los datos correctos con filtros y paginación.
+            });
+        });
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+
+    document.addEventListener('DOMContentLoaded', function () {
+        _waitForSocket(function (socket) {
+            _joinRooms();
+            _bindEvents(socket);
+        });
+    });
+
+    window.MaintLiveListSync = { joinRooms: _joinRooms };
 
 })();

@@ -1,14 +1,31 @@
+/* =============================================================================
+   AgendaTec — Admin Dashboard
+   ============================================================================= */
+
 .metric-card {
     min-height: 110px;
 }
 
+/* Variante de acento para KPI destacado (Pendientes) */
+.metric-card--accent {
+    border-left: 4px solid var(--at-warning);
+}
+
+/* Badges de ancho mínimo en lista de pendientes */
+.at-badge-num {
+    min-width: 28px;
+    text-align: center;
+}
+
 .metric-value {
-    font-size: 1.8rem;
-    font-weight: 700;
+    font-size: var(--at-text-2xl);
+    font-weight: var(--at-font-weight-bold);
+    color: var(--at-text);
 }
 
 .metric-sub {
-    color: #6c757d;
+    color: var(--at-text-muted);
+    font-size: var(--at-text-sm);
 }
 
 .card-scroll {
@@ -16,9 +33,52 @@
     overflow: auto;
 }
 
+/* =============================================================================
+   Filtros del header (reemplazan style inline en home.html)
+   ============================================================================= */
+.admin-filter-select {
+    width: auto;
+    min-width: 140px;
+    font-size: var(--at-text-sm);
+}
+
+.admin-filter-date {
+    width: 115px;
+    font-size: var(--at-text-xs);
+}
+
+.admin-filter-btn {
+    font-size: var(--at-text-sm);
+}
+
+.admin-filter-search {
+    width: 150px;
+    font-size: var(--at-text-sm);
+}
+
+.user-search-dropdown {
+    z-index: var(--at-z-dropdown);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+@media (max-width: 575.98px) {
+    .admin-filter-search { width: 100%; }
+    .admin-filter-select { width: 100%; min-width: 0; }
+}
+
+/* =============================================================================
+   Chart hosts (alturas estables dentro de tabs ocultos)
+   ============================================================================= */
 .pieHost {
     position: relative;
     height: 260px;
+}
+
+.pieHost > canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
 }
 
 .miniPieBox {
@@ -26,38 +86,77 @@
     height: 180px;
 }
 
-/* Alturas estables para charts dentro de tabs ocultos */
-#panePieGlobal .pieHost {
-    position: relative;
-    height: 260px;
-}
+#panePieGlobal .pieHost { position: relative; height: 260px; }
+#panePieMini   .miniPieBox { position: relative; height: 180px; }
+#paneSeries    .seriesHost { position: relative; height: 260px; }
 
-#panePieMini .miniPieBox {
-    position: relative;
-    height: 180px;
-}
+/* Reemplazan style="width:100%;height:Npx;" en canvas. */
+.admin-chart-bar    { width: 100%; height: 320px; display: block; }
+.admin-chart-bar-lg { width: 100%; height: 420px; display: block; }
+.admin-chart-act    { width: 100%; height: 280px; display: block; }
 
-#paneSeries .seriesHost {
-    position: relative;
-    height: 260px;
+@media (max-width: 767.98px) {
+    .admin-chart-bar-lg { height: 320px; }
+    .admin-chart-act    { height: 240px; }
 }
 
 .actHost {
     position: relative;
     height: 280px;
-    /* alto base móvil */
 }
 
 @media (min-width: 992px) {
-    .actHost {
-        height: 320px;
-    }
-
-    /* un poco más alto en desktop */
+    .actHost { height: 320px; }
 }
 
-.actHost>canvas {
+.actHost > canvas {
     width: 100% !important;
     height: 100% !important;
     display: block;
+}
+
+/* =============================================================================
+   Pie controls (select de día)
+   ============================================================================= */
+.pie-day-select {
+    width: auto;
+    min-width: 120px;
+}
+
+/* =============================================================================
+   Leyenda de pendientes por coordinador
+   ============================================================================= */
+.coord-legend {
+    display: flex;
+    justify-content: center;
+    gap: var(--at-space-3);
+    margin-bottom: var(--at-space-2);
+    font-size: var(--at-text-sm);
+    color: var(--at-text-muted);
+}
+
+.coord-legend__badge {
+    font-size: var(--at-text-xs);
+    padding: 2px 8px;
+    min-width: 24px;
+}
+
+/* =============================================================================
+   Activity coord selector
+   ============================================================================= */
+.act-coord-group {
+    max-width: 320px;
+}
+
+/* =============================================================================
+   Nav tabs wrapper (scroll horizontal)
+   ============================================================================= */
+.nav-tabs-wrapper {
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.nav-tabs-wrapper .nav-pills {
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }

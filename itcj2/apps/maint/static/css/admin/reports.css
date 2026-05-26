@@ -1,0 +1,118 @@
+/*
+ * reports.css — Estilos para la página de Reportes de Mantenimiento
+ */
+
+/* ── Date-range bar ──────────────────────────────────────────────── */
+.maint-daterange-bar {
+    background: #fff;
+    border-radius: 8px;
+}
+
+/* ── Contenedores de gráfica ─────────────────────────────────────── */
+.chart-wrap {
+    position: relative;
+    height: 300px;
+}
+
+.chart-wrap canvas {
+    max-height: 300px;
+}
+
+.chart-wrap-sm {
+    position: relative;
+    height: 220px;
+}
+
+/* ── Skeleton / loading ──────────────────────────────────────────── */
+.mn-skeleton {
+    background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
+    background-size: 200% 100%;
+    animation: mn-shimmer 1.4s infinite;
+    border-radius: 4px;
+    display: block;
+}
+
+@keyframes mn-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── SLA gauge card ──────────────────────────────────────────────── */
+.sla-gauge-card {
+    text-align: center;
+    padding: 1.5rem 1rem;
+}
+
+.sla-gauge-value {
+    font-size: 3rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--maint-primary-dark);
+}
+
+.sla-gauge-value.good  { color: var(--maint-success); }
+.sla-gauge-value.warn  { color: var(--maint-warning); }
+.sla-gauge-value.bad   { color: var(--maint-danger);  }
+
+.sla-gauge-label {
+    font-size: 0.85rem;
+    color: var(--maint-muted);
+    margin-top: 0.25rem;
+}
+
+/* ── Tabla de técnicos ───────────────────────────────────────────── */
+.mn-table th {
+    background: var(--maint-primary-light);
+    color: var(--maint-primary-darker);
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.mn-table td {
+    font-size: 0.85rem;
+    vertical-align: middle;
+}
+
+/* Mini barra inline */
+.mn-bar-cell {
+    min-width: 80px;
+}
+
+.mn-bar-track {
+    background: var(--maint-primary-light);
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+}
+
+.mn-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--maint-primary);
+    transition: width 0.4s ease;
+}
+
+/* ── SLA badge ───────────────────────────────────────────────────── */
+.sla-badge {
+    display: inline-block;
+    padding: 0.15rem 0.45rem;
+    border-radius: 99px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.sla-badge.good { background: #d1fae5; color: #065f46; }
+.sla-badge.warn { background: #fef3c7; color: #92400e; }
+.sla-badge.bad  { background: #fee2e2; color: #991b1b; }
+
+/* ── Tab nav ─────────────────────────────────────────────────────── */
+.nav-tabs .nav-link.active {
+    color: var(--maint-primary-dark);
+    border-bottom-color: var(--maint-primary);
+    font-weight: 600;
+}
+
+.nav-tabs .nav-link:hover:not(.active) {
+    color: var(--maint-primary);
+}

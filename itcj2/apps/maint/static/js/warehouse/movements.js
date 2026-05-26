@@ -5,7 +5,7 @@
 
 (function () {
 
-    var API = '/api/maint/v2/warehouse';
+    var API = '/api/warehouse/v2';
     var _currentPage = 1;
     var _totalPages = 1;
 

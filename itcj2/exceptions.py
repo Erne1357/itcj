@@ -17,5 +17,17 @@ class PageLoginRequired(Exception):
 class PageForbidden(Exception):
     """Se lanza cuando el usuario no tiene los permisos requeridos para una página.
 
-    El exception handler redirige al dashboard o muestra página de error.
+    El exception handler muestra la página de error 403. El destino del botón
+    depende de ``has_app_access``:
+
+    - ``False`` (sin acceso a la app): botón al panel core y, dentro del
+      iframe del dashboard, cierra la ventana de la app (no hay "inicio" de
+      la app al cual volver).
+    - ``True`` (tiene acceso a la app pero le falta el permiso/rol de esta
+      página concreta): botón al "inicio" de la app, navegando dentro del
+      iframe (sigue en la app).
     """
+
+    def __init__(self, *, has_app_access: bool = False) -> None:
+        self.has_app_access = has_app_access
+        super().__init__()

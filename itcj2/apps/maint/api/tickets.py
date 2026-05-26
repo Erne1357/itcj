@@ -18,6 +18,40 @@ router = APIRouter(tags=["maint-tickets"])
 logger = logging.getLogger(__name__)
 
 
+# ==================== DEPARTAMENTOS DEL SOLICITANTE ====================
+@router.get("/my-departments")
+async def my_departments(
+    user: dict = require_perms("maint", ["maint.tickets.api.create"]),
+    db: DbSession = None,
+):
+    """Lista los departamentos activos del usuario logueado (vía UserPosition).
+
+    Usado por el formulario de creación de ticket para:
+      - Si len==1: usar automáticamente sin mostrar selector.
+      - Si len>1: mostrar selector obligatorio.
+      - Si len==0: dejar nulo (warning UI opcional).
+    """
+    from itcj2.core.models.department import Department
+    from itcj2.core.models.position import UserPosition, Position
+    uid = int(user["sub"])
+    rows = (
+        db.query(Department.id, Department.code, Department.name)
+        .join(Position, Position.department_id == Department.id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            UserPosition.user_id == uid,
+            UserPosition.is_active == True,
+        )
+        .distinct()
+        .order_by(Department.name.asc())
+        .all()
+    )
+    return {
+        "success": True,
+        "data": [{"id": r[0], "code": r[1], "name": r[2]} for r in rows],
+    }
+
+
 # ==================== LISTAR TICKETS ====================
 @router.get("")
 @router.get("/")
@@ -28,6 +62,7 @@ async def list_tickets(
     search: str = None,
     page: int = 1,
     per_page: int = 20,
+    assigned_to: str = None,
     user: dict = require_perms("maint", [
         "maint.tickets.api.read.own",
         "maint.tickets.api.read.department",
@@ -35,6 +70,7 @@ async def list_tickets(
     ]),
     db: DbSession = None,
 ):
+    """`assigned_to=me` filtra a tickets donde el user es técnico activo."""
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "maint")
@@ -49,6 +85,7 @@ async def list_tickets(
         search=search,
         page=page,
         per_page=per_page,
+        assigned_to_me=(assigned_to == "me"),
     )
     return {
         **{k: v for k, v in result.items() if k != "tickets"},
@@ -75,8 +112,14 @@ async def create_ticket(
         location=body.location,
         custom_fields=body.custom_fields,
         created_by_id=user_id,
+        department_id=body.department_id,
     )
-    MaintNotificationHelper.notify_ticket_created(db, ticket)
+    try:
+        MaintNotificationHelper.notify_ticket_created(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_created failed for ticket %s: %s", ticket.id, exc)
     return {"ticket_id": ticket.id, "ticket_number": ticket.ticket_number, "due_at": ticket.due_at.isoformat() if ticket.due_at else None}
 
 
@@ -137,6 +180,12 @@ async def start_ticket(
     user_id = int(user["sub"])
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
     ticket = ticket_service.start_progress(db, ticket_id, user_id, user_roles)
+    try:
+        MaintNotificationHelper.notify_ticket_in_progress(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_in_progress failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}
 
 
@@ -177,7 +226,12 @@ async def resolve_ticket(
         observations=body.observations,
         materials_used=body.materials_used,
     )
-    MaintNotificationHelper.notify_ticket_resolved(db, resolved)
+    try:
+        MaintNotificationHelper.notify_ticket_resolved(db, resolved)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_resolved failed for ticket %s: %s", resolved.id, exc)
     response = {"status": resolved.status, "ticket_number": resolved.ticket_number}
     if warnings:
         response["warnings"] = warnings
@@ -250,6 +304,12 @@ async def rate_ticket(
         rating_efficiency=body.rating_efficiency,
         comment=body.comment,
     )
+    try:
+        MaintNotificationHelper.notify_ticket_rated(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_rated failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}
 
 
@@ -271,5 +331,10 @@ async def cancel_ticket(
         reason=body.reason,
         user_roles=user_roles,
     )
-    MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+    try:
+        MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_canceled failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}

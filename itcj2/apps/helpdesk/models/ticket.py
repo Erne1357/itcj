@@ -102,13 +102,34 @@ class Ticket(Base):
     def __repr__(self):
         return f'<Ticket {self.ticket_number}: {self.title[:30]}>'
 
+    def _status_flag(self, flag_name: str, default=False):
+        """
+        Lee una flag booleana del catálogo de estados sin requerir db.
+        Fallback defensivo si el cache no está poblado (tests, boot).
+        """
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_status_flags
+        s = get_status_flags(self.status)
+        if s is None:
+            return default
+        return bool(s.get(flag_name, default))
+
     @property
     def is_open(self):
-        return self.status not in ['CLOSED', 'CANCELED']
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_status_flags
+        s = get_status_flags(self.status)
+        if s is None:
+            # fallback defensivo si el cache no está poblado
+            return self.status not in ('CLOSED', 'CANCELED')
+        return not s.get('is_terminal') and not s.get('is_resolved')
 
     @property
     def is_resolved(self):
-        return self.status in ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED']
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_status_flags
+        s = get_status_flags(self.status)
+        if s is None:
+            # fallback defensivo si el cache no está poblado
+            return self.status in ('RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED')
+        return bool(s.get('is_resolved', False))
 
     @property
     def can_be_rated(self):
@@ -150,7 +171,7 @@ class Ticket(Base):
     def inventory_items_count(self):
         return self.ticket_items.count()
 
-    def to_dict(self, include_relations=False, include_metrics=False):
+    def to_dict(self, include_relations=False, include_metrics=False, db=None):
         data = {
             'id': self.id,
             'ticket_number': self.ticket_number,
@@ -252,24 +273,21 @@ class Ticket(Base):
             end_time = ensure_local_timezone(self.resolved_at) if self.resolved_at else now_local()
             total_elapsed_hours = (end_time - created_at).total_seconds() / 3600
 
-            sla_targets = {'URGENTE': 4, 'ALTA': 24, 'MEDIA': 72, 'BAJA': 168}
-            sla_target_hours = sla_targets.get(self.priority, 72)
+            if db is not None:
+                from itcj2.apps.helpdesk.utils.catalog_cache import get_sla_hours
+                sla_target_hours = get_sla_hours(db, self.priority) or 72
+            else:
+                from itcj2.database import SessionLocal
+                from itcj2.apps.helpdesk.utils.catalog_cache import get_sla_hours
+                _db = SessionLocal()
+                try:
+                    sla_target_hours = get_sla_hours(_db, self.priority) or 72
+                finally:
+                    _db.close()
             sla_percentage = min((total_elapsed_hours / sla_target_hours) * 100, 100) if sla_target_hours > 0 else 0
             sla_status = 'on_time' if total_elapsed_hours <= sla_target_hours else 'overdue'
 
-            progress_stages = {
-                'PENDING': {'stage': 'created', 'progress': 10, 'description': 'Ticket creado'},
-                'ASSIGNED': {'stage': 'assigned', 'progress': 30, 'description': 'Asignado a técnico'},
-                'IN_PROGRESS': {'stage': 'working', 'progress': 60, 'description': 'En proceso de resolución'},
-                'RESOLVED_SUCCESS': {'stage': 'resolved', 'progress': 90, 'description': 'Resuelto exitosamente'},
-                'RESOLVED_FAILED': {'stage': 'resolved', 'progress': 85, 'description': 'Atendido pero no resuelto'},
-                'CLOSED': {'stage': 'closed', 'progress': 100, 'description': 'Cerrado'},
-                'CANCELED': {'stage': 'canceled', 'progress': 0, 'description': 'Cancelado'},
-            }
-            current_progress = progress_stages.get(
-                self.status,
-                {'stage': 'unknown', 'progress': 0, 'description': 'Estado desconocido'},
-            )
+            current_progress = self._get_progress_stage(db)
 
             rating_avg = None
             if self.rating_attention is not None and self.rating_speed is not None:
@@ -325,6 +343,41 @@ class Ticket(Base):
             return 'malo'
         else:
             return 'muy_malo'
+
+    def _get_progress_stage(self, db=None) -> dict:
+        """
+        Lookup del progreso del ticket vía catalog_cache.
+        Si db no está disponible se usa get_status_flags (sesión efímera interna).
+        Fallback defensivo al dict literal si el cache está vacío (tests, boot).
+        """
+        from itcj2.apps.helpdesk.utils.catalog_cache import get_status_by_code, get_status_flags
+
+        if db is not None:
+            status_dict = get_status_by_code(db, self.status)
+        else:
+            status_dict = get_status_flags(self.status)
+
+        if not status_dict:
+            # fallback defensivo — mantiene compatibilidad con entornos sin BD
+            _fallback = {
+                'PENDING': {'stage': 'created', 'progress': 10, 'description': 'Ticket creado'},
+                'ASSIGNED': {'stage': 'assigned', 'progress': 30, 'description': 'Asignado a técnico'},
+                'IN_PROGRESS': {'stage': 'working', 'progress': 60, 'description': 'En proceso de resolución'},
+                'RESOLVED_SUCCESS': {'stage': 'resolved', 'progress': 90, 'description': 'Resuelto exitosamente'},
+                'RESOLVED_FAILED': {'stage': 'resolved', 'progress': 85, 'description': 'Atendido pero no resuelto'},
+                'CLOSED': {'stage': 'closed', 'progress': 100, 'description': 'Cerrado'},
+                'CANCELED': {'stage': 'canceled', 'progress': 0, 'description': 'Cancelado'},
+            }
+            return _fallback.get(
+                self.status,
+                {'stage': 'unknown', 'progress': 0, 'description': 'Estado desconocido'},
+            )
+
+        return {
+            'stage': status_dict.get('stage') or 'unknown',
+            'progress': status_dict.get('progress_pct') or 0,
+            'description': status_dict.get('label') or self.status,
+        }
 
     def _get_resolution_quality(self):
         if not self.is_resolved:

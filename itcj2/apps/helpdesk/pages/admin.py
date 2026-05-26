@@ -192,6 +192,31 @@ async def analysis(
     })
 
 
+@router.get("/config", name="helpdesk.pages.admin.config")
+async def config(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.config.page.view"])),
+):
+    """Pestaña de configuración del módulo Helpdesk.
+
+    Tabs disponibles (cargados de forma perezosa por JS):
+      - Categorías y campos personalizados
+      - Categorías de inventario
+      - Prioridades y SLA
+      - Estados y transiciones
+      - Áreas
+      - Plantillas de notificación
+      - Auditoría
+    """
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+
+    return render_helpdesk(request, "helpdesk/admin/config.html", {
+        "user_roles": user_roles,
+        "active_page": "admin_config",
+    })
+
+
 @router.get("/documents", name="helpdesk.pages.admin.documents")
 async def documents(
     request: Request,

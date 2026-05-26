@@ -208,6 +208,115 @@ def create_user(
         raise HTTPException(409, detail={"status": "error", "error": "duplicate_value"})
 
 
+# ── Create inactive user (inventory flow) ────────────────────────────────────
+
+class CreateInactiveUserBody(BaseModel):
+    first_name: str
+    last_name: str
+    middle_name: Optional[str] = None
+    email: Optional[str] = None
+    username: str
+    department_id: int
+
+
+@router.post("/create-inactive", status_code=201)
+def create_inactive_user(
+    body: CreateInactiveUserBody,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.create"]),
+    db: DbSession = None,
+):
+    """
+    Crea un usuario de planta inactivo vinculado al puesto aux_{dept_code}.
+    Usado desde el flujo de registro de equipos en inventario.
+    """
+    from itcj2.core.models.user import User
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.position import Position, UserPosition
+    from itcj2.core.models.department import Department
+    from itcj2.core.utils.security import hash_nip
+    from sqlalchemy.exc import IntegrityError
+    from datetime import date
+
+    dept = db.get(Department, body.department_id)
+    if not dept:
+        raise HTTPException(400, detail={"success": False, "error": "Departamento no encontrado"})
+
+    username = body.username.strip().lower()
+    if not username:
+        raise HTTPException(400, detail={"success": False, "error": "Username requerido"})
+
+    if db.query(User).filter_by(username=username).first():
+        raise HTTPException(409, detail={"success": False, "error": f"El username '{username}' ya está en uso"})
+
+    if body.email and db.query(User).filter_by(email=body.email.strip()).first():
+        raise HTTPException(409, detail={"success": False, "error": "El correo ya está registrado en el sistema"})
+
+    role = db.query(Role).filter_by(name="staff").first()
+    if not role:
+        raise HTTPException(500, detail={"success": False, "error": "Rol staff no encontrado"})
+
+    # Obtener o crear puesto auxiliar del departamento
+    aux_code = f"aux_{dept.code}"
+    position = db.query(Position).filter_by(code=aux_code).first()
+    if not position:
+        position = Position(
+            code=aux_code,
+            title=f"Personal auxiliar — {dept.name}",
+            department_id=dept.id,
+            allows_multiple=True,
+            is_active=True,
+            description="Puesto auxiliar para personal sin cargo formal asignado.",
+        )
+        db.add(position)
+        db.flush()
+
+    try:
+        new_user = User(
+            first_name=body.first_name.strip().upper(),
+            last_name=body.last_name.strip().upper(),
+            middle_name=body.middle_name.strip().upper() if body.middle_name else None,
+            email=body.email.strip() if body.email else None,
+            username=username,
+            role_id=role.id,
+            password_hash=hash_nip(DEFAULT_PASSWORD),
+            is_active=False,
+            must_change_password=True,
+        )
+        db.add(new_user)
+        db.flush()
+
+        user_position = UserPosition(
+            user_id=new_user.id,
+            position_id=position.id,
+            start_date=date.today(),
+            is_active=True,
+            notes="Creado automáticamente desde registro de inventario",
+        )
+        db.add(user_position)
+        db.commit()
+        db.refresh(new_user)
+
+        logger.info(f"Usuario inactivo '{new_user.full_name}' ({username}) creado por user {int(user['sub'])}")
+        return {
+            "success": True,
+            "message": f"Usuario {new_user.full_name} creado como inactivo",
+            "data": {
+                "id": new_user.id,
+                "full_name": new_user.full_name,
+                "username": new_user.username,
+                "email": new_user.email,
+                "is_active": new_user.is_active,
+                "department": {"id": dept.id, "name": dept.name},
+            },
+        }
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, detail={"success": False, "error": "Username o email duplicado"})
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, detail={"success": False, "error": f"Error al crear usuario: {str(e)}"})
+
+
 # ── Current user department ───────────────────────────────────────────────────
 
 @router.get("/me/department")

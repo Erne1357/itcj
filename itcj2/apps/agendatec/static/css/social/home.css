@@ -1,0 +1,11 @@
+/* =============================================================================
+   AgendaTec — social/home.css
+   Estilos específicos de la vista de servicio social (solo lectura).
+   Consume únicamente tokens de base.css y clases de components.css.
+   ============================================================================= */
+
+/* Badge "Vista de consulta" — tamaño consistente con .at-period-badge */
+.badge.text-bg-info {
+  font-size: var(--at-text-sm);
+  white-space: nowrap;
+}

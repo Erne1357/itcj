@@ -1,0 +1,139 @@
+{% extends "agendatec/base.html" %}
+
+{% block title %}{{ page_title or "Ayuda" }} · AgendaTec{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet"
+      href="{{ url_for('static', filename='agendatec/css/help/help.css') }}?v={{ sv('agendatec', 'css/help/help.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="at-help-shell" data-active-view="{{ active_view }}">
+
+  {# Sentinel: el JS observa si sale del viewport para compactar el hero. #}
+  <div class="at-help-sentinel" aria-hidden="true"></div>
+
+  {# ── Header con tabs por rol (solo aparecen vistas permitidas) ───────── #}
+  <header class="at-help-hero">
+    <div class="at-help-hero__text">
+      {# Wrapper colapsable arriba: animación grid-row 1fr↔0fr. #}
+      <div class="at-help-hero__collapse">
+        <div class="at-help-hero__collapse-inner">
+          <div class="at-help-hero__eyebrow">
+            <i class="bi bi-life-preserver"></i>
+            <span>Centro de ayuda</span>
+          </div>
+        </div>
+      </div>
+      <h1 class="at-help-hero__title">{{ page_title }}</h1>
+      <div class="at-help-hero__collapse">
+        <div class="at-help-hero__collapse-inner">
+          <p class="at-help-hero__subtitle">
+            {% block help_subtitle %}Guía paso a paso para usar AgendaTec.{% endblock %}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {% if help_perms.student or help_perms.coord or help_perms.social or help_perms.admin %}
+    <nav class="at-help-tabs" aria-label="Vistas de ayuda">
+      {% if help_perms.student %}
+      <a href="/agendatec/help"
+         class="at-help-tab {% if active_view == 'student' %}is-active{% endif %}">
+        <i class="bi bi-mortarboard"></i>
+        <span>Estudiante</span>
+      </a>
+      {% endif %}
+      {% if help_perms.coord %}
+      <a href="/agendatec/help/coord"
+         class="at-help-tab {% if active_view == 'coord' %}is-active{% endif %}">
+        <i class="bi bi-person-workspace"></i>
+        <span>Coordinador</span>
+      </a>
+      {% endif %}
+      {% if help_perms.social %}
+      <a href="/agendatec/help/social"
+         class="at-help-tab {% if active_view == 'social' %}is-active{% endif %}">
+        <i class="bi bi-calendar-heart"></i>
+        <span>Servicio Social</span>
+      </a>
+      {% endif %}
+      {% if help_perms.admin %}
+      <a href="/agendatec/help/admin"
+         class="at-help-tab {% if active_view == 'admin' %}is-active{% endif %}">
+        <i class="bi bi-shield-lock"></i>
+        <span>Administrador</span>
+      </a>
+      {% endif %}
+    </nav>
+    {% endif %}
+  </header>
+
+  {# ── Layout: TOC + contenido ─────────────────────────────────────────── #}
+  <div class="at-help-layout">
+
+    <aside class="at-help-toc" id="atHelpToc" aria-label="Índice de contenido">
+      <button type="button"
+              class="at-help-toc__toggle d-lg-none"
+              id="atHelpTocToggle"
+              aria-expanded="false"
+              aria-controls="atHelpTocList">
+        <i class="bi bi-list-ul"></i>
+        <span>Índice</span>
+        <i class="bi bi-chevron-down at-help-toc__chevron ms-auto"></i>
+      </button>
+      <div class="at-help-toc__title d-none d-lg-block">En esta página</div>
+      <nav id="atHelpTocList" class="at-help-toc__list">
+        {# generado por help.js #}
+      </nav>
+    </aside>
+
+    <article class="at-help-content" id="atHelpContent">
+      {% block help_body %}{% endblock %}
+    </article>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block modals %}
+{# ── Lightbox modal — debe ir en {% block modals %} de la base para #}
+{#    escapar del clipping del shell y quedar sobre todo el viewport. #}
+<div id="atHelpLightbox" class="at-help-lightbox" aria-hidden="true">
+  <button type="button" class="at-help-lightbox__close"
+          id="atHelpLightboxClose" aria-label="Cerrar">
+    <i class="bi bi-x-lg"></i>
+  </button>
+
+  <div class="at-help-lightbox__stage" id="atHelpLightboxStage">
+    <img id="atHelpLightboxImg" alt="" draggable="false">
+  </div>
+
+  <div class="at-help-lightbox__controls" role="toolbar" aria-label="Controles de zoom">
+    <button type="button" class="at-help-zoom-btn" id="atHelpZoomOut"
+            title="Alejar (–)" aria-label="Alejar">
+      <i class="bi bi-dash-lg"></i>
+    </button>
+    <span class="at-help-zoom-level" id="atHelpZoomLevel">100%</span>
+    <button type="button" class="at-help-zoom-btn" id="atHelpZoomIn"
+            title="Acercar (+)" aria-label="Acercar">
+      <i class="bi bi-plus-lg"></i>
+    </button>
+    <button type="button" class="at-help-zoom-btn" id="atHelpZoomReset"
+            title="Restaurar (0)" aria-label="Restaurar zoom">
+      <i class="bi bi-arrows-fullscreen"></i>
+    </button>
+  </div>
+
+  <div class="at-help-lightbox__caption" id="atHelpLightboxCaption"></div>
+
+  <div class="at-help-lightbox__hint" id="atHelpLightboxHint">
+    Rueda o botones para zoom · Arrastra para mover · ESC para cerrar
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='agendatec/js/help/help.js') }}?v={{ sv('agendatec', 'js/help/help.js') }}"></script>
+{% endblock %}

@@ -1,4 +1,4 @@
-/* itcj2/apps/helpdesk/static/css/inventory/retirement_request_detail.css */
+/* itcj2/apps/helpdesk/static/css/inventory/retirement/retirement_request_detail.css */
 .status-badge-lg { font-size: 0.9rem; padding: 0.4em 0.8em; border-radius: 0.35rem; }
 .status-DRAFT     { background:#6c757d; color:#fff; }
 .status-PENDING   { background:#ffc107; color:#212529; }
@@ -6,5 +6,10 @@
 .status-REJECTED  { background:#dc3545; color:#fff; }
 .status-CANCELLED { background:#6c757d; color:#fff; }
 .folio-display { font-family: monospace; font-size: 1.1rem; font-weight: 700; letter-spacing: 0.05em; }
-.timeline-item { display: flex; gap: 0.75rem; padding-bottom: 0.75rem; }
+.timeline-item { display: flex; gap: 0.75rem; padding-bottom: 0.75rem; align-items: flex-start; }
 .timeline-icon { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+/* Timeline de firmas multi-paso */
+#signatures-timeline-body .timeline-item:last-child { padding-bottom: 0; }
+#signatures-timeline-body .timeline-item { padding: 0.5rem 0.5rem; border-bottom: 1px solid #f0f0f0; }
+#signatures-timeline-body .timeline-item:last-child { border-bottom: none; }

@@ -125,6 +125,11 @@
                             <i class="fas fa-sticky-note"></i> Notas
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="versions-tab" data-bs-toggle="tab" href="#versions-content" role="tab">
+                            <i class="fas fa-code-branch"></i> Versiones
+                        </a>
+                    </li>
                 </ul>
             </div>
             <div class="card-body">
@@ -155,6 +160,13 @@
                     <div class="tab-pane fade" id="notes-content" role="tabpanel">
                         <div id="notes-container">
                             <p class="text-muted">Cargando notas...</p>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Versiones -->
+                    <div class="tab-pane fade" id="versions-content" role="tabpanel">
+                        <div id="versions-container">
+                            <p class="text-muted">Cargando cadena de versiones...</p>
                         </div>
                     </div>
 
@@ -350,6 +362,76 @@
     </div>
 </div>
 
+<!-- Modal: Vincular Predecesor -->
+<div class="modal fade" id="linkPredecessorModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-history"></i> Vincular como nueva versión de...
+                </h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Busca el equipo al que este es sucesor (el que fue reemplazado).</p>
+                <div class="form-group">
+                    <input type="text" class="form-control" id="predecessor-search-input"
+                        placeholder="Número de inventario, serial, marca...">
+                </div>
+                <div id="predecessor-search-results">
+                    <div class="text-center text-muted small py-3"><i class="fas fa-search"></i> Escribe para buscar</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-confirm-predecessor" disabled>
+                    <i class="fas fa-link"></i> Vincular
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar Campo Bloqueado (Admin) -->
+<div class="modal fade" id="editLockedFieldModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">
+                    <i class="fas fa-lock-open"></i> Editar campo bloqueado
+                </h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="edit-locked-field-form">
+                <div class="modal-body">
+                    <div class="alert alert-warning py-2 small">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Este campo está bloqueado por una campaña validada. El cambio quedará registrado en el historial.
+                    </div>
+                    <input type="hidden" id="locked-field-name">
+                    <div class="form-group">
+                        <label id="locked-field-label">Campo</label>
+                        <input type="text" class="form-control" id="locked-field-value" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Justificación <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="locked-field-justification" rows="3"
+                            placeholder="Razón del cambio en campo bloqueado (mínimo 10 caracteres)..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-warning">
+                        <i class="fas fa-save"></i> Guardar Cambio
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Dar de Baja -->
 <div class="modal fade" id="deactivateModal" tabindex="-1">
     <div class="modal-dialog">
@@ -386,6 +468,41 @@
         </div>
     </div>
 </div>
+<!-- Modal: Desbloquear Equipo (Admin) -->
+<div class="modal fade" id="unlockItemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-lock-open"></i> Desbloquear equipo
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <form id="unlock-item-form">
+                <div class="modal-body">
+                    <div class="alert alert-danger py-2 small">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Al desbloquear, los campos críticos del equipo podrán modificarse libremente.
+                        Esta acción quedará registrada en el historial.
+                    </div>
+                    <div class="form-group">
+                        <label>Justificación <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="unlock-justification" rows="3"
+                            placeholder="Razón por la que se desbloquea el equipo (mínimo 10 caracteres)..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-lock-open"></i> Desbloquear
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -393,6 +510,7 @@
     // Pasar el item_id y permisos desde Flask a JavaScript
     const ITEM_ID = {{ item_id }};
     const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
+    const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
 </script>
 <script>
 // Sistema de navegación inteligente

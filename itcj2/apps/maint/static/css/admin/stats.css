@@ -1,0 +1,152 @@
+/*
+ * stats.css — Estilos para la página de Estadísticas de Mantenimiento
+ */
+
+/* ── Date-range bar ──────────────────────────────────────────────── */
+.maint-daterange-bar {
+    background: #fff;
+    border-radius: 8px;
+}
+
+/* ── KPI tiles ───────────────────────────────────────────────────── */
+.mn-kpi-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 1.1rem 1.25rem;
+    box-shadow: 0 1px 4px rgba(55,71,79,0.09);
+}
+
+.mn-kpi-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.mn-kpi-value {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--maint-primary-darker);
+    line-height: 1;
+}
+
+.mn-kpi-label {
+    font-size: 0.75rem;
+    color: var(--maint-muted);
+    margin-top: 0.2rem;
+}
+
+.mn-kpi-sub {
+    font-size: 0.7rem;
+    color: var(--maint-accent-light);
+}
+
+/* ── Chart containers ────────────────────────────────────────────── */
+.chart-wrap {
+    position: relative;
+    height: 300px;
+}
+
+.chart-wrap canvas {
+    max-height: 300px;
+}
+
+.chart-wrap-sm {
+    position: relative;
+    height: 220px;
+}
+
+.chart-wrap-lg {
+    position: relative;
+    height: 380px;
+}
+
+/* ── Skeleton ────────────────────────────────────────────────────── */
+.mn-skeleton {
+    background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
+    background-size: 200% 100%;
+    animation: mn-shimmer 1.4s infinite;
+    border-radius: 4px;
+    display: block;
+}
+
+@keyframes mn-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Section title ───────────────────────────────────────────────── */
+.mn-section-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--maint-muted);
+    margin-bottom: 0.75rem;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────── */
+.mn-table th {
+    background: var(--maint-primary-light);
+    color: var(--maint-primary-darker);
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.mn-table td {
+    font-size: 0.84rem;
+    vertical-align: middle;
+}
+
+/* ── Time breakdown bars ─────────────────────────────────────────── */
+.mn-time-bar {
+    background: var(--maint-primary-light);
+    border-radius: 6px;
+    height: 24px;
+    overflow: hidden;
+    position: relative;
+}
+
+.mn-time-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.5s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+}
+
+.mn-time-bar-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+}
+
+/* ── Stars ───────────────────────────────────────────────────────── */
+.mn-stars {
+    color: #f59e0b;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+}
+
+/* ── Heatmap container ───────────────────────────────────────────── */
+#heatmapContainer {
+    min-height: 300px;
+}
+
+/* ── Tab nav ─────────────────────────────────────────────────────── */
+.nav-tabs .nav-link.active {
+    color: var(--maint-primary-dark);
+    border-bottom-color: var(--maint-primary);
+    font-weight: 600;
+}
+
+.nav-tabs .nav-link:hover:not(.active) {
+    color: var(--maint-primary);
+}

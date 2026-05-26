@@ -3,9 +3,17 @@
 
     // --- Logout buttons ---
     document.querySelectorAll('.btn-email-logout').forEach(function (btn) {
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', async function () {
             var appKey = btn.getAttribute('data-app-key');
-            if (!confirm('Desconectar correo de ' + appKey + '?')) return;
+            var ok = await AppModal.confirm({
+                title: 'Desconectar correo',
+                message: 'Desconectar correo de <strong>' + appKey + '</strong>?',
+                html: true,
+                confirmText: 'Desconectar',
+                confirmVariant: 'danger',
+                variant: 'warning',
+            });
+            if (!ok) return;
 
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Desconectando...';

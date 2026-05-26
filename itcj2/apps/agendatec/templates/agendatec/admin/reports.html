@@ -1,34 +1,40 @@
 {% extends "agendatec/base.html" %}
 {% block title %}Admin · Reportes{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/reports.css') }}?v={{ sv('agendatec', 'css/admin/reports.css') }}">
+{% endblock %}
+
 {% block content %}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-  <h1 class="h5 h4-md mb-0">Reportes</h1>
-  <button class="btn btn-outline-primary btn-sm d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCard">
-    <i class="bi bi-funnel"></i> Filtros
+  <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> Reportes
+  </h1>
+  <button class="btn btn-outline-primary btn-sm d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCard" aria-expanded="false" aria-controls="filtersCard">
+    <i class="bi bi-funnel" aria-hidden="true"></i> Filtros
   </button>
 </div>
 
 <div class="collapse d-md-block" id="filtersCard">
 <div class="card shadow-sm mb-3">
   <div class="card-header bg-light py-2">
-    <strong class="small"><i class="bi bi-funnel"></i> Filtros</strong>
+    <strong class="small"><i class="bi bi-funnel" aria-hidden="true"></i> Filtros</strong>
   </div>
   <div class="card-body py-2">
     <div class="row g-2 align-items-end mb-2">
       <!-- Rango de fechas -->
       <div class="col-6 col-md-2">
-        <label class="form-label small fw-semibold mb-1">Desde</label>
-        <input id="repFrom" type="date" class="form-control form-control-sm">
+        <label class="form-label small fw-semibold mb-1" for="repFrom">Desde</label>
+        <input id="repFrom" type="date" class="form-control form-control-sm" aria-label="Fecha desde">
       </div>
       <div class="col-6 col-md-2">
-        <label class="form-label small fw-semibold mb-1">Hasta</label>
-        <input id="repTo" type="date" class="form-control form-control-sm">
+        <label class="form-label small fw-semibold mb-1" for="repTo">Hasta</label>
+        <input id="repTo" type="date" class="form-control form-control-sm" aria-label="Fecha hasta">
       </div>
       <!-- Tipo de solicitud -->
       <div class="col-6 col-md-2">
-        <label class="form-label small fw-semibold mb-1">Tipo</label>
-        <select id="repType" class="form-select form-select-sm">
+        <label class="form-label small fw-semibold mb-1" for="repType">Tipo</label>
+        <select id="repType" class="form-select form-select-sm" aria-label="Tipo de solicitud">
           <option value="">Todos</option>
           <option value="APPOINTMENT">Citas</option>
           <option value="DROP">Bajas</option>
@@ -39,10 +45,10 @@
         <label class="form-label small fw-semibold">Estado Solicitud</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
-                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Estado de solicitud">
             <span class="multi-select-label" data-default="Todos">Todos</span>
           </button>
-          <ul class="dropdown-menu p-2" id="repStatusMenu">
+          <ul class="dropdown-menu p-2" id="repStatusMenu" role="listbox" aria-multiselectable="true">
             <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
               <input type="checkbox" class="form-check-input m-0" value="PENDING"> Pendiente
             </label></li>
@@ -69,10 +75,10 @@
         <label class="form-label small fw-semibold mb-1">Estado Cita</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
-                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Estado de cita">
             <span class="multi-select-label" data-default="Todos">Todos</span>
           </button>
-          <ul class="dropdown-menu p-2" id="repAppStatusMenu">
+          <ul class="dropdown-menu p-2" id="repAppStatusMenu" role="listbox" aria-multiselectable="true">
             <li><label class="dropdown-item d-flex align-items-center gap-2 py-1">
               <input type="checkbox" class="form-check-input m-0" value="SCHEDULED"> Programada
             </label></li>
@@ -93,10 +99,10 @@
         <label class="form-label small fw-semibold mb-1">Programa</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
-                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Programa académico">
             <span class="multi-select-label" data-default="Todos">Todos</span>
           </button>
-          <ul class="dropdown-menu p-2" id="repProgramMenu" style="max-height: 250px; overflow-y: auto;">
+          <ul class="dropdown-menu p-2 at-multiselect-list" id="repProgramMenu" role="listbox" aria-multiselectable="true">
             <!-- Se llena dinámicamente -->
           </ul>
         </div>
@@ -108,66 +114,65 @@
         <label class="form-label small fw-semibold mb-1">Coordinador</label>
         <div class="dropdown multi-select-dropdown">
           <button class="btn btn-sm btn-outline-secondary w-100 dropdown-toggle text-start d-flex justify-content-between align-items-center"
-                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                  type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Coordinador">
             <span class="multi-select-label" data-default="Todos">Todos</span>
           </button>
-          <ul class="dropdown-menu p-2" id="repCoordMenu" style="max-height: 250px; overflow-y: auto;">
+          <ul class="dropdown-menu p-2 at-multiselect-list" id="repCoordMenu" role="listbox" aria-multiselectable="true">
             <!-- Se llena dinámicamente -->
           </ul>
         </div>
       </div>
       <!-- Período -->
       <div class="col-6 col-md-2">
-        <label class="form-label small fw-semibold">Período</label>
-        <select id="repPeriod" class="form-select form-select-sm">
+        <label class="form-label small fw-semibold" for="repPeriod">Período</label>
+        <select id="repPeriod" class="form-select form-select-sm" aria-label="Período académico">
           <option value="">Cargando períodos...</option>
         </select>
       </div>
       <!-- Búsqueda múltiple -->
       <div class="col-md-4 col-sm-12">
-        <label class="form-label small fw-semibold d-flex justify-content-between align-items-center">
+        <label class="form-label small fw-semibold d-flex justify-content-between align-items-center" for="repQ">
           <span>Buscar alumnos</span>
-          <small class="text-muted fw-normal" id="searchCountHint" style="display: none;">
+          <small class="text-muted fw-normal" id="searchCountHint" hidden>
             <span class="badge bg-secondary" id="searchCount">0</span> elementos
           </small>
         </label>
         <div class="input-group input-group-sm">
-          <textarea id="repQ" class="form-control form-control-sm" rows="1" 
-                    placeholder="No. control o nombre (uno o varios)"
-                    style="resize: vertical; min-height: 31px; max-height: 150px;"></textarea>
-          <button class="btn btn-outline-secondary dropdown-toggle" type="button" 
+          <textarea id="repQ" class="form-control form-control-sm at-search-textarea" rows="1"
+                    placeholder="No. control o nombre (uno o varios)" aria-label="Buscar alumnos por número de control o nombre"></textarea>
+          <button class="btn btn-outline-secondary dropdown-toggle" type="button"
                   data-bs-toggle="dropdown" aria-expanded="false" id="separatorBtn"
-                  title="Separador">
-            <i class="bi bi-list-ul"></i>
+                  title="Separador" aria-label="Seleccionar separador de valores">
+            <i class="bi bi-list-ul" aria-hidden="true"></i>
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><h6 class="dropdown-header">Separador de valores</h6></li>
             <li><a class="dropdown-item separator-option active" href="#" data-separator="newline">
-              <i class="bi bi-text-wrap"></i> Nueva línea <small class="text-muted">(Enter)</small>
+              <i class="bi bi-text-wrap" aria-hidden="true"></i> Nueva línea <small class="text-muted">(Enter)</small>
             </a></li>
             <li><a class="dropdown-item separator-option" href="#" data-separator="comma">
-              <i class="bi bi-comma"></i> Coma <small class="text-muted">(,)</small>
+              <i class="bi bi-comma" aria-hidden="true"></i> Coma <small class="text-muted">(,)</small>
             </a></li>
             <li><a class="dropdown-item separator-option" href="#" data-separator="space">
-              <i class="bi bi-space-between"></i> Espacio
+              <i class="bi bi-space-between" aria-hidden="true"></i> Espacio
             </a></li>
             <li><a class="dropdown-item separator-option" href="#" data-separator="semicolon">
-              <i class="bi bi-record-circle"></i> Punto y coma <small class="text-muted">(;)</small>
+              <i class="bi bi-record-circle" aria-hidden="true"></i> Punto y coma <small class="text-muted">(;)</small>
             </a></li>
             <li><a class="dropdown-item separator-option" href="#" data-separator="tab">
-              <i class="bi bi-indent"></i> Tabulador
+              <i class="bi bi-indent" aria-hidden="true"></i> Tabulador
             </a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="#" id="clearSearchList">
-              <i class="bi bi-x-lg text-danger"></i> Limpiar lista
+              <i class="bi bi-x-lg text-danger" aria-hidden="true"></i> Limpiar lista
             </a></li>
           </ul>
         </div>
       </div>
       <!-- Ordenamiento -->
       <div class="col-md-2 col-sm-4">
-        <label class="form-label small fw-semibold">Ordenar por</label>
-        <select id="repOrderBy" class="form-select form-select-sm">
+        <label class="form-label small fw-semibold" for="repOrderBy">Ordenar por</label>
+        <select id="repOrderBy" class="form-select form-select-sm" aria-label="Ordenar por">
           <option value="created_at">Fecha creación</option>
           <option value="slot_day">Día de cita</option>
           <option value="student_name">Nombre alumno</option>
@@ -175,8 +180,8 @@
         </select>
       </div>
       <div class="col-md-2 col-sm-4">
-        <label class="form-label small fw-semibold">Dirección</label>
-        <select id="repOrderDir" class="form-select form-select-sm">
+        <label class="form-label small fw-semibold" for="repOrderDir">Dirección</label>
+        <select id="repOrderDir" class="form-select form-select-sm" aria-label="Dirección de ordenamiento">
           <option value="asc">Ascendente</option>
           <option value="desc">Descendente</option>
         </select>
@@ -185,186 +190,203 @@
     <!-- Fila para nombre de archivo y exportar -->
     <div class="row g-2 align-items-end mt-2">
       <div class="col-md-4 col-sm-8">
-        <label class="form-label small fw-semibold">Nombre del archivo</label>
+        <label class="form-label small fw-semibold" for="repFileName">Nombre del archivo</label>
         <div class="input-group input-group-sm">
-          <input id="repFileName" type="text" class="form-control" placeholder="reporte_agendatec">
+          <input id="repFileName" type="text" class="form-control" placeholder="reporte_agendatec" aria-label="Nombre del archivo de reporte">
           <span class="input-group-text">.xlsx</span>
         </div>
       </div>
       <div class="col-md-2 col-sm-4">
-        <button id="btnXlsx" class="btn btn-success btn-sm w-100">
-          <i class="bi bi-file-earmark-excel"></i> Exportar
+        <button id="btnXlsx" class="btn btn-success btn-sm w-100" aria-label="Exportar reporte en Excel">
+          <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Exportar
         </button>
       </div>
     </div>
   </div>
 </div>
+</div>
+
+<!-- Información del reporte (movida aquí, cerca de filtros) -->
+<div class="card shadow-sm mb-3">
+  <div class="card-body">
+    <h6><i class="bi bi-info-circle" aria-hidden="true"></i> Información del reporte</h6>
+    <p class="text-muted small mb-2">
+      El archivo Excel generado contiene <strong>2 pestañas</strong>:
+    </p>
+    <ul class="small text-muted mb-0">
+      <li><strong>Citas:</strong> Listado de citas agendadas, ordenadas por día y horario (de menor a mayor). Solo incluye slots ocupados.</li>
+      <li><strong>Solicitudes de Baja:</strong> Listado de solicitudes de baja de materias.</li>
+    </ul>
+  </div>
+</div>
 
 <!-- Card de configuración de columnas -->
 <div class="card shadow-sm mb-3">
-  <div class="card-header bg-light d-flex justify-content-between align-items-center"
-       style="cursor: pointer;"
+  <div class="card-header bg-light d-flex justify-content-between align-items-center at-card-header-collapsible"
        data-bs-toggle="collapse"
-       data-bs-target="#columnsConfig">
-    <strong><i class="bi bi-layout-three-columns"></i> Configurar Columnas</strong>
-    <i class="bi bi-chevron-down" id="columnsChevron"></i>
+       data-bs-target="#columnsConfig"
+       aria-expanded="false"
+       aria-controls="columnsConfig"
+       role="button">
+    <strong><i class="bi bi-layout-three-columns" aria-hidden="true"></i> Configurar Columnas</strong>
+    <i class="bi bi-chevron-down" id="columnsChevron" aria-hidden="true"></i>
   </div>
   <div id="columnsConfig" class="collapse">
     <div class="card-body">
       <div class="row">
         <!-- Columnas de Citas -->
         <div class="col-md-6">
-          <h6 class="mb-2"><i class="bi bi-calendar-check"></i> Columnas de Citas</h6>
+          <h6 class="mb-2"><i class="bi bi-calendar-check" aria-hidden="true"></i> Columnas de Citas</h6>
           <p class="text-muted small mb-2">Arrastra para reordenar, desmarca para ocultar</p>
-          <ul id="citasColumns" class="list-group column-list">
+          <ul id="citasColumns" class="list-group column-list" aria-label="Columnas de citas">
             <li class="list-group-item d-flex align-items-center" data-col="ID">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ID">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ID" aria-label="Incluir columna ID">
               <span>ID</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Día">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Día">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Día" aria-label="Incluir columna Día">
               <span>Día</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Horario">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Horario">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Horario" aria-label="Incluir columna Horario">
               <span>Horario</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Programa">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Programa">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Programa" aria-label="Incluir columna Programa">
               <span>Programa</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Alumno">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Alumno">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Alumno" aria-label="Incluir columna Alumno">
               <span>Alumno</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="NoControl">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="NoControl">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="NoControl" aria-label="Incluir columna No. Control">
               <span>No. Control</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Coordinador">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Coordinador">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Coordinador" aria-label="Incluir columna Coordinador">
               <span>Coordinador</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="EstadoSolicitud">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="EstadoSolicitud">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="EstadoSolicitud" aria-label="Incluir columna Estado Solicitud">
               <span>Estado Solicitud</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="EstadoCita">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="EstadoCita">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="EstadoCita" aria-label="Incluir columna Estado Cita">
               <span>Estado Cita</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Período">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Período">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Período" aria-label="Incluir columna Período">
               <span>Período</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Descripción">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Descripción">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Descripción" aria-label="Incluir columna Descripción">
               <span>Descripción</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="ComentarioCoord">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ComentarioCoord">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ComentarioCoord" aria-label="Incluir columna Comentario Coord.">
               <span>Comentario Coord.</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Creado">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Creado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Creado" aria-label="Incluir columna Creado">
               <span>Creado</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Actualizado">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Actualizado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Actualizado" aria-label="Incluir columna Actualizado">
               <span>Actualizado</span>
             </li>
           </ul>
           <div class="mt-2">
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllCitas">
-              <i class="bi bi-check-all"></i> Todas
+              <i class="bi bi-check-all" aria-hidden="true"></i> Todas
             </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneCitas">
-              <i class="bi bi-x-lg"></i> Ninguna
+              <i class="bi bi-x-lg" aria-hidden="true"></i> Ninguna
             </button>
           </div>
         </div>
 
         <!-- Columnas de Bajas -->
         <div class="col-md-6">
-          <h6 class="mb-2"><i class="bi bi-file-earmark-minus"></i> Columnas de Bajas</h6>
+          <h6 class="mb-2"><i class="bi bi-file-earmark-minus" aria-hidden="true"></i> Columnas de Bajas</h6>
           <p class="text-muted small mb-2">Arrastra para reordenar, desmarca para ocultar</p>
-          <ul id="bajasColumns" class="list-group column-list">
+          <ul id="bajasColumns" class="list-group column-list" aria-label="Columnas de bajas">
             <li class="list-group-item d-flex align-items-center" data-col="ID">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ID">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ID" aria-label="Incluir columna ID">
               <span>ID</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Programa">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Programa">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Programa" aria-label="Incluir columna Programa">
               <span>Programa</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Alumno">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Alumno">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Alumno" aria-label="Incluir columna Alumno">
               <span>Alumno</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="NoControl">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="NoControl">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="NoControl" aria-label="Incluir columna No. Control">
               <span>No. Control</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Coordinador">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Coordinador">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Coordinador" aria-label="Incluir columna Coordinador">
               <span>Coordinador</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Estado">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Estado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Estado" aria-label="Incluir columna Estado">
               <span>Estado</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Período">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Período">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Período" aria-label="Incluir columna Período">
               <span>Período</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Descripción">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Descripción">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Descripción" aria-label="Incluir columna Descripción">
               <span>Descripción</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="ComentarioCoord">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ComentarioCoord">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="ComentarioCoord" aria-label="Incluir columna Comentario Coord.">
               <span>Comentario Coord.</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Creado">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Creado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Creado" aria-label="Incluir columna Creado">
               <span>Creado</span>
             </li>
             <li class="list-group-item d-flex align-items-center" data-col="Actualizado">
-              <i class="bi bi-grip-vertical me-2 drag-handle" style="cursor: grab;"></i>
-              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Actualizado">
+              <i class="bi bi-grip-vertical me-2 drag-handle" aria-hidden="true"></i>
+              <input type="checkbox" class="form-check-input me-2 col-check" checked data-col="Actualizado" aria-label="Incluir columna Actualizado">
               <span>Actualizado</span>
             </li>
           </ul>
           <div class="mt-2">
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllBajas">
-              <i class="bi bi-check-all"></i> Todas
+              <i class="bi bi-check-all" aria-hidden="true"></i> Todas
             </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneBajas">
-              <i class="bi bi-x-lg"></i> Ninguna
+              <i class="bi bi-x-lg" aria-hidden="true"></i> Ninguna
             </button>
           </div>
         </div>
@@ -375,19 +397,21 @@
 
 <!-- Card de configuración de resúmenes -->
 <div class="card shadow-sm mb-3">
-  <div class="card-header bg-light d-flex justify-content-between align-items-center"
-       style="cursor: pointer;"
+  <div class="card-header bg-light d-flex justify-content-between align-items-center at-card-header-collapsible"
        data-bs-toggle="collapse"
-       data-bs-target="#summaryConfig">
-    <strong><i class="bi bi-bar-chart-line"></i> Configurar Resúmenes</strong>
-    <i class="bi bi-chevron-down" id="summaryChevron"></i>
+       data-bs-target="#summaryConfig"
+       aria-expanded="false"
+       aria-controls="summaryConfig"
+       role="button">
+    <strong><i class="bi bi-bar-chart-line" aria-hidden="true"></i> Configurar Resúmenes</strong>
+    <i class="bi bi-chevron-down" id="summaryChevron" aria-hidden="true"></i>
   </div>
   <div id="summaryConfig" class="collapse">
     <div class="card-body">
       <div class="row">
         <!-- Resumen de Citas -->
         <div class="col-md-6">
-          <h6 class="mb-2"><i class="bi bi-calendar-check"></i> Resumen de Citas</h6>
+          <h6 class="mb-2"><i class="bi bi-calendar-check" aria-hidden="true"></i> Resumen de Citas</h6>
           <p class="text-muted small mb-2">Selecciona las agrupaciones a incluir en el resumen</p>
           <div class="list-group" id="citasSummaryOptions">
             <label class="list-group-item d-flex align-items-center gap-2">
@@ -408,17 +432,17 @@
           </div>
           <div class="mt-2">
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllCitasSummary">
-              <i class="bi bi-check-all"></i> Todas
+              <i class="bi bi-check-all" aria-hidden="true"></i> Todas
             </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneCitasSummary">
-              <i class="bi bi-x-lg"></i> Ninguna
+              <i class="bi bi-x-lg" aria-hidden="true"></i> Ninguna
             </button>
           </div>
         </div>
 
         <!-- Resumen de Bajas -->
         <div class="col-md-6">
-          <h6 class="mb-2"><i class="bi bi-file-earmark-minus"></i> Resumen de Bajas</h6>
+          <h6 class="mb-2"><i class="bi bi-file-earmark-minus" aria-hidden="true"></i> Resumen de Bajas</h6>
           <p class="text-muted small mb-2">Selecciona las agrupaciones a incluir en el resumen</p>
           <div class="list-group" id="bajasSummaryOptions">
             <label class="list-group-item d-flex align-items-center gap-2">
@@ -439,10 +463,10 @@
           </div>
           <div class="mt-2">
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectAllBajasSummary">
-              <i class="bi bi-check-all"></i> Todas
+              <i class="bi bi-check-all" aria-hidden="true"></i> Todas
             </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="selectNoneBajasSummary">
-              <i class="bi bi-x-lg"></i> Ninguna
+              <i class="bi bi-x-lg" aria-hidden="true"></i> Ninguna
             </button>
           </div>
         </div>
@@ -450,23 +474,6 @@
     </div>
   </div>
 </div>
-
-<div class="card shadow-sm">
-  <div class="card-body">
-    <h6><i class="bi bi-info-circle"></i> Información del reporte</h6>
-    <p class="text-muted small mb-2">
-      El archivo Excel generado contiene <strong>2 pestañas</strong>:
-    </p>
-    <ul class="small text-muted mb-0">
-      <li><strong>Citas:</strong> Listado de citas agendadas, ordenadas por día y horario (de menor a mayor). Solo incluye slots ocupados.</li>
-      <li><strong>Solicitudes de Baja:</strong> Listado de solicitudes de baja de materias.</li>
-    </ul>
-  </div>
-</div>
-{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='agendatec/css/admin/reports.css') }}?v={{ sv('agendatec', 'css/admin/reports.css') }}">
 {% endblock %}
 
 {% block extra_js %}
@@ -478,6 +485,6 @@
     periodsUrl: "{{ url_for('agendatec_api.api_periods.list_periods') }}"
   };
 </script>
+<script src="{{ url_for('static', filename='agendatec/js/shared/skeleton.js') }}?v={{ sv('agendatec', 'js/shared/skeleton.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/reports.js') }}?v={{ sv('agendatec', 'js/admin/reports.js') }}"></script>
-
 {% endblock %}

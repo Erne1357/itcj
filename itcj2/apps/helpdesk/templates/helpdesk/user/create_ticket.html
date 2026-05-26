@@ -78,48 +78,28 @@
                         <h4 class="mb-4 text-center fs-5 fs-md-4">¿Qué tipo de servicio necesitas?</h4>
 
                         <div class="row g-2 g-md-3">
+                            {% for area in areas %}
                             <div class="col-6 col-md-6">
-                                <div class="area-card" data-area="SOPORTE">
+                                <div class="area-card" data-area="{{ area.code }}">
                                     <div class="card h-100 border-2">
                                         <div class="card-body text-center p-2 p-md-4">
                                             <div class="area-icon mb-2 mb-md-3">
-                                                <i class="fas fa-wrench fa-2x fa-md-3x text-primary"></i>
+                                                <i class="fas {{ area.icon or 'fa-question' }} fa-2x fa-md-3x"
+                                                   style="color: {{ area.color or '#6c757d' }};"></i>
                                             </div>
-                                            <h5 class="card-title fs-6 fs-md-5">Soporte Técnico</h5>
-                                            <p class="card-text small d-none d-sm-block">Problemas con equipos y hardware</p>
-                                            <div class="area-examples d-none d-md-block">
-                                                <small class="text-muted">
-                                                    • Computadoras<br>
-                                                    • Proyectores<br>
-                                                    • Internet/Red<br>
-                                                    • Impresoras
-                                                </small>
-                                            </div>
+                                            <h5 class="card-title fs-6 fs-md-5">{{ area.label }}</h5>
+                                            {% if area.description %}
+                                            <p class="card-text small d-none d-sm-block">{{ area.description }}</p>
+                                            {% endif %}
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-6 col-md-6">
-                                <div class="area-card" data-area="DESARROLLO">
-                                    <div class="card h-100 border-2">
-                                        <div class="card-body text-center p-2 p-md-4">
-                                            <div class="area-icon mb-2 mb-md-3">
-                                                <i class="fas fa-laptop-code fa-2x fa-md-3x text-success"></i>
-                                            </div>
-                                            <h5 class="card-title fs-6 fs-md-5">Desarrollo</h5>
-                                            <p class="card-text small d-none d-sm-block">Solicitudes con software y sistemas</p>
-                                            <div class="area-examples d-none d-md-block">
-                                                <small class="text-muted">
-                                                    • SII, SIISAE, SIILE<br>
-                                                    • Moodle, AgendaTec<br>
-                                                    • Correo Institucional<br>
-                                                    • Otros sistemas
-                                                </small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                            {% else %}
+                            <div class="col-12">
+                                <p class="text-center text-muted small">No hay áreas disponibles en este momento.</p>
                             </div>
+                            {% endfor %}
                         </div>
 
                         <input type="hidden" id="area" name="area" required>

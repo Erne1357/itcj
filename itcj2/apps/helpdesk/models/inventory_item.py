@@ -4,7 +4,7 @@ Modelo para equipos individuales del inventario
 from datetime import date
 
 from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text
-from sqlalchemy.orm import relationship, object_session
+from sqlalchemy.orm import backref, relationship, object_session
 from sqlalchemy.sql import func
 
 from itcj2.models.base import Base
@@ -72,6 +72,42 @@ class InventoryItem(Base):
     last_verified_at = Column(DateTime, nullable=True)
     last_verified_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
 
+    # ------------------------------------------------------------------
+    # Versionado (cadena lineal de sucesión entre equipos)
+    # ------------------------------------------------------------------
+    predecessor_item_id = Column(
+        BigInteger,
+        ForeignKey("helpdesk_inventory_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # ------------------------------------------------------------------
+    # Campaña de inventario
+    # ------------------------------------------------------------------
+    campaign_id = Column(
+        BigInteger,
+        ForeignKey("helpdesk_inventory_campaigns.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # ------------------------------------------------------------------
+    # Bloqueo tras validación
+    # ------------------------------------------------------------------
+    is_locked = Column(Boolean, nullable=False, default=False)
+    validated_at = Column(DateTime, nullable=True)
+    validated_by_id = Column(
+        BigInteger,
+        ForeignKey("core_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    locked_campaign_id = Column(
+        BigInteger,
+        ForeignKey("helpdesk_inventory_campaigns.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # Relaciones
     category = relationship("InventoryCategory", back_populates="items")
     department = relationship("Department", backref="inventory_items")
@@ -82,6 +118,22 @@ class InventoryItem(Base):
     assigned_by = relationship("User", foreign_keys=[assigned_by_id])
     deactivated_by = relationship("User", foreign_keys=[deactivated_by_id])
     last_verified_by = relationship("User", foreign_keys=[last_verified_by_id])
+    validated_by = relationship("User", foreign_keys=[validated_by_id])
+
+    # Versionado: predecesor y sucesor (cadena lineal)
+    predecessor = relationship(
+        "InventoryItem",
+        foreign_keys=[predecessor_item_id],
+        remote_side="InventoryItem.id",
+        backref=backref("successor", uselist=False),
+    )
+
+    # Campaña de inventario a la que pertenece este item
+    campaign = relationship(
+        "InventoryCampaign",
+        foreign_keys=[campaign_id],
+        back_populates="items",
+    )
 
     verifications = relationship(
         "InventoryVerification",
@@ -110,6 +162,7 @@ class InventoryItem(Base):
         Index("ix_inventory_items_user_active", "assigned_to_user_id", "is_active"),
         Index("ix_inventory_items_status_active", "status", "is_active"),
         Index("ix_inventory_items_category", "category_id", "is_active"),
+        Index("ix_inventory_items_campaign_locked", "campaign_id", "is_locked"),
     )
 
     def __repr__(self):
@@ -151,6 +204,25 @@ class InventoryItem(Base):
         if not self.is_under_warranty:
             return 0
         return (self.warranty_expiration - date.today()).days
+
+    @property
+    def has_predecessor(self) -> bool:
+        return self.predecessor_item_id is not None
+
+    @property
+    def is_latest_version(self) -> bool:
+        """True si no tiene sucesor (es la versión más reciente de la cadena)."""
+        return self.successor is None
+
+    @property
+    def version_chain(self) -> list:
+        """Retorna la cadena completa desde el primer item hasta el actual."""
+        chain = [self]
+        current = self
+        while current.predecessor:
+            chain.insert(0, current.predecessor)
+            current = current.predecessor
+        return chain
 
     @property
     def needs_maintenance(self):
@@ -238,6 +310,17 @@ class InventoryItem(Base):
             # Verificación física
             'last_verified_at': _date_iso(self.last_verified_at),
             'last_verified_by_id': self.last_verified_by_id,
+            # Versionado
+            'predecessor_item_id': self.predecessor_item_id,
+            'has_predecessor': self.has_predecessor,
+            'is_latest_version': self.is_latest_version,
+            # Campaña
+            'campaign_id': self.campaign_id,
+            # Bloqueo
+            'is_locked': self.is_locked,
+            'validated_at': _date_iso(self.validated_at),
+            'validated_by_id': self.validated_by_id,
+            'locked_campaign_id': self.locked_campaign_id,
         }
 
         if include_relations:

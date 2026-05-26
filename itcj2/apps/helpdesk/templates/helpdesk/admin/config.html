@@ -1,0 +1,962 @@
+{% extends "helpdesk/base_helpdesk.html" %}
+
+{% block title %}Configuración{% endblock %}
+{% block header_title %}Configuración{% endblock %}
+{% block header_subtitle %}Catálogos, plantillas y campos del módulo Helpdesk{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/admin/config.css') }}?v={{ sv('helpdesk', 'css/admin/config.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="config-wrapper py-3">
+
+  <!-- Encabezado -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold">
+        <i class="fas fa-sliders-h me-2 text-primary"></i>Configuración del Módulo
+      </h4>
+      <small class="text-muted">
+        Edita catálogos, plantillas y campos sin tocar la base de datos.
+      </small>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs config-tabs mb-3" id="configTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="tab-categorias-btn" data-bs-toggle="tab"
+        data-bs-target="#categorias" type="button" role="tab" aria-controls="categorias"
+        aria-selected="true">
+        <i class="fas fa-tags me-1"></i>Categorías y Campos
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-inv-cat-btn" data-bs-toggle="tab"
+        data-bs-target="#inv-cat" type="button" role="tab" aria-controls="inv-cat"
+        aria-selected="false">
+        <i class="fas fa-boxes me-1"></i>Cat. de Inventario
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-prioridades-btn" data-bs-toggle="tab"
+        data-bs-target="#prioridades" type="button" role="tab" aria-controls="prioridades"
+        aria-selected="false">
+        <i class="fas fa-flag me-1"></i>Prioridades y SLA
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-estados-btn" data-bs-toggle="tab"
+        data-bs-target="#estados" type="button" role="tab" aria-controls="estados"
+        aria-selected="false">
+        <i class="fas fa-route me-1"></i>Estados y Flujo
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-areas-btn" data-bs-toggle="tab"
+        data-bs-target="#areas" type="button" role="tab" aria-controls="areas"
+        aria-selected="false">
+        <i class="fas fa-layer-group me-1"></i>Áreas
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-notif-btn" data-bs-toggle="tab"
+        data-bs-target="#notif" type="button" role="tab" aria-controls="notif"
+        aria-selected="false">
+        <i class="fas fa-bell me-1"></i>Notificaciones
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-audit-btn" data-bs-toggle="tab"
+        data-bs-target="#audit" type="button" role="tab" aria-controls="audit"
+        aria-selected="false">
+        <i class="fas fa-history me-1"></i>Auditoría
+      </button>
+    </li>
+  </ul>
+
+  <!-- Tab content -->
+  <div class="tab-content" id="configTabsContent">
+
+    <!-- ===================== CATEGORÍAS Y CAMPOS ===================== -->
+    <div class="tab-pane fade show active" id="categorias" role="tabpanel" aria-labelledby="tab-categorias-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="categorias-root">
+            {# Populated by categories_tab.js on lazy init #}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== CATEGORÍAS DE INVENTARIO ===================== -->
+    <div class="tab-pane fade" id="inv-cat" role="tabpanel" aria-labelledby="tab-inv-cat-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="inv-cat-root">
+            {# Populated by inventory_categories_tab.js on lazy init #}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== PRIORIDADES Y SLA ===================== -->
+    <div class="tab-pane fade" id="prioridades" role="tabpanel" aria-labelledby="tab-prioridades-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="prioridades-root">
+            {# Populated by priorities_tab.js on lazy init #}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== ESTADOS Y FLUJO ===================== -->
+    <div class="tab-pane fade" id="estados" role="tabpanel" aria-labelledby="tab-estados-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="estados-root">
+            <div id="estados-statuses-section" class="mb-4">
+              {# Lista de estados — poblado por statuses_tab.js al lazy init #}
+            </div>
+            <div id="estados-transitions-section">
+              {# Matriz de transiciones — poblado por transitions_matrix.js al lazy init #}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== ÁREAS ===================== -->
+    <div class="tab-pane fade" id="areas" role="tabpanel" aria-labelledby="tab-areas-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="areas-root">
+            {# Populated by areas_tab.js on lazy init #}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== NOTIFICACIONES ===================== -->
+    <div class="tab-pane fade" id="notif" role="tabpanel" aria-labelledby="tab-notif-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="notif-root">{# Populated by notifications_tab.js #}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== AUDITORÍA ===================== -->
+    <div class="tab-pane fade" id="audit" role="tabpanel" aria-labelledby="tab-audit-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="audit-root">{# populated by audit_tab.js on lazy init #}</div>
+        </div>
+      </div>
+    </div>
+
+  </div>{# /tab-content #}
+</div>{# /config-wrapper #}
+{% endblock %}
+
+
+{% block modals %}
+
+{# ===== MODAL: Crear categoría de ticket ===== #}
+<div class="modal fade" id="modal-cat-create" tabindex="-1" aria-labelledby="modal-cat-create-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-cat-create-label">
+          <i class="fas fa-plus me-2"></i>Nueva categoría — <span class="modal-title-area"></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="cat-create-area">
+        <div class="mb-3">
+          <label for="cat-create-code" class="form-label fw-semibold">Código <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="cat-create-code"
+                 placeholder="ej: sii, hardware" maxlength="50">
+          <div class="invalid-feedback"></div>
+          <div class="form-text">Identificador único, en minúsculas. No se puede cambiar después.</div>
+        </div>
+        <div class="mb-3">
+          <label for="cat-create-name" class="form-label fw-semibold">Nombre visible <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="cat-create-name"
+                 placeholder="ej: Sistema SII" maxlength="100">
+          <div class="invalid-feedback"></div>
+        </div>
+        <div class="mb-3">
+          <label for="cat-create-description" class="form-label fw-semibold">Descripción</label>
+          <textarea class="form-control" id="cat-create-description" rows="2"
+                    placeholder="Descripción opcional" maxlength="500"></textarea>
+        </div>
+        <div class="alert alert-info py-2 small mb-0">
+          <i class="fas fa-info-circle me-1"></i>
+          Se creará en el área <strong id="cat-create-area-label"></strong>.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-cat-create-save">
+          <i class="fas fa-save me-1"></i>Crear categoría
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Editar categoría de ticket ===== #}
+<div class="modal fade" id="modal-cat-edit" tabindex="-1" aria-labelledby="modal-cat-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-cat-edit-label">
+          <i class="fas fa-pencil-alt me-2"></i>Editar: <span class="modal-title-cat-name"></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="cat-edit-id">
+        <div class="mb-3">
+          <label for="cat-edit-name" class="form-label fw-semibold">Nombre visible <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="cat-edit-name" maxlength="100">
+          <div class="invalid-feedback"></div>
+        </div>
+        <div class="mb-3">
+          <label for="cat-edit-description" class="form-label fw-semibold">Descripción</label>
+          <textarea class="form-control" id="cat-edit-description" rows="2" maxlength="500"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-cat-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Field Template Builder ===== #}
+<div class="modal fade" id="modal-field-builder" tabindex="-1"
+     aria-labelledby="modal-field-builder-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-field-builder-label">
+          <i class="fas fa-list-ul me-2 text-primary"></i>
+          <span id="field-builder-title">Campos personalizados</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-3">
+        {# Switch global #}
+        <div class="d-flex align-items-center gap-3 mb-3 pb-3 border-bottom">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="field-builder-enabled" style="width:2.5em; height:1.3em;">
+            <label class="form-check-label fw-semibold" for="field-builder-enabled">
+              Habilitar campos personalizados para esta categoría
+            </label>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary ms-auto" id="btn-builder-preview">
+            <i class="fas fa-eye me-1"></i>Actualizar vista previa
+          </button>
+        </div>
+
+        {# Grid 2 columnas #}
+        <div class="field-builder-grid">
+          {# Columna izquierda: lista de campos #}
+          <div class="field-builder-left">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0 fw-semibold text-secondary">
+                <i class="fas fa-list me-1"></i>Campos
+              </h6>
+              <button type="button" class="btn btn-sm btn-outline-primary" id="btn-builder-add-field" disabled>
+                <i class="fas fa-plus me-1"></i>Agregar campo
+              </button>
+            </div>
+            <div id="field-builder-list" style="min-height:120px;">
+              {# Rendered by field_template_builder.js #}
+            </div>
+          </div>
+
+          {# Columna derecha: vista previa #}
+          <div class="field-builder-right">
+            <h6 class="mb-2 fw-semibold text-secondary">
+              <i class="fas fa-eye me-1"></i>Vista previa del formulario
+            </h6>
+            <div class="field-builder-preview-area" id="field-builder-preview">
+              {# Rendered on demand #}
+            </div>
+          </div>
+        </div>
+      </div>{# /modal-body #}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-success" id="btn-builder-save" disabled>
+          <i class="fas fa-save me-1"></i>Guardar plantilla
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Categoría de inventario (crear / editar) ===== #}
+<div class="modal fade" id="modal-inv-cat" tabindex="-1"
+     aria-labelledby="modal-inv-cat-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-inv-cat-label">
+          <i class="fas fa-boxes me-2"></i>Categoría de inventario
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="inv-cat-id">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label for="inv-cat-code" class="form-label fw-semibold">Código <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="inv-cat-code"
+                   placeholder="ej: COMPUTADORA" maxlength="50">
+            <div class="invalid-feedback"></div>
+            <div class="form-text">No se puede cambiar después.</div>
+          </div>
+          <div class="col-md-6">
+            <label for="inv-cat-prefix" class="form-label fw-semibold">Prefijo inventario <span class="text-danger">*</span></label>
+            <input type="text" class="form-control text-uppercase" id="inv-cat-prefix"
+                   placeholder="ej: COMP" maxlength="10">
+            <div class="invalid-feedback"></div>
+            <div class="form-text">2–10 caracteres. Ej: COMP, IMP, PROJ.</div>
+          </div>
+          <div class="col-12">
+            <label for="inv-cat-name" class="form-label fw-semibold">Nombre visible <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="inv-cat-name"
+                   placeholder="ej: Computadora" maxlength="100">
+            <div class="invalid-feedback"></div>
+          </div>
+          <div class="col-md-8">
+            <label for="inv-cat-icon" class="form-label fw-semibold">Clase de icono (Font Awesome)</label>
+            <div class="input-group">
+              <span class="input-group-text"><i id="inv-cat-icon-preview" class="fas fa-box fa-lg"></i></span>
+              <input type="text" class="form-control" id="inv-cat-icon"
+                     placeholder="fas fa-laptop" maxlength="80">
+            </div>
+            <div class="form-text">Ej: <code>fas fa-laptop</code>, <code>fas fa-print</code>, <code>fas fa-network-wired</code></div>
+          </div>
+          <div class="col-12">
+            <label for="inv-cat-description" class="form-label fw-semibold">Descripción</label>
+            <textarea class="form-control" id="inv-cat-description" rows="2" maxlength="500"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-inv-cat-save">
+          <i class="fas fa-save me-1"></i>Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ===== MODAL: Crear prioridad ===== #}
+<div class="modal fade" id="modal-priority-create" tabindex="-1"
+     aria-labelledby="modal-priority-create-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-priority-create-label">
+          <i class="fas fa-flag me-2 text-danger"></i>Nueva prioridad
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="prio-create-code" class="form-label fw-semibold">
+            Código <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control text-uppercase" id="prio-create-code"
+                 placeholder="ej: URGENTE, ALTA" maxlength="50"
+                 autocomplete="off" spellcheck="false">
+          <div class="invalid-feedback"></div>
+          <div class="form-text">Mayúsculas, sin espacios. No se puede cambiar después. Ej: <code>URGENTE</code>, <code>ALTA</code></div>
+        </div>
+        <div class="mb-3">
+          <label for="prio-create-label" class="form-label fw-semibold">
+            Etiqueta visible <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control" id="prio-create-label"
+                 placeholder="ej: Urgente" maxlength="100">
+          <div class="invalid-feedback"></div>
+        </div>
+        <div class="mb-3">
+          <label for="prio-create-sla" class="form-label fw-semibold">
+            SLA (horas) <span class="text-danger">*</span>
+          </label>
+          <input type="number" class="form-control" id="prio-create-sla"
+                 placeholder="ej: 4, 24, 72, 168" min="1" max="10000" step="1">
+          <div class="invalid-feedback"></div>
+          <div class="form-text">Tiempo máximo de resolución. 24h = 1 día, 168h = 1 semana.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Clase de badge Bootstrap</label>
+          <div id="prio-create-badge-wrap">
+            {# Populated by JS #}
+          </div>
+          <div class="form-text">Determina el color del badge en la lista de tickets.</div>
+        </div>
+        <div class="mb-3">
+          <label for="prio-create-color" class="form-label fw-semibold">Color personalizado <span class="text-muted fw-normal">(opcional)</span></label>
+          <input type="color" class="form-control form-control-color" id="prio-create-color"
+                 value="#6c757d" title="Color de fondo personalizado (sobreescribe badge_class)">
+          <div class="form-text">Si se especifica, sobreescribe el color del badge_class.</div>
+        </div>
+        <div class="mb-0">
+          <label class="form-label fw-semibold small text-muted">Vista previa</label>
+          <div class="priority-badge-preview-modal" id="prio-create-badge-preview">
+            {# Populated by JS #}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="btn-prio-create-save">
+          <i class="fas fa-save me-1"></i>Crear prioridad
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Editar prioridad ===== #}
+<div class="modal fade" id="modal-priority-edit" tabindex="-1"
+     aria-labelledby="modal-priority-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-priority-edit-label">
+          <i class="fas fa-pencil-alt me-2"></i>Editar prioridad
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="prio-edit-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Código</label>
+          <div>
+            <span class="badge bg-secondary font-monospace fs-6" id="prio-edit-code-display"></span>
+            <small class="text-muted ms-2">No se puede modificar.</small>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="prio-edit-label" class="form-label fw-semibold">
+            Etiqueta visible <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control" id="prio-edit-label" maxlength="100">
+          <div class="invalid-feedback"></div>
+        </div>
+        <div class="mb-3">
+          <label for="prio-edit-sla" class="form-label fw-semibold">
+            SLA (horas) <span class="text-danger">*</span>
+          </label>
+          <input type="number" class="form-control" id="prio-edit-sla"
+                 min="1" max="10000" step="1">
+          <div class="invalid-feedback"></div>
+          <div class="form-text">24h = 1 día, 168h = 1 semana.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Clase de badge Bootstrap</label>
+          <div id="prio-edit-badge-wrap">
+            {# Populated by JS #}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="prio-edit-color" class="form-label fw-semibold">Color personalizado <span class="text-muted fw-normal">(opcional)</span></label>
+          <input type="color" class="form-control form-control-color" id="prio-edit-color"
+                 value="#6c757d" title="Color de fondo personalizado">
+        </div>
+        <div class="mb-0">
+          <label class="form-label fw-semibold small text-muted">Vista previa</label>
+          <div class="priority-badge-preview-modal" id="prio-edit-badge-preview">
+            {# Populated by JS #}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-prio-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ===== MODAL: Editar estado (solo metadata visual) ===== #}
+<div class="modal fade" id="modal-status-edit" tabindex="-1"
+     aria-labelledby="modal-status-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-status-edit-label">
+          <i class="fas fa-pencil-alt me-2"></i>Editar presentación del estado
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="status-edit-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Código del estado</label>
+          <div>
+            <span class="badge bg-secondary font-monospace fs-6" id="status-edit-code-display"></span>
+            <small class="text-muted ms-2">No se puede modificar.</small>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="status-edit-label" class="form-label fw-semibold">
+            Etiqueta visible <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control" id="status-edit-label" maxlength="100">
+          <div class="invalid-feedback"></div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label for="status-edit-color" class="form-label fw-semibold">Color personalizado</label>
+            <input type="color" class="form-control form-control-color" id="status-edit-color"
+                   value="#6c757d" title="Color de fondo (sobreescribe badge_class)">
+            <div class="form-text">Sobreescribe el color del badge_class si se especifica.</div>
+          </div>
+          <div class="col-md-6">
+            <label for="status-edit-display-order" class="form-label fw-semibold">Orden de visualización</label>
+            <input type="number" class="form-control" id="status-edit-display-order"
+                   min="1" max="999" step="1">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Clase de badge Bootstrap</label>
+          <div id="status-edit-badge-wrap">
+            {# Populated by JS #}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="status-edit-icon" class="form-label fw-semibold">Icono Font Awesome</label>
+          <div class="input-group">
+            <span class="input-group-text"><i id="status-edit-icon-preview" class="fas fa-circle fa-lg text-muted"></i></span>
+            <input type="text" class="form-control" id="status-edit-icon"
+                   placeholder="ej: fa-clock, fa-check, fa-times" maxlength="80">
+          </div>
+          <div class="form-text">Solo la clase sin el prefijo <code>fas</code>. Ej: <code>fa-clock</code>, <code>fa-check-circle</code></div>
+        </div>
+        <div class="mb-0">
+          <label class="form-label fw-semibold small text-muted">Vista previa del badge</label>
+          <div class="priority-badge-preview-modal" id="status-edit-badge-preview">
+            {# Populated by JS #}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-status-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Editar área (Fase 5 — solo metadata visual) ===== #}
+<div class="modal fade" id="modal-area-edit" tabindex="-1"
+     aria-labelledby="modal-area-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-area-edit-label">
+          <i class="fas fa-pencil-alt me-2"></i>Editar presentación del área
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="area-edit-id">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Código del área</label>
+          <div>
+            <span class="badge bg-secondary font-monospace fs-6" id="area-edit-code-display"></span>
+            <small class="text-muted ms-2">No se puede modificar.</small>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="area-edit-label" class="form-label fw-semibold">
+            Etiqueta visible <span class="text-danger">*</span>
+          </label>
+          <input type="text" class="form-control" id="area-edit-label" maxlength="80"
+                 placeholder="ej: Soporte Técnico">
+          <div class="invalid-feedback"></div>
+        </div>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-7">
+            <label for="area-edit-icon" class="form-label fw-semibold">Icono Font Awesome</label>
+            <div class="input-group">
+              <span class="input-group-text">
+                <i id="area-edit-icon-preview" class="fas fa-layer-group fa-lg"></i>
+              </span>
+              <input type="text" class="form-control" id="area-edit-icon"
+                     placeholder="ej: fa-wrench, fa-code" maxlength="80">
+            </div>
+            <div class="form-text">Solo la clase sin el prefijo <code>fas</code>. Ej: <code>fa-wrench</code>, <code>fa-code</code></div>
+          </div>
+          <div class="col-md-5">
+            <label for="area-edit-color" class="form-label fw-semibold">Color del ícono</label>
+            <input type="color" class="form-control form-control-color w-100" id="area-edit-color"
+                   value="#0d6efd" title="Color aplicado al ícono del área">
+            <div class="form-text">Color que se aplica al ícono.</div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="area-edit-description" class="form-label fw-semibold">Descripción</label>
+          <textarea class="form-control" id="area-edit-description" rows="2"
+                    maxlength="500" placeholder="Descripción breve del área y sus responsabilidades"></textarea>
+        </div>
+
+        <div class="mb-3">
+          <label for="area-edit-display-order" class="form-label fw-semibold">Orden de visualización</label>
+          <input type="number" class="form-control" id="area-edit-display-order"
+                 min="1" max="99" step="1">
+        </div>
+
+        {# Vista previa combinada #}
+        <div class="area-preview-card">
+          <p class="text-muted small mb-2 fw-semibold">Vista previa</p>
+          <div id="area-edit-combined-preview" class="d-flex align-items-center justify-content-center gap-2">
+            {# Populated by JS #}
+          </div>
+          <p class="text-muted small mt-2 mb-0 fst-italic">Así verán el área los usuarios al crear un ticket.</p>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-area-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Editar transición (required_perm + required_fields) ===== #}
+<div class="modal fade" id="modal-transition-edit" tabindex="-1"
+     aria-labelledby="modal-transition-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-transition-edit-label">
+          <i class="fas fa-arrow-right me-2 text-success"></i>Editar transición
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="trans-edit-from-id">
+        <input type="hidden" id="trans-edit-to-id">
+        <input type="hidden" id="trans-edit-tid">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Transición</label>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge bg-secondary small" id="trans-edit-from-label">—</span>
+            <i class="fas fa-arrow-right text-muted"></i>
+            <span class="badge bg-secondary small" id="trans-edit-to-label">—</span>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="trans-edit-perm" class="form-label fw-semibold">
+            Permiso requerido
+            <span class="text-muted fw-normal">(opcional)</span>
+          </label>
+          <input type="text" class="form-control" id="trans-edit-perm"
+                 placeholder="ej: helpdesk.ticket.close"
+                 maxlength="200" autocomplete="off">
+          <div class="form-text">
+            Código de permiso que el usuario debe tener para realizar esta transición. Dejar vacío para no requerir.
+          </div>
+        </div>
+
+        <div class="mb-0">
+          <label class="form-label fw-semibold">
+            Campos requeridos al transicionar
+            <span class="text-muted fw-normal">(opcional)</span>
+          </label>
+          <div class="d-flex flex-column gap-2 mt-1">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="trans-field-resolution_notes">
+              <label class="form-check-label" for="trans-field-resolution_notes">
+                Notas de resolución
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="trans-field-time_invested_minutes">
+              <label class="form-check-label" for="trans-field-time_invested_minutes">
+                Tiempo invertido (minutos)
+              </label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="trans-field-observations">
+              <label class="form-check-label" for="trans-field-observations">
+                Observaciones
+              </label>
+            </div>
+          </div>
+          <div class="form-text mt-2">
+            El usuario deberá completar estos campos antes de confirmar la transición.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-danger btn-sm" id="btn-trans-deactivate">
+          <i class="fas fa-ban me-1"></i>Desactivar transición
+        </button>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-success ms-2" id="btn-trans-edit-save">
+            <i class="fas fa-check me-1"></i>Aplicar cambios
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Detalle de cambio (Auditoría — Fase 7) ===== #}
+<div class="modal fade" id="modal-audit-detail" tabindex="-1"
+     aria-labelledby="modal-audit-detail-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header flex-wrap gap-2">
+        <h5 class="modal-title" id="modal-audit-detail-label">
+          <i class="fas fa-history me-2 text-secondary"></i>Detalle del cambio
+        </h5>
+        <div id="audit-detail-header-meta" class="d-flex flex-wrap align-items-center gap-1 ms-2">
+          {# Populated by JS #}
+        </div>
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-3" id="audit-detail-body">
+        {# Populated by JS #}
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-audit-toggle-view">
+          <i class="fas fa-code me-1"></i>Ver JSON crudo
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+{# ===== MODAL: Editar plantilla de notificación (Fase 6) ===== #}
+<div class="modal fade" id="modal-notification-edit" tabindex="-1"
+     aria-labelledby="modal-notification-edit-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-notification-edit-label">
+          <i class="fas fa-pencil-alt me-2 text-primary"></i>Editar plantilla de notificación
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-3">
+        <div class="notification-editor-grid">
+
+          {# ---- Columna izquierda: formulario ---- #}
+          <div class="notification-editor-form">
+
+            {# Código (readonly) #}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Código</label>
+              <div>
+                <span class="notification-code fs-6" id="notif-edit-code-display"></span>
+                <small class="text-muted ms-2">No se puede modificar.</small>
+              </div>
+            </div>
+
+            {# Nombre (readonly) #}
+            <div class="mb-3">
+              <label for="notif-edit-name" class="form-label fw-semibold">Nombre</label>
+              <input type="text" class="form-control form-control-sm bg-light" id="notif-edit-name"
+                     readonly tabindex="-1">
+              <div class="form-text">El nombre es de solo lectura.</div>
+            </div>
+
+            {# Descripción #}
+            <div class="mb-3">
+              <label for="notif-edit-description" class="form-label fw-semibold">Descripción</label>
+              <textarea class="form-control form-control-sm" id="notif-edit-description"
+                        rows="2" maxlength="500"
+                        placeholder="Descripción del evento que dispara esta notificación"></textarea>
+            </div>
+
+            {# Canal #}
+            <div class="mb-3">
+              <label for="notif-edit-channel" class="form-label fw-semibold">Canal de envío</label>
+              <select class="form-select form-select-sm" id="notif-edit-channel">
+                <option value="inapp">In-app (notificación interna)</option>
+                <option value="email">Email</option>
+                <option value="both">Ambos (in-app + email)</option>
+              </select>
+            </div>
+
+            {# Asunto (visible solo si channel != inapp) #}
+            <div class="mb-3" id="notif-edit-subject-wrap">
+              <label for="notif-edit-subject" class="form-label fw-semibold">
+                Asunto del email <span class="text-muted fw-normal">(Jinja)</span>
+              </label>
+              <input type="text" class="form-control form-control-sm notification-template-textarea"
+                     id="notif-edit-subject"
+                     placeholder="{% raw %}Asunto para el email, ej: Ticket #{{ ticket.ticket_number }} creado{% endraw %}">
+            </div>
+
+            {# Cuerpo #}
+            <div class="mb-2">
+              <label for="notif-edit-body" class="form-label fw-semibold">
+                Cuerpo de la plantilla <span class="text-muted fw-normal">(Jinja)</span>
+              </label>
+              <textarea class="form-control form-control-sm notification-template-textarea"
+                        id="notif-edit-body" rows="12"
+                        placeholder="Cuerpo de la notificación..."></textarea>
+              {# Error de sintaxis inline #}
+              <div class="alert alert-danger py-2 small mt-1 d-none" id="notif-syntax-error">
+                <i class="fas fa-exclamation-circle me-1"></i>
+                <span id="notif-syntax-error-text"></span>
+              </div>
+              <div class="d-flex justify-content-between mt-1">
+                <small class="text-muted" id="notif-body-counter">0 líneas · 0 caracteres</small>
+              </div>
+            </div>
+
+            {# Variables disponibles (clicables) #}
+            <div class="mb-0">
+              <label class="form-label fw-semibold small text-muted mb-1">
+                Variables disponibles <span class="fw-normal">(clic para insertar en cursor)</span>
+              </label>
+              <div class="notification-variables" id="notif-edit-variables">
+                {# Populated by JS #}
+              </div>
+            </div>
+
+          </div>{# /notification-editor-form #}
+
+          {# ---- Columna derecha: vista previa ---- #}
+          <div class="notification-editor-preview">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0 fw-semibold text-secondary">
+                <i class="fas fa-eye me-1"></i>Vista previa
+              </h6>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-notif-render-preview">
+                <i class="fas fa-sync-alt me-1"></i>Renderizar
+              </button>
+            </div>
+
+            <div class="mb-2">
+              <label for="notif-edit-ticket-id" class="form-label form-label-sm text-muted">
+                ID de ticket real (opcional)
+              </label>
+              <input type="number" class="form-control form-control-sm" id="notif-edit-ticket-id"
+                     min="1" step="1" placeholder="Dejar vacío para usar datos de ejemplo">
+            </div>
+
+            <div id="notif-edit-preview-area">
+              <div class="text-muted small fst-italic text-center py-4">
+                Haz clic en "Renderizar" o edita el cuerpo para ver la vista previa.
+              </div>
+            </div>
+          </div>{# /notification-editor-preview #}
+
+        </div>{# /notification-editor-grid #}
+      </div>{# /modal-body #}
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-notif-edit-save">
+          <i class="fas fa-save me-1"></i>Guardar cambios
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== MODAL: Vista previa rápida de plantilla (Fase 6) ===== #}
+<div class="modal fade" id="modal-notification-preview" tabindex="-1"
+     aria-labelledby="modal-notification-preview-label" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-notification-preview-label">
+          <i class="fas fa-eye me-2 text-secondary"></i>Vista previa de plantilla
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex align-items-center flex-wrap gap-2" id="notif-preview-header">
+          {# Populated by JS: código + nombre + chip canal #}
+        </div>
+        <div id="notif-preview-body-area">
+          {# Populated by JS #}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-primary btn-sm" id="btn-notif-preview-open-edit">
+          <i class="fas fa-pencil-alt me-1"></i>Editar
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+{# CDN SortableJS — necesario para drag-drop en categories_tab y field_template_builder #}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
+{# Entry point (router de tabs + hash sync) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/config_main.js') }}?v={{ sv('helpdesk', 'js/admin/config/config_main.js') }}"></script>
+
+{# Field builder: debe cargarse antes de categories_tab porque categories_tab llama FieldTemplateBuilder.open #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/field_template_builder.js') }}?v={{ sv('helpdesk', 'js/admin/config/field_template_builder.js') }}"></script>
+
+{# Tab: categorías de tickets #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/categories_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/categories_tab.js') }}"></script>
+
+{# Tab: categorías de inventario #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/inventory_categories_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/inventory_categories_tab.js') }}"></script>
+
+{# Tab: prioridades y SLA #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/priorities_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/priorities_tab.js') }}"></script>
+
+{# Tab: estados y flujo (Fase 4) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/statuses_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/statuses_tab.js') }}"></script>
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/transitions_matrix.js') }}?v={{ sv('helpdesk', 'js/admin/config/transitions_matrix.js') }}"></script>
+
+{# Tab: áreas de servicio (Fase 5) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/areas_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/areas_tab.js') }}"></script>
+
+{# Tab: auditoría de cambios (Fase 7) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/audit_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/audit_tab.js') }}"></script>
+
+{# Tab: plantillas de notificación (Fase 6) #}
+<script src="{{ url_for('static', filename='helpdesk/js/admin/config/notifications_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/notifications_tab.js') }}"></script>
+{% endblock %}

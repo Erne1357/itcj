@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from .admin import router as admin_router
 from .coord import router as coord_router
+from .help import router as help_router
 from .landing import router as landing_router
 from .social import router as social_router
 from .student import router as student_router
@@ -21,3 +22,4 @@ agendatec_pages_router.include_router(coord_router)
 agendatec_pages_router.include_router(admin_router)
 agendatec_pages_router.include_router(social_router)
 agendatec_pages_router.include_router(surveys_router)
+agendatec_pages_router.include_router(help_router)

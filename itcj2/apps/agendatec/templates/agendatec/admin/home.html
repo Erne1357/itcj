@@ -7,22 +7,28 @@
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-    <h1 class="h5 h4-md mb-0">Dashboard<span class="d-none d-sm-inline"> de Administración</span></h1>
+    <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+        <i class="bi bi-speedometer2" aria-hidden="true"></i>
+        Dashboard<span class="d-none d-sm-inline"> de Administración</span>
+    </h1>
     <div class="d-flex flex-wrap gap-1 align-items-center">
-        <select id="fltPeriod" class="form-select form-select-sm text-muted" style="width: auto; min-width: 140px; font-size: 0.75rem; border-color: #dee2e6;">
+        <label class="at-sr-only" for="fltPeriod">Período</label>
+        <select id="fltPeriod" class="form-select form-select-sm text-muted admin-filter-select">
             <option value="">Cargando...</option>
         </select>
-        <input id="fltFrom" type="date" class="form-control form-control-sm text-muted d-none d-md-block" style="width: 115px; font-size: 0.7rem; border-color: #dee2e6;">
-        <input id="fltTo" type="date" class="form-control form-control-sm text-muted d-none d-md-block" style="width: 115px; font-size: 0.7rem; border-color: #dee2e6;">
-        <button id="btnApplyRange" class="btn btn-outline-secondary btn-sm" style="font-size: 0.75rem;">
-            <i class="bi bi-arrow-repeat"></i>
+        <label class="at-sr-only" for="fltFrom">Desde</label>
+        <input id="fltFrom" type="date" class="form-control form-control-sm text-muted d-none d-md-block admin-filter-date">
+        <label class="at-sr-only" for="fltTo">Hasta</label>
+        <input id="fltTo" type="date" class="form-control form-control-sm text-muted d-none d-md-block admin-filter-date">
+        <button id="btnApplyRange" class="btn btn-outline-secondary btn-sm admin-filter-btn d-none d-md-inline-block" aria-label="Aplicar rango">
+            <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
         </button>
     </div>
 </div>
 
-<div class="row g-2 g-md-3">
+<div class="row g-2 g-md-3" id="dashKpis">
     <div class="col-4 col-md-4 col-lg-2">
-        <div class="card metric-card shadow-sm">
+        <div class="card metric-card metric-card--accent shadow-sm">
             <div class="card-body py-2 py-md-3">
                 <div class="metric-sub">Pendientes</div>
                 <div id="mPending" class="metric-value">–</div>
@@ -80,8 +86,8 @@
         <div class="card shadow-sm">
             <div class="card-header py-2 d-flex align-items-center gap-2 flex-wrap">
                 <!-- Tabs con scroll horizontal -->
-                <div class="nav-tabs-wrapper overflow-auto flex-grow-1">
-                    <ul class="nav nav-pills flex-nowrap" id="leftTabs" role="tablist" style="white-space: nowrap;">
+                <div class="nav-tabs-wrapper flex-grow-1">
+                    <ul class="nav nav-pills" id="leftTabs" role="tablist">
                         <li class="nav-item" role="presentation">
                             <button class="nav-link active py-1 px-2" id="tabSeries" data-bs-toggle="tab" data-bs-target="#paneSeries"
                                 type="button" role="tab" aria-controls="paneSeries" aria-selected="true">
@@ -135,8 +141,8 @@
                         <label class="form-check-label small" for="pieByDay"><span class="d-none d-md-inline">Desglose por</span> día</label>
                     </div>
 
-                    <select id="pieDay" class="form-select form-select-sm" style="width:auto; min-width: 120px;"
-                        hidden></select>
+                    <label class="at-sr-only" for="pieDay">Día</label>
+                    <select id="pieDay" class="form-select form-select-sm pie-day-select" hidden></select>
 
                     <button id="btnPiesReload" class="btn btn-outline-primary btn-sm">
                         <i class="bi bi-arrow-repeat"></i>
@@ -158,8 +164,8 @@
                     <!-- Pastel global -->
                     <div class="tab-pane fade" id="panePieGlobal" role="tabpanel" aria-labelledby="tabPieGlobal"
                         tabindex="0">
-                        <div class="pieHost border rounded p-2" style="position:relative; height: 260px;">
-                            <canvas id="chCoordGlobal" style="width:100%; height:100%;"></canvas>
+                        <div class="pieHost border rounded p-2">
+                            <canvas id="chCoordGlobal"></canvas>
                         </div>
                         <small id="lblGlobalTotal" class="text-muted d-block mt-1">Total: –</small>
                     </div>
@@ -174,7 +180,7 @@
                     <div class="tab-pane fade" id="paneBarsGlobal" role="tabpanel" aria-labelledby="tabBarsGlobal"
                         tabindex="0">
                         <div class="border rounded p-2">
-                            <canvas id="chBarsGlobal" style="width:100%;height:320px;"></canvas>
+                            <canvas id="chBarsGlobal" class="admin-chart-bar"></canvas>
                         </div>
                     </div>
 
@@ -182,7 +188,7 @@
                     <div class="tab-pane fade" id="paneBarsCoord" role="tabpanel" aria-labelledby="tabBarsCoord"
                         tabindex="0">
                         <div class="border rounded p-2">
-                            <canvas id="chBarsCoord" style="width:100%;height:420px;"></canvas>
+                            <canvas id="chBarsCoord" class="admin-chart-bar-lg"></canvas>
                         </div>
                     </div>
 
@@ -190,8 +196,8 @@
                     <div class="tab-pane fade" id="paneActivity" role="tabpanel" aria-labelledby="tabActivity"
                         tabindex="0">
                         <div class="d-flex flex-wrap gap-2 mb-2">
-                            <div class="input-group input-group-sm" style="max-width:320px;">
-                                <span class="input-group-text">Coordinador</span>
+                            <div class="input-group input-group-sm act-coord-group">
+                                <label class="input-group-text" for="selActCoord">Coordinador</label>
                                 <select id="selActCoord" class="form-select form-select-sm">
                                     <!-- se llena dinámicamente -->
                                 </select>
@@ -201,13 +207,13 @@
                             <div class="col-12 col-lg-6">
                                 <div class="border rounded p-2">
                                     <h6 class="mb-2">Global</h6>
-                                    <canvas id="chActGlobal" style="width:100%;height:280px;"></canvas>
+                                    <canvas id="chActGlobal" class="admin-chart-act"></canvas>
                                 </div>
                             </div>
                             <div class="col-12 col-lg-6">
                                 <div class="border rounded p-2">
                                     <h6 class="mb-2">Seleccionado</h6>
-                                    <canvas id="chActCoord" style="width:100%;height:280px;"></canvas>
+                                    <canvas id="chActCoord" class="admin-chart-act"></canvas>
                                 </div>
                             </div>
                         </div>
@@ -224,17 +230,17 @@
                 <span class="fw-semibold">Pendientes por coordinador</span>
             </div>
             <div class="card-body card-scroll">
-                <div class="d-flex justify-content-center mb-2 small text-muted" style="font-size: 0.75rem;">
-                    <span class="me-2">
-                        <span class="badge bg-primary" style="font-size: 0.65rem; padding: 2px 6px;">0</span>
+                <div class="coord-legend">
+                    <span>
+                        <span class="badge text-bg-primary coord-legend__badge" id="lblPendingAppointments">–</span>
                         Citas
                     </span>
-                    <span class="me-2">
-                        <span class="badge bg-danger" style="font-size: 0.65rem; padding: 2px 6px;">0</span>
+                    <span>
+                        <span class="badge text-bg-danger coord-legend__badge" id="lblPendingDrops">–</span>
                         Bajas
                     </span>
                     <span>
-                        <span class="badge bg-secondary" style="font-size: 0.65rem; padding: 2px 6px;">0</span>
+                        <span class="badge text-bg-dark coord-legend__badge" id="lblPendingTotal">–</span>
                         Total
                     </span>
                 </div>
@@ -250,49 +256,13 @@
 {% endblock %}
 
 {% block modals %}
-<!-- Modal de confirmación para envío de encuestas (prueba/producción) -->
-<div class="modal fade" id="modalSurveyConfirm" tabindex="-1" aria-labelledby="modalSurveyConfirmLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="modalSurveyConfirmLabel">Confirmar envío</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body">
-                <p id="modalSurveyConfirmMsg">¿Deseas enviar las encuestas?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary" id="btnConfirmSurvey">Enviar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Modal de error para envío de encuestas -->
-<div class="modal fade" id="modalSurveyError" tabindex="-1" aria-labelledby="modalSurveyErrorLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="modalSurveyErrorLabel">
-                    <i class="bi bi-exclamation-circle me-2"></i>Error al enviar
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body">
-                <p class="mb-0">Error al enviar: revisa la consola/servidor.</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-            </div>
-        </div>
-    </div>
-</div>
+{# Modales de encuestas movidos a admin/surveys.html (Fase 7 cleanup). #}
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_client.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/chart-palette.js') }}?v={{ sv('agendatec', 'js/admin/chart-palette.js') }}"></script>
 <script>
     window.__adminDashboard = {
         fetchUrl: "{{ url_for('agendatec_api.api_admin.admin_stats.stats_overview') }}",   // <- ojo: 'fetchUrl' para home.js
@@ -302,7 +272,6 @@
 </script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/home.js') }}?v={{ sv('agendatec', 'js/admin/home.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/home_pies.js') }}?v={{ sv('agendatec', 'js/admin/home_pies.js') }}"></script>
-<script src="{{ url_for('static', filename='agendatec/js/admin/mail_survey.js') }}?v={{ sv('agendatec', 'js/admin/mail_survey.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/home_bars.js') }}?v={{ sv('agendatec', 'js/admin/home_bars.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/home_activity.js') }}?v={{ sv('agendatec', 'js/admin/home_activity.js') }}"></script>
 {% endblock %}

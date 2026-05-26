@@ -5,13 +5,14 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from itcj2.apps.maint.models.ticket import MaintTicket, SLA_HOURS
+from itcj2.apps.maint.models.ticket import MaintTicket, SLA_HOURS  # SLA_HOURS se mantiene como fallback
+from itcj2.apps.maint.utils.catalog_cache import get_priority_codes, get_sla_hours
 from itcj2.apps.maint.models.category import MaintCategory
 from itcj2.apps.maint.models.comment import MaintComment
 from itcj2.apps.maint.models.status_log import MaintStatusLog
 from itcj2.apps.maint.models.action_log import MaintTicketActionLog
 from itcj2.apps.maint.utils.ticket_number_generator import generate_ticket_number
-from itcj2.apps.maint.utils.timezone_utils import now_local
+from itcj2.apps.maint.utils.timezone_utils import now_local, ensure_local_timezone
 from itcj2.core.models.user import User
 from itcj2.models.base import paginate
 
@@ -30,13 +31,23 @@ def create_ticket(
     location: str = None,
     custom_fields: dict = None,
     created_by_id: int = None,
+    department_id: int = None,
 ) -> MaintTicket:
     """
     Crea un nuevo ticket de mantenimiento.
     Calcula due_at según la prioridad (SLA_HOURS).
+
+    department_id: si viene, se valida que el solicitante tenga ese depto via
+    UserPosition activa. Si no viene, se resuelve automáticamente: si tiene
+    un solo depto activo, se usa; si tiene varios, se requiere selección
+    explícita (HTTP 400).
     """
-    if priority not in SLA_HOURS:
-        raise HTTPException(status_code=400, detail='Prioridad inválida. Valores: BAJA, MEDIA, ALTA, URGENTE')
+    valid_codes = get_priority_codes()
+    if priority not in valid_codes:
+        raise HTTPException(
+            status_code=400,
+            detail=f'Prioridad inválida. Valores permitidos: {", ".join(sorted(valid_codes))}',
+        )
 
     requester = db.get(User, requester_id)
     if not requester:
@@ -46,18 +57,35 @@ def create_ticket(
     if not category or not category.is_active:
         raise HTTPException(status_code=400, detail='Categoría inválida o inactiva')
 
-    # Obtener departamento del solicitante desde su posición activa
-    department_id = None
-    try:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=requester_id,
-            is_active=True
-        ).first()
-        if user_position and user_position.position:
-            department_id = user_position.position.department_id
-    except Exception as e:
-        logger.warning(f"No se pudo obtener departamento del usuario {requester_id}: {e}")
+    # Determinar/validar departamento del solicitante via puestos activos
+    from itcj2.core.models.position import UserPosition, Position
+    user_depts = (
+        db.query(Position.department_id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            UserPosition.user_id == requester_id,
+            UserPosition.is_active == True,
+            Position.department_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    user_dept_ids = {r[0] for r in user_depts}
+
+    if department_id is not None:
+        if department_id not in user_dept_ids:
+            raise HTTPException(
+                status_code=400,
+                detail='El departamento indicado no corresponde a un puesto activo del solicitante.',
+            )
+    elif len(user_dept_ids) == 1:
+        department_id = next(iter(user_dept_ids))
+    elif len(user_dept_ids) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail='El solicitante pertenece a varios departamentos; debes indicar `department_id` explícitamente.',
+        )
+    # else: ningún depto — department_id queda None (no bloquea, queda nulo en BD)
 
     # Restricción: máximo 3 tickets sin calificar
     unrated = db.query(MaintTicket).filter(
@@ -74,7 +102,7 @@ def create_ticket(
     ticket_number = generate_ticket_number(db)
     created_by = created_by_id or requester_id
     now = now_local()
-    due_at = now + timedelta(hours=SLA_HOURS[priority])
+    due_at = now + timedelta(hours=get_sla_hours(priority))
 
     ticket = MaintTicket(
         ticket_number=ticket_number,
@@ -142,12 +170,17 @@ def list_tickets(
     search: str = None,
     page: int = 1,
     per_page: int = 20,
+    assigned_to_me: bool = False,
 ) -> dict:
     """
     Lista tickets según el rol del usuario:
     - admin / dispatcher / tech_maint → todos
     - department_head / secretary    → solo su departamento
     - staff / any other              → solo propios
+
+    `assigned_to_me`: filtro adicional que limita a tickets donde el user
+    es técnico activo asignado (cross-cutting con el scope del rol).
+    Ordenado siempre por `created_at DESC` (LIFO).
     """
     query = db.query(MaintTicket)
 
@@ -193,6 +226,18 @@ def list_tickets(
             MaintTicket.description.ilike(term),
         ))
 
+    if assigned_to_me:
+        # Solo tickets con técnico activo (unassigned_at NULL) = user actual.
+        from itcj2.apps.maint.models import MaintTicketTechnician
+        query = query.filter(
+            MaintTicket.id.in_(
+                db.query(MaintTicketTechnician.ticket_id).filter(
+                    MaintTicketTechnician.user_id == user_id,
+                    MaintTicketTechnician.unassigned_at.is_(None),
+                )
+            )
+        )
+
     query = query.order_by(MaintTicket.created_at.desc())
     pagination = paginate(query, page=page, per_page=per_page)
 
@@ -236,11 +281,15 @@ def update_pending_ticket(
         ticket.custom_fields = {}  # Limpiar campos dinámicos al cambiar categoría
 
     if priority and priority != ticket.priority:
-        if priority not in SLA_HOURS:
-            raise HTTPException(status_code=400, detail='Prioridad inválida')
+        valid_codes = get_priority_codes()
+        if priority not in valid_codes:
+            raise HTTPException(
+                status_code=400,
+                detail=f'Prioridad inválida. Valores permitidos: {", ".join(sorted(valid_codes))}',
+            )
         ticket.priority = priority
         # Recalcular due_at con la nueva prioridad
-        ticket.due_at = now_local() + timedelta(hours=SLA_HOURS[priority])
+        ticket.due_at = now_local() + timedelta(hours=get_sla_hours(priority))
 
     if title is not None:
         ticket.title = title.strip()
@@ -300,11 +349,22 @@ def resolve_ticket(
     if ticket.status not in ('ASSIGNED', 'IN_PROGRESS'):
         raise HTTPException(status_code=400, detail='El ticket no puede ser resuelto en su estado actual')
 
-    if maintenance_type not in ('PREVENTIVO', 'CORRECTIVO'):
-        raise HTTPException(status_code=400, detail='Tipo de mantenimiento inválido (PREVENTIVO o CORRECTIVO)')
+    from itcj2.apps.maint.utils.catalog_cache import get_maint_type_codes, get_service_origin_codes
+    valid_maint_types = get_maint_type_codes()
+    if maintenance_type not in valid_maint_types:
+        valid_str = ', '.join(sorted(valid_maint_types)) if valid_maint_types else 'ninguno disponible'
+        raise HTTPException(
+            status_code=400,
+            detail=f'Tipo de mantenimiento inválido. Valores válidos: {valid_str}',
+        )
 
-    if service_origin not in ('INTERNO', 'EXTERNO'):
-        raise HTTPException(status_code=400, detail='Origen del servicio inválido (INTERNO o EXTERNO)')
+    valid_service_origins = get_service_origin_codes()
+    if service_origin not in valid_service_origins:
+        valid_str = ', '.join(sorted(valid_service_origins)) if valid_service_origins else 'ninguno disponible'
+        raise HTTPException(
+            status_code=400,
+            detail=f'Origen del servicio inválido. Valores válidos: {valid_str}',
+        )
 
     # Determinar si es técnico asignado o dispatcher
     is_assigned_tech = any(
@@ -657,6 +717,9 @@ def _dt(val):
 
 def serialize_ticket_summary(ticket: MaintTicket) -> dict:
     """Datos mínimos para la lista de tickets."""
+    now = now_local()
+    due_at_local = ensure_local_timezone(ticket.due_at) if ticket.due_at else None
+
     try:
         cat = {
             "id": ticket.category.id,
@@ -669,9 +732,13 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
         cat = None
 
     try:
-        req = {"id": ticket.requester.id, "name": ticket.requester.full_name}
+        req = {
+            "id": ticket.requester.id,
+            "name": ticket.requester.full_name,
+            "email": getattr(ticket.requester, "email", None),
+        }
     except Exception:
-        req = {"id": ticket.requester_id, "name": "—"}
+        req = {"id": ticket.requester_id, "name": "—", "email": None}
 
     try:
         active_techs = [
@@ -694,6 +761,12 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
         "category": cat,
         "requester": req,
         "active_technicians": active_techs,
+        "is_overdue": bool(
+            due_at_local
+            and due_at_local < now
+            and ticket.status in ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
+        ),
+        "sla_alert_sent_at": _dt(ticket.sla_alert_sent_at),
     }
 
 
@@ -721,6 +794,36 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
     except Exception:
         dept = None
 
+    # Puesto/cargo principal del solicitante (puede no existir)
+    requester_position = None
+    try:
+        from itcj2.core.models.position import UserPosition, Position
+        up = (
+            ticket.requester
+            and (
+                ticket.requester.__dict__.get("_sa_instance_state")
+                and None
+            )
+        )
+        # Query directo (no asumir relación cargada)
+        from sqlalchemy.orm import object_session
+        sess = object_session(ticket)
+        if sess and ticket.requester_id:
+            row = (
+                sess.query(Position.title)
+                .join(UserPosition, UserPosition.position_id == Position.id)
+                .filter(
+                    UserPosition.user_id == ticket.requester_id,
+                    UserPosition.is_active == True,
+                )
+                .order_by(UserPosition.start_date.desc())
+                .first()
+            )
+            if row:
+                requester_position = row[0]
+    except Exception:
+        requester_position = None
+
     try:
         technicians = [
             {
@@ -737,6 +840,17 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
     except Exception:
         technicians = []
 
+    def _att_brief(att):
+        return {
+            "id": att.id,
+            "original_filename": att.original_filename,
+            "mime_type": att.mime_type,
+            "file_size": att.file_size,
+            "uploaded_at": _dt(att.uploaded_at),
+            "is_purged": bool(att.is_purged),
+            "purged_at": _dt(att.purged_at),
+        }
+
     try:
         comments = [
             {
@@ -748,11 +862,19 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
                     "id": c.author_id,
                     "name": c.author.full_name if c.author else str(c.author_id),
                 },
+                "attachments": [_att_brief(a) for a in (c.attachments or [])],
             }
             for c in sorted(ticket.comments, key=lambda x: x.created_at or 0)
         ]
     except Exception:
         comments = []
+
+    try:
+        ticket_attachments = [_att_brief(a) for a in (ticket.attachments or []) if a.attachment_type == 'ticket']
+        resolution_attachments = [_att_brief(a) for a in (ticket.attachments or []) if a.attachment_type == 'resolution']
+    except Exception:
+        ticket_attachments = []
+        resolution_attachments = []
 
     try:
         status_logs = [
@@ -776,6 +898,7 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
         "description": ticket.description,
         "custom_fields": ticket.custom_fields or {},
         "requester_department": dept,
+        "requester_position": requester_position,
         "maintenance_type": ticket.maintenance_type,
         "service_origin": ticket.service_origin,
         "resolution_notes": ticket.resolution_notes,
@@ -799,5 +922,10 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
         "technicians": technicians,
         "comments": comments,
         "status_logs": status_logs,
+        "ticket_attachments": ticket_attachments,
+        "resolution_attachments": resolution_attachments,
+        # sla_alert_sent_at ya viene desde serialize_ticket_summary;
+        # lo repetimos aquí explícitamente para la vista de detalle.
+        "sla_alert_sent_at": _dt(ticket.sla_alert_sent_at),
     })
     return data

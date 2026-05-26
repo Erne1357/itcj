@@ -1,0 +1,152 @@
+{% extends "maint/help/base_help.html" %}
+
+{% block help_body %}
+
+<section id="intro" class="mn-help-section">
+    <h2>Ayuda para Admin y Dispatcher</h2>
+    <p>
+        Esta guía cubre las funciones de <strong>despacho y administración</strong> de la app
+        de Mantenimiento: asignación de técnicos, resolución de cualquier ticket, gestión de
+        categorías, áreas técnicas y reportes.
+    </p>
+    <p>Si necesitas ver la perspectiva del solicitante, abre la pestaña <strong>Solicitante</strong>.</p>
+</section>
+
+{% if help_all or 'maint.tickets.page.list' in user_perms %}
+<section id="bandeja" class="mn-help-section">
+    <h2>1. Bandeja de tickets</h2>
+    <p>
+        Tu vista principal. Permite filtrar por estado (Pendiente, Asignado, En Progreso,
+        Resuelto, Cerrado, Cancelado), categoría y prioridad, además de buscar por título o folio.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/09_lista_tickets_filtros.png?v={{ sv('img/help/09_lista_tickets_filtros.png') }}"
+             alt="Lista de tickets con filtros" class="mn-help-img">
+        <figcaption>(1) Filtros por estado · (2) Búsqueda · (3) Categoría · (4) Prioridad.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.assignments.api.assign' in user_perms %}
+<section id="asignar" class="mn-help-section">
+    <h2>2. Asignar técnico(s)</h2>
+    <p>
+        Entra al ticket y abre la pestaña <strong>Técnicos</strong>. Mantenimiento permite
+        asignar <strong>uno o varios técnicos</strong> al mismo ticket — útil cuando una orden
+        requiere más de una especialidad o personal de apoyo.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/10_asignar_tecnicos_tab.png?v={{ sv('img/help/10_asignar_tecnicos_tab.png') }}"
+             alt="Tab de técnicos asignados" class="mn-help-img">
+        <figcaption>Tab Técnicos: (1) lista de asignados · (2) botón rojo desasigna · (3) buscador para añadir más.</figcaption>
+    </figure>
+    <div class="mn-help-callout">
+        Cada técnico tiene <strong>áreas de especialidad</strong>. El buscador prioriza los que
+        coinciden con la categoría del ticket.
+    </div>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.assignments.api.unassign' in user_perms %}
+<section id="reasignar" class="mn-help-section">
+    <h2>3. Reasignar o desasignar técnicos</h2>
+    <p>
+        Desde el mismo tab puedes quitar un técnico (botón rojo) o agregar más con el buscador.
+        Reasignar = quitar uno y agregar otro. Todas las acciones quedan registradas en el
+        <strong>Historial</strong> y en la auditoría reforzada (<code>maint_action_log</code>).
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/11_reasignar_tecnicos.png?v={{ sv('img/help/11_reasignar_tecnicos.png') }}"
+             alt="Reasignar técnicos" class="mn-help-img">
+        <figcaption>3 técnicos asignados: cualquiera se puede quitar individualmente con el botón rojo.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.tickets.api.resolve' in user_perms %}
+<section id="resolver-dispatcher" class="mn-help-section">
+    <h2>4. Resolver un ticket como dispatcher</h2>
+    <p>
+        A diferencia de Helpdesk, en Maint <strong>cualquier dispatcher puede resolver</strong>
+        un ticket aunque no esté en la lista de técnicos asignados. Útil para coordinaciones
+        rápidas, cierre administrativo o cuando el técnico no puede registrar la resolución.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/12_resolver_dispatcher.png?v={{ sv('img/help/12_resolver_dispatcher.png') }}"
+             alt="Botones de acción del dispatcher" class="mn-help-img">
+        <figcaption>(1) estado actual · (2) Resolver · (3) Cancelar — disponibles para cualquier dispatcher.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/19_resolver_paso1_modal.png?v={{ sv('img/help/19_resolver_paso1_modal.png') }}"
+             alt="Modal de resolución" class="mn-help-img">
+        <figcaption>Modal Resolver: (1) tipo de mantenimiento · (2) origen · (3) tiempo invertido · (4) notas detalladas.</figcaption>
+    </figure>
+</section>
+
+<section id="estados" class="mn-help-section">
+    <h2>5. Cambiar estado manualmente</h2>
+    <p>El flujo natural es:</p>
+    <pre class="mn-help-flow">PENDING → ASSIGNED → IN_PROGRESS → RESOLVED_SUCCESS → CLOSED
+                                    ↘ RESOLVED_FAILED → CLOSED
+                                    ↘ CANCELED</pre>
+    <p>
+        Como dispatcher/admin puedes mover el ticket entre estados desde los botones del
+        detalle (Iniciar Progreso, Resolver, Cancelar). El sistema impone las transiciones
+        válidas por estado.
+    </p>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.admin.page.categories' in user_perms %}
+<section id="categorias" class="mn-help-section">
+    <h2>6. Gestión de categorías (solo admin)</h2>
+    <p>
+        Cada categoría define los <strong>campos adicionales</strong> que se piden al crear un
+        ticket de esa categoría (<code>field_template</code> JSON: destino, hora de salida,
+        pasajeros, etc.).
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/14_admin_categorias.png?v={{ sv('img/help/14_admin_categorias.png') }}"
+             alt="Pantalla de categorías" class="mn-help-img">
+        <figcaption>(1) Crear nueva categoría · (2) editar el formulario dinámico de cada una.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.admin.page.areas' in user_perms %}
+<section id="areas" class="mn-help-section">
+    <h2>7. Áreas técnicas</h2>
+    <p>
+        Asigna áreas de especialidad a cada técnico (Eléctrico, Carpintería, A/C, etc.).
+        El sistema prioriza estos técnicos al asignar tickets de esa categoría.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/15_admin_areas.png?v={{ sv('img/help/15_admin_areas.png') }}"
+             alt="Áreas técnicas" class="mn-help-img">
+        <figcaption>Pantalla de áreas — administra especialidades por técnico.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.admin.page.reports' in user_perms or 'maint.stats.page.list' in user_perms or 'maint.analysis.page.list' in user_perms %}
+<section id="reportes" class="mn-help-section">
+    <h2>8. Reportes, estadísticas y análisis</h2>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/16_admin_reportes.png?v={{ sv('img/help/16_admin_reportes.png') }}"
+             alt="Reportes" class="mn-help-img">
+        <figcaption><strong>Reportes:</strong> filtros por período + descarga Excel/PDF.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/16_admin_estadisticas.png?v={{ sv('img/help/16_admin_estadisticas.png') }}"
+             alt="Estadísticas" class="mn-help-img">
+        <figcaption><strong>Estadísticas:</strong> KPIs por área, técnico, categoría y SLA.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/16_admin_analisis.png?v={{ sv('img/help/16_admin_analisis.png') }}"
+             alt="Análisis" class="mn-help-img">
+        <figcaption><strong>Análisis:</strong> outliers (IQR), K-Means, distribución y tendencias temporales.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% endblock %}

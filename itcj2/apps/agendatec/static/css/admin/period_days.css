@@ -1,3 +1,20 @@
+/* =============================================================================
+   AgendaTec — Period Days
+   ============================================================================= */
+
+/* Botón Guardar sticky en mobile */
+.at-sticky-save {
+  position: sticky;
+  bottom: var(--at-space-3);
+  z-index: var(--at-z-sticky);
+}
+
+@media (min-width: 768px) {
+  .at-sticky-save {
+    position: static;
+  }
+}
+
 /* Period Days Calendar Styles */
 
 /* Reset y estilos base para el contenedor */
@@ -11,13 +28,13 @@
   width: 100%;
   max-width: none;
   box-shadow: none;
-  border: 1px solid #dee2e6;
-  border-radius: 0.375rem;
+  border: 1px solid var(--at-border);
+  border-radius: var(--at-radius-md);
 }
 
 #calendarContainer .flatpickr-months {
   padding: 15px;
-  background-color: #f8f9fa;
+  background-color: var(--at-surface-subtle);
 }
 
 #calendarContainer .flatpickr-current-month {
@@ -38,14 +55,14 @@
 
 #calendarContainer .flatpickr-weekdays {
   margin-top: 10px;
-  background-color: #fff;
+  background-color: var(--at-surface);
   padding: 0 15px;
 }
 
 #calendarContainer .flatpickr-weekday {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #212529;
+  color: var(--at-text);
   text-align: center;
   padding: 10px 0;
   text-transform: uppercase;
@@ -65,59 +82,59 @@
 #calendarContainer .flatpickr-day {
   min-height: 45px;
   font-size: 0.95rem;
-  border-radius: 0.375rem;
-  border: 1px solid #e9ecef;
+  border-radius: var(--at-radius-sm);
+  border: 1px solid var(--at-border-subtle);
   cursor: pointer;
-  transition: all 0.15s ease;
-  background-color: #fff;
+  transition: all var(--at-duration-fast) var(--at-ease-standard);
+  background-color: var(--at-surface);
 }
 
 #calendarContainer .flatpickr-day.selected {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
-  color: white;
+  background-color: var(--at-primary);
+  border-color: var(--at-primary);
+  color: var(--at-surface);
   font-weight: 600;
 }
 
 #calendarContainer .flatpickr-day.today {
-  border-color: #0d6efd;
+  border-color: var(--at-primary);
   font-weight: 600;
 }
 
-/* Hover mejorado - fondo azul claro y efecto de escala */
+/* Hover mejorado */
 #calendarContainer .flatpickr-day:hover:not(.selected):not(.flatpickr-disabled):not(.prevMonthDay):not(.nextMonthDay) {
-  background-color: #e7f1ff;
-  border-color: #0d6efd;
+  background-color: var(--at-primary-50);
+  border-color: var(--at-primary);
   transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(13, 110, 253, 0.15);
+  box-shadow: var(--at-shadow-xs);
 }
 
 #calendarContainer .flatpickr-day.selected:hover {
-  background-color: #0b5ed7;
-  border-color: #0b5ed7;
+  background-color: var(--at-primary-hover);
+  border-color: var(--at-primary-hover);
   transform: scale(1.05);
 }
 
-/* Días de otros meses - sin hover */
+/* Días de otros meses */
 #calendarContainer .flatpickr-day.prevMonthDay,
 #calendarContainer .flatpickr-day.nextMonthDay {
-  color: #adb5bd;
-  background-color: #f8f9fa;
+  color: var(--at-text-disabled);
+  background-color: var(--at-surface-subtle);
   cursor: default;
 }
 
 #calendarContainer .flatpickr-day.prevMonthDay:hover,
 #calendarContainer .flatpickr-day.nextMonthDay:hover {
-  background-color: #f8f9fa;
+  background-color: var(--at-surface-subtle);
   transform: none;
   box-shadow: none;
 }
 
 /* Días deshabilitados */
 #calendarContainer .flatpickr-day.flatpickr-disabled {
-  color: #dee2e6;
+  color: var(--at-border);
   cursor: not-allowed;
-  background-color: #f8f9fa;
+  background-color: var(--at-surface-subtle);
   opacity: 0.5;
 }
 

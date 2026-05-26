@@ -1,0 +1,184 @@
+{% extends "maint/help/base_help.html" %}
+
+{% block help_body %}
+
+<section id="intro" class="mn-help-section">
+    <h2>Bienvenido a la ayuda de Mantenimiento</h2>
+    <p>
+        Esta guía es para <strong>solicitantes</strong>: usuarios que crean tickets para reportar
+        problemas o solicitar servicios al departamento de Mantenimiento (electricidad, A/C,
+        carpintería, jardinería, transporte, mantenimiento general).
+    </p>
+    <p>
+        Recorre cada sección desde el índice lateral. Las imágenes son interactivas:
+        haz clic sobre cualquiera para verla más grande. Los recuadros rojos señalan los
+        elementos clave de cada paso.
+    </p>
+</section>
+
+<section id="login" class="mn-help-section">
+    <h2>1. Iniciar sesión</h2>
+    <p>Accede al portal con tu cuenta institucional desde <code>/itcj/login</code>.</p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/01_login_paso1.png?v={{ sv('img/help/01_login_paso1.png') }}"
+             alt="Pantalla de inicio de sesión" class="mn-help-img">
+        <figcaption>Pantalla de inicio de sesión: captura usuario y contraseña.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/01_login_paso2.png?v={{ sv('img/help/01_login_paso2.png') }}"
+             alt="Login con credenciales" class="mn-help-img">
+        <figcaption>Presiona <strong>Iniciar sesión</strong>.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/01_login_paso3_dashboard.png?v={{ sv('img/help/01_login_paso3_dashboard.png') }}"
+             alt="Dashboard general ITCJ" class="mn-help-img">
+        <figcaption>Llegarás al dashboard general — entra a la tarjeta de <strong>Mantenimiento</strong>.</figcaption>
+    </figure>
+</section>
+
+<section id="dashboard" class="mn-help-section">
+    <h2>2. Inicio de Mantenimiento</h2>
+    <p>
+        Pantalla de bienvenida con tus indicadores: solicitudes activas, SLA vencidos,
+        pendientes de calificar y actividad reciente. Si tienes solicitudes resueltas
+        sin calificar, aparece un banner naranja arriba.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/02_dashboard_paso1_landing.png?v={{ sv('img/help/02_dashboard_paso1_landing.png') }}"
+             alt="Landing de Mantenimiento" class="mn-help-img">
+        <figcaption>Landing principal con KPIs personales y banner de pendientes de calificar.</figcaption>
+    </figure>
+</section>
+
+{% if help_all or 'maint.tickets.api.create' in user_perms %}
+<section id="crear" class="mn-help-section">
+    <h2>3. Crear una solicitud</h2>
+    <p>Para reportar un problema entra a <strong>Nueva Solicitud</strong> desde la barra superior.</p>
+
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/03_crear_ticket_paso1_form.png?v={{ sv('img/help/03_crear_ticket_paso1_form.png') }}"
+             alt="Selección de categoría" class="mn-help-img">
+        <figcaption>1. Selecciona la categoría que mejor describe tu solicitud.</figcaption>
+    </figure>
+
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/03_crear_ticket_paso2_categoria_transporte.png?v={{ sv('img/help/03_crear_ticket_paso2_categoria_transporte.png') }}"
+             alt="Categoría Transporte con campos extra" class="mn-help-img">
+        <figcaption>2. Algunas categorías (ej. Transporte) muestran <strong>campos adicionales</strong> obligatorios: destino, hora de salida, pasajeros, vehículo.</figcaption>
+    </figure>
+
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/03_crear_ticket_paso3_form_lleno.png?v={{ sv('img/help/03_crear_ticket_paso3_form_lleno.png') }}"
+             alt="Formulario completado" class="mn-help-img">
+        <figcaption>3. Llena título, descripción detallada y ubicación. Adjunta imágenes si te ayudan a explicar el problema. Envía la solicitud.</figcaption>
+    </figure>
+
+    <div class="mn-help-callout">
+        <strong>Adjuntos:</strong> imágenes hasta 3 MB (jpg, png, gif, webp), máximo 5 por ticket.
+    </div>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.tickets.page.detail' in user_perms %}
+<section id="detalle" class="mn-help-section">
+    <h2>4. Ver el detalle de mi ticket</h2>
+    <p>Entra al ticket desde el listado. El detalle tiene 5 pestañas:</p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso1_info.png?v={{ sv('img/help/04_detalle_paso1_info.png') }}"
+             alt="Tab Información" class="mn-help-img">
+        <figcaption><strong>Información:</strong> descripción, ubicación, solicitante, SLA, departamento y adjuntos.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso2_tecnicos.png?v={{ sv('img/help/04_detalle_paso2_tecnicos.png') }}"
+             alt="Tab Técnicos" class="mn-help-img">
+        <figcaption><strong>Técnicos:</strong> personal asignado al ticket (puede ser uno o varios).</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso3_comentarios.png?v={{ sv('img/help/04_detalle_paso3_comentarios.png') }}"
+             alt="Tab Comentarios" class="mn-help-img">
+        <figcaption><strong>Comentarios:</strong> comunicación pública con el equipo de Mantenimiento.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso4_resolucion.png?v={{ sv('img/help/04_detalle_paso4_resolucion.png') }}"
+             alt="Tab Resolución" class="mn-help-img">
+        <figcaption><strong>Resolución:</strong> resultado, tipo de mantenimiento, materiales y evidencia fotográfica.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso5_historial.png?v={{ sv('img/help/04_detalle_paso5_historial.png') }}"
+             alt="Tab Historial" class="mn-help-img">
+        <figcaption><strong>Historial:</strong> auditoría completa con todas las acciones (asignaciones, cambios de estado, comentarios).</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.comments.api.create' in user_perms %}
+<section id="comentar" class="mn-help-section">
+    <h2>5. Comentar en mi ticket</h2>
+    <p>
+        Desde la pestaña <strong>Comentarios</strong> puedes agregar notas para el técnico
+        o dispatcher (por ejemplo: aclarar el problema, agregar fotos nuevas o avisar de un cambio).
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/04_detalle_paso3_comentarios.png?v={{ sv('img/help/04_detalle_paso3_comentarios.png') }}"
+             alt="Composer de comentarios" class="mn-help-img">
+        <figcaption>Escribe tu comentario y publícalo. Los comentarios marcados como <em>internos</em> solo los ve el personal de Mantenimiento.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.tickets.api.cancel' in user_perms %}
+<section id="cancelar" class="mn-help-section">
+    <h2>6. Cancelar un ticket</h2>
+    <p>
+        Solo puedes cancelar un ticket si aún se encuentra en estado <strong>Pendiente</strong>
+        (sin asignar). Si ya fue asignado o está en progreso, contacta al dispatcher.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/06_cancelar_paso1.png?v={{ sv('img/help/06_cancelar_paso1.png') }}"
+             alt="Botón Cancelar en ticket pendiente" class="mn-help-img">
+        <figcaption>1. Abre tu ticket en estado Pendiente y presiona <strong>Cancelar</strong>.</figcaption>
+    </figure>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/06_cancelar_paso2_modal.png?v={{ sv('img/help/06_cancelar_paso2_modal.png') }}"
+             alt="Modal de cancelación" class="mn-help-img">
+        <figcaption>2. Indica el motivo (ej. duplicado, ya resuelto, no requerido) y confirma.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.tickets.api.rate' in user_perms %}
+<section id="calificar" class="mn-help-section">
+    <h2>7. Calificar un ticket resuelto</h2>
+    <p>
+        Cuando un técnico resuelve tu ticket, aparece el botón <strong>Calificar</strong> en el
+        detalle. Tu calificación incluye atención (1-5), rapidez (1-5), eficiencia (sí/no) y
+        un comentario opcional.
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/07_calificar_paso1_modal.png?v={{ sv('img/help/07_calificar_paso1_modal.png') }}"
+             alt="Modal de calificación" class="mn-help-img">
+        <figcaption>Modal de calificación: estrellas + comentario.</figcaption>
+    </figure>
+</section>
+{% endif %}
+
+{% if help_all or 'maint.tickets.api.create' in user_perms %}
+<section id="restriccion-3" class="mn-help-section">
+    <h2>8. Restricción: 3 tickets resueltos sin calificar</h2>
+    <p>
+        El sistema te muestra un banner naranja en el inicio cuando tienes pendientes por calificar:
+    </p>
+    <figure class="mn-help-figure">
+        <img src="/static/maint/img/help/02_dashboard_paso1_landing.png?v={{ sv('img/help/02_dashboard_paso1_landing.png') }}"
+             alt="Banner de pendientes en landing" class="mn-help-img">
+        <figcaption>Banner naranja "A" señala tus solicitudes resueltas sin calificar.</figcaption>
+    </figure>
+    <div class="mn-help-callout mn-help-callout-warn">
+        Si tienes <strong>3 o más solicitudes resueltas sin calificar</strong>, el sistema
+        bloqueará la creación de nuevos tickets hasta que las califiques. El botón
+        "Nueva Solicitud" mostrará el aviso.
+    </div>
+</section>
+{% endif %}
+
+{% endblock %}

@@ -7,7 +7,7 @@ Uso:
 
 Comandos disponibles:
     core init-db, core reset-db, core check-db, core init-themes, core init-tasks, core execute-sql
-    helpdesk load-inventory-csv
+    helpdesk load-inventory-csv, helpdesk init-inventory-campaign
     agendatec seed-periods, agendatec activate-period, agendatec list-periods,
               agendatec import-students, agendatec sync-students-agendatec
     vistetec init-vistetec

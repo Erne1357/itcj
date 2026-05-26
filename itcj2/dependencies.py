@@ -69,11 +69,18 @@ def require_page_roles(app_key: str, roles: list[str]):
         if not user:
             raise PageLoginRequired()
 
-        from itcj2.core.services.authz_service import user_roles_in_app
+        from itcj2.core.services.authz_service import (
+            has_any_assignment,
+            user_roles_in_app,
+        )
 
         uid = int(user["sub"])
         if not _roles_set & set(user_roles_in_app(db, uid, app_key)):
-            raise PageForbidden()
+            # Tiene acceso a la app pero no el rol de esta página →
+            # botón al inicio de la app. Sin acceso → panel core.
+            raise PageForbidden(
+                has_app_access=has_any_assignment(db, uid, app_key)
+            )
 
         return user
 
@@ -107,12 +114,15 @@ def require_page_app(app_key: str, perms: list[str] | None = None):
         uid = int(user["sub"])
 
         if not has_any_assignment(db, uid, app_key):
-            raise PageForbidden()
+            # Sin acceso a la app → panel core (no hay inicio de app).
+            raise PageForbidden(has_app_access=False)
 
         if _perms_set:
             user_perms = get_user_permissions_for_app(db, uid, app_key)
             if not (_perms_set & user_perms):
-                raise PageForbidden()
+                # Tiene la app pero le falta el permiso de esta página →
+                # botón al inicio de la app.
+                raise PageForbidden(has_app_access=True)
 
         return user
 

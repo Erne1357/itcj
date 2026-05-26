@@ -35,6 +35,7 @@ def _build_agendatec_nav(user_id: int) -> list[dict]:
         _db = SessionLocal()
         try:
             agendatec_roles = set(user_roles_in_app(_db, user_id, "agendatec"))
+            user_perms = get_user_permissions_for_app(_db, user_id, "agendatec")
             student_open = is_student_window_open()
 
             if "student" in agendatec_roles and student_open:
@@ -51,8 +52,12 @@ def _build_agendatec_nav(user_id: int) -> list[dict]:
                     },
                 ]
             else:
-                user_perms = get_user_permissions_for_app(_db, user_id, "agendatec")
                 nav_items = _get_agendatec_navigation(user_perms, student_open)
+
+            # ── Item de Ayuda (granular por permiso help.page.*) ────────
+            help_item = _build_help_nav_item(agendatec_roles, user_perms)
+            if help_item:
+                nav_items.append(help_item)
         finally:
             _db.close()
 
@@ -65,6 +70,37 @@ def _build_agendatec_nav(user_id: int) -> list[dict]:
         nav_items = []
 
     return nav_items
+
+
+_HELP_PERM_ORDER = (
+    ("student", "agendatec.help.page.student", "agendatec_pages.help_pages.help_student"),
+    ("coord", "agendatec.help.page.coord", "agendatec_pages.help_pages.help_coord"),
+    ("social", "agendatec.help.page.social", "agendatec_pages.help_pages.help_social"),
+    ("admin", "agendatec.help.page.admin", "agendatec_pages.help_pages.help_admin"),
+)
+
+
+def _build_help_nav_item(roles: set, perms: set) -> dict | None:
+    """Devuelve el item ``Ayuda`` apuntando a la primera vista permitida.
+
+    Admin (rol agendatec ``admin``) bypassa: aterriza en /agendatec/help/admin.
+    Si no tiene ningún permiso de help, retorna None (no se renderiza).
+    """
+    is_admin = "admin" in roles
+    if is_admin:
+        return {
+            "label": "Ayuda",
+            "endpoint": "agendatec_pages.help_pages.help_admin",
+            "icon": "bi-question-circle",
+        }
+    for _view, perm, endpoint in _HELP_PERM_ORDER:
+        if perm in perms:
+            return {
+                "label": "Ayuda",
+                "endpoint": endpoint,
+                "icon": "bi-question-circle",
+            }
+    return None
 
 
 def _get_agendatec_navigation(user_permissions: set, student_window_open: bool) -> list[dict]:

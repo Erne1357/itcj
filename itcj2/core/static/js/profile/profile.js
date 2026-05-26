@@ -4,6 +4,7 @@
         this.currentFilter = 'all';
         this.readStatusFilter = 'all';
         this.dateRangeFilter = 'week';
+        this.socket = null;
         this.init();
     }
 
@@ -11,9 +12,52 @@
         this.bindEvents();
         this.loadActivity();
         this.loadNotifications();
+        this.connectWebSocket();
 
         // Make instance globally accessible for SSE
         window.profileManager = this;
+    }
+
+    /**
+     * Conecta al WS /notify para sincronizar:
+     *  - notify          → llega notificación nueva: refrescar lista
+     *  - notification:read → se marcó leída en otro lugar: refrescar
+     */
+    connectWebSocket() {
+        const ensureIO = () => new Promise((resolve, reject) => {
+            if (window.io) return resolve();
+            const s = document.createElement('script');
+            s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
+            s.crossOrigin = 'anonymous';
+            s.onload = () => resolve();
+            s.onerror = reject;
+            document.head.appendChild(s);
+        });
+
+        ensureIO().then(() => {
+            if (window.__notifySocket) {
+                this.socket = window.__notifySocket;
+            } else {
+                this.socket = window.io('/notify', {
+                    withCredentials: true,
+                    reconnection: true,
+                    transports: ['websocket', 'polling'],
+                });
+                window.__notifySocket = this.socket;
+            }
+
+            this.socket.on('notify', () => {
+                // Refrescar lista para mostrar la nueva
+                this.loadNotifications();
+            });
+
+            this.socket.on('notification:read', () => {
+                // Estado cambió desde otro tab/iframe — re-render
+                this.loadNotifications();
+            });
+        }).catch(err => {
+            console.warn('[ProfileManager] socket.io load failed:', err);
+        });
     }
 
     bindEvents() {
@@ -82,8 +126,95 @@
                 const btn = e.target.closest('.mark-read-btn');
                 const notifId = btn.dataset.notifId;
                 this.markNotificationAsRead(notifId);
+                return;
+            }
+
+            // Interceptar click en boton "Ver" de notificacion → abrir como ventana
+            const notifLink = e.target.closest('.notification-action-link');
+            if (notifLink) {
+                e.preventDefault();
+                const url = notifLink.getAttribute('href') || notifLink.dataset.url;
+                const notifId = notifLink.dataset.notifId;
+                if (notifId) {
+                    this.markNotificationAsRead(notifId);
+                }
+                this.openNotificationUrl(url);
             }
         });
+    }
+
+    /**
+     * Mapea una URL a un appId del dashboard.
+     */
+    detectAppId(url) {
+        if (!url) return null;
+        if (url.includes('/agendatec')) return 'agendatec';
+        if (url.includes('/help-desk')) return 'helpdesk';
+        if (url.includes('/maint')) return 'maint';
+        if (url.includes('/vistetec')) return 'vistetec';
+        if (url.includes('/compras')) return 'compras';
+        if (url.includes('/itcj/config')) return 'settings';
+        if (url.includes('/itcj/profile')) return 'profile';
+        return null;
+    }
+
+    /**
+     * Abre el URL de la notificacion como ventana del dashboard.
+     * Si profile esta dentro de un iframe → usa parent.desktop API.
+     * Si esta en top-level → window.location fallback.
+     */
+    openNotificationUrl(url) {
+        if (!url) return;
+
+        const appId = this.detectAppId(url);
+        const isIframe = window.self !== window.top;
+
+        // Resolver objeto desktop (vive en el dashboard padre)
+        let desktopApi = null;
+        try {
+            if (isIframe && window.parent && window.parent.desktop) {
+                desktopApi = window.parent.desktop;
+            } else if (!isIframe && window.desktop) {
+                desktopApi = window.desktop;
+            }
+        } catch (err) {
+            // Cross-origin: parent inaccesible. Fallback abajo.
+            desktopApi = null;
+        }
+
+        if (appId && desktopApi && typeof desktopApi.openApplication === 'function') {
+            desktopApi.openApplication(appId);
+
+            // Navegar dentro del iframe de la app a la URL especifica
+            // Dar tiempo a createWindow si es la primera vez
+            const navigateToUrl = () => {
+                try {
+                    const parentDoc = isIframe ? window.parent.document : document;
+                    const iframe = parentDoc.querySelector(`[data-app-id="${appId}"] .window-iframe`);
+                    if (iframe) {
+                        try {
+                            iframe.contentWindow.location.href = url;
+                        } catch (_) {
+                            iframe.src = url;
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[ProfileManager] navigateToUrl failed:', err);
+                }
+            };
+
+            // Si root del app, no necesita navegacion adicional
+            const isRootUrl = url.endsWith('/agendatec') || url.endsWith('/agendatec/')
+                           || url.endsWith('/help-desk') || url.endsWith('/help-desk/')
+                           || url.endsWith('/maint') || url.endsWith('/maint/')
+                           || url.endsWith('/vistetec') || url.endsWith('/vistetec/');
+            if (!isRootUrl) {
+                setTimeout(navigateToUrl, 500);
+            }
+        } else {
+            // Sin desktop API: navegar directo (peor caso)
+            window.location.href = url;
+        }
     }
 
     async loadActivity() {
@@ -228,7 +359,10 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <span class="badge bg-${color}">${notif.app_name}</span>
                             <div class="notification-actions">
-                                ${notif.action_url ? `<a href="${notif.action_url}" class="btn btn-sm btn-primary">Ver</a>` : ''}
+                                ${notif.action_url ? `<a href="${notif.action_url}"
+                                    class="btn btn-sm btn-primary notification-action-link"
+                                    data-notif-id="${notif.id}"
+                                    data-url="${notif.action_url}">Ver</a>` : ''}
                                 ${!notif.is_read ? `
                                     <button class="btn btn-sm btn-outline-secondary ms-2 mark-read-btn" data-notif-id="${notif.id}">
                                         <i class="bi bi-check2"></i>
@@ -251,37 +385,50 @@
         const filterGroup = document.getElementById('notificationFilters');
         if (!filterGroup) return;
 
-        // Keep the "All" filter
+        // Update "All" badge
         const allBadge = document.getElementById('badgeAll');
         if (allBadge) {
             allBadge.textContent = total;
         }
 
-        // Add app-specific filters
-        let hasAppFilters = false;
-        Object.entries(appCounts).forEach(([appName, count]) => {
-            const appKey = this.getAppKey(appName);
-            const displayName = this.getAppDisplayName(appKey);
-            const filterId = `notif${appKey.charAt(0).toUpperCase() + appKey.slice(1)}`;
+        // Limpiar filtros dinámicos previos (mantener solo "All")
+        filterGroup.querySelectorAll('[data-dynamic-filter="1"]').forEach(el => el.remove());
 
-            // Check if filter already exists
-            if (!document.getElementById(filterId)) {
-                hasAppFilters = true;
-                const html = `
-                    <input type="radio" class="btn-check" name="notifFilter" id="${filterId}">
-                    <label class="btn btn-outline-secondary" for="${filterId}">
-                        ${displayName} <span class="badge app-badge-${appKey} ms-1">${count}</span>
+        // Generar dinámicamente: una entrada por cada app_name presente
+        Object.entries(appCounts)
+            .sort((a, b) => b[1] - a[1])  // mayor count primero
+            .forEach(([appName, count]) => {
+                const appKey = this.getAppKey(appName);
+                const displayName = this.getAppDisplayName(appKey);
+                const safeKey = appKey.replace(/[^a-z0-9_-]/gi, '');
+                const filterId = `notif-${safeKey}`;
+
+                const inputHtml = `
+                    <input type="radio" class="btn-check" name="notifFilter"
+                           id="${filterId}" data-dynamic-filter="1" data-app-key="${appKey}">
+                    <label class="btn btn-outline-secondary btn-sm" for="${filterId}"
+                           data-dynamic-filter="1">
+                        ${displayName}
+                        <span class="badge bg-secondary ms-1">${count}</span>
                     </label>
                 `;
-                filterGroup.insertAdjacentHTML('beforeend', html);
+                filterGroup.insertAdjacentHTML('beforeend', inputHtml);
 
-                // Bind event
-                document.getElementById(filterId).addEventListener('change', (e) => {
+                document.getElementById(filterId).addEventListener('change', () => {
                     this.currentFilter = appKey;
                     this.filterNotifications();
                 });
+            });
+
+        // Si el filtro activo desapareció (app sin notificaciones), reset a "All"
+        const activeRadio = document.querySelector('input[name="notifFilter"]:checked');
+        if (!activeRadio) {
+            const allRadio = document.getElementById('notifAll');
+            if (allRadio) {
+                allRadio.checked = true;
+                this.currentFilter = 'all';
             }
-        });
+        }
     }
 
     filterNotifications() {
@@ -459,33 +606,38 @@
     }
 
     getAppKey(appName) {
-        // Handles both raw keys and display names
-        const rawKeys = ['core', 'agendatec', 'helpdesk', 'vistetec', 'inventory', 'tickets'];
-        if (rawKeys.includes(appName)) return appName;
-        const mapping = {
-            'ITCJ Core': 'core',
-            'AgendaTec': 'agendatec',
-            'Help Desk': 'helpdesk',
-            'VisteTec': 'vistetec',
-            'Tickets': 'tickets'
+        // app_name viene ya como key raw ('helpdesk', 'maint', etc).
+        // Mapping legacy para casos donde llegue display name.
+        if (!appName) return 'other';
+        const lower = String(appName).trim().toLowerCase();
+        const legacyMap = {
+            'itcj core': 'core',
+            'agendatec': 'agendatec',
+            'help desk': 'helpdesk',
+            'vistetec': 'vistetec',
+            'mantenimiento': 'maint',
+            'tickets': 'tickets',
         };
-        return mapping[appName] || 'other';
+        return legacyMap[lower] || lower;
     }
 
     getAppDisplayName(appKey) {
         const names = {
             'agendatec': 'AgendaTec',
             'helpdesk': 'Help Desk',
+            'maint': 'Mantenimiento',
             'vistetec': 'VisteTec',
+            'warehouse': 'Almacén',
             'inventory': 'Inventario',
             'core': 'Sistema',
         };
-        return names[appKey] || appKey;
+        if (names[appKey]) return names[appKey];
+        // Fallback: capitalizar primera letra
+        return appKey ? appKey.charAt(0).toUpperCase() + appKey.slice(1) : 'Otro';
     }
 
     getAppKeyFromName(appName) {
-        // Direct mapping since app_name now comes as 'agendatec', 'helpdesk', etc.
-        return appName || 'other';
+        return this.getAppKey(appName);
     }
 
     getNotificationIcon(type) {

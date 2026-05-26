@@ -1,0 +1,261 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Análisis{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/maint/css/admin/analysis.css?v={{ sv('css/admin/analysis.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+  <!-- Encabezado -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold">
+        <i class="fas fa-microscope me-2" style="color:var(--maint-primary);"></i>Análisis Avanzado
+      </h4>
+      <small class="text-muted">Outliers IQR, clustering K-means, distribuciones y tendencias</small>
+    </div>
+    <a href="/maint/admin/stats" class="btn btn-outline-secondary btn-sm">
+      <i class="fas fa-chart-pie me-1"></i><span class="d-none d-sm-inline">Estadísticas</span>
+    </a>
+  </div>
+
+  <!-- Selector de rango -->
+  <div id="analysisDateRange"></div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="analysisTabs" role="tablist">
+    <li class="nav-item">
+      <a class="nav-link active" data-bs-toggle="tab" href="#tab-outliers" id="tab-outliers-link">
+        <i class="fas fa-exclamation-triangle me-1 text-danger"></i><span class="d-none d-sm-inline">Outliers</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-clusters" id="tab-clusters-link">
+        <i class="fas fa-project-diagram me-1 text-primary"></i><span class="d-none d-sm-inline">Clusters</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-dist" id="tab-dist-link">
+        <i class="fas fa-chart-bar me-1 text-success"></i><span class="d-none d-sm-inline">Distribución</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-trends" id="tab-trends-link">
+        <i class="fas fa-chart-line me-1 text-info"></i><span class="d-none d-sm-inline">Tendencias</span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ── TAB: OUTLIERS ────────────────────────────────────── -->
+    <div class="tab-pane fade show active" id="tab-outliers">
+
+      <div class="alert alert-info alert-sm d-flex align-items-start gap-2 py-2 mb-3">
+        <i class="fas fa-info-circle mt-1 flex-shrink-0"></i>
+        <div class="small">
+          <strong>Detección por IQR:</strong> Se identifican valores atípicos usando el rango intercuartílico (Q1−1.5×IQR, Q3+1.5×IQR).
+        </div>
+      </div>
+
+      <!-- Métrica selector -->
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <span class="small fw-semibold">Métrica:</span>
+        <div class="btn-group btn-group-sm" role="group" id="outlierMetricBtns">
+          <button type="button" class="btn btn-outline-danger active" data-metric="time_invested">
+            <i class="fas fa-clock me-1"></i>Tiempo invertido
+          </button>
+          <button type="button" class="btn btn-outline-warning" data-metric="rating_attention">
+            <i class="fas fa-star me-1"></i>Calif. atención
+          </button>
+          <button type="button" class="btn btn-outline-info" data-metric="rating_speed">
+            <i class="fas fa-bolt me-1"></i>Calif. velocidad
+          </button>
+        </div>
+      </div>
+
+      <!-- IQR summary -->
+      <div class="row g-3 mb-3" id="outlierSummaryRow">
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm p-3 text-center">
+            <div class="mn-outlier-label">Q1</div>
+            <div class="mn-outlier-value" id="outQ1">—</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm p-3 text-center">
+            <div class="mn-outlier-label">Q3</div>
+            <div class="mn-outlier-value" id="outQ3">—</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm p-3 text-center border-danger border-opacity-25">
+            <div class="mn-outlier-label">Fence inferior</div>
+            <div class="mn-outlier-value text-danger" id="outLower">—</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card shadow-sm p-3 text-center border-danger border-opacity-25">
+            <div class="mn-outlier-label">Fence superior</div>
+            <div class="mn-outlier-value text-danger" id="outUpper">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Outlier tickets table -->
+      <div class="card shadow-sm p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="fw-semibold small" id="outlierTableTitle">Tickets outliers (por encima del fence)</span>
+          <span class="badge bg-danger" id="outlierCountBadge">0</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mn-table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Ticket</th>
+                <th class="text-center">Valor</th>
+                <th class="text-center d-none d-sm-table-cell">Tipo</th>
+              </tr>
+            </thead>
+            <tbody id="outlierTableBody">
+              <tr><td colspan="3" class="text-center py-4 text-muted">
+                <i class="fas fa-spinner fa-spin me-2"></i>Cargando outliers...
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="outlierBelowSection" class="mt-3" style="display:none;">
+          <div class="fw-semibold small mb-2">Tickets por debajo del fence inferior</div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mn-table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th class="text-center">Valor</th>
+                </tr>
+              </thead>
+              <tbody id="outlierBelowBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-outliers -->
+
+    <!-- ── TAB: CLUSTERS ────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-clusters">
+
+      <div class="alert alert-primary alert-sm d-flex align-items-start gap-2 py-2 mb-3">
+        <i class="fas fa-info-circle mt-1 flex-shrink-0"></i>
+        <div class="small">
+          <strong>K-means:</strong> Agrupa tickets por tiempo invertido (normalizado), calificación de atención y velocidad.
+          El scatter usa las dos primeras dimensiones del centroide.
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <label class="fw-semibold small">Número de clústeres (k):</label>
+        <select id="kSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+        <button class="btn btn-sm" id="btnRunKmeans"
+                style="background:var(--maint-primary);border-color:var(--maint-primary);color:#fff;">
+          <i class="fas fa-play me-1"></i>Ejecutar clustering
+        </button>
+        <span id="kmeansStatus" class="text-muted small"></span>
+      </div>
+
+      <!-- Cluster summary cards -->
+      <div class="row g-3 mb-3" id="clusterCardsRow">
+        <div class="col-12 text-center text-muted py-4">
+          <i class="fas fa-project-diagram fa-2x mb-2 d-block opacity-25"></i>
+          Ejecuta el clustering para ver los resultados.
+        </div>
+      </div>
+
+      <!-- Scatter chart (ApexCharts) -->
+      <div class="card shadow-sm p-3">
+        <div class="mn-section-title">Dispersión — Tiempo invertido vs Calificación de atención</div>
+        <div id="scatterContainer" style="min-height:320px;"></div>
+      </div>
+    </div><!-- /tab-clusters -->
+
+    <!-- ── TAB: DISTRIBUCIÓN ────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-dist">
+
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <div class="d-flex align-items-center gap-2">
+          <label class="fw-semibold small">Métrica:</label>
+          <select id="distMetricSelect" class="form-select form-select-sm" style="width:auto;">
+            <option value="time_invested">Tiempo invertido (min)</option>
+            <option value="rating_attention">Calificación de atención</option>
+            <option value="rating_speed">Calificación de velocidad</option>
+          </select>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="fw-semibold small">Bins:</label>
+          <select id="distBinsSelect" class="form-select form-select-sm" style="width:auto;">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+            <option value="20">20</option>
+          </select>
+        </div>
+        <button class="btn btn-sm" id="btnLoadDist"
+                style="background:var(--maint-primary);border-color:var(--maint-primary);color:#fff;">
+          <i class="fas fa-sync me-1"></i>Actualizar
+        </button>
+      </div>
+
+      <div class="card shadow-sm p-3">
+        <div class="mn-section-title" id="distChartTitle">Histograma — Tiempo invertido</div>
+        <div class="chart-wrap">
+          <canvas id="chartDist"></canvas>
+        </div>
+      </div>
+    </div><!-- /tab-dist -->
+
+    <!-- ── TAB: TENDENCIAS ──────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-trends">
+
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <span class="fw-semibold small">Granularidad:</span>
+        <div class="btn-group btn-group-sm" role="group" id="trendsGranularityBtns">
+          <button type="button" class="btn btn-outline-secondary" data-granularity="day">Día</button>
+          <button type="button" class="btn btn-outline-secondary active" data-granularity="week">Semana</button>
+          <button type="button" class="btn btn-outline-secondary" data-granularity="month">Mes</button>
+        </div>
+      </div>
+
+      <!-- Multi-line chart: created / resolved / canceled -->
+      <div class="card shadow-sm p-3 mb-3">
+        <div class="mn-section-title">Creados, resueltos y cancelados</div>
+        <div class="chart-wrap">
+          <canvas id="chartTrends"></canvas>
+        </div>
+      </div>
+
+      <!-- Secondary: avg resolution minutes -->
+      <div class="card shadow-sm p-3">
+        <div class="mn-section-title">Tiempo promedio de resolución (minutos)</div>
+        <div class="chart-wrap-sm">
+          <canvas id="chartTrendsTime"></canvas>
+        </div>
+      </div>
+    </div><!-- /tab-trends -->
+
+  </div><!-- /tab-content -->
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js"></script>
+<script src="/static/maint/js/admin/_chart_defaults.js?v={{ sv('js/admin/_chart_defaults.js') }}"></script>
+<script src="/static/maint/js/admin/_daterange.js?v={{ sv('js/admin/_daterange.js') }}"></script>
+<script src="/static/maint/js/admin/analysis.js?v={{ sv('js/admin/analysis.js') }}"></script>
+{% endblock %}

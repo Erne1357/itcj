@@ -1,25 +1,38 @@
 {% extends "agendatec/base.html" %}
 {% block title %}Alumno - Mis solicitudes{% endblock %}
 {% block content %}
-<div class="card shadow-sm">
-  <div class="card-body">
-    <h5 class="card-title d-flex align-items-center gap-2">
-      <i class="bi bi-journal-text"></i> Mis solicitudes
-    </h5>
-    <div id="reqPanel"></div>
-    
+<div class="at-fade-in row g-3 justify-content-center">
+  <div class="col-12 col-lg-9 col-xl-8">
+    <nav aria-label="Ruta de navegación" class="mb-3">
+      <ol class="breadcrumb mb-0 small">
+        <li class="breadcrumb-item">
+          <a href="{{ url_for('agendatec_pages.student_pages.student_home') }}">Inicio</a>
+        </li>
+        <li class="breadcrumb-item active" aria-current="page">Mis solicitudes</li>
+      </ol>
+    </nav>
+
+    <div class="at-card">
+      <div class="card-body">
+        <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+          <i class="bi bi-list-task text-primary" aria-hidden="true"></i> Mis solicitudes
+        </h5>
+        <div id="reqPanel" aria-live="polite" aria-atomic="true"></div>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
 
 {% block modals %}
 <!-- Modal de confirmación para cancelar solicitud -->
-<div class="modal fade" id="modalCancelRequest" tabindex="-1" aria-labelledby="modalCancelRequestLabel" aria-hidden="true">
+<div class="modal fade" id="modalCancelRequest" tabindex="-1"
+     aria-labelledby="modalCancelRequestLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header border-0">
                 <h5 class="modal-title" id="modalCancelRequestLabel">
-                    <i class="bi bi-exclamation-triangle text-warning me-2"></i>Confirmar cancelación
+                    <i class="bi bi-exclamation-triangle text-warning me-2" aria-hidden="true"></i>Confirmar cancelación
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>

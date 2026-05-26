@@ -255,8 +255,10 @@ def get_available_technicians(
 ):
     from itcj2.apps.helpdesk.services import assignment_service
 
-    if area not in ("DESARROLLO", "SOPORTE"):
-        raise HTTPException(400, detail={"error": "invalid_area", "message": "El área debe ser DESARROLLO o SOPORTE"})
+    from itcj2.apps.helpdesk.utils.catalog_cache import get_area_codes
+    valid_areas = get_area_codes(db, active_only=False)
+    if area not in valid_areas:
+        raise HTTPException(400, detail={"error": "invalid_area", "message": f"El área debe ser una de: {sorted(valid_areas)}"})
 
     technicians = assignment_service.get_technicians_by_area(db, area)
 

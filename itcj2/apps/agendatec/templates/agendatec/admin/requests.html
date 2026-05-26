@@ -3,9 +3,11 @@
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-  <h1 class="h5 h4-md mb-0">Solicitudes</h1>
-  <button class="btn btn-outline-primary btn-sm d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse">
-    <i class="bi bi-funnel"></i> Filtros
+  <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-list-check" aria-hidden="true"></i> Solicitudes
+  </h1>
+  <button class="btn btn-outline-primary btn-sm d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
+    <i class="bi bi-funnel" aria-hidden="true"></i> Filtros
   </button>
 </div>
 
@@ -13,13 +15,16 @@
 <div class="collapse d-md-block mb-3" id="filtersCollapse">
   <div class="row g-2">
     <div class="col-6 col-md-auto">
-      <input id="fltFrom" type="date" class="form-control form-control-sm">
+      <label class="at-sr-only" for="fltFrom">Desde</label>
+      <input id="fltFrom" type="date" class="form-control form-control-sm" aria-label="Desde">
     </div>
     <div class="col-6 col-md-auto">
-      <input id="fltTo" type="date" class="form-control form-control-sm">
+      <label class="at-sr-only" for="fltTo">Hasta</label>
+      <input id="fltTo" type="date" class="form-control form-control-sm" aria-label="Hasta">
     </div>
     <div class="col-12 col-md-auto">
-      <select id="fltStatus" class="form-select form-select-sm">
+      <label class="at-sr-only" for="fltStatus">Estado</label>
+      <select id="fltStatus" class="form-select form-select-sm" aria-label="Estado">
         <option value="">Todos los estados</option>
         <option value="PENDING">Pendientes</option>
         <option value="RESOLVED_SUCCESS">Resueltas</option>
@@ -30,52 +35,81 @@
       </select>
     </div>
     <div class="col-6 col-md-auto">
-      <select id="fltProgram" class="form-select form-select-sm">
+      <label class="at-sr-only" for="fltProgram">Programa</label>
+      <select id="fltProgram" class="form-select form-select-sm" aria-label="Programa">
         <option value="">Programa</option>
       </select>
     </div>
     <div class="col-6 col-md-auto">
-      <select id="fltCoordinator" class="form-select form-select-sm">
+      <label class="at-sr-only" for="fltCoordinator">Coordinador</label>
+      <select id="fltCoordinator" class="form-select form-select-sm" aria-label="Coordinador">
         <option value="">Coordinador</option>
       </select>
     </div>
     <div class="col-6 col-md-auto">
-      <select id="fltPeriod" class="form-select form-select-sm">
+      <label class="at-sr-only" for="fltPeriod">Período</label>
+      <select id="fltPeriod" class="form-select form-select-sm" aria-label="Período">
         <option value="">Cargando períodos...</option>
       </select>
     </div>
     <div class="col-6 col-md-auto">
-      <input id="txtQ" class="form-control form-control-sm" placeholder="No. control / Alumno">
+      <label class="at-sr-only" for="txtQ">Buscar</label>
+      <input id="txtQ" class="form-control form-control-sm" placeholder="No. control / Alumno" aria-label="Buscar por número de control o nombre">
     </div>
     <div class="col-12 col-md-auto">
-      <button id="btnSearch" class="btn btn-primary btn-sm w-100 w-md-auto"><i class="bi bi-search"></i><span class="d-md-none ms-1">Buscar</span></button>
+      <button id="btnSearch" class="btn btn-primary btn-sm w-100 w-md-auto">
+        <i class="bi bi-search" aria-hidden="true"></i><span class="d-md-none ms-1">Buscar</span>
+      </button>
     </div>
   </div>
 </div>
 
 <div class="card shadow-sm">
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
-      <thead class="table-light">
+    <table class="table table-hover align-middle mb-0" data-at-table="card">
+      <thead class="table-light" id="tblReqHead">
         <tr>
-          <th>ID</th>
-          <th>Tipo</th>
-          <th>Estado</th>
-          <th>Programa</th>
-          <th>Alumno</th>
-          <th>Coordinador</th>
-          <th>Creado</th>
-          <th style="width: 120px;">Acciones</th>
+          <th scope="col" data-sort="id" data-at-label="ID">ID</th>
+          <th scope="col" data-at-label="Tipo">Tipo</th>
+          <th scope="col" data-at-label="Estado">Estado</th>
+          <th scope="col" data-sort="program" data-at-label="Programa">Programa</th>
+          <th scope="col" data-sort="student_name" data-at-label="Alumno">Alumno</th>
+          <th scope="col" data-at-label="Coordinador">Coordinador</th>
+          <th scope="col" data-sort="created_at" data-at-label="Creado">Creado</th>
+          <th scope="col" class="at-col-actions">Acciones</th>
         </tr>
       </thead>
       <tbody id="tblReqBody"></tbody>
     </table>
   </div>
-  <div class="card-footer d-flex justify-content-between align-items-center">
-    <div><small id="lblTotal">0 registros</small></div>
-    <div class="d-flex gap-2">
-      <button id="btnPrev" class="btn btn-outline-secondary btn-sm">Anterior</button>
-      <button id="btnNext" class="btn btn-outline-secondary btn-sm">Siguiente</button>
+  <div class="card-footer">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <!-- Total + page-size -->
+      <div class="d-flex align-items-center gap-2">
+        <small id="lblTotal" class="text-muted">0 registros</small>
+        <label class="at-sr-only" for="selPageSize">Registros por página</label>
+        <select id="selPageSize" class="form-select form-select-sm w-auto" aria-label="Registros por página">
+          <option value="10" selected>10</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+
+      <!-- Paginación numérica -->
+      <div class="d-flex align-items-center gap-2">
+        <small id="lblPageInfo" class="text-muted d-none d-sm-inline">Página 1 de 1</small>
+        <nav aria-label="Paginación de solicitudes">
+          <ul class="pagination pagination-sm mb-0 flex-wrap gap-1" id="pagerContainer"></ul>
+        </nav>
+        <div class="d-flex gap-1">
+          <button id="btnPrev" class="btn btn-outline-secondary btn-sm" aria-label="Página anterior">
+            <i class="bi bi-chevron-left" aria-hidden="true"></i>
+          </button>
+          <button id="btnNext" class="btn btn-outline-secondary btn-sm" aria-label="Página siguiente">
+            <i class="bi bi-chevron-right" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -83,15 +117,15 @@
 
 {% block modals %}
 <!-- Modal de detalles de solicitud -->
-<div class="modal fade" id="mdlDetails" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
+<div class="modal fade" id="mdlDetails" tabindex="-1" aria-labelledby="mdlDetailsLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">
-          <i class="bi bi-file-text me-2"></i>
+        <h5 class="modal-title" id="mdlDetailsLabel">
+          <i class="bi bi-file-text me-2" aria-hidden="true"></i>
           Detalles de Solicitud <span id="detReqId" class="text-muted">#</span>
         </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div id="detLoading" class="text-center py-4">
@@ -99,13 +133,12 @@
             <span class="visually-hidden">Cargando...</span>
           </div>
         </div>
-        <div id="detContent" style="display: none;">
-          <!-- Info general -->
+        <div id="detContent" hidden>
           <div class="row mb-3">
             <div class="col-md-6">
               <div class="card h-100">
                 <div class="card-header bg-light py-2">
-                  <strong><i class="bi bi-person me-1"></i> Alumno</strong>
+                  <strong><i class="bi bi-person me-1" aria-hidden="true"></i> Alumno</strong>
                 </div>
                 <div class="card-body py-2">
                   <p class="mb-1"><strong>Nombre:</strong> <span id="detStudentName">—</span></p>
@@ -117,7 +150,7 @@
             <div class="col-md-6">
               <div class="card h-100">
                 <div class="card-header bg-light py-2">
-                  <strong><i class="bi bi-info-circle me-1"></i> Información</strong>
+                  <strong><i class="bi bi-info-circle me-1" aria-hidden="true"></i> Información</strong>
                 </div>
                 <div class="card-body py-2">
                   <p class="mb-1"><strong>Tipo:</strong> <span id="detTypeContainer"><span id="detType" class="badge">—</span></span></p>
@@ -129,11 +162,10 @@
             </div>
           </div>
 
-          <!-- Cita (si aplica) -->
-          <div id="detAppointmentSection" class="mb-3" style="display: none;">
+          <div id="detAppointmentSection" class="mb-3" hidden>
             <div class="card">
               <div class="card-header bg-primary text-white py-2">
-                <strong><i class="bi bi-calendar-check me-1"></i> Cita Agendada</strong>
+                <strong><i class="bi bi-calendar-check me-1" aria-hidden="true"></i> Cita Agendada</strong>
               </div>
               <div class="card-body py-2">
                 <div class="row">
@@ -150,33 +182,30 @@
             </div>
           </div>
 
-          <!-- Descripción del alumno -->
           <div class="card mb-3">
             <div class="card-header bg-light py-2">
-              <strong><i class="bi bi-chat-left-text me-1"></i> Descripción del Alumno</strong>
+              <strong><i class="bi bi-chat-left-text me-1" aria-hidden="true"></i> Descripción del Alumno</strong>
             </div>
             <div class="card-body">
               <p id="detDescription" class="mb-0 text-muted fst-italic">Sin descripción proporcionada.</p>
             </div>
           </div>
 
-          <!-- Comentario del coordinador -->
           <div class="card mb-3">
             <div class="card-header bg-light py-2">
-              <strong><i class="bi bi-chat-right-text me-1"></i> Respuesta del Coordinador</strong>
+              <strong><i class="bi bi-chat-right-text me-1" aria-hidden="true"></i> Respuesta del Coordinador</strong>
             </div>
             <div class="card-body">
               <p id="detCoordComment" class="mb-0 text-muted fst-italic">Sin comentario del coordinador.</p>
             </div>
           </div>
 
-          <!-- Fechas -->
           <div class="row text-muted small">
             <div class="col-md-6">
-              <i class="bi bi-clock me-1"></i> Creado: <span id="detCreatedAt">—</span>
+              <i class="bi bi-clock me-1" aria-hidden="true"></i> Creado: <span id="detCreatedAt">—</span>
             </div>
             <div class="col-md-6 text-md-end">
-              <i class="bi bi-arrow-repeat me-1"></i> Actualizado: <span id="detUpdatedAt">—</span>
+              <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i> Actualizado: <span id="detUpdatedAt">—</span>
             </div>
           </div>
         </div>
@@ -184,7 +213,7 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
         <button type="button" class="btn btn-primary" id="btnChangeStatusFromDetails">
-          <i class="bi bi-pencil me-1"></i> Cambiar Estado
+          <i class="bi bi-pencil me-1" aria-hidden="true"></i> Cambiar Estado
         </button>
       </div>
     </div>
@@ -192,17 +221,17 @@
 </div>
 
 <!-- Modal cambio de estado -->
-<div class="modal fade" id="mdlStatus" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+<div class="modal fade" id="mdlStatus" tabindex="-1" aria-labelledby="mdlStatusLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Cambiar estado</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <h5 class="modal-title" id="mdlStatusLabel">Cambiar estado</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div id="curReqInfo" class="mb-3 small text-muted"></div>
         <div class="mb-2">
-          <label class="form-label">Nuevo estado</label>
+          <label class="form-label" for="fNewStatus">Nuevo estado</label>
           <select id="fNewStatus" class="form-select">
             <option value="RESOLVED_SUCCESS">Resuelta</option>
             <option value="RESOLVED_NOT_COMPLETED">Atendida sin resolver</option>
@@ -212,11 +241,12 @@
           </select>
         </div>
         <div>
-          <label class="form-label">Motivo (opcional)</label>
-          <textarea id="fReason" class="form-control" rows="2"></textarea>
+          <label class="form-label" for="fReason">Motivo (opcional)</label>
+          <textarea id="fReason" class="form-control" rows="2" aria-label="Motivo del cambio de estado"></textarea>
         </div>
       </div>
       <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button id="btnApplyStatus" class="btn btn-primary">Aplicar</button>
       </div>
     </div>
@@ -225,6 +255,8 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='agendatec/js/shared/skeleton.js') }}?v={{ sv('agendatec', 'js/shared/skeleton.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/shared/table-card.js') }}?v={{ sv('agendatec', 'js/shared/table-card.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/requests_client.js') }}?v={{ sv('agendatec', 'js/sockets/requests_client.js') }}"></script>
 <script>
   window.__adminRequestsCfg = {

@@ -13,6 +13,11 @@
 
     var _materialsMap = {};  // product_id → {product_id, name, unit, quantity, notes}
     var _searchTimeout = null;
+    var _resolutionFiles = [];   // FileList materializado en array
+
+    var MAX_RESOLUTION_FILES = 5;
+    var MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+    var MAX_PDF_BYTES = 10 * 1024 * 1024;
 
     // ── API pública ───────────────────────────────────────────────────────────
 
@@ -56,6 +61,18 @@
         // Reset materials
         _materialsMap = {};
         _renderMaterialsList();
+
+        // Reset adjuntos de resolución
+        _resolutionFiles = [];
+        _renderResolutionFilesList();
+        var fileInput = document.getElementById('resolutionFiles');
+        if (fileInput) {
+            fileInput.value = '';
+            fileInput.onchange = function () {
+                _addResolutionFiles(fileInput.files);
+                fileInput.value = '';
+            };
+        }
         var searchInput = document.getElementById('materialSearchInput');
         if (searchInput) {
             searchInput.value = '';
@@ -177,6 +194,78 @@
         });
     }
 
+    // ── Adjuntos de resolución ────────────────────────────────────────────────
+
+    function _addResolutionFiles(fileList) {
+        if (!fileList) return;
+        for (var i = 0; i < fileList.length; i++) {
+            if (_resolutionFiles.length >= MAX_RESOLUTION_FILES) {
+                MaintUtils.toast('Máximo ' + MAX_RESOLUTION_FILES + ' archivos de evidencia', 'warning');
+                break;
+            }
+            var f = fileList[i];
+            var isPdf = f.type === 'application/pdf';
+            var isImg = f.type.indexOf('image/') === 0;
+            if (!isPdf && !isImg) {
+                MaintUtils.toast('Tipo no permitido: ' + f.name, 'warning');
+                continue;
+            }
+            var maxBytes = isPdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
+            if (f.size > maxBytes) {
+                MaintUtils.toast(f.name + ' excede el tamaño permitido', 'warning');
+                continue;
+            }
+            _resolutionFiles.push(f);
+        }
+        _renderResolutionFilesList();
+    }
+
+    window.MaintResolution.removeResolutionFile = function (idx) {
+        _resolutionFiles.splice(idx, 1);
+        _renderResolutionFilesList();
+    };
+
+    function _renderResolutionFilesList() {
+        var container = document.getElementById('resolutionFilesList');
+        if (!container) return;
+        if (!_resolutionFiles.length) {
+            container.innerHTML = '<span class="text-muted small">Sin archivos.</span>';
+            return;
+        }
+        container.innerHTML = '';
+        _resolutionFiles.forEach(function (f, idx) {
+            var isPdf = f.type === 'application/pdf';
+            var icon = isPdf ? 'bi-file-earmark-pdf text-danger' : 'bi-image text-primary';
+            var row = document.createElement('div');
+            row.className = 'd-flex align-items-center gap-2 p-1 px-2 border rounded bg-light small';
+            row.innerHTML =
+                '<i class="bi ' + icon + '"></i>' +
+                '<span class="flex-grow-1 text-truncate" title="' + _esc(f.name) + '">' + _esc(f.name) + '</span>' +
+                '<span class="text-muted">' + (Math.round(f.size / 1024)) + ' KB</span>' +
+                '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"' +
+                '  onclick="MaintResolution.removeResolutionFile(' + idx + ')">' +
+                '  <i class="bi bi-x"></i></button>';
+            container.appendChild(row);
+        });
+    }
+
+    function _uploadResolutionAttachments(ticketId) {
+        if (!_resolutionFiles.length) return Promise.resolve([]);
+        var url = API_BASE + '/tickets/' + ticketId + '/attachments';
+        var promises = _resolutionFiles.map(function (file) {
+            var fd = new FormData();
+            fd.append('file', file);
+            fd.append('attachment_type', 'resolution');
+            return fetch(url, { method: 'POST', credentials: 'include', body: fd })
+                .then(function (r) {
+                    if (!r.ok) throw new Error('upload_failed');
+                    return r.json();
+                })
+                .catch(function () { return { error: file.name }; });
+        });
+        return Promise.all(promises);
+    }
+
     function _submitResolve(modal) {
         var btn = document.getElementById('confirmResolveBtn');
         var valid = true;
@@ -229,16 +318,22 @@
             }),
         })
             .then(function (data) {
-                modal.hide();
-                if (data.warnings && data.warnings.length) {
-                    MaintUtils.toast(
-                        'Ticket resuelto. Advertencias de almacén: ' + data.warnings.join('; '),
-                        'warning'
-                    );
-                } else {
-                    MaintUtils.toast('Ticket resuelto correctamente', 'success');
-                }
-                if (window._maintDetailReload) _maintDetailReload();
+                return _uploadResolutionAttachments(ctx.ticketId).then(function (results) {
+                    var failed = (results || []).filter(function (r) { return r && r.error; });
+                    modal.hide();
+                    var msg = 'Ticket resuelto correctamente';
+                    var lvl = 'success';
+                    if (data.warnings && data.warnings.length) {
+                        msg = 'Ticket resuelto. Advertencias de almacén: ' + data.warnings.join('; ');
+                        lvl = 'warning';
+                    }
+                    if (failed.length) {
+                        msg += ' (no se subieron: ' + failed.map(function (f) { return f.error; }).join(', ') + ')';
+                        lvl = 'warning';
+                    }
+                    MaintUtils.toast(msg, lvl);
+                    if (window._maintDetailReload) _maintDetailReload();
+                });
             })
             .catch(function (err) {
                 MaintUtils.loading.hide(btn);

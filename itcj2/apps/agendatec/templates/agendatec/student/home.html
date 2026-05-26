@@ -4,34 +4,65 @@
 <link href="{{ url_for('static', filename='agendatec/css/student/home.css') }}?v={{ sv('agendatec', 'css/student/home.css') }}" rel="stylesheet">
 {% endblock %}
 {% block content %}
-<div class="row g-3">
-  <div class="col-12 col-lg-8">
-    <div class="card shadow-sm">
+<div class="at-fade-in row g-3 justify-content-center">
+  <div class="col-12 col-lg-9 col-xl-8">
+
+    {% if not has_appointment %}
+    {# Empty/CTA state: student has no active request #}
+    <div class="at-card mb-3 student-home-hero">
       <div class="card-body">
-        <h5 class="card-title d-flex align-items-center gap-2">
-          <i class="bi bi-info-circle"></i> Recordatorio importante
+        <div class="at-empty">
+          <div class="at-empty__icon" aria-hidden="true">
+            <i class="bi bi-calendar-plus"></i>
+          </div>
+          <p class="at-empty__title">Aún no tienes solicitudes</p>
+          <p class="at-empty__message">
+            Inicia tu trámite de alta o baja aquí. Solo puedes tener <strong>una solicitud por semestre</strong>.
+          </p>
+          <div class="at-empty__cta student-home-buttons d-flex flex-column flex-sm-row gap-2 justify-content-center">
+            <a href="{{ url_for('agendatec_pages.student_pages.student_new_request') }}"
+               class="btn btn-primary btn-lg">
+              <i class="bi bi-rocket-takeoff me-1"></i> Iniciar solicitud
+            </a>
+            <a href="{{ url_for('agendatec_pages.student_pages.student_requests') }}"
+               class="btn btn-outline-secondary btn-lg">
+              <i class="bi bi-journal-text me-1"></i> Ver mis solicitudes
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="at-card">
+      <div class="card-body">
+        <h5 class="card-title d-flex align-items-center gap-2 mb-3">
+          <i class="bi bi-info-circle text-primary" aria-hidden="true"></i> Recordatorio importante
         </h5>
-        <ul class="mb-3">
+        <ul class="student-home-tips mb-3">
           <li>Solo puedes tener <strong>una solicitud por semestre.</strong></li>
           <li>Si cancelas una solicitud, puedes crear otra, pero corres el riesgo de que ya no haya lugares.</li>
-          <li>Si solicitas <strong>baja</strong> únicamente: No se agendará <strong>cita</strong> (verifica que tus
+          <li>Si solicitas <strong>baja</strong> únicamente: no se agendará <strong>cita</strong> (verifica que tus
             <strong>créditos no sean menores a 20</strong>).</li>
           <li>Si solicitas <strong>alta</strong> o <strong>alta y baja</strong>: debes agendar una <strong>cita con tu
               coordinador</strong>.</li>
         </ul>
+
+        {# Botón solo cuando el estudiante YA tiene solicitud activa. Si no la
+           tiene, el empty state superior ya provee las CTAs (Iniciar + Ver) y
+           duplicar aquí ensucia el layout. #}
+        {% if has_appointment %}
         <div class="student-home-buttons d-flex flex-column flex-sm-row gap-2">
-          {% if not has_appointment %}
-          <a href="{{ url_for('agendatec_pages.student_pages.student_new_request') }}" class="btn btn-primary">
-            <i class="bi bi-rocket-takeoff me-1"></i> Iniciar solicitud
-          </a>
-          {% endif %}
-          <a href="{{ url_for('agendatec_pages.student_pages.student_requests') }}" class="btn btn-outline-secondary">
-            <i class="bi bi-journal-text me-1"></i> Ver mis solicitudes
+          <a href="{{ url_for('agendatec_pages.student_pages.student_requests') }}"
+             class="btn btn-primary">
+            <i class="bi bi-journal-text me-1" aria-hidden="true"></i> Ver mi solicitud activa
           </a>
         </div>
+        {% endif %}
 
       </div>
     </div>
+
   </div>
 </div>
 {% endblock %}

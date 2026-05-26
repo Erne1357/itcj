@@ -18,6 +18,9 @@ class CreateTicketRequest(BaseModel):
     location: Optional[str] = Field(default=None, max_length=300)
     custom_fields: Optional[dict] = None
     # Campos del field_template de la categoría seleccionada
+    department_id: Optional[int] = None
+    # Requerido si el solicitante pertenece a >1 depto activo.
+    # Opcional si solo tiene 1 (se infiere automáticamente).
 
 
 class UpdateTicketRequest(BaseModel):

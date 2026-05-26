@@ -1,0 +1,352 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Estadísticas{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/maint/css/admin/stats.css?v={{ sv('css/admin/stats.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+  <!-- Encabezado -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div>
+      <h4 class="mb-0 fw-bold">
+        <i class="fas fa-chart-pie me-2" style="color:var(--maint-primary);"></i>Estadísticas
+      </h4>
+      <small class="text-muted">Métricas globales, por técnico, categoría y calificaciones</small>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/maint/admin/reports" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-chart-bar me-1"></i><span class="d-none d-sm-inline">Reportes</span>
+      </a>
+      <a href="/maint/admin/analysis" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-microscope me-1"></i><span class="d-none d-sm-inline">Análisis</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Selector de rango -->
+  <div id="statsDateRange"></div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="statsTabs" role="tablist">
+    <li class="nav-item">
+      <a class="nav-link active" data-bs-toggle="tab" href="#tab-global" id="tab-global-link">
+        <i class="fas fa-globe me-1"></i><span class="d-none d-sm-inline">Global</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-tech" id="tab-tech-link">
+        <i class="fas fa-users-cog me-1"></i><span class="d-none d-sm-inline">Técnicos</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-cat" id="tab-cat-link">
+        <i class="fas fa-tags me-1"></i><span class="d-none d-sm-inline">Categorías</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-times" id="tab-times-link">
+        <i class="fas fa-clock me-1"></i><span class="d-none d-sm-inline">Tiempos</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-ratings" id="tab-ratings-link">
+        <i class="fas fa-star me-1"></i><span class="d-none d-sm-inline">Calificaciones</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" data-bs-toggle="tab" href="#tab-heatmap" id="tab-heatmap-link">
+        <i class="fas fa-th me-1"></i><span class="d-none d-sm-inline">Mapa de calor</span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ── TAB: GLOBAL ──────────────────────────────────────── -->
+    <div class="tab-pane fade show active" id="tab-global">
+
+      <!-- KPI tiles -->
+      <div class="row g-3 mb-3 mn-stagger" id="globalKpiRow">
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card d-flex align-items-center gap-3">
+            <div class="mn-kpi-icon bg-primary bg-opacity-10">
+              <i class="fas fa-clipboard-list text-primary"></i>
+            </div>
+            <div>
+              <div class="mn-kpi-value" id="kpiTotal">—</div>
+              <div class="mn-kpi-label">Total tickets</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card d-flex align-items-center gap-3">
+            <div class="mn-kpi-icon bg-warning bg-opacity-10">
+              <i class="fas fa-hourglass-half text-warning"></i>
+            </div>
+            <div>
+              <div class="mn-kpi-value" id="kpiOpen">—</div>
+              <div class="mn-kpi-label">Abiertos</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card d-flex align-items-center gap-3">
+            <div class="mn-kpi-icon bg-success bg-opacity-10">
+              <i class="fas fa-check-circle text-success"></i>
+            </div>
+            <div>
+              <div class="mn-kpi-value" id="kpiResolved">—</div>
+              <div class="mn-kpi-label">Resueltos</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card d-flex align-items-center gap-3">
+            <div class="mn-kpi-icon bg-danger bg-opacity-10">
+              <i class="fas fa-times-circle text-danger"></i>
+            </div>
+            <div>
+              <div class="mn-kpi-value" id="kpiCanceled">—</div>
+              <div class="mn-kpi-label">Cancelados</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Por estado</div>
+            <div class="chart-wrap-sm">
+              <canvas id="chartStatus"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Por prioridad</div>
+            <div class="chart-wrap-sm">
+              <canvas id="chartPriority"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Por categoría</div>
+            <div class="chart-wrap">
+              <canvas id="chartCategoryGlobal"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-global -->
+
+    <!-- ── TAB: TÉCNICOS ────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-tech">
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Top 10 técnicos por tickets resueltos</div>
+            <div class="chart-wrap">
+              <canvas id="chartTechTop"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mn-table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Técnico</th>
+                <th class="text-center">Asignados</th>
+                <th class="text-center">Resueltos</th>
+                <th class="text-center d-none d-md-table-cell">T. prom. (min)</th>
+                <th class="text-center d-none d-md-table-cell">Atención</th>
+                <th class="text-center d-none d-md-table-cell">Velocidad</th>
+                <th class="text-center d-none d-sm-table-cell">SLA %</th>
+              </tr>
+            </thead>
+            <tbody id="techStatsBody">
+              <tr><td><span class="mn-skel mn-skel-line w-25" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-25" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-25" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-md-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-tech -->
+
+    <!-- ── TAB: CATEGORÍAS ──────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-cat">
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Tickets por categoría</div>
+            <div class="chart-wrap">
+              <canvas id="chartCatStats"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mn-table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Categoría</th>
+                <th class="text-center">Total</th>
+                <th class="text-center d-none d-sm-table-cell">Abiertos</th>
+                <th class="text-center d-none d-sm-table-cell">Resueltos</th>
+                <th class="text-center">Cancelados</th>
+                <th class="text-center">% Cancelación</th>
+              </tr>
+            </thead>
+            <tbody id="catStatsBody">
+              <tr><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+              <tr><td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td class="d-none d-sm-table-cell"><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td><td><span class="mn-skel mn-skel-line w-50" style="margin:0;"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-cat -->
+
+    <!-- ── TAB: TIEMPOS ─────────────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-times">
+      <div class="row g-3">
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title mb-3">Tiempo promedio por transición de estado</div>
+            <div id="timeBreakdownContent">
+              <div class="d-flex align-items-center justify-content-center py-5">
+                <span class="mn-skeleton" style="width:90%;height:120px;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Interpretación</div>
+            <div class="row g-2 small text-muted">
+              <div class="col-12 col-md-4">
+                <div class="p-2 border rounded">
+                  <strong class="text-warning"><i class="fas fa-dot-circle me-1"></i>PENDIENTE → ASIGNADO</strong><br>
+                  Tiempo desde la creación hasta que un técnico es asignado.
+                </div>
+              </div>
+              <div class="col-12 col-md-4">
+                <div class="p-2 border rounded">
+                  <strong class="text-primary"><i class="fas fa-dot-circle me-1"></i>ASIGNADO → EN PROGRESO</strong><br>
+                  Tiempo desde la asignación hasta que el técnico inicia el trabajo.
+                </div>
+              </div>
+              <div class="col-12 col-md-4">
+                <div class="p-2 border rounded">
+                  <strong class="text-success"><i class="fas fa-dot-circle me-1"></i>EN PROGRESO → RESUELTO</strong><br>
+                  Tiempo de trabajo activo hasta la resolución del ticket.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-times -->
+
+    <!-- ── TAB: CALIFICACIONES ──────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-ratings">
+
+      <!-- KPI ratings -->
+      <div class="row g-3 mb-3 mn-stagger" id="ratingsKpiRow">
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card text-center">
+            <div class="mn-kpi-label mb-1">Tickets resueltos</div>
+            <div class="mn-kpi-value" id="ratingTotal">—</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card text-center">
+            <div class="mn-kpi-label mb-1">Calificados</div>
+            <div class="mn-kpi-value text-success" id="ratingRated">—</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card text-center">
+            <div class="mn-kpi-label mb-1">Sin calificar</div>
+            <div class="mn-kpi-value text-muted" id="ratingUnrated">—</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3 mn-fade-in-up">
+          <div class="mn-kpi-card text-center">
+            <div class="mn-kpi-label mb-1">Eficiencia percibida</div>
+            <div class="mn-kpi-value text-warning" id="ratingEfficiency">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Distribución calificación de atención</div>
+            <div class="chart-wrap-sm">
+              <canvas id="chartRatingAtt"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Distribución calificación de velocidad</div>
+            <div class="chart-wrap-sm">
+              <canvas id="chartRatingSpd"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="card shadow-sm p-3">
+            <div class="mn-section-title">Eficiencia percibida</div>
+            <div class="chart-wrap-sm">
+              <canvas id="chartEfficiency"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /tab-ratings -->
+
+    <!-- ── TAB: MAPA DE CALOR ───────────────────────────────── -->
+    <div class="tab-pane fade" id="tab-heatmap">
+
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <span class="small fw-semibold">Agrupar por:</span>
+        <div class="btn-group btn-group-sm" role="group" id="heatmapGroupBtns">
+          <button type="button" class="btn btn-outline-secondary active" id="hmByLocation" data-group="location">
+            <i class="fas fa-map-marker-alt me-1"></i>Ubicación
+          </button>
+          <button type="button" class="btn btn-outline-secondary" id="hmByBuilding" data-group="building">
+            <i class="fas fa-building me-1"></i>Edificio
+          </button>
+        </div>
+        <small class="text-muted fst-italic">Filas = ubicaciones/edificios, columnas = categorías/meses</small>
+      </div>
+
+      <div class="card shadow-sm p-3">
+        <div class="mn-section-title" id="heatmapTitle">Mapa de calor — Ubicación × Categoría</div>
+        <div id="heatmapContainer" style="min-height:300px;"></div>
+      </div>
+    </div><!-- /tab-heatmap -->
+
+  </div><!-- /tab-content -->
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js"></script>
+<script src="/static/maint/js/admin/_chart_defaults.js?v={{ sv('js/admin/_chart_defaults.js') }}"></script>
+<script src="/static/maint/js/admin/_daterange.js?v={{ sv('js/admin/_daterange.js') }}"></script>
+<script src="/static/maint/js/admin/stats.js?v={{ sv('js/admin/stats.js') }}"></script>
+{% endblock %}

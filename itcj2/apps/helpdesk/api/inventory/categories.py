@@ -2,10 +2,13 @@
 Inventory Categories API v2 — 6 endpoints.
 Fuente: itcj/apps/helpdesk/routes/api/inventory/inventory_categories.py
 """
-from fastapi import APIRouter, HTTPException
+import logging
+
+from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
 
 router = APIRouter(tags=["helpdesk-inventory-categories"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -55,11 +58,16 @@ def get_category(
 
 @router.post("", status_code=201)
 def create_category(
+    request: Request,
     body: dict,
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
+
+    user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
 
     if not body.get("code"):
         raise HTTPException(400, detail={"success": False, "error": "El código es requerido"})
@@ -87,66 +95,141 @@ def create_category(
         inventory_prefix=prefix,
     )
     db.add(category)
+    db.flush()  # garantiza category.id antes del log
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="inventory_category",
+        entity_id=category.id,
+        action="create",
+        before=None,
+        after=category.to_dict(),
+        ip_address=client_ip,
+    )
+
     db.commit()
 
+    logger.info(f"Categoría de inventario '{category.name}' creada por usuario {user_id}")
     return {"success": True, "message": "Categoría creada exitosamente", "data": category.to_dict()}
 
 
 @router.patch("/{category_id}")
 def update_category(
     category_id: int,
+    request: Request,
     body: dict,
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
+
+    user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
 
     category = db.get(InventoryCategory, category_id)
     if not category:
         raise HTTPException(404, detail={"success": False, "error": "Categoría no encontrada"})
 
+    before = category.to_dict()
+
     for field in ("name", "description", "icon", "requires_specs", "spec_template", "display_order", "is_active"):
         if field in body:
             setattr(category, field, body[field])
 
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="inventory_category",
+        entity_id=category.id,
+        action="update",
+        before=before,
+        after=category.to_dict(),
+        ip_address=client_ip,
+    )
+
     db.commit()
+
+    logger.info(f"Categoría de inventario {category_id} actualizada por usuario {user_id}")
     return {"success": True, "message": "Categoría actualizada exitosamente", "data": category.to_dict()}
 
 
 @router.post("/{category_id}/toggle")
 def toggle_category(
     category_id: int,
+    request: Request,
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
+
+    user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
 
     category = db.get(InventoryCategory, category_id)
     if not category:
         raise HTTPException(404, detail={"success": False, "error": "Categoría no encontrada"})
 
+    before = category.to_dict()
     category.is_active = not category.is_active
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="inventory_category",
+        entity_id=category.id,
+        action="toggle",
+        before=before,
+        after={"id": category.id, "is_active": category.is_active},
+        ip_address=client_ip,
+    )
+
     db.commit()
 
     status_text = "activada" if category.is_active else "desactivada"
+    logger.info(f"Categoría de inventario {category_id} {status_text} por usuario {user_id}")
     return {"success": True, "message": f"Categoría {status_text} exitosamente", "data": {"id": category.id, "is_active": category.is_active}}
 
 
 @router.post("/reorder")
 def reorder_categories(
+    request: Request,
     body: dict,
     user: dict = require_perms("helpdesk", ["helpdesk.inventory_categories.api.update"]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryCategory
+    from itcj2.apps.helpdesk.services.config_audit_service import log_config_change
+
+    user_id = int(user["sub"])
+    client_ip = request.client.host if request.client else None
 
     if not body.get("categories"):
         raise HTTPException(400, detail={"success": False, "error": "Se requiere el array de categorías"})
 
+    before_snapshot = []
+    after_snapshot = []
     for item in body["categories"]:
         category = db.get(InventoryCategory, item["id"])
         if category:
+            before_snapshot.append({"id": category.id, "name": category.name, "display_order": category.display_order})
             category.display_order = item["display_order"]
+            after_snapshot.append({"id": item["id"], "display_order": item["display_order"]})
+
+    log_config_change(
+        db=db,
+        user_id=user_id,
+        entity_type="inventory_category",
+        entity_id=None,
+        action="reorder",
+        before={"previous_order": before_snapshot},
+        after={"order": after_snapshot},
+        ip_address=client_ip,
+    )
 
     db.commit()
+
+    logger.info(f"Categorías de inventario reordenadas por usuario {user_id}")
     return {"success": True, "message": "Orden actualizado exitosamente"}

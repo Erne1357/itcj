@@ -3,12 +3,17 @@
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-  <h1 class="h5 h4-md mb-0"><span class="d-none d-sm-inline">Gestión de </span>Coordinadores</h1>
+  <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-people" aria-hidden="true"></i>
+    <span class="d-none d-sm-inline">Gestión de </span>Coordinadores
+  </h1>
   <div class="d-flex flex-wrap gap-2">
-    <select id="fltProgram" class="form-select form-select-sm" style="width: auto; min-width: 120px;">
+    <label class="at-sr-only" for="fltProgram">Filtrar por programa</label>
+    <select id="fltProgram" class="form-select form-select-sm admin-filter-select">
       <option value="">Todos<span class="d-none d-sm-inline"> los programas</span></option>
     </select>
-    <input id="txtSearch" class="form-control form-control-sm d-none d-sm-block" placeholder="Buscar..." style="width: 150px;">
+    <label class="at-sr-only" for="txtSearch">Buscar</label>
+    <input id="txtSearch" class="form-control form-control-sm admin-filter-search" placeholder="Buscar...">
     <button id="btnReload" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i></button>
     <button id="btnNew" class="btn btn-primary btn-sm"><i class="bi bi-person-plus"></i><span class="d-none d-sm-inline"> Nuevo</span></button>
   </div>
@@ -16,13 +21,13 @@
 
 <div class="card shadow-sm">
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
+    <table class="table table-hover align-middle mb-0" data-at-table="card">
       <thead class="table-light">
         <tr>
-          <th>Nombre</th>
-          <th>Correo</th>
-          <th>Programas</th>
-          <th style="width: 120px;">Acciones</th>
+          <th scope="col" data-at-label="Nombre">Nombre</th>
+          <th scope="col" data-at-label="Correo">Correo</th>
+          <th scope="col" data-at-label="Programas">Programas</th>
+          <th scope="col" class="at-col-actions" data-at-label="Acciones">Acciones</th>
         </tr>
       </thead>
       <tbody id="tblCoordsBody">
@@ -35,12 +40,12 @@
 
 {% block modals %}
 <!-- Modal Nuevo/Editar -->
-<div class="modal fade" id="mdlCoord" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="mdlCoord" tabindex="-1" aria-labelledby="mdlTitle" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 id="mdlTitle" class="modal-title">Nuevo coordinador</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <!-- Selector de modo (solo visible al crear) -->
@@ -65,10 +70,10 @@
         <!-- Sección: Usuario existente -->
         <div id="existingUserSection" class="d-none">
           <div class="mb-3">
-            <label class="form-label">Buscar usuario</label>
+            <label class="form-label" for="fUserSearch">Buscar usuario</label>
             <div class="position-relative">
               <input id="fUserSearch" class="form-control" placeholder="Escribe nombre, correo o username..." autocomplete="off">
-              <div id="userSearchResults" class="position-absolute w-100 bg-white border rounded shadow-sm d-none" style="z-index: 1050; max-height: 200px; overflow-y: auto;"></div>
+              <div id="userSearchResults" class="position-absolute w-100 bg-white border rounded shadow-sm d-none user-search-dropdown"></div>
             </div>
             <div class="form-text">Busca usuarios del personal que no sean coordinadores aún.</div>
           </div>
@@ -91,16 +96,16 @@
         <div id="newUserSection">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">Nombre completo <span class="text-danger">*</span></label>
+              <label class="form-label" for="fName">Nombre completo <span class="text-danger">*</span></label>
               <input id="fName" class="form-control" placeholder="Ej: Juan Pérez García" required>
               <div class="form-text">Nombre(s) y apellidos</div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Correo electrónico</label>
+              <label class="form-label" for="fEmail">Correo electrónico</label>
               <input id="fEmail" class="form-control" type="email" placeholder="correo@ejemplo.com">
             </div>
             <div class="col-12">
-              <label class="form-label">Username (para login)</label>
+              <label class="form-label" for="fUsername">Username (para login)</label>
               <input id="fUsername" class="form-control" placeholder="Ej: jperez">
               <div class="form-text">Opcional. Si no se especifica, el usuario usará su correo para ingresar.</div>
             </div>
@@ -114,9 +119,9 @@
 
         <!-- Programas (siempre visible) -->
         <div class="mb-3">
-          <label class="form-label">Programas académicos</label>
-          <select id="fPrograms" multiple class="form-select" size="5"></select>
-          <div class="form-text">Mantén CTRL/⌘ para elegir varios programas.</div>
+          <label class="form-label" for="fPrograms">Programas académicos</label>
+          <select id="fPrograms" multiple class="form-select" size="5" aria-label="Programas académicos"></select>
+          <div class="form-text">Toca para seleccionar o deseleccionar programas. Usa el buscador para filtrar.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -139,5 +144,8 @@
     searchUsersUrl: "{{ url_for('agendatec_api.api_admin.admin_users.search_users_for_coordinator') }}"
   };
 </script>
+<script src="{{ url_for('static', filename='agendatec/js/shared/skeleton.js') }}?v={{ sv('agendatec', 'js/shared/skeleton.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/shared/table-card.js') }}?v={{ sv('agendatec', 'js/shared/table-card.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/admin/multiselect.js') }}?v={{ sv('agendatec', 'js/admin/multiselect.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/admin/users.js') }}?v={{ sv('agendatec', 'js/admin/users.js') }}"></script>
 {% endblock %}

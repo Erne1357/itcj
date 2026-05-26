@@ -5,7 +5,7 @@
 
 (function () {
 
-    var API = '/api/maint/v2/warehouse';
+    var API = '/api/warehouse/v2';
     var _currentPage = 1;
     var _totalPages = 1;
 
@@ -104,17 +104,19 @@
     }
 
     function _save() {
+        var folio = document.getElementById('entryFolio').value.trim();
+        var cost = parseFloat(document.getElementById('entryCost').value);
         var body = {
             product_id: parseInt(document.getElementById('entryProduct').value),
             quantity: parseFloat(document.getElementById('entryQty').value),
-            unit_cost: parseFloat(document.getElementById('entryCost').value) || 0,
-            purchase_folio: document.getElementById('entryFolio').value.trim() || null,
+            unit_cost: cost,
+            purchase_folio: folio,
             supplier: document.getElementById('entrySupplier').value.trim() || null,
             purchase_date: document.getElementById('entryDate').value,
             notes: document.getElementById('entryNotes').value.trim() || null,
         };
-        if (!body.product_id || !body.quantity || !body.purchase_date) {
-            MaintUtils.toast('Completa los campos obligatorios.', 'warning');
+        if (!body.product_id || !body.quantity || !body.purchase_date || !folio || !(cost > 0)) {
+            MaintUtils.toast('Completa los campos obligatorios (folio y costo > 0).', 'warning');
             return;
         }
         MaintUtils.api.fetch(API + '/stock-entries', { method: 'POST', body: JSON.stringify(body) })
@@ -135,7 +137,7 @@
     function _confirmVoid() {
         var id = document.getElementById('voidEntryId').value;
         var reason = document.getElementById('voidReason').value.trim();
-        if (!reason) { MaintUtils.toast('La razón es obligatoria.', 'warning'); return; }
+        if (!reason || reason.length < 5) { MaintUtils.toast('La razón es obligatoria (mínimo 5 caracteres).', 'warning'); return; }
         MaintUtils.api.fetch(API + '/stock-entries/' + id + '/void', {
             method: 'POST', body: JSON.stringify({ reason: reason }),
         })

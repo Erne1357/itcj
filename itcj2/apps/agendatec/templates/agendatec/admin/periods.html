@@ -3,9 +3,13 @@
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-  <h1 class="h5 h4-md mb-0">Períodos<span class="d-none d-sm-inline"> Académicos</span></h1>
+  <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-calendar-range" aria-hidden="true"></i>
+    Períodos<span class="d-none d-sm-inline"> Académicos</span>
+  </h1>
   <div class="d-flex flex-wrap gap-2">
-    <select id="fltStatus" class="form-select form-select-sm" style="width: auto; min-width: 110px;">
+    <label class="at-sr-only" for="fltStatus">Filtrar por estado</label>
+    <select id="fltStatus" class="form-select form-select-sm admin-filter-select">
       <option value="">Todos<span class="d-none d-sm-inline"> los estados</span></option>
       <option value="ACTIVE">Activo</option>
       <option value="INACTIVE">Inactivo</option>
@@ -18,17 +22,17 @@
 
 <div class="card shadow-sm">
   <div class="table-responsive">
-    <table class="table table-hover align-middle mb-0">
+    <table class="table table-hover align-middle mb-0" data-at-table="card">
       <thead class="table-light">
         <tr>
-          <th>Código</th>
-          <th>Nombre</th>
-          <th>Inicio</th>
-          <th>Fin</th>
-          <th>Ventana Admisión</th>
-          <th>Estado</th>
-          <th>Solicitudes</th>
-          <th style="width: 200px;">Acciones</th>
+          <th scope="col" data-at-label="Código">Código</th>
+          <th scope="col" data-at-label="Nombre">Nombre</th>
+          <th scope="col" data-at-label="Inicio">Inicio</th>
+          <th scope="col" data-at-label="Fin">Fin</th>
+          <th scope="col" data-at-label="Ventana Admisión">Ventana Admisión</th>
+          <th scope="col" data-at-label="Estado">Estado</th>
+          <th scope="col" data-at-label="Solicitudes">Solicitudes</th>
+          <th scope="col" class="at-col-actions-lg">Acciones</th>
         </tr>
       </thead>
       <tbody id="tblPeriodsBody">
@@ -41,34 +45,34 @@
 
 {% block modals %}
 <!-- Modal Nuevo/Editar Período -->
-<div class="modal fade" id="mdlPeriod" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="mdlPeriod" tabindex="-1" aria-labelledby="mdlTitle" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 id="mdlTitle" class="modal-title">Nuevo Período</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label">Código <span class="text-danger">*</span></label>
+            <label class="form-label" for="fCode">Código <span class="text-danger">*</span></label>
             <input id="fCode" class="form-control" placeholder="Ej: 20261" maxlength="6" required>
             <div class="form-text">Ej: 20253 (Ago-Dic), 20261 (Ene-Jun), 20262 (Verano)</div>
           </div>
 
           <div class="col-md-8">
-            <label class="form-label">Nombre del Período <span class="text-danger">*</span></label>
+            <label class="form-label" for="fName">Nombre del Período <span class="text-danger">*</span></label>
             <input id="fName" class="form-control" placeholder="Ej: Ago-Dic 2025" required>
             <div class="form-text">Ejemplo: "Ago-Dic 2025", "Ene-Jun 2026", "Verano 2026"</div>
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">Fecha de Inicio <span class="text-danger">*</span></label>
+            <label class="form-label" for="fStartDate">Fecha de Inicio <span class="text-danger">*</span></label>
             <input id="fStartDate" type="date" class="form-control" required>
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">Fecha de Fin <span class="text-danger">*</span></label>
+            <label class="form-label" for="fEndDate">Fecha de Fin <span class="text-danger">*</span></label>
             <input id="fEndDate" type="date" class="form-control" required>
           </div>
 
@@ -78,29 +82,29 @@
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">Fecha Inicio Admisión <span class="text-danger">*</span></label>
+            <label class="form-label" for="fAdmissionStartDate">Fecha Inicio Admisión <span class="text-danger">*</span></label>
             <input id="fAdmissionStartDate" type="date" class="form-control" required>
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">Hora Inicio Admisión <span class="text-danger">*</span></label>
+            <label class="form-label" for="fAdmissionStartTime">Hora Inicio Admisión <span class="text-danger">*</span></label>
             <input id="fAdmissionStartTime" type="time" class="form-control" value="00:00" required>
             <div class="form-text">Hora zona: America/Ciudad_Juarez</div>
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">Fecha Límite de Admisión <span class="text-danger">*</span></label>
+            <label class="form-label" for="fDeadlineDate">Fecha Límite de Admisión <span class="text-danger">*</span></label>
             <input id="fDeadlineDate" type="date" class="form-control" required>
           </div>
 
           <div class="col-md-6">
-            <label class="form-label">Hora Límite de Admisión <span class="text-danger">*</span></label>
+            <label class="form-label" for="fDeadlineTime">Hora Límite de Admisión <span class="text-danger">*</span></label>
             <input id="fDeadlineTime" type="time" class="form-control" value="18:00" required>
             <div class="form-text">Hora zona: America/Ciudad_Juarez</div>
           </div>
 
           <div class="col-12">
-            <label class="form-label">Estado</label>
+            <label class="form-label" for="fStatus">Estado</label>
             <select id="fStatus" class="form-select">
               <option value="INACTIVE">Inactivo</option>
               <option value="ACTIVE">Activo</option>
@@ -119,12 +123,12 @@
 </div>
 
 <!-- Modal Ver Detalles -->
-<div class="modal fade" id="mdlDetails" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="mdlDetails" tabindex="-1" aria-labelledby="mdlDetailsLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Detalles del Período</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <h5 class="modal-title" id="mdlDetailsLabel">Detalles del Período</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div id="detailsContent">
@@ -139,12 +143,12 @@
 </div>
 
 <!-- Modal de Confirmación -->
-<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-labelledby="mdlConfirmTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header bg-warning text-dark">
         <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div class="d-flex align-items-start gap-3">
@@ -162,6 +166,8 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='agendatec/js/shared/skeleton.js') }}?v={{ sv('agendatec', 'js/shared/skeleton.js') }}"></script>
+<script src="{{ url_for('static', filename='agendatec/js/shared/table-card.js') }}?v={{ sv('agendatec', 'js/shared/table-card.js') }}"></script>
 <script>
   // Endpoints a usar desde JS:
   window.__adminPeriodsCfg = {

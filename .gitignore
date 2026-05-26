@@ -54,6 +54,9 @@ logs/
 __cache__/
 .cache-*
 .claude/
+CLAUDE.md
+.playwright-mcp/
+
 
 # --- Frontend ---
 node_modules/

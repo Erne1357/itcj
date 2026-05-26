@@ -105,6 +105,13 @@
 .badge-event-DEACTIVATED { background-color: #e74a3b; color: #fff; }
 .badge-event-REACTIVATED { background-color: #1cc88a; color: #fff; }
 .badge-event-VERIFIED    { background-color: #2c6fad; color: #fff; }
+.badge-event-LOCKED_FIELD_MODIFIED  { background-color: #c0392b; color: #fff; }
+.badge-event-CAMPAIGN_VALIDATED     { background-color: #8e44ad; color: #fff; }
+.badge-event-CAMPAIGN_ASSIGNED,
+.badge-event-CAMPAIGN_UNASSIGNED    { background-color: #7f8c8d; color: #fff; }
+.badge-event-ITEM_UNLOCKED          { background-color: #e67e22; color: #fff; }
+.badge-event-VERSION_LINKED,
+.badge-event-VERSION_UNLINKED       { background-color: #16a085; color: #fff; }
 
 /* Badges de estado de verificación (usados en el tab Verificación) */
 .badge-verif-recent   { background-color: #1cc88a; color: #fff; font-size: .72rem; padding: .25em .55em; }

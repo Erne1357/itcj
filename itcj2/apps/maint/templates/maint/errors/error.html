@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {{ error_code }} - Mantenimiento</title>
+    <link rel="icon" type="image/x-icon" href="/static/maint/images/maint.ico">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/maint/css/errors/error.css?v={{ sv('css/errors/error.css') }}">
+</head>
+<body>
+    <div class="error-container">
+        <div class="error-content">
+            <div class="error-brand">
+                <i class="fas fa-wrench"></i>
+                <span>Mantenimiento</span>
+            </div>
+
+            <div class="error-header">
+                <div class="error-code">{{ error_code }}</div>
+                <div class="divider"></div>
+                <div class="error-info">
+                    <h1 class="error-title">{{ error_title }}</h1>
+                    <p class="error-description">{{ error_message }}</p>
+                </div>
+            </div>
+
+            {% if button_url %}
+            <div class="error-actions">
+                <a href="{{ button_url }}" id="errorActionBtn" class="error-btn">
+                    <i class="fas fa-arrow-left"></i> {{ button_label }}
+                </a>
+            </div>
+            {% endif %}
+
+            <div class="error-details">
+                <div class="alert-section">
+                    <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <div class="alert-content">
+                        <p class="alert-text">
+                            Si el problema persiste, contacta al administrador del sistema con el siguiente código de error:
+                        </p>
+                        <p class="error-reference">
+                            HTTP {{ error_code }} - {{ error_title|upper|replace(' ', '_') }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <p class="footer-text">ITCJ - Instituto Tecnológico de Ciudad Juárez</p>
+            </div>
+        </div>
+    </div>
+
+    {% if button_url and button_exits_app %}
+    <script>
+      // Botón "Ir al panel principal": SALE de la app (sin acceso). Dentro
+      // del iframe del dashboard avisa al parent (postMessage CLOSE_APP)
+      // para cerrar SOLO esta ventana, sin recargar el escritorio. Fuera
+      // del iframe, navega normal al panel core (href del <a>).
+      (function () {
+        var btn = document.getElementById('errorActionBtn');
+        if (!btn) return;
+        var inIframe = window.self !== window.top;
+        btn.addEventListener('click', function (e) {
+          if (!inIframe) return;
+          e.preventDefault();
+          try {
+            window.parent.postMessage(
+              { type: 'CLOSE_APP', source: 'error-page' },
+              window.location.origin
+            );
+          } catch (err) {
+            window.location.href = btn.getAttribute('href');
+          }
+        });
+      })();
+    </script>
+    {% endif %}
+</body>
+</html>

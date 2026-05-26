@@ -9,7 +9,7 @@ class WindowsDesktop {
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'maint', name: 'Mantenimiento', icon: 'wrench', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
-      { id: 'compras', name: 'Compras', icon: 'shopping-cart' },
+      //{ id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
       { id: 'papelera', name: 'Papelera de reciclaje', icon: 'trash-2', pin: 'last-col-first-row', readonly: true },
@@ -70,6 +70,12 @@ class WindowsDesktop {
         case 'NAVIGATION':
           // Actualizar la URL mostrada en la ventana
           this.updateWindowUrl(event.data.source, event.data.url)
+          break
+        case 'CLOSE_APP':
+        case 'GO_TO_DASHBOARD':
+          // La app pide salir (ej: página de error 403 sin acceso).
+          // Cierra solo SU ventana, sin recargar el escritorio.
+          this.closeAppWindowBySource(event.source)
           break
       }
     })
@@ -317,12 +323,12 @@ class WindowsDesktop {
         iframeSrc: "/agendatec/",
         icon: "calendar",
       },
-      compras: {
+      /* compras: {
         name: "Compras",
         url: "/compras/dashboard",
         iframeSrc: "/compras/",
         icon: "shopping-cart",
-      },
+      },*/
       helpdesk: {
         name: "Help-Desk",
         url: "/help-desk/",
@@ -331,8 +337,8 @@ class WindowsDesktop {
       },
       maint: {
         name: "Mantenimiento",
-        url: "/maintenance/",
-        iframeSrc: "/maintenance/",
+        url: "/maint/",
+        iframeSrc: "/maint/",
         icon: "wrench",
       },
       vistetec: {

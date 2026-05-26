@@ -80,6 +80,7 @@ services:
     volumes:
       - ../../itcj2:/app/itcj2:ro
       - ../../asgi.py:/app/asgi.py:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
@@ -120,6 +121,7 @@ services:
     volumes:
       - ../../itcj2:/app/itcj2:ro
       - ../../asgi.py:/app/asgi.py:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
@@ -157,6 +159,7 @@ services:
     env_file: ../../.env.prod
     volumes:
       - ../../itcj2:/app/itcj2:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
       - ../../instance:/app/instance  # rw: workers leen/escriben archivos
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
@@ -186,6 +189,7 @@ services:
     env_file: ../../.env.prod
     volumes:
       - ../../itcj2:/app/itcj2:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-beat.sh"]
     depends_on:

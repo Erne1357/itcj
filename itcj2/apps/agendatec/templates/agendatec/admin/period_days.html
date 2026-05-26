@@ -14,7 +14,10 @@
     <a href="{{ url_for('agendatec_pages.admin_pages.admin_periods') }}" class="btn btn-sm btn-outline-secondary mb-1">
       <i class="bi bi-arrow-left"></i><span class="d-none d-sm-inline"> Volver</span>
     </a>
-    <h1 class="h5 h4-md mb-0">Configurar Días<span class="d-none d-sm-inline"> Habilitados</span></h1>
+    <h1 class="h5 mb-0 d-flex align-items-center gap-2">
+      <i class="bi bi-calendar-week" aria-hidden="true"></i>
+      Configurar Días<span class="d-none d-sm-inline"> Habilitados</span>
+    </h1>
     <p class="text-muted mb-0 small" id="periodName">Período: <span class="fw-bold">Cargando...</span></p>
   </div>
   <div class="d-flex gap-2">
@@ -54,7 +57,7 @@
         </button>
       </div>
       <div class="card-body">
-        <div id="selectedDaysList" class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+        <div id="selectedDaysList" class="list-group list-group-flush at-scroll-md">
           <!-- Lista de días seleccionados -->
         </div>
         <div id="emptyMessage" class="text-center text-muted py-4">
@@ -82,12 +85,12 @@
 
 {% block modals %}
 <!-- Modal de Confirmación -->
-<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="mdlConfirm" tabindex="-1" aria-labelledby="mdlConfirmTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header bg-warning text-dark">
         <h5 class="modal-title" id="mdlConfirmTitle">Confirmar acción</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
         <div class="d-flex align-items-start gap-3">
@@ -105,6 +108,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='agendatec/js/shared/skeleton.js') }}?v={{ sv('agendatec', 'js/shared/skeleton.js') }}"></script>
 <!-- Flatpickr JS -->
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>

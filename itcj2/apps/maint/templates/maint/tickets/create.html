@@ -11,7 +11,7 @@
 
         <!-- Header -->
         <div class="d-flex align-items-center mb-4 gap-2">
-            <a href="/maintenance/tickets" class="btn btn-sm btn-outline-secondary">
+            <a href="/maint/tickets" class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-arrow-left"></i>
             </a>
             <h4 class="mb-0" style="color: var(--maint-primary-dark); font-weight: 700;">
@@ -37,6 +37,18 @@
                         <div id="categoryCards" class="row g-2" style="display:none;"></div>
                         <input type="hidden" id="categoryId" required>
                         <div class="invalid-feedback" id="categoryError">Selecciona una categoría</div>
+                    </div>
+
+                    <!-- Departamento solicitante (solo visible si user tiene >1 puesto activo) -->
+                    <div id="departmentWrap" class="mb-4" style="display:none;">
+                        <label for="departmentSelect" class="form-label fw-semibold">
+                            <i class="bi bi-building me-1" style="color:var(--maint-primary)"></i>
+                            Departamento solicitante <span class="text-danger">*</span>
+                        </label>
+                        <select id="departmentSelect" class="form-select" required>
+                            <option value="">Selecciona un departamento...</option>
+                        </select>
+                        <div class="invalid-feedback">Selecciona el departamento al que pertenece esta solicitud.</div>
                     </div>
 
                     <!-- Campos dinámicos -->
@@ -103,9 +115,25 @@
                                placeholder="Edificio, aula, área o descripción de dónde ocurre el problema">
                     </div>
 
+                    <!-- Adjuntos (imágenes opcionales) -->
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">
+                            <i class="bi bi-paperclip me-1" style="color:var(--maint-primary)"></i>
+                            Imágenes adjuntas <span class="text-muted fw-normal small">(opcional)</span>
+                        </label>
+                        <div id="attachDropzone" class="mn-dropzone">
+                            <i class="bi bi-cloud-upload fs-3 d-block mb-1"></i>
+                            <span>Arrastra archivos aquí o haz clic para seleccionar</span>
+                            <div class="text-muted small mt-1">Máx. 3 MB cada una — jpg, png, gif, webp</div>
+                            <input type="file" id="attachFileInput" multiple
+                                   accept="image/jpeg,image/png,image/gif,image/webp">
+                        </div>
+                        <div id="attachPreview"></div>
+                    </div>
+
                     <!-- Botones -->
                     <div class="d-flex gap-2 justify-content-end">
-                        <a href="/maintenance/tickets" class="btn btn-outline-secondary">
+                        <a href="/maint/tickets" class="btn btn-outline-secondary">
                             <i class="bi bi-x-lg me-1"></i>Cancelar
                         </a>
                         <button type="submit" class="btn btn-maint" id="submitBtn">

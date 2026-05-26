@@ -80,6 +80,9 @@ class Notification(Base):
         icons = {
             "agendatec": "bi-calendar-check",
             "helpdesk": "bi-headset",
+            "maint": "bi-tools",
+            "vistetec": "bi-bag-heart",
+            "warehouse": "bi-archive",
             "inventory": "bi-box-seam",
             "core": "bi-gear",
         }
@@ -89,6 +92,9 @@ class Notification(Base):
         colors = {
             "agendatec": "primary",
             "helpdesk": "success",
+            "maint": "secondary",
+            "vistetec": "danger",
+            "warehouse": "info",
             "inventory": "warning",
             "core": "secondary",
         }

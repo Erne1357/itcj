@@ -446,6 +446,8 @@ class DashboardNotificationWidget {
             appId = 'agendatec';
         } else if (url.includes('/help-desk')) {
             appId = 'helpdesk';
+        } else if (url.includes('/maint')) {
+            appId = 'maint';
         } else if (url.includes('/vistetec')) {
             appId = 'vistetec';
         } else if (url.includes('/compras')) {

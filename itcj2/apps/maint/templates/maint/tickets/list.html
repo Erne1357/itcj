@@ -13,7 +13,7 @@
         </h4>
     </div>
     <div class="col-auto">
-        <a href="/maintenance/tickets/create" class="btn btn-maint btn-sm">
+        <a href="/maint/tickets/create" class="btn btn-maint btn-sm">
             <i class="bi bi-plus-lg me-1"></i>Nueva Solicitud
         </a>
     </div>
@@ -22,10 +22,10 @@
 <!-- Filtros -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-3">
-        <!-- Status chips -->
+        <!-- Status chips: el orden y el default los maneja list.js segun rol -->
         <div class="d-flex flex-wrap gap-2 mb-3" id="statusFilters">
-            <button class="btn mn-status-filter active" data-status="">
-                <i class="bi bi-grid me-1"></i>Todos
+            <button class="btn mn-status-filter" data-status="" data-assigned="me">
+                <i class="bi bi-person-check me-1"></i>Asignados a mí
             </button>
             <button class="btn mn-status-filter" data-status="PENDING">Pendiente</button>
             <button class="btn mn-status-filter" data-status="ASSIGNED">Asignado</button>
@@ -34,6 +34,9 @@
             <button class="btn mn-status-filter" data-status="RESOLVED_FAILED">Atendido</button>
             <button class="btn mn-status-filter" data-status="CLOSED">Cerrado</button>
             <button class="btn mn-status-filter" data-status="CANCELED">Cancelado</button>
+            <button class="btn mn-status-filter" data-status="">
+                <i class="bi bi-grid me-1"></i>Todos
+            </button>
         </div>
         <!-- Otros filtros -->
         <div class="row g-2 align-items-center">
@@ -75,6 +78,18 @@
 
 <!-- Paginación -->
 <nav id="paginationContainer" class="mt-3 d-flex justify-content-center"></nav>
+{% endblock %}
+
+{% block page_vars %}
+<script>
+var MAINT_CTX = {
+    userRoles:    {{ user_roles | tojson }},
+    isAdmin:      {{ ('admin' in user_roles) | lower }},
+    isDispatcher: {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
+    isDeptHead:   {{ ('department_head' in user_roles or 'secretary' in user_roles) | lower }},
+};
+</script>
 {% endblock %}
 
 {% block extra_js %}

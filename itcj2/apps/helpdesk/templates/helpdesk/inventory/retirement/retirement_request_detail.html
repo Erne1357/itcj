@@ -137,6 +137,45 @@
                 </div>
             </div>
 
+            <!-- Panel de firma multi-paso -->
+            <div class="card shadow mb-3 border-warning" id="signing-panel" style="display:none;">
+                <div class="card-header py-2 bg-warning bg-opacity-10">
+                    <h6 class="m-0" style="font-size:.85rem;">
+                        <i class="fas fa-signature"></i> Autorización Pendiente
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <p class="mb-2 small">Esta solicitud requiere tu autorización como:
+                        <strong id="signing-role-title"></strong>
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label small">Observaciones (opcional):</label>
+                        <textarea id="signing-notes" class="form-control form-control-sm" rows="2"
+                                  placeholder="Notas u observaciones..."></textarea>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-success btn-sm" id="btn-approve-sign">
+                            <i class="fas fa-check"></i> Autorizar
+                        </button>
+                        <button class="btn btn-danger btn-sm" id="btn-reject-sign">
+                            <i class="fas fa-times"></i> Rechazar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeline de firmas -->
+            <div class="card shadow mb-3" id="signatures-timeline" style="display:none;">
+                <div class="card-header py-2">
+                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                        <i class="fas fa-tasks"></i> Estado de Autorizaciones
+                    </h6>
+                </div>
+                <div class="card-body p-2" id="signatures-timeline-body">
+                    <!-- Generado por JS -->
+                </div>
+            </div>
+
             <!-- Documento adjunto -->
             <div class="card shadow mb-3" id="document-card">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
@@ -240,6 +279,7 @@
 <script>
     const REQUEST_ID = {{ request_id }};
     const CAN_APPROVE = {{ 'true' if can_approve else 'false' }};
+    const CURRENT_USER_PERMS = {{ sign_perms | tojson }};
 </script>
 <script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_request_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_request_detail.js') }}"></script>
 {% endblock %}
