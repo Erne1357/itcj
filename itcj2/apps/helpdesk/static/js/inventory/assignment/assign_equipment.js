@@ -52,26 +52,22 @@ function setupTabs() {
 }
 
 // ==================== CARGAR DATOS ====================
+let userScope = { can_assign_cross_dept: false, user_dept: null };
+let allDepartments = [];
+
 async function loadInitialData() {
     try {
-        // Cargar departamento del usuario actual
-        await loadUserDepartment();
+        // 1. Detectar alcance del usuario (puede cross-dept o no)
+        await loadUserScope();
 
-        // Cargar usuarios del departamento
-        await loadDepartmentUsers();
+        // 2. Resolver dept inicial (propio o seleccionable según scope)
+        await initDepartmentContext();
 
-        // Cargar equipos del departamento
-        await loadDepartmentEquipment();
+        // 3. Cargar datos del dpto activo
+        await reloadDepartmentData();
 
-        // Cargar grupos del departamento (NUEVO)
-        await loadDepartmentGroups();
-
-        // Cargar categorías para filtros
+        // 4. Cargar categorías para filtros (global, no depende del dpto)
         await loadCategories();
-
-        // Renderizar todo
-        renderStats();
-        renderUsersList();
 
         hideLoading();
 
@@ -82,17 +78,68 @@ async function loadInitialData() {
     }
 }
 
-async function loadUserDepartment() {
+async function loadUserScope() {
+    try {
+        const res = await fetch('/api/help-desk/v2/inventory/assignments/me-scope', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+        if (!res.ok) throw new Error('No se pudo determinar el alcance');
+        const json = await res.json();
+        userScope = json.data;
+    } catch (err) {
+        console.warn('Scope no disponible, asumiendo dept-only:', err);
+        userScope = { can_assign_cross_dept: false, user_dept: null };
+    }
+}
+
+async function initDepartmentContext() {
+    if (userScope.can_assign_cross_dept) {
+        // Cargar lista de dptos y mostrar selector
+        try {
+            const res = await fetch('/api/core/v2/departments?active=true', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            });
+            const json = await res.json();
+            allDepartments = (json.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+        } catch (err) {
+            console.error('Error cargando departamentos:', err);
+            allDepartments = [];
+        }
+
+        const wrapper = document.getElementById('dept-selector-wrapper');
+        const selector = document.getElementById('dept-selector');
+        if (wrapper) wrapper.classList.remove('d-none');
+        if (selector) {
+            selector.innerHTML = allDepartments
+                .map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+
+            // Por defecto: dpto propio si existe, sino el primero
+            const initialId = userScope.user_dept ? userScope.user_dept.id : (allDepartments[0]?.id || '');
+            selector.value = String(initialId);
+            currentDepartment = allDepartments.find(d => d.id === parseInt(selector.value, 10)) || null;
+
+            selector.addEventListener('change', async () => {
+                currentDepartment = allDepartments.find(d => d.id === parseInt(selector.value, 10)) || null;
+                if (currentDepartment) {
+                    showLoading();
+                    selectedUser = null;
+                    await reloadDepartmentData();
+                    hideLoading();
+                }
+            });
+        }
+        return;
+    }
+
+    // Sin scope cross-dept: usar dept propio
     try {
         const response = await fetch('/api/core/v2/user/me/department', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar departamento');
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || errorData.message || 'No tienes un departamento asignado y no tienes permiso para asignar entre departamentos.');
         }
 
         const result = await response.json();
@@ -107,7 +154,26 @@ async function loadUserDepartment() {
     }
 }
 
-let _showInactiveUsers = false;
+async function reloadDepartmentData() {
+    if (!currentDepartment) {
+        showError('Sin departamento activo.');
+        return;
+    }
+    document.getElementById('department-info').textContent =
+        `Gestionando equipos del ${currentDepartment.name}`;
+
+    // Cargar en paralelo
+    await Promise.all([
+        loadDepartmentUsers(),
+        loadDepartmentEquipment(),
+        loadDepartmentGroups(),
+    ]);
+
+    renderStats();
+    renderUsersList(document.getElementById('search-users')?.value || '');
+}
+
+let _showInactiveUsers = true;  // Default ON para incluir aux_* creados en item_create
 
 window.toggleInactiveUsers = async function (checked) {
     _showInactiveUsers = checked;

@@ -1,11 +1,59 @@
 """
-Inventory Assignments API v2 — 5 endpoints.
+Inventory Assignments API v2.
 Fuente: itcj/apps/helpdesk/routes/api/inventory/inventory_assignments.py
 """
 from fastapi import APIRouter, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms
 
 router = APIRouter(tags=["helpdesk-inventory-assignments"])
+
+
+def _user_can_cross_dept(db, user) -> bool:
+    """True si el usuario puede asignar/desasignar equipos de cualquier dpto.
+
+    Reglas:
+      - JWT role == "admin" → bypass total
+      - Permiso explícito `helpdesk.inventory.api.assign.all` (vía rol o posición)
+    """
+    if user.get("role") == "admin":
+        return True
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    perms = get_user_permissions_for_app(db, int(user["sub"]), "helpdesk", include_positions=True)
+    return "helpdesk.inventory.api.assign.all" in perms
+
+
+@router.get("/me-scope")
+def get_my_scope(
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.assign"]),
+    db: DbSession = None,
+):
+    """Devuelve el alcance del usuario para asignación de equipos.
+
+    Respuesta:
+        {
+          "can_assign_cross_dept": bool,
+          "user_dept": {id, name, code} | null
+        }
+
+    El front usa esto para decidir si mostrar un selector de departamento
+    o limitar la vista al dpto del usuario.
+    """
+    from itcj2.core.services.departments_service import get_user_department
+
+    user_id = int(user["sub"])
+    cross_dept = _user_can_cross_dept(db, user)
+    dept = get_user_department(db, user_id)
+    return {
+        "success": True,
+        "data": {
+            "can_assign_cross_dept": cross_dept,
+            "user_dept": {
+                "id":   dept.id,
+                "name": dept.name,
+                "code": dept.code,
+            } if dept else None,
+        },
+    }
 
 
 @router.post("/assign")
@@ -15,17 +63,11 @@ def assign_to_user(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.assign"]),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
     from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
 
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
-
     assigned_by_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, assigned_by_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, assigned_by_id)
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
@@ -36,7 +78,7 @@ def assign_to_user(
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and assigned_by_id not in secretary_comp_center and not is_comp_center:
+    if not _user_can_cross_dept(db, user):
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, assigned_by_id)
         if not user_dept or user_dept.id != item.department_id:
@@ -68,16 +110,10 @@ def unassign_from_user(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.unassign"]),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.services.inventory_service import InventoryService
 
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
-
     unassigned_by_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, unassigned_by_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, unassigned_by_id)
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
@@ -89,7 +125,7 @@ def unassign_from_user(
     if not item.is_assigned_to_user:
         raise HTTPException(400, detail={"success": False, "error": "El equipo no está asignado a ningún usuario"})
 
-    if "admin" not in user_roles and unassigned_by_id not in secretary_comp_center and not is_comp_center:
+    if not _user_can_cross_dept(db, user):
         from itcj2.core.services.departments_service import get_user_department
         user_dept = get_user_department(db, unassigned_by_id)
         if not user_dept or user_dept.id != item.department_id:

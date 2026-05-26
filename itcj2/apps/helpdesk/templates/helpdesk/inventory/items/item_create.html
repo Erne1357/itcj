@@ -227,20 +227,40 @@
                     <div id="user-assignment-section" style="display: none;">
                         <div class="form-group">
                             <label>Usuario</label>
-                            <div class="input-group">
-                                <select class="form-control" id="assigned-to-user-id" name="assigned_to_user_id">
-                                    <option value="">Seleccionar usuario...</option>
-                                </select>
-                                <div class="input-group-append">
-                                    <button type="button" class="btn btn-outline-secondary" id="btn-create-inactive-user"
-                                        title="Crear nuevo usuario inactivo">
-                                        <i class="fas fa-user-plus"></i>
-                                    </button>
+                            <!-- Selector con buscador inline. El select original queda oculto
+                                 para mantener compatibilidad con submit del form. -->
+                            <div class="user-combo position-relative">
+                                <div class="input-group">
+                                    <input type="text" class="form-control"
+                                           id="user-combo-input"
+                                           placeholder="Buscar por nombre, usuario o email..."
+                                           autocomplete="off">
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                id="user-combo-clear" title="Quitar selección" style="display:none;">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                id="btn-create-inactive-user"
+                                                title="Crear nuevo usuario inactivo">
+                                            <i class="fas fa-user-plus"></i>
+                                        </button>
+                                    </div>
                                 </div>
+                                <div id="user-combo-dropdown"
+                                     class="position-absolute bg-white shadow-sm w-100 d-none"
+                                     style="z-index:1050; max-height:260px; overflow-y:auto;
+                                            border:1px solid #ced4da; border-top:none;
+                                            border-radius:0 0 .25rem .25rem; top:100%;"></div>
                             </div>
+                            <select id="assigned-to-user-id" name="assigned_to_user_id"
+                                    style="display:none;" tabindex="-1" aria-hidden="true">
+                                <option value=""></option>
+                            </select>
                             <small class="form-text text-muted">
                                 Dejar vacío para que sea global del departamento.
                                 Usa <i class="fas fa-user-plus"></i> para registrar a alguien que aún no tiene cuenta.
+                                Incluye cuentas inactivas creadas para inventario.
                             </small>
                         </div>
                     </div>

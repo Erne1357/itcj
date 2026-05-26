@@ -13,6 +13,7 @@ import click
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DML_INVENTORY_CAMPAIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory_campaign"
 DML_INVENTORY = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory"
+DML_INVENTORY_ASSIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory" / "assign"
 DML_CONFIG = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "config"
 
 
@@ -330,6 +331,33 @@ def init_retirement_permissions_command():
         raise
 
 
+@click.command("init-assign-permissions")
+def init_assign_permissions_command():
+    """Carga el permiso `helpdesk.inventory.api.assign.all` y lo asigna.
+
+    Ejecuta en orden:
+      01_add_assign_all_permission.sql           — Inserta el permiso
+      02_assign_assign_all_to_roles_and_positions.sql — Lo asigna a admin,
+                                                      tech_desarrollo, tech_soporte
+                                                      y posición secretary_comp_center.
+
+    Tras ejecutar, los usuarios con dicho permiso pueden asignar/desasignar
+    equipos del inventario sin importar el departamento (cross-dept).
+    """
+    click.echo("🔑 Inicializando permiso de asignación cross-departamento...")
+    try:
+        _run_sql_files(DML_INVENTORY_ASSIGN, [
+            "01_add_assign_all_permission.sql",
+            "02_assign_assign_all_to_roles_and_positions.sql",
+        ])
+        click.echo("\n🎉 Permiso aplicado.")
+        click.echo("   • admin / tech_desarrollo / tech_soporte → cross-dept")
+        click.echo("   • posición secretary_comp_center        → cross-dept")
+    except Exception as e:
+        click.echo(f"\n💥 Error: {e}")
+        raise
+
+
 @click.command("seed-config")
 def seed_config_command():
     """Ejecuta los SQL de la pestaña de Configuración del Helpdesk.
@@ -376,4 +404,5 @@ def helpdesk_cli():
 helpdesk_cli.add_command(load_inventory_csv)
 helpdesk_cli.add_command(init_inventory_campaign_command)
 helpdesk_cli.add_command(init_retirement_permissions_command)
+helpdesk_cli.add_command(init_assign_permissions_command)
 helpdesk_cli.add_command(seed_config_command)

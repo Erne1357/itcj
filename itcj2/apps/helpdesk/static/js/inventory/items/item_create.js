@@ -298,17 +298,28 @@ async function loadDepartments() {
 }
 
 async function loadDepartmentUsers(departmentId) {
+    const select = document.getElementById('assigned-to-user-id');
+    const comboInput = document.getElementById('user-combo-input');
+    const dropdown = document.getElementById('user-combo-dropdown');
+    const clearBtn = document.getElementById('user-combo-clear');
+
+    // Resetear combo
+    if (select) { select.innerHTML = '<option value=""></option>'; select.value = ''; }
+    if (comboInput) comboInput.value = '';
+    if (clearBtn) clearBtn.style.display = 'none';
+    if (dropdown) { dropdown.classList.add('d-none'); dropdown.innerHTML = ''; }
+
     if (!departmentId) {
-        document.getElementById('assigned-to-user-id').innerHTML = 
-            '<option value="">Primero selecciona un departamento</option>';
+        if (comboInput) {
+            comboInput.placeholder = 'Primero selecciona un departamento';
+            comboInput.disabled = true;
+        }
         return;
     }
 
     try {
         const response = await fetch(`/api/core/v2/departments/${departmentId}/users?include_inactive=true`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
         });
 
         if (!response.ok) {
@@ -318,24 +329,108 @@ async function loadDepartmentUsers(departmentId) {
         const result = await response.json();
         departmentUsers = result.data.users ?? result.data;
 
-        const select = document.getElementById('assigned-to-user-id');
-        select.innerHTML = '<option value="">Seleccionar usuario...</option>';
+        // Mantener select oculto sincronizado (para submit)
+        if (select) {
+            select.innerHTML = '<option value=""></option>';
+            departmentUsers.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u.id;
+                opt.textContent = u.full_name;
+                if (u.is_active === false) opt.setAttribute('data-inactive', 'true');
+                select.appendChild(opt);
+            });
+        }
 
-        departmentUsers.forEach(user => {
-            const option = document.createElement('option');
-            option.value = user.id;
-            const label = user.is_active === false
-                ? `${user.full_name} (cuenta inactiva)`
-                : `${user.full_name} (${user.email || user.username})`;
-            option.textContent = label;
-            select.appendChild(option);
-        });
+        if (comboInput) {
+            comboInput.disabled = false;
+            comboInput.placeholder = `Buscar entre ${departmentUsers.length} usuarios...`;
+        }
+
+        // Inicializar combo (una sola vez)
+        if (comboInput && !comboInput.dataset.comboInit) {
+            comboInput.dataset.comboInit = '1';
+            comboInput.addEventListener('input', () => renderUserCombo(comboInput.value.trim()));
+            comboInput.addEventListener('focus', () => renderUserCombo(comboInput.value.trim()));
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.user-combo')) {
+                    dropdown.classList.add('d-none');
+                }
+            });
+            clearBtn.addEventListener('click', () => {
+                select.value = '';
+                comboInput.value = '';
+                clearBtn.style.display = 'none';
+                dropdown.classList.add('d-none');
+            });
+        }
 
     } catch (error) {
         console.error('Error cargando usuarios:', error);
         const errorMessage = error.message || 'Error desconocido';
         showError(`No se pudieron cargar los usuarios del departamento: ${errorMessage}`);
     }
+}
+
+function renderUserCombo(query) {
+    const dropdown = document.getElementById('user-combo-dropdown');
+    if (!dropdown) return;
+    const q = (query || '').toLowerCase();
+
+    const filtered = q
+        ? departmentUsers.filter(u => {
+            const haystack = [u.full_name, u.email, u.username, u.control_number]
+                .filter(Boolean).join(' ').toLowerCase();
+            return haystack.includes(q);
+        })
+        : departmentUsers.slice(0, 30);
+
+    if (filtered.length === 0) {
+        dropdown.innerHTML = `<div class="px-3 py-2 small text-muted">Sin resultados.
+            <span class="text-info">¿No está? Usa <i class="fas fa-user-plus"></i> para crear cuenta inactiva.</span></div>`;
+        dropdown.classList.remove('d-none');
+        return;
+    }
+
+    dropdown.innerHTML = filtered.map(u => {
+        const isInactive = u.is_active === false;
+        const subtitle = [u.email, u.username, u.control_number].filter(Boolean).join(' · ');
+        const badge = isInactive
+            ? '<span class="badge badge-warning text-dark ml-1">Cuenta inactiva</span>'
+            : '';
+        return `
+            <div class="user-combo-item px-3 py-2 border-bottom" style="cursor:pointer;"
+                 data-user-id="${u.id}" data-user-label="${escAttr(u.full_name)}">
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong class="small">${escAttr(u.full_name)}</strong>
+                    ${badge}
+                </div>
+                <div class="text-muted" style="font-size:.78rem;">${escAttr(subtitle)}</div>
+            </div>
+        `;
+    }).join('');
+
+    dropdown.querySelectorAll('.user-combo-item').forEach(el => {
+        el.addEventListener('mouseenter', () => el.style.background = '#f1f5f9');
+        el.addEventListener('mouseleave', () => el.style.background = '');
+        el.addEventListener('click', () => selectUserCombo(el.dataset.userId, el.dataset.userLabel));
+    });
+    dropdown.classList.remove('d-none');
+}
+
+function selectUserCombo(userId, label) {
+    const select = document.getElementById('assigned-to-user-id');
+    const input  = document.getElementById('user-combo-input');
+    const clear  = document.getElementById('user-combo-clear');
+    const dd     = document.getElementById('user-combo-dropdown');
+    if (select) select.value = userId;
+    if (input)  input.value = label;
+    if (clear)  clear.style.display = '';
+    if (dd)     dd.classList.add('d-none');
+}
+
+function escAttr(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ==================== MANEJO DE CATEGORÍA ====================
@@ -1735,15 +1830,25 @@ async function handleCreateInactiveUser(e) {
 
         if (!res.ok) throw new Error(data.error || 'Error al crear usuario');
 
-        // Éxito — agregar al select y seleccionarlo
+        // Éxito — agregar al select oculto + cache + seleccionar en combo
         const newUser = data.data;
         const select = document.getElementById('assigned-to-user-id');
         const opt = document.createElement('option');
         opt.value = newUser.id;
-        opt.textContent = `${newUser.full_name} (cuenta inactiva)`;
+        opt.textContent = newUser.full_name;
         opt.setAttribute('data-inactive', 'true');
         select.appendChild(opt);
-        select.value = newUser.id;
+
+        // Agregar al cache para que el combo lo encuentre en futuras búsquedas
+        departmentUsers.push({
+            id: newUser.id,
+            full_name: newUser.full_name,
+            username: newUser.username,
+            email: newUser.email,
+            is_active: false,
+        });
+
+        selectUserCombo(newUser.id, newUser.full_name);
 
         $('#createInactiveUserModal').modal('hide');
         showSuccess(`Usuario ${newUser.full_name} creado. Se seleccionó automáticamente.`);
