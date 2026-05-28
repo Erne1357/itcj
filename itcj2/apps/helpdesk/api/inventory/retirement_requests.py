@@ -212,6 +212,52 @@ def cancel_request(
         raise HTTPException(400, detail={"success": False, "error": str(e)})
 
 
+# ── Descargar documento adjunto ────────────────────────────────────────────────
+
+@router.get("/{request_id}/document")
+def download_document(
+    request_id: int,
+    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.read"]),
+    db: DbSession = None,
+):
+    """Descarga el documento adjunto a la solicitud.
+
+    Permitido para: solicitante, admin/CC, y cualquiera de los firmantes del flujo
+    (head_mat_services, subdirector_admin_services, director, head_comp_center).
+    """
+    import os
+    from fastapi.responses import FileResponse
+    from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest
+
+    req = db.get(InventoryRetirementRequest, request_id)
+    if not req:
+        raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
+    if not req.document_path:
+        raise HTTPException(404, detail={"success": False, "error": "Esta solicitud no tiene documento adjunto"})
+
+    user_id = int(user["sub"])
+    if not _is_admin(db, user_id) and req.requested_by_id != user_id:
+        from itcj2.core.services.authz_service import _get_users_with_position
+        signer_ids = set(_get_users_with_position(db, [
+            "head_mat_services", "subdirector_admin_services", "director", "head_comp_center",
+        ]))
+        if user_id not in signer_ids:
+            raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
+
+    if not os.path.exists(req.document_path):
+        logger.error(f"download_document: archivo no encontrado en disco: {req.document_path} (req {req.id})")
+        raise HTTPException(404, detail={"success": False, "error": "Archivo no encontrado en el servidor"})
+
+    filename = req.document_original_name or os.path.basename(req.document_path)
+    # Forzar descarga: ad-blockers bloquean preview inline. Usuario abre el archivo localmente.
+    return FileResponse(
+        path=req.document_path,
+        filename=filename,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Adjuntar documento ─────────────────────────────────────────────────────────
 
 @router.post("/{request_id}/attach")
@@ -248,6 +294,7 @@ def generate_document(
         "helpdesk.retirement.sign.recursos_materiales",
         "helpdesk.retirement.sign.subdirector",
         "helpdesk.retirement.sign.director",
+        "helpdesk.retirement.sign.comp_center",
     ]),
     db: DbSession = None,
 ):
@@ -264,11 +311,11 @@ def generate_document(
         raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
 
     user_id = int(user["sub"])
-    # Permitir acceso a: admin, solicitante, y firmantes (pos head_mat/subdirector/director)
+    # Permitir acceso a: admin, solicitante, y firmantes (incluido Jefe CC)
     if not _is_admin(db, user_id) and req.requested_by_id != user_id:
         from itcj2.core.services.authz_service import _get_users_with_position
         signer_ids = set(_get_users_with_position(db, [
-            "head_mat_services", "subdirector_admin_services", "director",
+            "head_mat_services", "subdirector_admin_services", "director", "head_comp_center",
         ]))
         if user_id not in signer_ids:
             raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
@@ -334,6 +381,7 @@ def sign_request(
         "helpdesk.retirement.sign.recursos_materiales",
         "helpdesk.retirement.sign.subdirector",
         "helpdesk.retirement.sign.director",
+        "helpdesk.retirement.sign.comp_center",
     ]),
     db: DbSession = None,
 ):

@@ -100,6 +100,13 @@ class InventoryGroupService:
                 group.name = data['name']
             if 'group_type' in data:
                 group.group_type = data['group_type']
+            if 'department_id' in data and data['department_id']:
+                new_dept_id = int(data['department_id'])
+                if new_dept_id != group.department_id:
+                    new_dept = db.get(Department, new_dept_id)
+                    if not new_dept:
+                        raise ValueError(f"Departamento {new_dept_id} no encontrado")
+                    group.department_id = new_dept_id
             if 'description' in data:
                 group.description = data['description']
             if 'building' in data:

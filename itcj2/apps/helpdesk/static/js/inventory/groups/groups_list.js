@@ -8,8 +8,12 @@ let allDepartments = [];
 let allCategories = [];
 let currentFilters = {};
 
-// Inicializar department_id correctamente
-currentFilters.department_id = (typeof departmentId !== 'undefined' && departmentId !== null) ? departmentId : null;
+// Inicializar department_id: admin (canViewAll) arranca sin filtro;
+// resto pre-filtra por su propio dpto.
+const _canSeeAll = (typeof canViewAll !== 'undefined' && canViewAll === true);
+currentFilters.department_id = _canSeeAll
+    ? null
+    : ((typeof departmentId !== 'undefined' && departmentId !== null) ? departmentId : null);
 
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -40,28 +44,34 @@ async function loadGroups() {
         if (currentFilters.search) params.append('search', currentFilters.search);
         if (currentFilters.type) params.append('type', currentFilters.type);
         if (currentFilters.department_id) params.append('department_id', currentFilters.department_id);
-        
-        let response;
-        if (typeof canViewAll !== 'undefined' && canViewAll === true) {
-            response  = await fetch(`/api/help-desk/v2/inventory/groups/?${params}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                }
-            });
+
+        const canSeeAll = (typeof canViewAll !== 'undefined' && canViewAll === true);
+        let url;
+        if (canSeeAll) {
+            const qs = params.toString();
+            url = qs ? `/api/help-desk/v2/inventory/groups?${qs}` : '/api/help-desk/v2/inventory/groups';
         } else {
-            response  = await fetch(`/api/help-desk/v2/inventory/groups/department/${currentFilters.department_id}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                }
-            });
+            if (!currentFilters.department_id) {
+                allGroups = [];
+                renderGroups(allGroups);
+                hideLoading();
+                return;
+            }
+            url = `/api/help-desk/v2/inventory/groups/department/${currentFilters.department_id}`;
         }
+
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+        });
+
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar grupos');
+            const errorData = await response.json().catch(() => ({}));
+            const msg = (errorData.detail && errorData.detail.error) || errorData.error || errorData.message || `HTTP ${response.status}`;
+            throw new Error(msg);
         }
 
         const result = await response.json();
-        allGroups = result.data;
+        allGroups = result.data || [];
 
         renderGroups(allGroups);
         hideLoading();
@@ -100,6 +110,9 @@ async function loadDepartments() {
                 option.textContent = dept.name;
                 deptFilter.appendChild(option);
             });
+            if (currentFilters.department_id) {
+                deptFilter.value = String(currentFilters.department_id);
+            }
         }
 
         // Llenar select del modal
@@ -156,7 +169,7 @@ function renderGroups(groups) {
     document.getElementById('empty-state').style.display = 'none';
 
     container.innerHTML = groups.map(group => {
-        const typeInfo = getGroupTypeInfo(group.type);
+        const typeInfo = getGroupTypeInfo(group.group_type);
         const occupancy = calculateOccupancy(group);
         const occupancyClass = getOccupancyClass(occupancy.percentage);
 
@@ -327,7 +340,7 @@ async function openEditGroupModal(groupId) {
         document.getElementById('modal-title').textContent = 'Editar Grupo';
         document.getElementById('group-id').value = group.id;
         document.getElementById('group-name').value = group.name;
-        document.getElementById('group-type').value = group.type;
+        document.getElementById('group-type').value = group.group_type || '';
         document.getElementById('group-department').value = group.department_id;
         document.getElementById('group-description').value = group.description || '';
         document.getElementById('group-building').value = group.building || '';
@@ -411,24 +424,44 @@ async function handleSubmit(e) {
         const groupId = document.getElementById('group-id').value;
         const isEdit = !!groupId;
 
-        const url = isEdit
-            ? `/api/help-desk/v2/inventory/groups/${groupId}`
-            : '/api/help-desk/v2/inventory/groups';
+        const authHeaders = {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json',
+        };
 
-        const method = isEdit ? 'PUT' : 'POST';
+        if (isEdit) {
+            // Edit: primero campos básicos (incluido department_id), después capacidades.
+            const { capacities, ...basic } = formData;
 
-        const response = await fetch(url, {
-            method: method,
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
+            const resBasic = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}`, {
+                method: 'PUT',
+                headers: authHeaders,
+                body: JSON.stringify(basic),
+            });
+            if (!resBasic.ok) {
+                const err = await resBasic.json().catch(() => ({}));
+                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al actualizar grupo');
+            }
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || error.message || 'Error al guardar grupo');
+            const resCap = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}/capacities`, {
+                method: 'PUT',
+                headers: authHeaders,
+                body: JSON.stringify({ capacities: capacities || [] }),
+            });
+            if (!resCap.ok) {
+                const err = await resCap.json().catch(() => ({}));
+                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al actualizar capacidades');
+            }
+        } else {
+            const response = await fetch('/api/help-desk/v2/inventory/groups', {
+                method: 'POST',
+                headers: authHeaders,
+                body: JSON.stringify(formData),
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al crear grupo');
+            }
         }
 
         $('#groupModal').modal('hide');
@@ -450,7 +483,7 @@ function collectGroupFormData() {
 
     const data = {
         name: form.querySelector('#group-name').value.trim(),
-        type: form.querySelector('#group-type').value,
+        group_type: form.querySelector('#group-type').value,
         department_id: parseInt(form.querySelector('#group-department').value),
         description: form.querySelector('#group-description').value.trim() || null,
         building: form.querySelector('#group-building').value.trim() || null,
@@ -458,21 +491,18 @@ function collectGroupFormData() {
         location_notes: form.querySelector('#group-location-notes').value.trim() || null
     };
 
-    // Recolectar capacidades
-    const capacities = {};
+    // Capacidades: backend espera lista [{category_id, max_capacity}]
+    const capacities = [];
     allCategories.forEach(cat => {
         const input = form.querySelector(`[name="capacity_${cat.id}"]`);
         if (input && input.value) {
             const value = parseInt(input.value);
             if (value > 0) {
-                capacities[cat.id] = value;
+                capacities.push({ category_id: cat.id, max_capacity: value });
             }
         }
     });
-
-    if (Object.keys(capacities).length > 0) {
-        data.capacities = capacities;
-    }
+    data.capacities = capacities;
 
     return data;
 }
@@ -483,12 +513,12 @@ function validateGroupData(data) {
         return false;
     }
 
-    if (!data.type) {
+    if (!data.group_type) {
         showError('El tipo es requerido');
         return false;
     }
 
-    if (!data.department_id) {
+    if (!data.department_id || Number.isNaN(data.department_id)) {
         showError('El departamento es requerido');
         return false;
     }

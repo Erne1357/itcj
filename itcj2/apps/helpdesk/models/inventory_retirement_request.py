@@ -11,8 +11,9 @@ from itcj2.models.base import Base
 class InventoryRetirementRequest(Base):
     """
     Solicitud formal de baja de uno o más equipos.
-    Flujo: DRAFT → PENDING → AWAITING_RECURSOS_MATERIALES → AWAITING_SUBDIRECTOR → AWAITING_DIRECTOR → APPROVED | REJECTED
-           DRAFT | PENDING → CANCELLED
+    Flujo OFICIO:    DRAFT → AWAITING_RECURSOS_MATERIALES → AWAITING_SUBDIRECTOR → AWAITING_DIRECTOR → AWAITING_COMP_CENTER → APPROVED
+    Flujo DOCUMENTO: DRAFT → AWAITING_COMP_CENTER → APPROVED
+    Cualquier paso de firma puede acabar en REJECTED. DRAFT puede pasar a CANCELLED.
     """
     __tablename__ = "helpdesk_inventory_retirement_requests"
 
@@ -22,7 +23,8 @@ class InventoryRetirementRequest(Base):
     # Formato: BAJA-{YEAR}-{SEQ:03d}  ej: BAJA-2026-001
 
     status = Column(String(40), nullable=False, default='DRAFT', index=True)
-    # DRAFT | PENDING | AWAITING_RECURSOS_MATERIALES | AWAITING_SUBDIRECTOR | AWAITING_DIRECTOR | APPROVED | REJECTED | CANCELLED
+    # DRAFT | PENDING | AWAITING_RECURSOS_MATERIALES | AWAITING_SUBDIRECTOR | AWAITING_DIRECTOR | AWAITING_COMP_CENTER | APPROVED | REJECTED | CANCELLED
+    # PENDING queda como legacy para solicitudes pre-flujo CC; nuevas solicitudes saltan directo de DRAFT a AWAITING_*
 
     reason = Column(Text, nullable=False)
 

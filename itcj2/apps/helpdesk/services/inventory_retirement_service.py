@@ -154,8 +154,10 @@ class InventoryRetirementService:
     @staticmethod
     def submit_request(db: Session, request_id: int, user_id: int) -> InventoryRetirementRequest:
         """
-        Cambia estado DRAFT → PENDING o DRAFT → AWAITING_RECURSOS_MATERIALES
-        según si la solicitud tiene oficio generado (oficio_data no nulo).
+        Envía la solicitud.
+        - Con oficio generado (oficio_data) → AWAITING_RECURSOS_MATERIALES (cadena completa de firmas).
+        - Con documento adjunto (document_path) → AWAITING_COMP_CENTER (salta directo al jefe CC).
+        - Sin ninguno → error: requiere al menos uno antes de enviar.
         """
         from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementSignature
         from itcj2.core.services.authz_service import _get_users_with_position
@@ -170,42 +172,45 @@ class InventoryRetirementService:
             raise ValueError(f"Solo se puede enviar una solicitud en estado DRAFT (actual: {req.status})")
         if req.items.count() == 0:
             raise ValueError("La solicitud debe tener al menos un equipo antes de enviarse")
+        if req.oficio_data is None and not req.document_path:
+            raise ValueError("Debe generar el oficio o adjuntar un documento antes de enviar la solicitud")
 
         if req.oficio_data is not None:
             # Oficio oficial → iniciar cadena de firmas multi-paso
-            pos = InventoryRetirementService._get_position_for_status("AWAITING_RECURSOS_MATERIALES")
-            sig = InventoryRetirementSignature(
-                request_id=req.id,
-                step=pos["step"],
-                position_code=pos["code"],
-                position_title=pos["title"],
-            )
-            db.add(sig)
-            req.status = "AWAITING_RECURSOS_MATERIALES"
-            req.updated_at = datetime.now()
-            db.commit()
-            db.refresh(req)
-            # Notificar a los usuarios con position head_mat_services
-            try:
-                users = _get_users_with_position(db, [pos["code"]]) or []
-                for u in users:
-                    NotificationService.create(
-                        db=db,
-                        user_id=u,
-                        app_name="helpdesk",
-                        type="RETIREMENT_SIGN_REQUESTED",
-                        title=f"Solicitud de baja {req.folio} requiere tu autorización",
-                        body=f"Solicitante: {req.requested_by.full_name} · {pos['title']}",
-                        data={"url": f"/help-desk/inventory/retirement-requests/{req.id}", "request_id": req.id},
-                    )
-            except Exception as e:
-                logger.error(f"submit_request: error notificando a {pos['code']} para {req.folio}: {e}")
+            target_status = "AWAITING_RECURSOS_MATERIALES"
         else:
-            # Documento físico → flujo simple de aprobación CC
-            req.status = "PENDING"
-            req.updated_at = datetime.now()
+            # Documento adjunto → salta directo a firma final del jefe CC
+            target_status = "AWAITING_COMP_CENTER"
+
+        pos = InventoryRetirementService._get_position_for_status(target_status)
+        sig = InventoryRetirementSignature(
+            request_id=req.id,
+            step=pos["step"],
+            position_code=pos["code"],
+            position_title=pos["title"],
+        )
+        db.add(sig)
+        req.status = target_status
+        req.updated_at = datetime.now()
+        db.commit()
+        db.refresh(req)
+
+        try:
+            users = _get_users_with_position(db, [pos["code"]]) or []
+            for u in users:
+                NotificationService.create(
+                    db=db,
+                    user_id=u,
+                    app_name="helpdesk",
+                    type="RETIREMENT_SIGN_REQUESTED",
+                    title=f"Solicitud de baja {req.folio} requiere tu autorización",
+                    body=f"Solicitante: {req.requested_by.full_name} · {pos['title']}",
+                    data={"url": f"/help-desk/inventory/retirement-requests/{req.id}", "request_id": req.id},
+                )
             db.commit()
-            db.refresh(req)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"submit_request: error notificando a {pos['code']} para {req.folio}: {e}")
 
         return req
 
@@ -380,6 +385,11 @@ class InventoryRetirementService:
                 "code": "director",
                 "title": "Director",
             },
+            "AWAITING_COMP_CENTER": {
+                "step": 4,
+                "code": "head_comp_center",
+                "title": "Jefe del Centro de Cómputo",
+            },
         }
         return mapping.get(status)
 
@@ -389,7 +399,8 @@ class InventoryRetirementService:
         chain = {
             "AWAITING_RECURSOS_MATERIALES": "AWAITING_SUBDIRECTOR",
             "AWAITING_SUBDIRECTOR": "AWAITING_DIRECTOR",
-            "AWAITING_DIRECTOR": None,
+            "AWAITING_DIRECTOR": "AWAITING_COMP_CENTER",
+            "AWAITING_COMP_CENTER": None,
         }
         return chain.get(current)
 
@@ -412,7 +423,14 @@ class InventoryRetirementService:
         if req.status != "PENDING":
             raise ValueError(f"Solo se puede enviar al flujo de aprobación una solicitud en estado PENDING (actual: {req.status})")
 
-        pos = InventoryRetirementService._get_position_for_status("AWAITING_RECURSOS_MATERIALES")
+        # Si la solicitud tiene documento adjunto (sin oficio), salta directo al jefe CC.
+        # Si tiene oficio generado, va al inicio de la cadena de firmas.
+        if req.oficio_data is None and bool(req.document_path):
+            target_status = "AWAITING_COMP_CENTER"
+        else:
+            target_status = "AWAITING_RECURSOS_MATERIALES"
+
+        pos = InventoryRetirementService._get_position_for_status(target_status)
 
         sig = InventoryRetirementSignature(
             request_id=req.id,
@@ -422,12 +440,12 @@ class InventoryRetirementService:
         )
         db.add(sig)
 
-        req.status = "AWAITING_RECURSOS_MATERIALES"
+        req.status = target_status
         req.updated_at = datetime.now()
         db.commit()
         db.refresh(req)
 
-        # Notificar al firmante del step 1
+        # Notificar al firmante del paso correspondiente
         try:
             signers = _get_users_with_position(db, [pos["code"]])
             for u in signers:
@@ -437,13 +455,15 @@ class InventoryRetirementService:
                     app_name="helpdesk",
                     type="RETIREMENT_SIGN_REQUESTED",
                     title=f"Solicitud de baja {req.folio} requiere tu firma",
-                    body=f"La solicitud de baja de equipos {req.folio} está en espera de tu aprobación",
+                    body=f"La solicitud de baja de equipos {req.folio} está en espera de tu aprobación ({pos['title']})",
                     data={
-                        "url": f"/help-desk/inventory/retirement/{req.id}",
+                        "url": f"/help-desk/inventory/retirement-requests/{req.id}",
                         "request_id": req.id,
                     },
                 )
+            db.commit()
         except Exception as e:
+            db.rollback()
             logger.error(f"submit_for_approval: error enviando notificaciones para {req.folio}: {e}")
 
         return req
@@ -517,11 +537,13 @@ class InventoryRetirementService:
                     title=f"Solicitud de baja {req.folio} rechazada",
                     body=f"Tu solicitud fue rechazada por {pos['title']}. {notes or ''}".strip(),
                     data={
-                        "url": f"/help-desk/inventory/retirement/{req.id}",
+                        "url": f"/help-desk/inventory/retirement-requests/{req.id}",
                         "request_id": req.id,
                     },
                 )
+                db.commit()
             except Exception as e:
+                db.rollback()
                 logger.error(f"sign_request: error notificando rechazo para {req.folio}: {e}")
 
             return req
@@ -554,11 +576,13 @@ class InventoryRetirementService:
                     title=f"Solicitud de baja {req.folio} aprobada",
                     body="Tu solicitud de baja ha sido aprobada por todas las instancias. Los equipos han sido dados de baja.",
                     data={
-                        "url": f"/help-desk/inventory/retirement/{req.id}",
+                        "url": f"/help-desk/inventory/retirement-requests/{req.id}",
                         "request_id": req.id,
                     },
                 )
+                db.commit()
             except Exception as e:
+                db.rollback()
                 logger.error(f"sign_request: error notificando aprobación final para {req.folio}: {e}")
 
         else:
@@ -588,13 +612,15 @@ class InventoryRetirementService:
                         app_name="helpdesk",
                         type="RETIREMENT_SIGN_REQUESTED",
                         title=f"Solicitud de baja {req.folio} requiere tu firma",
-                        body=f"La solicitud de baja de equipos {req.folio} está en espera de tu aprobación",
+                        body=f"La solicitud de baja de equipos {req.folio} está en espera de tu aprobación ({next_pos['title']})",
                         data={
-                            "url": f"/help-desk/inventory/retirement/{req.id}",
+                            "url": f"/help-desk/inventory/retirement-requests/{req.id}",
                             "request_id": req.id,
                         },
                     )
+                db.commit()
             except Exception as e:
+                db.rollback()
                 logger.error(f"sign_request: error notificando siguiente firmante para {req.folio}: {e}")
 
         return req
@@ -641,12 +667,20 @@ class InventoryRetirementService:
         if not req:
             raise ValueError("Solicitud no encontrada")
 
-        # Definición completa de los 3 pasos
-        all_steps = [
-            InventoryRetirementService._get_position_for_status("AWAITING_RECURSOS_MATERIALES"),
-            InventoryRetirementService._get_position_for_status("AWAITING_SUBDIRECTOR"),
-            InventoryRetirementService._get_position_for_status("AWAITING_DIRECTOR"),
-        ]
+        # El flujo depende de si la solicitud tiene oficio generado u documento adjunto.
+        # Documento adjunto → solo step 4 (jefe CC). Oficio → 4 pasos completos.
+        is_document_flow = (req.oficio_data is None) and bool(req.document_path)
+        if is_document_flow:
+            all_steps = [
+                InventoryRetirementService._get_position_for_status("AWAITING_COMP_CENTER"),
+            ]
+        else:
+            all_steps = [
+                InventoryRetirementService._get_position_for_status("AWAITING_RECURSOS_MATERIALES"),
+                InventoryRetirementService._get_position_for_status("AWAITING_SUBDIRECTOR"),
+                InventoryRetirementService._get_position_for_status("AWAITING_DIRECTOR"),
+                InventoryRetirementService._get_position_for_status("AWAITING_COMP_CENTER"),
+            ]
 
         # Firmas registradas en BD
         sigs_in_db = (

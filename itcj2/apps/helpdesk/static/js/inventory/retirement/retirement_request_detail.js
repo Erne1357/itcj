@@ -8,6 +8,7 @@
         'AWAITING_RECURSOS_MATERIALES',
         'AWAITING_SUBDIRECTOR',
         'AWAITING_DIRECTOR',
+        'AWAITING_COMP_CENTER',
     ];
 
     const STATUS_LABELS = {
@@ -16,6 +17,7 @@
         AWAITING_RECURSOS_MATERIALES:   { label: 'Esperando Firma (Rec. Mat.)',         cls: 'bg-warning text-dark' },
         AWAITING_SUBDIRECTOR:           { label: 'Esperando Firma (Subdirector)',        cls: 'bg-warning text-dark' },
         AWAITING_DIRECTOR:              { label: 'Esperando Firma (Director)',           cls: 'bg-warning text-dark' },
+        AWAITING_COMP_CENTER:           { label: 'Esperando Autorización (Jefe CC)',     cls: 'bg-warning text-dark' },
         APPROVED:                       { label: 'Aprobada',                            cls: 'bg-success text-white' },
         REJECTED:                       { label: 'Rechazada',                           cls: 'bg-danger text-white' },
         CANCELLED:                      { label: 'Cancelada',                           cls: 'bg-secondary text-white' },
@@ -26,6 +28,7 @@
         1: 'helpdesk.retirement.sign.recursos_materiales',
         2: 'helpdesk.retirement.sign.subdirector',
         3: 'helpdesk.retirement.sign.director',
+        4: 'helpdesk.retirement.sign.comp_center',
     };
 
     let requestData = null;
@@ -64,6 +67,7 @@
         btnAttachDoc:       document.getElementById('btn-attach-doc'),
         docFileInput:       document.getElementById('doc-file-input'),
         btnUploadDoc:       document.getElementById('btn-upload-doc'),
+        btnDownloadDoc:     document.getElementById('btn-download-doc'),
         confirmModal:       document.getElementById('confirm-modal'),
         confirmTitle:       document.getElementById('confirm-modal-title'),
         confirmBody:        document.getElementById('confirm-modal-body'),
@@ -141,6 +145,9 @@
         // Documento adjunto
         if (r.document_original_name) {
             el.docName.textContent = r.document_original_name;
+            if (el.btnDownloadDoc) el.btnDownloadDoc.style.display = '';
+        } else if (el.btnDownloadDoc) {
+            el.btnDownloadDoc.style.display = 'none';
         }
 
         // Acciones según status
@@ -231,18 +238,26 @@
         // Vincular eventos
         const btnSubmit = document.getElementById('btn-submit');
         if (btnSubmit) {
+            const hasDoc = requestData && requestData.document_original_name && !requestData.oficio_data;
+            const submitMsg = hasDoc
+                ? '¿Enviar esta solicitud al Jefe del Centro de Cómputo para su autorización? (Documento adjunto detectado, se omiten las firmas intermedias.)'
+                : '¿Iniciar el flujo de firmas? Se enviará primero a Recursos Materiales, luego Subdirector, Director y finalmente Jefe del Centro de Cómputo.';
             btnSubmit.addEventListener('click', () => confirmAction(
-                'Enviar a revisión',
-                '¿Enviar esta solicitud al administrador para su revisión?',
+                'Enviar solicitud',
+                submitMsg,
                 () => doAction('submit')
             ));
         }
 
         const btnSubmitForApproval = document.getElementById('btn-submit-for-approval');
         if (btnSubmitForApproval) {
+            const hasDoc = requestData && requestData.document_original_name && !requestData.oficio_data;
+            const msg = hasDoc
+                ? '¿Enviar al Jefe del Centro de Cómputo para autorización? (Documento adjunto: se omiten firmas intermedias.)'
+                : '¿Iniciar el flujo de firmas? La solicitud pasará por Recursos Materiales, Subdirector, Director y finalmente Jefe del Centro de Cómputo.';
             btnSubmitForApproval.addEventListener('click', () => confirmAction(
                 'Enviar a firma',
-                '¿Iniciar el flujo de firmas? La solicitud será enviada a Recursos Materiales para su autorización.',
+                msg,
                 () => doAction('submit-for-approval')
             ));
         }
@@ -267,13 +282,15 @@
     }
 
     function renderStatusTimeline(r) {
-        const order = ['DRAFT', 'PENDING', 'AWAITING_RECURSOS_MATERIALES', 'AWAITING_SUBDIRECTOR', 'AWAITING_DIRECTOR', 'APPROVED', 'REJECTED', 'CANCELLED'];
+        const order = ['DRAFT', 'PENDING', 'AWAITING_RECURSOS_MATERIALES', 'AWAITING_SUBDIRECTOR', 'AWAITING_DIRECTOR', 'AWAITING_COMP_CENTER', 'APPROVED', 'REJECTED', 'CANCELLED'];
+        const isDocFlow = !!r.document_original_name && !r.oficio_data;
         const steps = [
             { status: 'DRAFT',                        label: 'Borrador creado',                       icon: 'fa-file-alt',      color: '#6c757d' },
             { status: 'PENDING',                      label: 'Enviada a revisión',                    icon: 'fa-paper-plane',   color: '#ffc107' },
             { status: 'AWAITING_RECURSOS_MATERIALES', label: 'En firma — Rec. Materiales',            icon: 'fa-pen-nib',       color: '#fd7e14' },
             { status: 'AWAITING_SUBDIRECTOR',         label: 'En firma — Subdirector',                icon: 'fa-pen-nib',       color: '#fd7e14' },
             { status: 'AWAITING_DIRECTOR',            label: 'En firma — Director',                   icon: 'fa-pen-nib',       color: '#fd7e14' },
+            { status: 'AWAITING_COMP_CENTER',         label: 'Autorización — Jefe CC',                icon: 'fa-pen-nib',       color: '#fd7e14' },
             { status: 'APPROVED',                     label: 'Aprobada',                              icon: 'fa-check-circle',  color: '#28a745' },
             { status: 'REJECTED',                     label: 'Rechazada',                             icon: 'fa-times-circle',  color: '#dc3545' },
             { status: 'CANCELLED',                    label: 'Cancelada',                             icon: 'fa-ban',           color: '#6c757d' },
@@ -285,11 +302,15 @@
         if (r.status === 'CANCELLED') {
             relevant = steps.filter(s => s.status === 'DRAFT' || s.status === 'CANCELLED');
         } else if (r.status === 'REJECTED') {
-            // Mostrar hasta el paso donde fue rechazado
             const rejIdx = order.indexOf('REJECTED');
             relevant = steps.filter(s => order.indexOf(s.status) <= rejIdx && s.status !== 'CANCELLED');
         } else {
             relevant = steps.filter(s => !['REJECTED', 'CANCELLED'].includes(s.status));
+        }
+
+        if (isDocFlow) {
+            const skip = new Set(['PENDING', 'AWAITING_RECURSOS_MATERIALES', 'AWAITING_SUBDIRECTOR', 'AWAITING_DIRECTOR']);
+            relevant = relevant.filter(s => !skip.has(s.status));
         }
 
         el.statusTimeline.innerHTML = relevant.map(s => {
@@ -573,6 +594,15 @@
             '¿Rechazar esta solicitud?',
             () => doAction('reject', { notes: el.reviewNotes ? el.reviewNotes.value || null : null })
         ));
+    }
+
+    // Descarga forzada de documento adjunto.
+    // Anchor con `download` + Content-Disposition: attachment.
+    // Evita preview inline (ad-blockers/extensions lo bloquean con ERR_BLOCKED_BY_CLIENT).
+    if (el.btnDownloadDoc) {
+        el.btnDownloadDoc.href = `${API_BASE}/retirement-requests/${REQUEST_ID}/document`;
+        el.btnDownloadDoc.setAttribute('download', '');
+        el.btnDownloadDoc.removeAttribute('target');
     }
 
     // Subir documento

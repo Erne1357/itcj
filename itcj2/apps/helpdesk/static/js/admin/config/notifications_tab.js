@@ -218,7 +218,7 @@
         }
 
         try {
-            const res = await fetch(API_BASE + '/?include_inactive=true');
+            const res = await fetch(API_BASE + '?include_inactive=true');
             if (!res.ok) {
                 const msg = await apiErrorMsg(res, 'Error al cargar plantillas');
                 HelpdeskUtils.showToast(msg, 'error');

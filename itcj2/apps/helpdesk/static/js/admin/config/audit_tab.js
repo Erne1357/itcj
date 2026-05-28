@@ -411,7 +411,7 @@
         const params = buildQueryParams(page);
 
         try {
-            const res = await fetch(API_BASE + '/?' + params.toString());
+            const res = await fetch(API_BASE + '?' + params.toString());
             if (!res.ok) {
                 const msg = await apiErrorMsg(res, 'Error al cargar el log de auditoría');
                 HelpdeskUtils.showToast(msg, 'error');

@@ -60,28 +60,21 @@
                                 <label class="required-field">Categoría</label>
                                 <select class="form-control" id="category-id" name="category_id" required>
                                     <option value="">Seleccionar categoría...</option>
-                                    <!-- Se llenará con JavaScript -->
                                 </select>
-                                <small class="form-text text-muted">
-                                    Tipo de equipo a registrar
-                                </small>
                             </div>
                         </div>
 
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label>Número de Inventario</label>
-                                <input 
-                                    type="text" 
-                                    class="form-control" 
-                                    id="inventory-number" 
-                                    name="inventory_number" 
-                                    placeholder="Se generará automáticamente"
+                                <label>Número de Inventario <small class="text-muted">(auto)</small></label>
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    id="inventory-number"
+                                    name="inventory_number"
+                                    placeholder="Se genera al guardar"
                                     readonly
                                 >
-                                <small class="form-text text-muted">
-                                    Se asignará automáticamente al guardar
-                                </small>
                             </div>
                         </div>
                     </div>
@@ -130,45 +123,36 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Serial del Proveedor / Fabricante</label>
+                        <label>Serial del Fabricante <small class="text-muted">(opcional · único)</small></label>
                         <input
                             type="text"
                             class="form-control"
                             id="supplier-serial"
                             name="supplier_serial"
-                            placeholder="Número de serie grabado en el equipo o caja"
+                            placeholder="Serie grabada en el equipo"
                         >
-                        <small class="form-text text-muted">
-                            <i class="fas fa-info-circle"></i> Debe ser único en el sistema. Opcional.
-                        </small>
                     </div>
 
                     <div class="form-group">
-                        <label>Serial ITCJ / No. de Activo</label>
+                        <label>Serial ITCJ / No. de Activo <small class="text-muted">(opcional · único)</small></label>
                         <input
                             type="text"
                             class="form-control"
                             id="itcj-serial"
                             name="itcj_serial"
-                            placeholder="Número de activo asignado por Compras ITCJ"
+                            placeholder="Número de activo asignado por Compras"
                         >
-                        <small class="form-text text-muted">
-                            <i class="fas fa-info-circle"></i> Asignado internamente por el Depto. de Compras. Debe ser único. Opcional.
-                        </small>
                     </div>
 
                     <div class="form-group">
-                        <label>ID TecNM</label>
+                        <label>ID TecNM <small class="text-muted">(opcional · único)</small></label>
                         <input
                             type="text"
                             class="form-control"
                             id="id-tecnm"
                             name="id_tecnm"
-                            placeholder="Identificador en el sistema nacional TecNM"
+                            placeholder="Identificador en el sistema TecNM"
                         >
-                        <small class="form-text text-muted">
-                            <i class="fas fa-info-circle"></i> ID con el que el equipo aparece en el TecNM. Debe ser único. Opcional.
-                        </small>
                     </div>
                 </div>
 
@@ -195,11 +179,8 @@
                         <label>Departamento</label>
                         <select class="form-control" id="department-id" name="department_id">
                             <option value="">Sin asignar (Limbo CC)</option>
-                            <!-- Se llenará con JavaScript -->
                         </select>
-                        <small class="form-text text-muted">
-                            <i class="fas fa-info-circle"></i> Si no seleccionas departamento, el equipo quedará pendiente de asignación en el Centro de Cómputo
-                        </small>
+                        <small class="form-text text-muted">Sin asignar = pendiente en CC.</small>
                     </div>
 
                     <div class="form-group">
@@ -258,39 +239,28 @@
                                 <option value=""></option>
                             </select>
                             <small class="form-text text-muted">
-                                Dejar vacío para que sea global del departamento.
-                                Usa <i class="fas fa-user-plus"></i> para registrar a alguien que aún no tiene cuenta.
-                                Incluye cuentas inactivas creadas para inventario.
+                                Vacío = global del dpto · <i class="fas fa-user-plus"></i> registra a alguien sin cuenta.
                             </small>
                         </div>
                     </div>
 
-                    <!-- Campaña activa del departamento -->
-                    <div id="campaign-section" style="display:none;" class="mb-3">
-                        <div class="alert alert-primary py-2 mb-1 d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="fas fa-folder-open mr-1"></i>
-                                <strong>Campaña activa:</strong>
-                                <span id="campaign-folio" class="ml-1 font-weight-bold"></span>
-                                <small class="d-block text-muted mt-1" id="campaign-title"></small>
-                            </div>
-                            <div class="custom-control custom-checkbox ml-3 flex-shrink-0">
-                                <input type="checkbox" class="custom-control-input" id="assign-to-campaign" checked>
-                                <label class="custom-control-label" for="assign-to-campaign">Asociar</label>
-                            </div>
-                        </div>
-                        <input type="hidden" id="campaign-id">
-                        <small class="form-text text-muted">
-                            <i class="fas fa-info-circle"></i> Hay una campaña de inventario abierta para este departamento. Asociar facilita la validación posterior por el jefe de departamento.
-                        </small>
+                    <!-- Campañas abiertas del departamento -->
+                    <div id="campaign-section" class="mb-3" style="display:none;">
+                        <label for="campaign-id">
+                            <i class="fas fa-folder-open mr-1 text-primary"></i>
+                            Campaña de inventario <small class="text-muted font-weight-normal">(opcional)</small>
+                        </label>
+                        <select id="campaign-id" class="form-control">
+                            <option value="">— Sin campaña —</option>
+                        </select>
                     </div>
 
                     <!-- Predecesor: ¿Reemplaza a un equipo? -->
                     <div class="form-group">
-                        <label><i class="fas fa-history mr-1 text-muted"></i> ¿Reemplaza a un equipo existente? <small class="text-muted font-weight-normal">(Opcional)</small></label>
+                        <label><i class="fas fa-history mr-1 text-muted"></i> ¿Reemplaza a un equipo? <small class="text-muted font-weight-normal">(opcional)</small></label>
                         <div class="input-group">
                             <input type="text" class="form-control" id="predecessor-display"
-                                   placeholder="Ninguno — clic en la lupa para buscar..." readonly
+                                   placeholder="Buscar equipo predecesor..." readonly
                                    style="background:#fff; cursor:pointer;"
                                    onclick="document.getElementById('btn-search-predecessor').click()">
                             <div class="input-group-append">
@@ -305,7 +275,6 @@
                             </div>
                         </div>
                         <input type="hidden" id="predecessor-item-id">
-                        <small class="form-text text-muted">Vincula este equipo como sucesor del anterior en la cadena de versiones del inventario.</small>
                     </div>
                 </div>
 

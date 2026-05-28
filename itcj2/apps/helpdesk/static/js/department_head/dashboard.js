@@ -512,6 +512,7 @@ function renderPendingTasks(data) {
             'AWAITING_RECURSOS_MATERIALES': 'Firma — Rec. Materiales',
             'AWAITING_SUBDIRECTOR':         'Firma — Subdirector',
             'AWAITING_DIRECTOR':            'Firma — Director',
+            'AWAITING_COMP_CENTER':         'Autorización — Jefe CC',
         }[r.status] || r.status;
         rows.push(`
             <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">

@@ -96,6 +96,7 @@ def get_pending_tasks(
             "AWAITING_RECURSOS_MATERIALES": "head_mat_services",
             "AWAITING_SUBDIRECTOR":         "subdirector_admin_services",
             "AWAITING_DIRECTOR":            "director",
+            "AWAITING_COMP_CENTER":         "head_comp_center",
         }
 
         # Determinar en qué statuses tiene competencia el usuario

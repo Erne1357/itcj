@@ -496,6 +496,7 @@ async def retirement_request_detail(
         mat_ids = set(_get_users_with_position(_db, ["head_mat_services"]))
         sub_ids = set(_get_users_with_position(_db, ["subdirector_admin_services"]))
         dir_ids = set(_get_users_with_position(_db, ["director"]))
+        cc_ids  = set(_get_users_with_position(_db, ["head_comp_center"]))
     finally:
         _db.close()
 
@@ -506,6 +507,8 @@ async def retirement_request_detail(
         sign_perms.append("helpdesk.retirement.sign.subdirector")
     if user_id in dir_ids:
         sign_perms.append("helpdesk.retirement.sign.director")
+    if user_id in cc_ids:
+        sign_perms.append("helpdesk.retirement.sign.comp_center")
 
     return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_request_detail.html", {
         "request_id": request_id,

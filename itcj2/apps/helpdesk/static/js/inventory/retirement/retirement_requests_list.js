@@ -2,11 +2,15 @@
 (function () {
 
     const STATUS_LABELS = {
-        DRAFT:     { label: 'Borrador',  cls: 'bg-secondary text-white' },
-        PENDING:   { label: 'Pendiente', cls: 'bg-warning text-dark' },
-        APPROVED:  { label: 'Aprobada',  cls: 'bg-success text-white' },
-        REJECTED:  { label: 'Rechazada', cls: 'bg-danger text-white' },
-        CANCELLED: { label: 'Cancelada', cls: 'bg-secondary text-white' },
+        DRAFT:                        { label: 'Borrador',           cls: 'bg-secondary text-white' },
+        PENDING:                      { label: 'Pendiente de envío', cls: 'bg-warning text-dark' },
+        AWAITING_RECURSOS_MATERIALES: { label: 'Firma — Rec. Mat.',  cls: 'bg-warning text-dark' },
+        AWAITING_SUBDIRECTOR:         { label: 'Firma — Subdir.',    cls: 'bg-info text-dark' },
+        AWAITING_DIRECTOR:            { label: 'Firma — Director',   cls: 'bg-primary text-white' },
+        AWAITING_COMP_CENTER:         { label: 'Autoriz. — Jefe CC', cls: 'bg-dark text-white' },
+        APPROVED:                     { label: 'Aprobada',           cls: 'bg-success text-white' },
+        REJECTED:                     { label: 'Rechazada',          cls: 'bg-danger text-white' },
+        CANCELLED:                    { label: 'Cancelada',          cls: 'bg-secondary text-white' },
     };
 
     let currentPage = 1;

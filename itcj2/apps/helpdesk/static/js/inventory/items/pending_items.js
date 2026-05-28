@@ -40,7 +40,11 @@ async function loadPendingItems() {
     try {
         const params = new URLSearchParams(currentFilters);
 
-        const response = await fetch(`/api/help-desk/v2/inventory/pending/?${params}`, {
+        const qs = params.toString();
+        const url = qs
+            ? `/api/help-desk/v2/inventory/pending?${qs}`
+            : '/api/help-desk/v2/inventory/pending';
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${localStorage.getItem('access_token')}`
             }

@@ -690,35 +690,54 @@ function handleDepartmentChange(e) {
     clearPredecessor();
 }
 
-// ==================== CAMPAÑA ACTIVA ====================
+// ==================== CAMPAÑAS DEL DEPARTAMENTO ====================
 async function loadActiveCampaign(deptId) {
     const section = document.getElementById('campaign-section');
+    const select  = document.getElementById('campaign-id');
+    if (!section || !select) return;
+
+    select.innerHTML = '<option value="">— Sin campaña —</option>';
+    currentCampaignId = null;
+
     if (!deptId) {
         section.style.display = 'none';
-        currentCampaignId = null;
-        document.getElementById('campaign-id').value = '';
         return;
     }
+
     try {
         const res = await fetch(
-            `/api/help-desk/v2/inventory/campaigns?department_id=${deptId}&status=OPEN&per_page=1`,
+            `/api/help-desk/v2/inventory/campaigns?department_id=${deptId}&status=OPEN&per_page=100`,
             { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }
         );
         if (!res.ok) { section.style.display = 'none'; return; }
         const data = await res.json();
-        const campaigns = data.data || [];
-        if (campaigns.length > 0) {
-            const c = campaigns[0];
-            currentCampaignId = c.id;
-            document.getElementById('campaign-id').value = c.id;
-            document.getElementById('campaign-folio').textContent = c.folio;
-            document.getElementById('campaign-title').textContent = c.title || '';
-            section.style.display = 'block';
-        } else {
+        const campaigns = data.campaigns || data.data || [];
+
+        if (!campaigns.length) {
             section.style.display = 'none';
-            currentCampaignId = null;
-            document.getElementById('campaign-id').value = '';
+            return;
         }
+
+        campaigns.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            const label = c.title ? `${c.folio} — ${c.title}` : c.folio;
+            opt.textContent = label;
+            select.appendChild(opt);
+        });
+
+        // Si hay exactamente una campaña, preseleccionarla
+        if (campaigns.length === 1) {
+            select.value = String(campaigns[0].id);
+            currentCampaignId = campaigns[0].id;
+        }
+
+        section.style.display = 'block';
+
+        select.onchange = () => {
+            const v = select.value;
+            currentCampaignId = v ? parseInt(v) : null;
+        };
     } catch (_) {
         section.style.display = 'none';
     }
@@ -1050,10 +1069,10 @@ function collectFormData() {
         }
     }
 
-    // Campaña activa (si el usuario eligió asociar)
-    const campaignId = document.getElementById('campaign-id').value;
-    const campaignCheck = document.getElementById('assign-to-campaign');
-    if (campaignId && campaignCheck && campaignCheck.checked) {
+    // Campaña seleccionada (dropdown manual)
+    const campaignSelect = document.getElementById('campaign-id');
+    const campaignId = campaignSelect ? campaignSelect.value : '';
+    if (campaignId) {
         formData.campaign_id = parseInt(campaignId);
     }
 
