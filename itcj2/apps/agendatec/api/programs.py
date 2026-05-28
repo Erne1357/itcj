@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.dependencies import DbSession, CurrentUser
 from itcj2.core.models.coordinator import Coordinator
 from itcj2.core.models.program import Program
@@ -28,6 +29,7 @@ def list_programs(
     offset: int = Query(0, ge=0),
 ):
     """Lista programas académicos con paginación y búsqueda opcional."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     query = db.query(Program)
     if q and q.strip():
         query = query.filter(Program.name.ilike(f"%{q.strip()}%"))
@@ -52,6 +54,7 @@ def program_coordinator(
     db: DbSession = None,
 ):
     """Obtiene los coordinadores asignados a un programa."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     rows = (
         db.query(Coordinator, User)
         .join(ProgramCoordinator, ProgramCoordinator.coordinator_id == Coordinator.id)

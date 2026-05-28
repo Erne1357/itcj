@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
-from itcj2.apps.agendatec.helpers import get_app_tz, parse_date_str, parse_datetime_str
+from itcj2.apps.agendatec.helpers import get_app_tz, parse_date_str, parse_datetime_str, TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.apps.agendatec.schemas.periods import CreatePeriodBody, UpdatePeriodBody, SetEnabledDaysBody
 from itcj2.dependencies import DbSession, require_perms, require_app, CurrentUser
 
@@ -34,6 +34,7 @@ def list_periods(
     db: DbSession = None,
 ):
     """Lista todos los períodos académicos con su configuración de AgendaTec."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     query = db.query(AcademicPeriod).options(joinedload(AcademicPeriod.agendatec_config))
 
     if status:
@@ -73,6 +74,7 @@ def create_period(
     db: DbSession = None,
 ):
     """Crea un nuevo período académico con su configuración de AgendaTec."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     start_date = parse_date_str(body.start_date)
     end_date = parse_date_str(body.end_date)
     admission_start = parse_datetime_str(body.student_admission_start)
@@ -141,6 +143,7 @@ def get_active_period(
     Obtiene el período activo con días habilitados y configuración.
     Requiere autenticación con acceso a agendatec.
     """
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     period = period_service.get_active_period(db)
     if not period:
         raise HTTPException(status_code=404, detail="no_active_period")
@@ -171,6 +174,7 @@ def get_period(
     db: DbSession = None,
 ):
     """Obtiene un período específico por ID con su configuración."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     period = (
         db.query(AcademicPeriod)
         .options(joinedload(AcademicPeriod.agendatec_config))
@@ -195,6 +199,7 @@ def update_period(
     db: DbSession = None,
 ):
     """Actualiza un período académico y su configuración de AgendaTec."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     period = db.query(AcademicPeriod).filter_by(id=period_id).first()
     if not period:
         raise HTTPException(status_code=404, detail="period_not_found")
@@ -289,6 +294,7 @@ def activate_period(
     db: DbSession = None,
 ):
     """Activa un período y desactiva todos los demás."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     uid = int(user["sub"])
     try:
         period = period_service.activate_period(db, period_id, uid)
@@ -306,6 +312,7 @@ def delete_period(
     db: DbSession = None,
 ):
     """Elimina un período. Solo si no tiene solicitudes vinculadas."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     period = db.query(AcademicPeriod).filter_by(id=period_id).first()
     if not period:
         raise HTTPException(status_code=404, detail="period_not_found")
@@ -334,6 +341,7 @@ def get_enabled_days(
     db: DbSession = None,
 ):
     """Obtiene los días habilitados de un período."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     period = db.query(AcademicPeriod).filter_by(id=period_id).first()
     if not period:
         raise HTTPException(status_code=404, detail="period_not_found")
@@ -357,6 +365,7 @@ def set_enabled_days(
     db: DbSession = None,
 ):
     """Configura los días habilitados para un período (reemplaza los existentes)."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     period = db.query(AcademicPeriod).filter_by(id=period_id).first()
     if not period:
         raise HTTPException(status_code=404, detail="period_not_found")
@@ -407,6 +416,7 @@ def delete_enabled_day(
     db: DbSession = None,
 ):
     """Elimina un día habilitado específico."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     enabled_day = db.query(PeriodEnabledDay).filter_by(id=day_id, period_id=period_id).first()
     if not enabled_day:
         raise HTTPException(status_code=404, detail="enabled_day_not_found")
@@ -424,6 +434,7 @@ def get_period_stats(
     db: DbSession = None,
 ):
     """Obtiene estadísticas de un período académico."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     from itcj2.apps.agendatec.models.request import Request
 
     period = db.query(AcademicPeriod).filter_by(id=period_id).first()

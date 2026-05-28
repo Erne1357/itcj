@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.dependencies import DbSession, require_perms
 from itcj2.apps.agendatec.models.appointment import Appointment
 from itcj2.apps.agendatec.models.request import Request
@@ -33,6 +34,7 @@ def social_appointments(
     Solo expone: Horario y Nombre del alumno.
     Excluye citas y solicitudes canceladas.
     """
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     try:
         d = datetime.strptime(day.strip(), "%Y-%m-%d").date()
     except Exception:

@@ -10,7 +10,8 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from itcj2.dependencies import require_page_login
+from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
+from itcj2.dependencies import DbSession, require_page_login
 
 logger = logging.getLogger("itcj2.apps.agendatec.pages.landing")
 
@@ -28,8 +29,10 @@ _ROLE_HOME: dict[str, str] = {
 async def home(
     request: Request,
     user: dict = Depends(require_page_login),
+    db: DbSession = None,
 ):
     """Redirige al dashboard de AgendaTec según el rol del usuario."""
+    TEMP_TEST_GATE_check_student(user, db, is_page=True)  # TEMP_TEST_GATE
     from itcj2.apps.agendatec.utils.utils import get_role_agenda
 
     user_id = int(user["sub"])

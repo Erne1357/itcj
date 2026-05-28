@@ -12,6 +12,7 @@ import redis as _redis
 from itcj2.apps.agendatec.schemas.slots import HoldSlotBody, ReleaseSlotBody
 from itcj2.dependencies import DbSession, require_perms, require_roles, CurrentUser
 
+from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.apps.agendatec.config.constants import (
     ENFORCE_SINGLE_HOLD_PER_USER,
     REDIS_SLOT_HOLD_PREFIX,
@@ -42,6 +43,7 @@ def hold_slot(
     db: DbSession = None,
 ):
     """Crea un hold temporal (TTL) sobre un slot libre."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     rds = get_redis()
     ttl = get_hold_ttl()
     uid = int(user["sub"])
@@ -144,6 +146,7 @@ def release_slot(
     db: DbSession = None,
 ):
     """Libera el hold del usuario sobre un slot."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     rds = get_redis()
     uid = int(user["sub"])
     slot_id = body.slot_id
@@ -183,6 +186,7 @@ def slot_status(
     db: DbSession = None,
 ):
     """Consulta el estado puntual de un slot (FREE, HOLD, BOOKED)."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     rds = get_redis()
     slot = db.query(TimeSlot).get(slot_id)
     if not slot:
@@ -216,6 +220,7 @@ def list_holds(
     db: DbSession = None,
 ):
     """Lista holds activos (para coordinadores/debug)."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     rds = get_redis()
     cursor = 0
     keys = []

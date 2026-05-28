@@ -17,6 +17,58 @@ from sqlalchemy.orm import Session
 from itcj2.core.models.coordinator import Coordinator
 from itcj2.core.models.program_coordinator import ProgramCoordinator
 from itcj2.core.models.user import User
+from itcj2.exceptions import PageForbidden
+
+
+# ============================================================
+# TEMP_TEST_GATE — REMOVE AFTER TESTING (período exclusivo jefa)
+# Solo permite al estudiante con control_number = "22111360".
+# Coord / admin / social_service NO se ven afectados (sus endpoints
+# usan otro role).
+# Grep: TEMP_TEST_GATE  → borrar este bloque + sus llamadas.
+# ============================================================
+TEMP_TEST_GATE_CONTROL_NUMBER = "22111360"
+
+
+def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = False) -> None:
+    """Bloquea estudiantes excepto el de pruebas. Coord/admin/social pasan."""
+    if (user or {}).get("role") == "admin":
+        return
+    try:
+        uid = int(user["sub"])
+    except Exception:
+        uid = None
+    if not uid:
+        return  # sin auth — flujo normal decide
+    from itcj2.core.services.authz_service import user_roles_in_app
+    roles = set(user_roles_in_app(db, uid, "agendatec"))
+    if "student" not in roles:
+        return  # no es estudiante — pasa
+    u = db.query(User).get(uid)
+    if u and u.control_number == TEMP_TEST_GATE_CONTROL_NUMBER:
+        return
+    if is_page:
+        raise PageForbidden(has_app_access=False)
+    raise HTTPException(status_code=403, detail="test_gate_blocked")
+
+
+def TEMP_TEST_GATE_check_student_sync(user: dict) -> bool:
+    """Versión sync para Socket.IO connect. True = permitir, False = bloquear."""
+    if (user or {}).get("role") == "admin":
+        return True
+    try:
+        uid = int(user["sub"])
+    except Exception:
+        return True  # sin uid claro — deja pasar
+    from itcj2.database import SessionLocal
+    with SessionLocal() as db:
+        from itcj2.core.services.authz_service import user_roles_in_app
+        roles = set(user_roles_in_app(db, uid, "agendatec"))
+        if "student" not in roles:
+            return True
+        u = db.query(User).get(uid)
+        return bool(u and u.control_number == TEMP_TEST_GATE_CONTROL_NUMBER)
+# ============================================================
 
 
 # ---------------------------------------------------------------------------

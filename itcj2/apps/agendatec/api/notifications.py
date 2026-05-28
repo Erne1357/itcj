@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.dependencies import DbSession, CurrentUser
 from itcj2.core.models.notification import Notification
 
@@ -29,6 +30,7 @@ def list_notifications(
     before_id: Optional[int] = Query(None),
 ):
     """Lista notificaciones del usuario autenticado."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     uid = int(user["sub"])
 
     q = db.query(Notification).filter(Notification.user_id == uid)
@@ -50,6 +52,7 @@ def mark_read(
     db: DbSession = None,
 ):
     """Marca una notificación como leída."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     uid = int(user["sub"])
     n = db.query(Notification).filter_by(id=notif_id, user_id=uid).first()
     if not n:
@@ -70,6 +73,7 @@ def mark_all_read(
     db: DbSession = None,
 ):
     """Marca todas las notificaciones del usuario como leídas."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     uid = int(user["sub"])
     db.query(Notification).filter_by(user_id=uid, is_read=False).update(
         {"is_read": True, "read_at": datetime.now()},

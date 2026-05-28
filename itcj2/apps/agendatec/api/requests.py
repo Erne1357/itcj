@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from itcj2.apps.agendatec.helpers import require_admission_open
+from itcj2.apps.agendatec.helpers import require_admission_open, TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.apps.agendatec.schemas.requests import CreateRequestBody
 from itcj2.dependencies import DbSession, require_roles, CurrentUser
 
@@ -38,6 +38,7 @@ def my_requests(
         JSON con active_period, active (solicitud activa),
         history (historial) y periods (períodos referenciados).
     """
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     student = _get_student(user, db)
     service = get_request_service()
     return service.get_student_requests(db, student)
@@ -55,6 +56,7 @@ def create_request(
     Crea una nueva solicitud (DROP o APPOINTMENT).
     Valida que la ventana de admisión esté abierta (@api_closed).
     """
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     require_admission_open()
 
     student = _get_student(user, db)
@@ -104,6 +106,7 @@ def cancel_request(
     Cancela una solicitud del estudiante.
     Valida que la ventana de admisión esté abierta (@api_closed).
     """
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     require_admission_open()
 
     student = _get_student(user, db)

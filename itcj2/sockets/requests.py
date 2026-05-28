@@ -91,6 +91,11 @@ def register_request_namespace(sio_server):
         user = current_user_from_environ(environ)
         if not user:
             return False
+        # TEMP_TEST_GATE — lazy import evita circular
+        from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student_sync
+        allowed = await asyncio.to_thread(TEMP_TEST_GATE_check_student_sync, user)
+        if not allowed:
+            return False
         await sio_server.save_session(sid, {"user": user}, namespace=NAMESPACE)
         await sio_server.emit("hello", {"msg": "WS /requests conectado"}, to=sid, namespace=NAMESPACE)
 

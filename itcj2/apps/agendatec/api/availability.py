@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.apps.agendatec.schemas.availability import CreateWindowBody, GenerateSlotsBody
 from itcj2.dependencies import DbSession, require_perms, require_roles
-from itcj2.apps.agendatec.helpers import parse_date_str
+from itcj2.apps.agendatec.helpers import parse_date_str, TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 
 from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
@@ -70,6 +70,7 @@ def list_slots_for_program_day(
     db: DbSession = None,
 ):
     """Lista slots libres para un programa en un día específico."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     if day:
         d = parse_date_str(day)
         if not d:
@@ -140,6 +141,7 @@ def create_availability_window(
     db: DbSession = None,
 ):
     """Crea una ventana de disponibilidad para un coordinador."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     d = parse_date_str(body.day)
     if not d:
         raise HTTPException(status_code=400, detail="invalid_day_format")
@@ -182,6 +184,7 @@ def generate_slots(
     db: DbSession = None,
 ):
     """Genera time_slots a partir de availability_windows para uno o más días."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     days_input = body.days or ([body.day] if body.day else None)
     if not days_input:
         raise HTTPException(status_code=400, detail="invalid_payload_days")
@@ -254,6 +257,7 @@ def list_my_windows(
     db: DbSession = None,
 ):
     """Lista ventanas de disponibilidad del coordinador para un día."""
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     if day:
         d = parse_date_str(day)
         if not d:

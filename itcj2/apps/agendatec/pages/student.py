@@ -16,6 +16,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
+from itcj2.apps.agendatec.helpers import TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 from itcj2.apps.agendatec.pages.nav import render_agendatec
 from itcj2.dependencies import require_page_roles, DbSession
 
@@ -38,6 +39,7 @@ async def student_home(
     db: DbSession = None,
 ):
     """Home del estudiante — redirige a /close si la ventana está cerrada."""
+    TEMP_TEST_GATE_check_student(user, db, is_page=True)  # TEMP_TEST_GATE
     if not _is_window_open():
         return RedirectResponse("/agendatec/student/close", status_code=302)
 
@@ -56,8 +58,10 @@ async def student_home(
 async def student_requests(
     request: Request,
     user: dict = Depends(_require_student),
+    db: DbSession = None,
 ):
     """Lista de solicitudes del estudiante (accesible con ventana abierta o cerrada)."""
+    TEMP_TEST_GATE_check_student(user, db, is_page=True)  # TEMP_TEST_GATE
     return render_agendatec(request, "agendatec/student/requests.html", {
         "title": "Alumno - Mis solicitudes",
     })
@@ -67,8 +71,10 @@ async def student_requests(
 async def student_new_request(
     request: Request,
     user: dict = Depends(_require_student),
+    db: DbSession = None,
 ):
     """Formulario de nueva solicitud — redirige a /close si la ventana está cerrada."""
+    TEMP_TEST_GATE_check_student(user, db, is_page=True)  # TEMP_TEST_GATE
     if not _is_window_open():
         return RedirectResponse("/agendatec/student/close", status_code=302)
 
@@ -81,8 +87,10 @@ async def student_new_request(
 async def student_close(
     request: Request,
     user: dict = Depends(_require_student),
+    db: DbSession = None,
 ):
     """Página de ventana cerrada — redirige a /home si la ventana ya está abierta."""
+    TEMP_TEST_GATE_check_student(user, db, is_page=True)  # TEMP_TEST_GATE
     if _is_window_open():
         return RedirectResponse("/agendatec/student/home", status_code=302)
 
