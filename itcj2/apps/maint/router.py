@@ -14,6 +14,8 @@ from itcj2.apps.maint.api.reports import router as reports_router
 from itcj2.apps.maint.api.stats import router as stats_router
 from itcj2.apps.maint.api.analysis import router as analysis_router
 from itcj2.apps.maint.api.config import config_router
+from itcj2.apps.maint.api.users import router as users_router
+from itcj2.apps.maint.api.coordinators import router as coordinators_router
 
 maint_router = APIRouter(prefix="/api/maint/v2", tags=["maint"])
 
@@ -30,3 +32,5 @@ maint_router.include_router(reports_router, prefix="/reports")
 maint_router.include_router(stats_router, prefix="/stats")
 maint_router.include_router(analysis_router, prefix="/analysis")
 maint_router.include_router(config_router, prefix="/config")
+maint_router.include_router(users_router, prefix="/users")
+maint_router.include_router(coordinators_router, prefix="/coordinators")

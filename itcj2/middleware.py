@@ -72,11 +72,29 @@ class JWTMiddleware(BaseHTTPMiddleware):
             from itcj2.core.services.authz_service import user_roles_in_app
             from itcj2.database import SessionLocal
 
+            _refresh_roles: list[str] = []
             _db = SessionLocal()
             try:
                 _refresh_roles = list(user_roles_in_app(_db, int(data["sub"]), "itcj"))
+                # Read-only path: release implicit BEGIN explicitly so pgbouncer
+                # no deja la conexión en "idle in transaction" si la tarea es
+                # cancelada por desconexión del cliente.
+                _db.rollback()
+            except Exception as e:
+                logger.warning("JWT refresh roles query failed: %s", e)
+                try:
+                    _db.rollback()
+                except Exception:
+                    pass
             finally:
-                _db.close()
+                try:
+                    _db.close()
+                except Exception:
+                    pass
+
+            if not _refresh_roles:
+                # Si la consulta falló, no rotamos cookie. Mejor renovar en próximo request.
+                return response
 
             new_token = _encode_jwt(
                 {

@@ -15,7 +15,7 @@ var TICKET_CTX = {
     isDispatcher: {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
     isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
     canResolve:   {{ ('tech_maint' in user_roles or 'dispatcher' in user_roles or 'admin' in user_roles) | lower }},
-    canAssign:    {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    canAssign:    {{ (can_assign | default(false)) | lower }},
     canRate:      {{ ('department_head' in user_roles or 'secretary' in user_roles or 'staff' in user_roles) | lower }},
 };
 </script>
@@ -155,8 +155,15 @@ var TICKET_CTX = {
                                   placeholder="Describe el trabajo realizado, materiales usados, etc."></textarea>
                     </div>
                     <div class="col-12 col-md-4">
-                        <label class="form-label fw-medium">Tiempo invertido (min) <span class="text-danger">*</span></label>
-                        <input type="number" class="form-control form-control-sm" id="timeInvested" min="1" placeholder="60">
+                        <label class="form-label fw-medium">Tiempo invertido <span class="text-danger">*</span></label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control" id="timeInvested" min="1" step="0.01" placeholder="60">
+                            <select class="form-select" id="timeUnit" style="max-width:110px;">
+                                <option value="minutes" selected>Minutos</option>
+                                <option value="hours">Horas</option>
+                                <option value="days">Días</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="col-12 col-md-8">
                         <label class="form-label fw-medium">Observaciones adicionales</label>

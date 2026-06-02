@@ -97,15 +97,20 @@ def init_maint_command():
 
     Ejecuta en orden:
       00_insert_app.sql                         → Registra la app en core_apps
-      01_add_maint_permissions.sql              → 20 permisos maint.*
+      01_add_maint_permissions.sql              → 30 permisos maint.* (27 base + 3 coordinadores)
       02_assign_maint_permissions_to_roles.sql  → Roles + asignación + posiciones
       03_seed_maint_categories.sql              → 6 categorías base
       05_add_stats_permissions.sql              → 4 permisos stats/analysis
       06_help_permissions.sql                   → Permisos de páginas de ayuda
       08_insert_position_app_perm.sql           → Extras al puesto secretary_equipment_maint
-                                                  (asignaciones, admin, stats, warehouse vía dispatcher)
+                                                  (admin, stats, warehouse vía dispatcher)
+                                                  NOTA: assign/unassign quitados (D2)
       09_assign_warehouse_user_roles.sql        → Propaga UserAppRole maint → warehouse
                                                   (admin/dispatcher/tech_maint)
+      10_add_coordinator_roles_permissions.sql  → Roles maint_area_coordinator y
+                                                  maint_general_coordinator + sus permisos
+      11_seed_coordinators_scaffold.sql         → Puestos tech/coordinator en equipment_maint
+                                                  + mapeo puesto → rol (PARTES A y B activas)
       config/*.sql (glob)                       → SQLs de configuración (seed-config)
 
     Todos los DML son idempotentes (ON CONFLICT DO NOTHING).
@@ -131,6 +136,8 @@ def init_maint_command():
             "06_help_permissions.sql",
             "08_insert_position_app_perm.sql",
             "09_assign_warehouse_user_roles.sql",
+            "10_add_coordinator_roles_permissions.sql",
+            "11_seed_coordinators_scaffold.sql",
         ])
         click.echo()
         click.echo("   🔄 Ejecutando seed-config (config/*.sql)...")
@@ -139,7 +146,8 @@ def init_maint_command():
         click.echo("🎉 ¡App de Mantenimiento inicializada exitosamente!")
         click.echo()
         click.echo("   Roles creados: admin, dispatcher, tech_maint,")
-        click.echo("                  department_head, secretary, staff")
+        click.echo("                  department_head, secretary, staff,")
+        click.echo("                  maint_area_coordinator, maint_general_coordinator")
         click.echo("   Categorías:    TRANSPORT, GENERAL, ELECTRICAL,")
         click.echo("                  CARPENTRY, AC, GARDENING")
         click.echo("   Almacén:       admin/dispatcher/tech_maint con UserAppRole")

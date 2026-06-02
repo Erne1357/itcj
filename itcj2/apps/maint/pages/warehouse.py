@@ -15,6 +15,7 @@ Rutas:
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
+from itcj2.database import get_db
 from itcj2.apps.maint.pages.nav import render_maint
 from itcj2.apps.maint.utils.warehouse_auth import require_warehouse_page
 
@@ -40,9 +41,24 @@ async def categories(
 @router.get("/warehouse/products", name="maint_pages.warehouse.products")
 async def products(
     request: Request,
+    db=Depends(get_db),
     user: dict = Depends(require_warehouse_page("warehouse.page.products")),
 ) -> HTMLResponse:
-    return render_maint(request, "maint/warehouse/products.html", {"active_page": "warehouse_products"})
+    from itcj2.apps.maint.utils.warehouse_auth import get_warehouse_perms_via_maint
+
+    # Admin global del JWT obtiene can_adjust=True automáticamente.
+    # Para el resto se consultan los permisos warehouse derivados del rol maint.
+    if user.get("role") == "admin":
+        can_adjust = True
+    else:
+        wh_perms = get_warehouse_perms_via_maint(db, int(user["sub"]))
+        can_adjust = "warehouse.api.adjust" in wh_perms
+
+    return render_maint(
+        request,
+        "maint/warehouse/products.html",
+        {"active_page": "warehouse_products", "can_adjust": can_adjust},
+    )
 
 
 @router.get("/warehouse/entries", name="maint_pages.warehouse.entries")

@@ -93,6 +93,7 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
         perms = set()
 
     items = []
+    is_admin_role = "admin" in roles
 
     # ── Tickets ──────────────────────────────────────────────────────────────
     # Todos los roles con acceso a maint ven la lista (scope aplicado en backend)
@@ -110,10 +111,26 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
             "url": "/maint/tickets/create",
         })
 
+    # ── Bandeja de entrada (secretaría, coordinador general, admin) ──────────
+    # Aquí la secretaría recibe los tickets nuevos y los reparte a coordinadores.
+    if is_admin_role or "maint.assignments.page.triage" in perms:
+        items.append({
+            "label": "Bandeja de entrada",
+            "icon": "fa-inbox",
+            "url": "/maint/triage",
+        })
+
+    # ── Tablero de Asignación (coordinadores y admin) ─────────────────────────
+    if is_admin_role or "maint.assignments.page.list" in perms:
+        items.append({
+            "label": "Asignación",
+            "icon": "fa-people-arrows",
+            "url": "/maint/asignacion",
+        })
+
     # ── Administración (dropdown filtrado por permisos granulares) ──────────
     # Cada item aparece si el usuario tiene el permiso correspondiente.
     # Admin global (rol "admin" en maint) bypassa los chequeos.
-    is_admin_role = "admin" in roles
     admin_dropdown = []
 
     def _adm(label, icon, url, perm):
@@ -145,18 +162,21 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
         if is_admin_role or perm in perms:
             config_dropdown.append({"label": label, "icon": icon, "url": url})
 
-    # Categorías usa el permiso heredado del dropdown Administración anterior
-    if is_admin_role or "maint.admin.page.categories" in perms:
+    # Categorías vive en la página de Configuración (admin-only). Se gatea por el
+    # permiso de config real (no por maint.admin.page.categories, que la
+    # secretaría tiene y provocaba que viera el item aunque la página da 403).
+    if is_admin_role or "maint.config.field_templates.api.read" in perms:
         config_dropdown.append({
             "label": "Categorías y campos",
             "icon": "fa-tags",
             "url": "/maint/admin/config#categorias",
         })
-    _cfg("Áreas técnicas",  "fa-users-cog", "/maint/admin/config#areas",       "maint.config.areas.api.read")
-    _cfg("Prioridades + SLA", "fa-flag",    "/maint/admin/config#prioridades",  "maint.config.priorities.api.read")
-    _cfg("Tipo y origen",   "fa-wrench",    "/maint/admin/config#tipos",        "maint.config.maint_types.api.read")
-    _cfg("Notificaciones",  "fa-bell",      "/maint/admin/config#notif",        "maint.config.notifications.api.read")
-    _cfg("Auditoría",       "fa-history",   "/maint/admin/config#audit",        "maint.config.audit.api.read")
+    _cfg("Áreas técnicas",  "fa-users-cog", "/maint/admin/config#areas",          "maint.config.areas.api.read")
+    _cfg("Prioridades + SLA", "fa-flag",    "/maint/admin/config#prioridades",    "maint.config.priorities.api.read")
+    _cfg("Tipo y origen",   "fa-wrench",    "/maint/admin/config#tipos",          "maint.config.maint_types.api.read")
+    _cfg("Notificaciones",  "fa-bell",      "/maint/admin/config#notif",          "maint.config.notifications.api.read")
+    _cfg("Auditoría",       "fa-history",   "/maint/admin/config#audit",          "maint.config.audit.api.read")
+    _cfg("Coordinadores",   "fa-user-tie",  "/maint/admin/config#coordinadores",  "maint.coordinators.page.view")
 
     if config_dropdown:
         items.append({

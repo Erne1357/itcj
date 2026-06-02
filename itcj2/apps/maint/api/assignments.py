@@ -29,13 +29,19 @@ async def assign_technicians(
     user: dict = require_perms("maint", ["maint.assignments.api.assign"]),
     db: DbSession = None,
 ):
+    from itcj2.core.services.authz_service import user_roles_in_app
+
     user_id = int(user["sub"])
+    is_global_admin = user.get("role") == "admin"
+    assigner_roles = user_roles_in_app(db, user_id, "maint")
     result = assignment_service.assign_technicians(
         db=db,
         ticket_id=ticket_id,
         assigned_by_id=user_id,
         user_ids=body.user_ids,
         notes=body.notes,
+        assigner_roles=assigner_roles,
+        is_global_admin=is_global_admin,
     )
     ticket = ticket_service.get_ticket_by_id(db, ticket_id)
     try:
@@ -45,7 +51,7 @@ async def assign_technicians(
     except Exception as exc:
         db.rollback()
         logger.warning("notify_technician_assigned failed for ticket %s: %s", ticket.id, exc)
-    return {"assigned_count": len(result)}
+    return {"success": True, "assigned_count": len(result)}
 
 
 # ==================== REMOVER TÉCNICO ====================

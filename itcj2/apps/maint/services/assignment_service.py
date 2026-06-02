@@ -23,12 +23,22 @@ def assign_technicians(
     assigned_by_id: int,
     user_ids: list[int],
     notes: str = None,
+    assigner_roles: set | list | None = None,
+    is_global_admin: bool = False,
 ) -> list[MaintTicketTechnician]:
     """
     Agrega uno o más técnicos a un ticket.
     Los técnicos ya activamente asignados son ignorados (idempotente).
     El ticket pasa a ASSIGNED si estaba PENDING.
+
+    Parámetros adicionales:
+        assigner_roles: roles del usuario que asigna en la app maint.
+            Si None, se resuelven consultando la BD (overhead extra).
+        is_global_admin: True si user["role"] == "admin" (del JWT);
+            bypasea todas las restricciones de área.
     """
+    from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+
     ticket = db.get(MaintTicket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail='Ticket no encontrado')
@@ -41,6 +51,24 @@ def assign_technicians(
 
     if not user_ids:
         raise HTTPException(status_code=400, detail='Debe especificar al menos un técnico')
+
+    # Resolver roles del asignador si no se pasaron
+    if assigner_roles is None:
+        assigner_roles = user_roles_in_app(db, assigned_by_id, 'maint')
+
+    assigner_roles_set = set(assigner_roles)
+
+    # Restricción de propiedad de enrutado: el coordinador solo puede asignar
+    # si el ticket está enrutado a él mismo. Admin y dispatcher omiten esta regla.
+    is_coord_role = bool(
+        assigner_roles_set & {"maint_area_coordinator", "maint_general_coordinator"}
+    )
+    if is_coord_role and not is_global_admin and "admin" not in assigner_roles_set:
+        if ticket.coordinator_id != assigned_by_id:
+            raise HTTPException(
+                status_code=403,
+                detail="El ticket no está enrutado a ti. Solo puedes asignar técnicos a tickets que tengas en tu cola.",
+            )
 
     # IDs ya activamente asignados
     active_ids = {t.user_id for t in ticket.technicians if t.unassigned_at is None}
@@ -60,6 +88,22 @@ def assign_technicians(
             raise HTTPException(
                 status_code=400,
                 detail=f'El usuario {user_id} no tiene rol de técnico en la app de mantenimiento',
+            )
+
+        # Restricción dura por área: solo coordinadores de área tienen límite
+        if not CoordinatorService.can_assign_technician(
+            db=db,
+            assigner_id=assigned_by_id,
+            assigner_roles=assigner_roles_set,
+            technician_id=user_id,
+            is_global_admin=is_global_admin,
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f'No puedes asignar al técnico {technician.full_name} (id={user_id}): '
+                    'no pertenece a tu(s) área(s) de coordinación'
+                ),
             )
 
         assignment = MaintTicketTechnician(
@@ -249,3 +293,122 @@ def get_technicians_by_area(db: Session, area_code: str) -> list:
         .filter(MaintTechnicianArea.area_code == area_code)
         .all()
     )
+
+
+# ==================== ENRUTAR TICKET A COORDINADOR ====================
+
+def route_ticket(
+    db: Session,
+    ticket_id: int,
+    target_coordinator_id: int,
+    performed_by_id: int,
+    performer_roles: set | list,
+    is_global_admin: bool = False,
+) -> MaintTicket:
+    """
+    Enruta (o re-enruta) un ticket a un coordinador.
+
+    Reglas por performer:
+    - Admin global o rol admin: puede enrutar a cualquier coordinador (general o área).
+    - Rol dispatcher: solo puede enrutar a coordinadores GENERALES.
+    - Rol maint_general_coordinator: puede enrutar a cualquier coordinador (general o área),
+      incluido a sí mismo.
+    - Rol maint_area_coordinator (sin general/dispatcher/admin): no puede enrutar → PermissionError.
+
+    El status del ticket NO cambia. Solo se actualiza coordinator_id.
+    Registra MaintTicketActionLog con action='TICKET_ROUTED'.
+
+    Raises:
+        HTTPException 404: ticket no encontrado.
+        HTTPException 409: ticket cerrado o cancelado.
+        HTTPException 400: target_coordinator_id no es coordinador válido.
+        PermissionError: el performer no tiene permiso para este enrutado.
+    """
+    from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+    from itcj2.core.models.user import User
+
+    ticket = db.get(MaintTicket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    if ticket.status in ("CLOSED", "CANCELED"):
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede enrutar un ticket cerrado o cancelado",
+        )
+
+    roles = set(performer_roles)
+
+    # Evaluar permiso del performer primero (fail-fast sin extra queries)
+    if is_global_admin or "admin" in roles:
+        # Admin global: puede enrutar a cualquier coordinador
+        pass
+    elif "maint_area_coordinator" in roles and "dispatcher" not in roles and "maint_general_coordinator" not in roles:
+        # Coordinador de área (sin otros roles privilegiados): no puede enrutar tickets
+        raise PermissionError(
+            "Los coordinadores de área no pueden enrutar tickets"
+        )
+    elif "dispatcher" not in roles and "maint_general_coordinator" not in roles:
+        raise PermissionError(
+            "No tienes permiso para enrutar tickets"
+        )
+
+    # Validar que target existe
+    target_user = db.get(User, target_coordinator_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El usuario {target_coordinator_id} no existe",
+        )
+
+    # Validar que target_coordinator_id es un coordinador (general o de área)
+    if not is_global_admin:
+        target_is_coord = CoordinatorService.is_coordinator(db, target_coordinator_id)
+        if not target_is_coord:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"El usuario {target_coordinator_id} ({target_user.full_name}) "
+                    "no es coordinador general ni de área en la app maint"
+                ),
+            )
+
+    # Restricción adicional para dispatcher: solo puede enrutar a coordinadores GENERALES
+    if "dispatcher" in roles and not is_global_admin and "admin" not in roles:
+        target_is_general = CoordinatorService.is_general_coordinator(db, target_coordinator_id)
+        if not target_is_general:
+            raise PermissionError(
+                "La secretaría solo puede enrutar a un coordinador general"
+            )
+
+    from_coordinator_id = ticket.coordinator_id
+    ticket.coordinator_id = target_coordinator_id
+    ticket.updated_at = now_local()
+    ticket.updated_by_id = performed_by_id
+
+    db.add(MaintTicketActionLog(
+        ticket_id=ticket_id,
+        action="TICKET_ROUTED",
+        performed_by_id=performed_by_id,
+        detail={
+            "from_coordinator_id": from_coordinator_id,
+            "to_coordinator_id": target_coordinator_id,
+            "to_coordinator_name": target_user.full_name,
+            "by": performed_by_id,
+        },
+    ))
+
+    try:
+        db.commit()
+        db.refresh(ticket)
+        logger.info(
+            "Ticket %s enrutado a coordinador %s por %s",
+            ticket.ticket_number,
+            target_coordinator_id,
+            performed_by_id,
+        )
+        return ticket
+    except Exception as e:
+        db.rollback()
+        logger.error("Error al enrutar ticket %s: %s", ticket_id, e)
+        raise HTTPException(status_code=500, detail="Error interno al enrutar ticket")

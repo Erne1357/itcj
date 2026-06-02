@@ -126,8 +126,70 @@
         </div>
     </div>
 </div>
+
+{% if can_adjust %}
+<div class="modal fade" id="adjustModal" tabindex="-1" aria-labelledby="adjustModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0" style="background:var(--maint-primary-light);">
+                <h5 class="modal-title fw-semibold" id="adjustModalTitle" style="color:var(--maint-primary-dark);">
+                    <i class="bi bi-sliders me-2"></i>Ajuste Manual de Stock
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="adjustProductId">
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Producto</label>
+                    <p class="form-control-plaintext fw-semibold" id="adjustProductName" style="color:var(--maint-primary-dark);"></p>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Tipo de ajuste <span class="text-danger">*</span></label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="adjustType" id="adjustTypeIn" value="IN" checked>
+                            <label class="form-check-label" for="adjustTypeIn">
+                                <i class="bi bi-arrow-up-circle-fill text-success me-1"></i>Entrada (IN)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="adjustType" id="adjustTypeOut" value="OUT">
+                            <label class="form-check-label" for="adjustTypeOut">
+                                <i class="bi bi-arrow-down-circle-fill text-danger me-1"></i>Salida (OUT)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium" for="adjustQuantity">Cantidad <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="adjustQuantity" min="0.01" step="0.01" placeholder="0.00">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-medium" for="adjustNotes">Notas <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="adjustNotes" maxlength="500" placeholder="Mínimo 5 caracteres">
+                    <div class="form-text" id="adjustNotesCount">0 / 500</div>
+                </div>
+                <div class="mb-0">
+                    <label class="form-label fw-medium" for="adjustJustification">Justificación <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="adjustJustification" rows="3" maxlength="1000" placeholder="Mínimo 10 caracteres — explica el motivo del ajuste"></textarea>
+                    <div class="form-text" id="adjustJustifCount">0 / 1000</div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-maint btn-sm" id="btnAdjustSave" onclick="MaintWarehouseProducts.saveAdjust()">
+                    <i class="bi bi-check-lg me-1"></i><span class="d-none d-sm-inline">Guardar ajuste</span><span class="d-inline d-sm-none">Guardar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
+<script>
+    const CAN_ADJUST = {{ 'true' if can_adjust else 'false' }};
+</script>
 <script src="/static/maint/js/warehouse/products.js?v={{ sv('js/warehouse/products.js') }}"></script>
 {% endblock %}

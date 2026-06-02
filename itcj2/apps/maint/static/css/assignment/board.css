@@ -1,0 +1,17 @@
+/* board.css — Estilos del tablero de asignación de Mantenimiento */
+
+/* Celda de técnicos: permite wrapping de badges */
+#board-table td:nth-child(6) {
+    min-width: 9rem;
+}
+
+/* Lista de técnicos dentro del modal */
+#tech-list-container .form-check-input[disabled] {
+    opacity: 0.5;
+}
+
+/* Fila de tabla hover resalta el botón de asignación */
+#board-table tbody tr:hover .btn-outline-primary {
+    border-color: var(--maint-primary, #1565C0);
+    color: var(--maint-primary, #1565C0);
+}

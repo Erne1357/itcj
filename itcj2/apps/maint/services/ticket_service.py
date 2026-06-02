@@ -171,6 +171,7 @@ def list_tickets(
     page: int = 1,
     per_page: int = 20,
     assigned_to_me: bool = False,
+    coordinator_id: int = None,
 ) -> dict:
     """
     Lista tickets según el rol del usuario:
@@ -184,7 +185,10 @@ def list_tickets(
     """
     query = db.query(MaintTicket)
 
-    FULL_ACCESS_ROLES = {'admin', 'dispatcher', 'tech_maint'}
+    # Coordinadores (área y general) ven todos los tickets — tienen
+    # maint.tickets.api.read.all y operan el tablero de asignación.
+    FULL_ACCESS_ROLES = {'admin', 'dispatcher', 'tech_maint',
+                         'maint_area_coordinator', 'maint_general_coordinator'}
     DEPT_ACCESS_ROLES = {'department_head', 'secretary'}
 
     if FULL_ACCESS_ROLES & set(user_roles):
@@ -237,6 +241,9 @@ def list_tickets(
                 )
             )
         )
+
+    if coordinator_id is not None:
+        query = query.filter(MaintTicket.coordinator_id == coordinator_id)
 
     query = query.order_by(MaintTicket.created_at.desc())
     pagination = paginate(query, page=page, per_page=per_page)
@@ -632,8 +639,9 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
 
     roles = set(user_roles_in_app(db, user_id, 'maint'))
 
-    # Acceso total
-    if roles & {'admin', 'dispatcher', 'tech_maint'}:
+    # Acceso total (coordinadores incluidos: tienen tickets.api.read.all)
+    if roles & {'admin', 'dispatcher', 'tech_maint',
+                'maint_area_coordinator', 'maint_general_coordinator'}:
         return True
 
     # Propio
@@ -748,6 +756,15 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
     except Exception:
         active_techs = []
 
+    try:
+        coordinator = (
+            {"id": ticket.coordinator.id, "name": ticket.coordinator.full_name}
+            if ticket.coordinator
+            else ({"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None)
+        )
+    except Exception:
+        coordinator = {"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None
+
     return {
         "id": ticket.id,
         "ticket_number": ticket.ticket_number,
@@ -761,6 +778,7 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
         "category": cat,
         "requester": req,
         "active_technicians": active_techs,
+        "coordinator": coordinator,
         "is_overdue": bool(
             due_at_local
             and due_at_local < now
@@ -894,11 +912,23 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
     except Exception:
         status_logs = []
 
+    # coordinator ya viene incluido en serialize_ticket_summary via data;
+    # se sobreescribe aquí para garantizar que en detalle también sea correcto.
+    try:
+        coordinator_detail = (
+            {"id": ticket.coordinator.id, "name": ticket.coordinator.full_name}
+            if ticket.coordinator
+            else ({"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None)
+        )
+    except Exception:
+        coordinator_detail = {"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None
+
     data.update({
         "description": ticket.description,
         "custom_fields": ticket.custom_fields or {},
         "requester_department": dept,
         "requester_position": requester_position,
+        "coordinator": coordinator_detail,
         "maintenance_type": ticket.maintenance_type,
         "service_origin": ticket.service_origin,
         "resolution_notes": ticket.resolution_notes,

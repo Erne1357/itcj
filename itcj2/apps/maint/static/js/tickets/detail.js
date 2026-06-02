@@ -28,6 +28,21 @@
     };
     var PRIORITY_LABEL = { BAJA: 'Baja', MEDIA: 'Media', ALTA: 'Alta', URGENTE: 'Urgente' };
 
+    // Formatea minutos a "Xd Yh Zmin" (omite unidades en cero)
+    function _fmtDuration(mins) {
+        if (mins === null || mins === undefined || mins === '') return '—';
+        var m = parseInt(mins, 10);
+        if (isNaN(m) || m < 1) return '—';
+        var days = Math.floor(m / 1440);
+        var hours = Math.floor((m % 1440) / 60);
+        var rem = m % 60;
+        var parts = [];
+        if (days) parts.push(days + 'd');
+        if (hours) parts.push(hours + 'h');
+        if (rem || !parts.length) parts.push(rem + ' min');
+        return parts.join(' ');
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -267,6 +282,10 @@
                     '<div class="col-md-6"><div class="mn-detail-label">Creado por</div>' +
                         '<div class="mn-detail-value">' + _esc(t.created_by ? t.created_by.name : '—') + '</div>' +
                         '<small class="text-muted">' + (t.created_at ? new Date(t.created_at).toLocaleString('es-MX') : '') + '</small>' + '</div>' +
+                    '<div class="col-md-6"><div class="mn-detail-label"><i class="bi bi-person-badge me-1"></i>Coordinador responsable</div>' +
+                        '<div class="mn-detail-value">' +
+                            (t.coordinator ? _esc(t.coordinator.name || ('ID ' + t.coordinator.id)) : '<span class="text-muted fst-italic">Sin asignar</span>') +
+                        '</div></div>' +
                     '<div class="col-12" id="ticketAttachmentsSection">' +
                         '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
                         '<div class="text-muted small mt-1"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Cargando...</div>' +
@@ -530,7 +549,7 @@
                 '<div class="col-12"><h6 class="' + outcomeClass + ' fw-bold"><i class="bi bi-check-circle me-1"></i>' + outcomeLabel + '</h6></div>' +
                 '<div class="col-md-3"><div class="mn-detail-label">Tipo</div><div>' + _esc(t.maintenance_type || '—') + '</div></div>' +
                 '<div class="col-md-3"><div class="mn-detail-label">Origen</div><div>' + _esc(t.service_origin || '—') + '</div></div>' +
-                '<div class="col-md-3"><div class="mn-detail-label">Tiempo invertido</div><div>' + (t.time_invested_minutes ? t.time_invested_minutes + ' min' : '—') + '</div></div>' +
+                '<div class="col-md-3"><div class="mn-detail-label">Tiempo invertido</div><div>' + _fmtDuration(t.time_invested_minutes) + '</div></div>' +
                 '<div class="col-md-3"><div class="mn-detail-label">Resuelto por</div><div>' + _esc(t.resolved_by ? t.resolved_by.name : '—') + '</div></div>' +
                 '<div class="col-12"><div class="mn-detail-label">Notas de resolución</div>' +
                     '<div style="white-space:pre-line;">' + _esc(t.resolution_notes || '—') + '</div></div>' +

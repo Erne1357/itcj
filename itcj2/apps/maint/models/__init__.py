@@ -3,6 +3,7 @@ from itcj2.apps.maint.models.category import MaintCategory
 from itcj2.apps.maint.models.ticket import MaintTicket
 from itcj2.apps.maint.models.ticket_technician import MaintTicketTechnician
 from itcj2.apps.maint.models.technician_area import MaintTechnicianArea
+from itcj2.apps.maint.models.coordinator_area import MaintCoordinatorArea
 from itcj2.apps.maint.models.status_log import MaintStatusLog
 from itcj2.apps.maint.models.action_log import MaintTicketActionLog
 from itcj2.apps.maint.models.comment import MaintComment
@@ -18,6 +19,7 @@ __all__ = [
     "MaintTicket",
     "MaintTicketTechnician",
     "MaintTechnicianArea",
+    "MaintCoordinatorArea",
     "MaintStatusLog",
     "MaintTicketActionLog",
     "MaintComment",

@@ -21,6 +21,10 @@ class CreateTicketRequest(BaseModel):
     department_id: Optional[int] = None
     # Requerido si el solicitante pertenece a >1 depto activo.
     # Opcional si solo tiene 1 (se infiere automáticamente).
+    requester_id: Optional[int] = None
+    # Si viene y es distinto al usuario autenticado, se crea en nombre de ese usuario.
+    # Requiere permiso maint.tickets.api.create.behalf y que el requester
+    # pertenezca al mismo departamento indicado en department_id.
 
 
 class UpdateTicketRequest(BaseModel):
@@ -55,3 +59,7 @@ class RateTicketRequest(BaseModel):
 
 class CancelTicketRequest(BaseModel):
     reason: Optional[str] = None
+
+
+class RouteTicketRequest(BaseModel):
+    coordinator_id: int

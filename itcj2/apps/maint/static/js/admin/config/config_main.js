@@ -22,6 +22,7 @@
         'tipos',
         'notif',
         'audit',
+        'coordinadores',
     ]);
 
     /**
@@ -59,6 +60,11 @@
         audit: function () {
             if (window.MaintConfigAudit) {
                 window.MaintConfigAudit.init();
+            }
+        },
+        coordinadores: function () {
+            if (window.MaintConfigCoordinators) {
+                window.MaintConfigCoordinators.init();
             }
         },
     };

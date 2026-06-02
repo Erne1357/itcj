@@ -62,6 +62,11 @@ class MaintTicket(Base):
     # Timestamp del último envío de alerta de vencimiento SLA.
     # Query de alerta: due_at < now() AND is_open AND sla_alert_sent_at IS NULL
 
+    # ==================== ENRUTADO ====================
+    coordinator_id = Column(BigInteger, ForeignKey('core_users.id'), nullable=True, index=True)
+    # Coordinador (general o de área) actualmente responsable del ticket.
+    # NULL = ticket pendiente de enrutar.
+
     # ==================== RESOLUCIÓN ====================
     maintenance_type = Column(String(20), nullable=True)   # PREVENTIVO | CORRECTIVO
     service_origin = Column(String(20), nullable=True)     # INTERNO | EXTERNO
@@ -94,6 +99,7 @@ class MaintTicket(Base):
     requester_department = relationship('Department', foreign_keys=[requester_department_id])
     category = relationship('MaintCategory', back_populates='tickets')
     resolved_by = relationship('User', foreign_keys=[resolved_by_id])
+    coordinator = relationship('User', foreign_keys=[coordinator_id])
     created_by_user = relationship('User', foreign_keys=[created_by_id])
     updated_by_user = relationship('User', foreign_keys=[updated_by_id])
     canceled_by_user = relationship('User', foreign_keys=[canceled_by_id])

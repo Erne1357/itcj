@@ -7,9 +7,16 @@
 
     var API_BASE = '/api/maint/v2';
     var _selectedCategory = null;  // objeto completo {id, code, name, icon, field_template}
-    var _selectedPriority = 'MEDIA';
+    var _selectedPriority = 'MEDIA';  // se ajusta en _bindPriority() según la prioridad default de BD
     var _attachedFiles = [];       // archivos seleccionados para adjuntar al crear
     var _userDepartments = [];     // deptos activos del usuario
+    var _canCreateBehalf = (typeof CAN_CREATE_BEHALF !== 'undefined') && CAN_CREATE_BEHALF;
+
+    // Estado del modal "Solicitar para"
+    var _behalfUsers = [];         // lista completa cargada del API
+    var _behalfSelected = null;    // {id, name, email} o null = yo mismo
+    var _behalfModal = null;       // instancia Bootstrap Modal
+    var _behalfDebounceTimer = null;
 
     document.addEventListener('DOMContentLoaded', function () {
         _checkUnratedTickets();
@@ -18,6 +25,9 @@
         _bindPriority();
         _bindDropzone();
         _bindSubmit();
+        if (_canCreateBehalf) {
+            _initBehalfModal();
+        }
     });
 
     // ── Departamentos del solicitante ─────────────────────────────────────────
@@ -41,6 +51,301 @@
                     }).join('');
             })
             .catch(function () { /* silent */ });
+    }
+
+    // ── Modal "Solicitar para" ────────────────────────────────────────────────
+
+    /** Inicializa el modal de Bootstrap y enlaza eventos del trigger y del buscador. */
+    function _initBehalfModal() {
+        var modalEl = document.getElementById('behalfModal');
+        var trigger = document.getElementById('behalfTrigger');
+        var searchInput = document.getElementById('behalfSearchInput');
+        if (!modalEl || !trigger) return;
+
+        _behalfModal = new bootstrap.Modal(modalEl);
+
+        // El selector siempre está disponible para quien puede crear en nombre
+        // de otro (no depende de un departamento: mantenimiento atiende a todos).
+        var behalfWrap = document.getElementById('behalfWrap');
+        if (behalfWrap) behalfWrap.style.display = '';
+        _updateBehalfTrigger(null);  // por defecto "Yo mismo"
+
+        // Abrir modal al clicar el trigger
+        trigger.addEventListener('click', function () {
+            if (trigger.getAttribute('aria-disabled') === 'true') return;
+            _renderBehalfList('');
+            _behalfModal.show();
+            trigger.setAttribute('aria-expanded', 'true');
+        });
+
+        // También abrir con Enter/Space (accesibilidad)
+        trigger.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                trigger.click();
+            }
+        });
+
+        // Resetear buscador al abrir
+        modalEl.addEventListener('show.bs.modal', function () {
+            if (searchInput) searchInput.value = '';
+        });
+
+        // Focus en buscador tras apertura
+        modalEl.addEventListener('shown.bs.modal', function () {
+            if (searchInput) searchInput.focus();
+        });
+
+        modalEl.addEventListener('hidden.bs.modal', function () {
+            trigger.setAttribute('aria-expanded', 'false');
+        });
+
+        // Búsqueda server-side (todo el instituto) con debounce
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                clearTimeout(_behalfDebounceTimer);
+                var q = searchInput.value;
+                _behalfDebounceTimer = setTimeout(function () {
+                    _searchBehalfUsers(q);
+                }, 300);
+            });
+        }
+    }
+
+    /**
+     * Busca usuarios en TODO el instituto vía API (mantenimiento atiende a
+     * cualquier departamento). Requiere >=2 caracteres.
+     * @param {string} query
+     */
+    function _searchBehalfUsers(query) {
+        var q = (query || '').trim();
+        if (q.length < 2) {
+            _behalfUsers = [];
+            _renderBehalfList(query);  // mostrará la pista de "escribe para buscar"
+            return;
+        }
+        var list = document.getElementById('behalfUserList');
+        if (list) {
+            list.innerHTML =
+                '<li class="mn-behalf-loading">' +
+                    '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>' +
+                    'Buscando...' +
+                '</li>';
+        }
+        fetch(API_BASE + '/users?search=' + encodeURIComponent(q), { credentials: 'include' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (resp) {
+                _behalfUsers = (resp && resp.data) ? resp.data : [];
+                _renderBehalfList(query);
+            })
+            .catch(function () {
+                _behalfUsers = [];
+                _renderBehalfList(query);
+            });
+    }
+
+    /**
+     * Carga usuarios del dpto desde la API y los guarda en _behalfUsers.
+     * Muestra el wrap si hay usuarios; oculta si no hay.
+     * @param {number} departmentId
+     */
+    function _loadBehalfUsers(departmentId) {
+        if (!_canCreateBehalf) return;
+        var behalfWrap = document.getElementById('behalfWrap');
+        if (!behalfWrap) return;
+
+        // Mostrar spinner en la lista mientras carga (por si el modal ya estuviera abierto)
+        _behalfUsers = [];
+        _renderBehalfList('');   // mostrará estado "cargando"
+
+        fetch(API_BASE + '/users?department_id=' + departmentId, { credentials: 'include' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (resp) {
+                if (!resp || !resp.data || resp.data.length === 0) {
+                    _clearBehalfSelect();
+                    return;
+                }
+                _behalfUsers = resp.data;  // [{id, name, email?}, ...]
+                behalfWrap.style.display = '';
+                _renderBehalfList('');
+            })
+            .catch(function () {
+                _clearBehalfSelect();
+            });
+    }
+
+    /** Resetea la selección y oculta el wrap. */
+    function _clearBehalfSelect() {
+        _behalfUsers = [];
+        _behalfSelected = null;
+        _updateBehalfTrigger(null);
+        var behalfWrap = document.getElementById('behalfWrap');
+        if (behalfWrap) behalfWrap.style.display = 'none';
+        var hiddenInput = document.getElementById('behalfUserId');
+        if (hiddenInput) hiddenInput.value = '';
+    }
+
+    /**
+     * Renderiza la lista filtrada en el modal.
+     * @param {string} query  Texto del buscador.
+     */
+    function _renderBehalfList(query) {
+        var list = document.getElementById('behalfUserList');
+        if (!list) return;
+
+        var q = (query || '').trim();
+
+        // Siempre incluir "Yo mismo" al inicio
+        var items = [];
+        var selfSelected = !_behalfSelected;
+        var selfClasses = 'mn-behalf-item' + (selfSelected ? ' selected' : '');
+        items.push(
+            '<li class="' + selfClasses + '" data-user-id="" role="option" aria-selected="' + selfSelected + '">' +
+                '<span class="mn-avatar mn-avatar-lg" style="background:var(--maint-accent);">YO</span>' +
+                '<div class="d-flex flex-column overflow-hidden">' +
+                    '<span class="mn-behalf-item-name">— Yo mismo —</span>' +
+                '</div>' +
+                (selfSelected ? '<i class="bi bi-check2 text-success ms-auto flex-shrink-0"></i>' : '') +
+            '</li>'
+        );
+
+        if (q.length < 2) {
+            // Pista: hay que escribir para buscar en todo el instituto
+            items.push(
+                '<li class="mn-behalf-empty">' +
+                    '<i class="bi bi-search d-block fs-4 mb-1"></i>' +
+                    'Escribe al menos 2 letras para buscar un usuario de cualquier departamento.' +
+                '</li>'
+            );
+        } else if (_behalfUsers.length === 0) {
+            items.push(
+                '<li class="mn-behalf-empty">' +
+                    '<i class="bi bi-person-x d-block fs-4 mb-1"></i>' +
+                    'No se encontraron usuarios para <strong>"' + _esc(query) + '"</strong>' +
+                '</li>'
+            );
+        } else {
+            _behalfUsers.forEach(function (u) {
+                var isSelected = _behalfSelected && _behalfSelected.id === u.id;
+                var cls = 'mn-behalf-item' + (isSelected ? ' selected' : '');
+                var initials = _getInitials(u.name);
+                var color = _avatarColor(u.name);
+                var metaParts = [];
+                if (u.department) metaParts.push(_esc(u.department));
+                if (u.email) metaParts.push(_esc(u.email));
+                var metaHtml = metaParts.length
+                    ? '<span class="mn-behalf-item-email">' + metaParts.join(' · ') + '</span>'
+                    : '';
+                items.push(
+                    '<li class="' + cls + '" data-user-id="' + u.id + '" data-user-name="' + _esc(u.name) + '"' +
+                        (u.email ? ' data-user-email="' + _esc(u.email) + '"' : '') +
+                        ' role="option" aria-selected="' + isSelected + '">' +
+                        '<span class="mn-avatar mn-avatar-lg" style="background:' + color + ';">' + initials + '</span>' +
+                        '<div class="d-flex flex-column overflow-hidden">' +
+                            '<span class="mn-behalf-item-name">' + _esc(u.name) + '</span>' +
+                            metaHtml +
+                        '</div>' +
+                        (isSelected ? '<i class="bi bi-check2 text-success ms-auto flex-shrink-0"></i>' : '') +
+                    '</li>'
+                );
+            });
+        }
+
+        list.innerHTML = items.join('');
+
+        // Vincular clicks en los items
+        list.querySelectorAll('.mn-behalf-item[data-user-id]').forEach(function (li) {
+            li.addEventListener('click', function () {
+                var uid = li.dataset.userId;
+                if (!uid) {
+                    // "Yo mismo"
+                    _selectBehalfUser(null);
+                } else {
+                    _selectBehalfUser({
+                        id: parseInt(uid, 10),
+                        name: li.dataset.userName || '',
+                        email: li.dataset.userEmail || '',
+                    });
+                }
+            });
+        });
+    }
+
+    /**
+     * Selecciona un usuario (o null = yo mismo), actualiza trigger, cierra modal.
+     * @param {{id:number, name:string, email?:string}|null} user
+     */
+    function _selectBehalfUser(user) {
+        _behalfSelected = user || null;
+        _updateBehalfTrigger(user);
+
+        var hiddenInput = document.getElementById('behalfUserId');
+        if (hiddenInput) hiddenInput.value = user ? user.id : '';
+
+        if (_behalfModal) {
+            _behalfModal.hide();
+        }
+    }
+
+    /**
+     * Actualiza el campo trigger con el avatar e info del usuario seleccionado.
+     * @param {{id:number, name:string, email?:string}|null} user
+     */
+    function _updateBehalfTrigger(user) {
+        var avatarEl = document.getElementById('behalfTriggerAvatar');
+        var nameEl   = document.getElementById('behalfTriggerName');
+        var emailEl  = document.getElementById('behalfTriggerEmail');
+        if (!avatarEl || !nameEl) return;
+
+        if (!user) {
+            avatarEl.textContent = 'YO';
+            avatarEl.style.background = 'var(--maint-accent)';
+            nameEl.textContent = '— Yo mismo —';
+            if (emailEl) { emailEl.textContent = ''; emailEl.style.display = 'none'; }
+        } else {
+            avatarEl.textContent = _getInitials(user.name);
+            avatarEl.style.background = _avatarColor(user.name);
+            nameEl.textContent = user.name;
+            if (emailEl) {
+                if (user.email) {
+                    emailEl.textContent = user.email;
+                    emailEl.style.display = '';
+                } else {
+                    emailEl.textContent = '';
+                    emailEl.style.display = 'none';
+                }
+            }
+        }
+    }
+
+    /**
+     * Obtiene las iniciales de un nombre (máx 2 letras).
+     * @param {string} name
+     * @returns {string}
+     */
+    function _getInitials(name) {
+        if (!name) return '?';
+        var parts = name.trim().split(/\s+/).filter(Boolean);
+        if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+
+    /**
+     * Genera un color HSL estable a partir del nombre (hash simple).
+     * @param {string} name
+     * @returns {string} color CSS hsl(...)
+     */
+    function _avatarColor(name) {
+        var s = String(name || '');
+        var hash = 0;
+        for (var i = 0; i < s.length; i++) {
+            hash = s.charCodeAt(i) + ((hash << 5) - hash);
+            hash = hash & hash; // forzar 32 bits
+        }
+        var hue = Math.abs(hash) % 360;
+        // Evitar tonos muy cercanos al gris del tema (200-220°) para no confundir con "Yo mismo"
+        if (hue >= 195 && hue <= 225) hue = (hue + 40) % 360;
+        return 'hsl(' + hue + ', 48%, 42%)';
     }
 
     function _esc(s) {
@@ -264,10 +569,23 @@
     // ── Prioridad ─────────────────────────────────────────────────────────────
 
     function _bindPriority() {
+        var cards = document.querySelectorAll('.mn-priority-card');
+        // Preseleccionar la prioridad default (data-default) o la que ya venga marcada,
+        // o la primera tarjeta como último recurso.
+        var defaultCard = document.querySelector('.mn-priority-card[data-default="true"]') ||
+            document.querySelector('.mn-priority-card.selected') ||
+            (cards.length ? cards[0] : null);
+        if (defaultCard) {
+            cards.forEach(function (c) { c.classList.remove('selected'); });
+            defaultCard.classList.add('selected');
+            _selectedPriority = defaultCard.dataset.priority;
+            document.getElementById('priorityId').value = _selectedPriority;
+        }
+
         document.getElementById('priorityCards').addEventListener('click', function (e) {
             var card = e.target.closest('.mn-priority-card');
             if (!card) return;
-            document.querySelectorAll('.mn-priority-card').forEach(function (c) { c.classList.remove('selected'); });
+            cards.forEach(function (c) { c.classList.remove('selected'); });
             card.classList.add('selected');
             _selectedPriority = card.dataset.priority;
             document.getElementById('priorityId').value = _selectedPriority;
@@ -329,6 +647,12 @@
             deptSel.classList.add('is-invalid');
             return;
         }
+
+        // Solicitante: otro usuario si se eligió en el modal behalf
+        var behalfHidden = document.getElementById('behalfUserId');
+        var behalfVal = (behalfHidden && _canCreateBehalf) ? behalfHidden.value.trim() : '';
+        var requesterId = behalfVal ? parseInt(behalfVal, 10) : null;
+
         var payload = {
             category_id: _selectedCategory.id,
             priority: _selectedPriority,
@@ -338,6 +662,11 @@
             custom_fields: Object.keys(customFields).length > 0 ? customFields : null,
             department_id: deptVal ? parseInt(deptVal, 10) : null,
         };
+
+        // Solo enviar requester_id si se eligió a otro usuario
+        if (requesterId) {
+            payload.requester_id = requesterId;
+        }
 
         MaintUtils.loading.show(btn, 'Enviando...');
 

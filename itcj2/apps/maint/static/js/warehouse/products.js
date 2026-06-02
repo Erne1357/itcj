@@ -18,6 +18,8 @@
         showStock: function (productId, name) { _showStock(productId, name); },
         edit: function (productId) { _edit(productId); },
         save: function () { _save(); },
+        openAdjust: function (productId, name) { _openAdjust(productId, name); },
+        saveAdjust: function () { _saveAdjust(); },
     };
 
     function _loadCategories() {
@@ -66,12 +68,17 @@
                 '<div class="text-center py-5 text-muted"><i class="bi bi-box-seam fs-1 d-block mb-3"></i><p>Sin productos.</p></div>';
             return;
         }
+        var canAdjust = (typeof CAN_ADJUST !== 'undefined') && CAN_ADJUST;
         var rows = products.map(function (p) {
             var stock = p.total_stock != null ? p.total_stock : 0;
             var below = p.is_below_restock;
             var stockBadge = below
                 ? '<span class="badge bg-danger">' + stock + '</span>'
                 : '<span class="badge bg-success">' + stock + '</span>';
+            var adjustBtn = canAdjust
+                ? '<button class="btn btn-sm btn-outline-warning me-1" title="Ajustar stock" onclick="MaintWarehouseProducts.openAdjust(' + p.id + ', \'' + _escAttr(p.name) + '\')">' +
+                  '<i class="bi bi-sliders"></i></button>'
+                : '';
             return '<tr>' +
                 '<td><code>' + _esc(p.code || '—') + '</code></td>' +
                 '<td><strong>' + _esc(p.name) + '</strong>' +
@@ -79,9 +86,10 @@
                 '<td class="small">' + _esc(p.category_name || '—') + (p.subcategory_name ? ' [' + _esc(p.subcategory_name) + ']' : '') + '</td>' +
                 '<td>' + stockBadge + ' <small class="text-muted">' + _esc(p.unit_of_measure || '') + '</small></td>' +
                 '<td>' +
-                '<button class="btn btn-sm btn-outline-secondary me-1" onclick="MaintWarehouseProducts.showStock(' + p.id + ', \'' + _escAttr(p.name) + '\')">' +
+                '<button class="btn btn-sm btn-outline-secondary me-1" title="Ver lotes" onclick="MaintWarehouseProducts.showStock(' + p.id + ', \'' + _escAttr(p.name) + '\')">' +
                 '<i class="bi bi-boxes"></i></button>' +
-                '<button class="btn btn-sm btn-outline-secondary" onclick="MaintWarehouseProducts.edit(' + p.id + ')">' +
+                adjustBtn +
+                '<button class="btn btn-sm btn-outline-secondary" title="Editar" onclick="MaintWarehouseProducts.edit(' + p.id + ')">' +
                 '<i class="bi bi-pencil"></i></button>' +
                 '</td>' +
                 '</tr>';
@@ -186,6 +194,78 @@
             .catch(function (err) { MaintUtils.toast(err.message, 'error'); });
     }
 
+    // === AJUSTE MANUAL DE STOCK (solo admin/jefe) ===
+
+    function _openAdjust(productId, name) {
+        var el = document.getElementById('adjustModal');
+        if (!el) return; // no renderizado (usuario sin permiso)
+
+        document.getElementById('adjustProductId').value = productId;
+        document.getElementById('adjustProductName').textContent = name;
+        document.getElementById('adjustTypeIn').checked = true;
+        document.getElementById('adjustQuantity').value = '';
+        document.getElementById('adjustNotes').value = '';
+        document.getElementById('adjustJustification').value = '';
+        document.getElementById('adjustNotesCount').textContent = '0 / 500';
+        document.getElementById('adjustJustifCount').textContent = '0 / 1000';
+
+        new bootstrap.Modal(el).show();
+    }
+
+    function _saveAdjust() {
+        var productId = parseInt(document.getElementById('adjustProductId').value);
+        var adjustType = document.querySelector('input[name="adjustType"]:checked');
+        var quantity = document.getElementById('adjustQuantity').value.trim();
+        var notes = document.getElementById('adjustNotes').value.trim();
+        var justification = document.getElementById('adjustJustification').value.trim();
+
+        // Validación cliente
+        if (!adjustType) {
+            MaintUtils.toast('Selecciona el tipo de ajuste.', 'warning');
+            return;
+        }
+        var qty = parseFloat(quantity);
+        if (!quantity || isNaN(qty) || qty <= 0) {
+            MaintUtils.toast('La cantidad debe ser mayor a 0.', 'warning');
+            return;
+        }
+        if (notes.length < 5) {
+            MaintUtils.toast('Las notas deben tener al menos 5 caracteres.', 'warning');
+            return;
+        }
+        if (justification.length < 10) {
+            MaintUtils.toast('La justificación debe tener al menos 10 caracteres.', 'warning');
+            return;
+        }
+
+        var btn = document.getElementById('btnAdjustSave');
+        MaintUtils.loading.show(btn, 'Guardando...');
+
+        MaintUtils.api.fetch(API + '/adjust', {
+            method: 'POST',
+            body: JSON.stringify({
+                product_id: productId,
+                quantity: qty,
+                adjust_type: adjustType.value,
+                notes: notes,
+                justification: justification,
+            }),
+        })
+        .then(function () {
+            var modal = bootstrap.Modal.getInstance(document.getElementById('adjustModal'));
+            if (modal) modal.hide();
+            var typeLabel = adjustType.value === 'IN' ? 'entrada' : 'salida';
+            MaintUtils.toast('Ajuste de stock (' + typeLabel + ') registrado correctamente.', 'success');
+            _load(_currentPage);
+        })
+        .catch(function (err) {
+            MaintUtils.toast(err.message || 'Error al registrar el ajuste.', 'error');
+        })
+        .finally(function () {
+            MaintUtils.loading.hide(btn);
+        });
+    }
+
     function _esc(s) {
         var d = document.createElement('div');
         d.appendChild(document.createTextNode(String(s || '')));
@@ -207,6 +287,21 @@
             document.getElementById('prodSubcategory').value = '';
             document.getElementById('prodDesc').value = '';
         });
+
+        // Contadores de caracteres para el modal de ajuste (solo si existe en DOM)
+        var notesInput = document.getElementById('adjustNotes');
+        var justifInput = document.getElementById('adjustJustification');
+        if (notesInput) {
+            notesInput.addEventListener('input', function () {
+                document.getElementById('adjustNotesCount').textContent = notesInput.value.length + ' / 500';
+            });
+        }
+        if (justifInput) {
+            justifInput.addEventListener('input', function () {
+                document.getElementById('adjustJustifCount').textContent = justifInput.value.length + ' / 1000';
+            });
+        }
+
         _loadCategories();
         _load(1);
     });

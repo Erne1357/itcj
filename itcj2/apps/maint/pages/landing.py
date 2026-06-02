@@ -1,6 +1,6 @@
 """Página de bienvenida de la app de Mantenimiento."""
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.maint.pages.nav import render_maint
@@ -24,6 +24,13 @@ async def home_landing(
         roles = set(user_roles_in_app(_db, user_id, "maint"))
     finally:
         _db.close()
+
+    is_admin = ("admin" in roles) or (user.get("role") == "admin")
+
+    # La secretaría/dispatcher tiene como pantalla principal la Bandeja de entrada
+    # (ahí recibe los tickets nuevos para repartirlos a los coordinadores).
+    if "dispatcher" in roles and not is_admin:
+        return RedirectResponse(url="/maint/triage", status_code=302)
 
     # Determinar el CTA principal según rol
     if roles & {"admin", "dispatcher"}:
