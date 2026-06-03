@@ -14,6 +14,50 @@ router = APIRouter(prefix="/student", tags=["titulatec-pages-student"])
 # Documentos de la fase 1 (iniciales). egel_proof solo aplica a modalidad EGEL.
 _INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 
+# --- Detalle de fase (alumno): instrucciones, CTA y etiquetas ---------------
+# Instrucción breve para el alumno por código de fase.
+_PHASE_HELP = {
+    "cohort_intake":       "Servicios Escolares te dio de alta en la convocatoria. Tu proceso ya está activo.",
+    "initial_docs":        "Sube tu acta de nacimiento, certificado de bachillerato y CURP (PDF). Serán los mismos que lleves físicos a la cita de cotejo.",
+    "review_appointment":  "Confirma tu cita de cotejo y lleva tus documentos físicos. Si no puedes, solicita un cambio.",
+    "format_b":            "Llena el Formato B con tus datos personales, escolares y de proyecto.",
+    "synodal_assignment":  "El jefe de Vinculación asignará a tus sinodales. Te avisaremos cuando esté listo.",
+    "synodal_review":      "Tus sinodales revisarán tu trabajo en el chat de titulación.",
+    "anexo_iii":           "Descargarás tu Anexo III, conseguirás las firmas y lo subirás escaneado.",
+    "final_docs":          "Entregarás tu Anexo III firmado, identificación (INE) y comprobante de residencias.",
+    "ceremony":            "Se te asignará fecha y aula del acto protocolario.",
+}
+
+# CTA del alumno por código de fase (solo las soportadas hoy).
+_PHASE_CTA = {
+    "initial_docs":       ("/titulatec/student/documents", "Ir a documentos", "file-earmark-arrow-up"),
+    "review_appointment": ("/titulatec/student/cita", "Ver mi cita", "calendar-check"),
+    "format_b":           ("/titulatec/student/formato-b", "Llenar Formato B", "pencil-square"),
+}
+
+# Quién es responsable de la fase (para fases que el alumno no acciona).
+_RESPONSIBLE_LABEL = {
+    "school_services": "Servicios Escolares",
+    "titulaciones":    "el Depto. de Titulación",
+    "vinculacion":     "Vinculación",
+    "synodals":        "tus sinodales",
+    "student":         "ti",
+}
+
+# Etiqueta legible de cada evento del timeline.
+_EVENT_LABELS = {
+    "phase_approved":              "Fase aprobada",
+    "phase_rejected":              "Fase rechazada",
+    "appointment_scheduled":       "Cita agendada",
+    "appointment_confirmed":       "Confirmaste tu asistencia",
+    "appointment_in_progress":     "Cotejo en proceso",
+    "appointment_attended":        "Asististe al cotejo",
+    "appointment_rescheduled":     "Cita reagendada",
+    "appointment_change_requested":"Solicitaste un cambio de cita",
+    "appointment_no_show":         "No te presentaste a la cita",
+    "process_completed":           "Proceso completado",
+}
+
 
 def _slot_ctx(dtype, doc, *, error: str | None = None) -> dict:
     """Contexto autónomo de un slot de documento para el parcial."""
@@ -76,6 +120,66 @@ async def dashboard(
         db.close()
 
     return render_titulatec(request, "titulatec/student/dashboard.html", ctx)
+
+
+@router.get("/fase/{n}", name="titulatec.pages.student.phase_detail")
+async def phase_detail(
+    n: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=[
+        "titulatec.process.page.my", "titulatec.process.api.read.own"])),
+):
+    """Detalle de una fase del alumno: estado, instrucciones, CTA y timeline."""
+    from fastapi.responses import Response
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import PhaseDefinition, ProcessPhase, ProcessEvent
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    if n < 0 or n > 8:
+        return Response(status_code=404)
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        pdef = db.query(PhaseDefinition).filter_by(number=n).first()
+        if not process or not pdef:
+            return Response(status_code=404)
+
+        ph = db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n).first()
+        status = ph.status if ph else "pending"
+        is_current = process.current_phase == n
+
+        # CTA solo si la fase está soportada y el alumno puede/pudo accionar.
+        cta = None
+        if pdef.code in _PHASE_CTA and status not in ("pending", "skipped"):
+            url, label, icon = _PHASE_CTA[pdef.code]
+            cta = {"url": url, "label": label, "icon": icon}
+
+        # Timeline de eventos de esta fase.
+        events = []
+        for ev in (db.query(ProcessEvent)
+                   .filter_by(process_id=process.id, phase_number=n)
+                   .order_by(ProcessEvent.created_at).all()):
+            events.append({
+                "label": _EVENT_LABELS.get(ev.event_type, ev.event_type),
+                "when": _cita_label(ev.created_at),
+            })
+
+        ctx = {
+            "n": n,
+            "phase": {"number": pdef.number, "name": pdef.name, "code": pdef.code,
+                      "icon": pdef.icon, "responsible": pdef.responsible},
+            "status": status,
+            "is_current": is_current,
+            "help": _PHASE_HELP.get(pdef.code, ""),
+            "responsible_label": _RESPONSIBLE_LABEL.get(pdef.responsible, "el área responsable"),
+            "rejection_reason": ph.rejection_reason if ph else None,
+            "cta": cta,
+            "events": events,
+        }
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/student/fase_detail.html", ctx)
 
 
 @router.get("/documents", name="titulatec.pages.student.documents")

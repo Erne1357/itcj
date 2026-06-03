@@ -1,0 +1,83 @@
+{% extends "titulatec/base.html" %}
+{% from "titulatec/_macros.html" import pill, estado_pill %}
+{% block title %}Fase {{ '%02d'|format(n) }} · TitulaTec{% endblock %}
+{% block body_class %}tt-mist{% endblock %}
+
+{% block content %}
+<div class="tt-mobile">
+  <header class="tt-appbar">
+    <a href="/titulatec/student/dashboard" class="tt-iconbtn"><i class="bi bi-chevron-left"></i></a>
+    <div class="flex-grow-1 min-w-0">
+      <div class="title">Fase {{ '%02d'|format(n) }}</div>
+      <div style="font-size:.75rem;color:var(--tt-mute)">{{ phase.name }}</div>
+    </div>
+  </header>
+
+  <div class="p-3">
+    {# — Encabezado de la fase — #}
+    <div class="tt-card tt-card--hero tt-anim-in">
+      <div class="d-flex align-items-center justify-content-between">
+        <span class="d-flex align-items-center justify-content-center"
+              style="width:40px;height:40px;border-radius:11px;background:var(--tt-mist);border:1px solid var(--tt-line)">
+          <i class="bi bi-{{ phase.icon or 'flag' }}" style="font-size:1.15rem;color:var(--tt-slate)"></i>
+        </span>
+        {{ estado_pill(status) }}
+      </div>
+      <div class="tt-display mt-2" style="font-size:1.3rem;font-weight:600;line-height:1.15">{{ phase.name }}</div>
+      {% if help %}<p class="mb-0 mt-1" style="font-size:.86rem;color:var(--tt-slate)">{{ help }}</p>{% endif %}
+    </div>
+
+    {# — Motivo de rechazo — #}
+    {% if status == 'rejected' and rejection_reason %}
+    <div class="tt-card tt-card--danger mt-3 tt-anim-in">
+      <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Necesita corrección</span>
+      <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">{{ rejection_reason }}</p>
+    </div>
+    {% endif %}
+
+    {# — Acción / estado — #}
+    <div class="d-grid mt-3">
+      {% if cta %}
+        <a class="btn tt-btn-ink" style="height:48px" href="{{ cta.url }}">
+          <i class="bi bi-{{ cta.icon }} me-1"></i>{{ cta.label }}</a>
+      {% elif status == 'skipped' %}
+        <div class="tt-card"><span class="tt-pill tt-pill--neutral"><i class="bi bi-dash-circle"></i> No aplica a tu modalidad</span></div>
+      {% elif status == 'pending' %}
+        <div class="tt-card"><p class="mb-0" style="font-size:.84rem;color:var(--tt-mute)">
+          <i class="bi bi-lock me-1"></i>Esta fase se habilitará cuando llegues a ella.</p></div>
+      {% elif status == 'approved' %}
+        <div class="tt-card"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Fase completada</span></div>
+      {% else %}
+        <div class="tt-card"><p class="mb-0" style="font-size:.84rem;color:var(--tt-slate)">
+          <i class="bi bi-hourglass-split me-1"></i>En proceso por {{ responsible_label }}. Te avisaremos cuando avance.</p></div>
+      {% endif %}
+    </div>
+
+    {# — Timeline de eventos — #}
+    {% if events %}
+    <div class="tt-card mt-3 tt-anim-in">
+      <span class="tt-kicker"><i class="bi bi-clock-history me-1"></i>Historial</span>
+      <div class="mt-2 tt-stagger">
+        {% for e in events %}
+        <div class="d-flex align-items-start gap-2 py-2"
+             {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--tt-accent);margin-top:6px;flex:0 0 auto"></span>
+          <div class="flex-grow-1 min-w-0">
+            <div style="font-size:.85rem;font-weight:500">{{ e.label }}</div>
+            <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ e.when }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <nav class="tt-bottomnav mt-3">
+    <a href="/titulatec/student/dashboard" class="active"><i class="bi bi-house-fill"></i><span>Inicio</span></a>
+    <a href="/titulatec/student/documents"><i class="bi bi-file-earmark"></i><span>Documentos</span></a>
+    <a href="/titulatec/student/cita"><i class="bi bi-calendar-check"></i><span>Cita</span></a>
+    <a href="/itcj/m/"><i class="bi bi-person"></i><span>Perfil</span></a>
+  </nav>
+</div>
+{% endblock %}

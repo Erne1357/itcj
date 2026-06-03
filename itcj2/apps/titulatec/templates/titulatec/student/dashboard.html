@@ -51,14 +51,19 @@
     <div class="tt-kicker mt-4 mb-2 px-1">El proceso (9 fases)</div>
     <div class="tt-card p-0 overflow-hidden tt-stagger">
       {% for ph in phases %}
-      <div class="d-flex align-items-center gap-3 p-3 tt-hover-lift" {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
+      {% set _cur = ph.number == current_phase %}
+      <a href="/titulatec/student/fase/{{ ph.number }}"
+         class="d-flex align-items-center gap-3 p-3 tt-hover-lift text-decoration-none"
+         style="color:inherit;{% if not loop.last %}border-bottom:1px solid var(--tt-line-soft);{% endif %}{% if _cur %}background:var(--tt-mist);{% endif %}">
         <div class="d-flex align-items-center justify-content-center tt-mono"
-             style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;background:var(--tt-mist);color:var(--tt-mute);border:1px solid var(--tt-line)">
+             style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;border:1px solid var(--tt-line);
+             {% if _cur %}background:var(--tt-accent);color:#1F1300;border-color:var(--tt-accent){% else %}background:var(--tt-mist);color:var(--tt-mute){% endif %}">
           {{ '%02d'|format(ph.number) }}
         </div>
-        <div class="flex-grow-1" style="font-size:.875rem;font-weight:500">{{ ph.name }}</div>
+        <div class="flex-grow-1" style="font-size:.875rem;font-weight:{{ '600' if _cur else '500' }}">{{ ph.name }}</div>
+        {% if _cur %}<span class="tt-pill tt-pill--amber" style="font-size:.6rem">Actual</span>{% endif %}
         <i class="bi bi-chevron-right" style="color:var(--tt-mute);font-size:.8rem"></i>
-      </div>
+      </a>
       {% endfor %}
     </div>
   </div>
