@@ -76,5 +76,17 @@
     });
   }
 
+  // — Animación de entrada para contenido insertado por HTMX —
+  // El emisor recibe .htmx-request automáticamente (spinner en botones vía CSS).
+  // Aquí re-disparamos la animación de entrada en el destino del swap.
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    var t = e.detail && e.detail.target;
+    if (t && t.classList) {
+      t.classList.remove('tt-anim-in');
+      void t.offsetWidth;            // reinicia la animación
+      t.classList.add('tt-anim-in');
+    }
+  });
+
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml };
 })();

@@ -8,12 +8,14 @@
 
 {# — Filtros — #}
 <form class="tt-card mb-3 d-flex flex-wrap align-items-end gap-2"
-      hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-swap="innerHTML">
+      hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-swap="innerHTML"
+      hx-indicator="#appt-skel">
   <input type="hidden" name="selected" value="{{ selected_id or '' }}">
   <div>
     <label class="tt-kicker d-block mb-1">Carrera</label>
     <select name="program_id" class="form-select form-select-sm" style="min-width:200px"
-            hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-include="closest form">
+            hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-include="closest form"
+            hx-indicator="#appt-skel">
       <option value="">Todas</option>
       {% for p in programs %}
       <option value="{{ p.id }}" {{ 'selected' if f_program|string == p.id|string }}>{{ p.name }}</option>
@@ -23,7 +25,8 @@
   <div>
     <label class="tt-kicker d-block mb-1">Estado</label>
     <select name="status" class="form-select form-select-sm"
-            hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-include="closest form">
+            hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-include="closest form"
+            hx-indicator="#appt-skel">
       <option value="">Todos</option>
       {% for s, lbl in [('scheduled','Agendada'),('confirmed','Confirmada'),('in_progress','En proceso'),('attended','Asistió'),('no_show','No se presentó')] %}
       <option value="{{ s }}" {{ 'selected' if f_status == s }}>{{ lbl }}</option>
@@ -32,7 +35,8 @@
   </div>
   <div class="form-check mb-1">
     <input class="form-check-input" type="checkbox" name="mine" value="1" id="f-mine" {{ 'checked' if f_mine }}
-           hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-include="closest form">
+           hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-include="closest form"
+           hx-indicator="#appt-skel">
     <label class="form-check-label" for="f-mine" style="font-size:.82rem">Solo agendadas por mí</label>
   </div>
 </form>
@@ -46,7 +50,7 @@
       <span class="tt-kicker"><i class="bi bi-clock-history me-1"></i>Por agendar ({{ pending|length }})</span>
       <div class="mt-2 d-flex flex-column gap-1">
         {% for r in pending %}
-        <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none"
+        <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none tt-hover-lift"
            style="border-radius:9px;border:1px solid var(--tt-line-soft);{{ 'background:var(--tt-mist)' if selected_id==r.process_id }}"
            hx-get="/titulatec/admin/appointments/body?{{ QS }}&selected={{ r.process_id }}"
            hx-target="#appt-body" hx-swap="innerHTML">
@@ -66,7 +70,7 @@
       <span class="tt-kicker"><i class="bi bi-calendar2-week me-1"></i>Agenda ({{ rows|length }})</span>
       <div class="mt-2 d-flex flex-column gap-1">
         {% for r in rows %}
-        <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none"
+        <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none tt-hover-lift"
            style="border-radius:9px;border:1px solid var(--tt-line-soft);{{ 'background:var(--tt-mist)' if selected_id==r.process_id }}"
            hx-get="/titulatec/admin/appointments/body?{{ QS }}&selected={{ r.process_id }}"
            hx-target="#appt-body" hx-swap="innerHTML">

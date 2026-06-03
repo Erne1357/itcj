@@ -1,6 +1,7 @@
 {% extends "titulatec/admin/base_admin.html" %}
 {% block title %}Citas de cotejo · TitulaTec{% endblock %}
 
+{% from "titulatec/_macros.html" import skel_rows %}
 {% block admin_main %}
 <div class="px-4 pt-4 pb-2">
   <span class="tt-kicker">Fase 02 · Servicios Escolares</span>
@@ -9,6 +10,8 @@
     Agenda y atiende el cotejo de documentos físicos por carrera.</p>
 </div>
 <div class="px-4 pb-4">
+  {# Skeleton mientras se recarga la agenda (visible sólo durante la petición HTMX) #}
+  <div id="appt-skel" class="htmx-indicator">{{ skel_rows(5) }}</div>
   <div id="appt-body">
     {% include "titulatec/partials/appointments_body.html" %}
   </div>

@@ -222,6 +222,64 @@ a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
 .tt-admin .side a.active { background: rgba(245,158,11,.15); color: var(--tt-accent); font-weight: 600; }
 .tt-admin .main { flex: 1; min-width: 0; background: var(--tt-mist); }
 
+/* ============================ MOTION / ANIMACIÓN ====================== */
+/* Sutil y profesional. Reutilizable: úsalo en toda pestaña nueva.
+   Ver docs/design/ui_motion.md. Respeta prefers-reduced-motion (abajo). */
+@keyframes tt-fade-in  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes tt-slide-up { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+@keyframes tt-shimmer  { 100% { transform: translateX(100%) } }
+@keyframes tt-spin     { to { transform: rotate(360deg) } }
+
+/* Entrada de página / contenido (parciales HTMX la reciben vía titulatec-utils.js) */
+.tt-anim-in { animation: tt-slide-up .24s cubic-bezier(.22,.61,.36,1) both; }
+.tt-fade-in { animation: tt-fade-in .2s ease both; }
+
+/* Stagger: cada hijo directo entra un pelín después */
+.tt-stagger > * { animation: tt-slide-up .26s cubic-bezier(.22,.61,.36,1) both; }
+.tt-stagger > *:nth-child(1){animation-delay:.03s} .tt-stagger > *:nth-child(2){animation-delay:.06s}
+.tt-stagger > *:nth-child(3){animation-delay:.09s} .tt-stagger > *:nth-child(4){animation-delay:.12s}
+.tt-stagger > *:nth-child(5){animation-delay:.15s} .tt-stagger > *:nth-child(6){animation-delay:.18s}
+.tt-stagger > *:nth-child(7){animation-delay:.21s} .tt-stagger > *:nth-child(8){animation-delay:.24s}
+.tt-stagger > *:nth-child(9){animation-delay:.27s} .tt-stagger > *:nth-child(n+10){animation-delay:.30s}
+
+/* Micro-interacciones */
+.tt-card, .tt-pill { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.btn { transition: transform .12s ease, background .15s ease, filter .15s ease, box-shadow .15s ease; }
+.btn:active { transform: translateY(1px); }
+.tt-hover-lift { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.tt-hover-lift:hover { transform: translateY(-1px); box-shadow: 0 8px 24px -10px rgba(15,23,42,.18);
+  border-color: var(--tt-line); }
+
+/* Botón ocupado durante una petición HTMX (htmx añade .htmx-request al emisor) */
+.btn.htmx-request, button.htmx-request { pointer-events: none; opacity: .72; }
+.btn.htmx-request::before, button.htmx-request::before {
+  content: ""; display: inline-block; width: .9em; height: .9em; margin-right: .45em;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  vertical-align: -.1em; animation: tt-spin .6s linear infinite;
+}
+
+/* Indicador HTMX genérico: visible sólo mientras dura la petición */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: block; }
+
+/* ============================ SKELETONS =============================== */
+.tt-skel { position: relative; overflow: hidden; background: var(--tt-mist); border-radius: var(--tt-r); }
+.tt-skel::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent);
+  animation: tt-shimmer 1.25s infinite; }
+.tt-skel-line { height: 12px; border-radius: 6px; margin: .45rem 0; }
+.tt-skel-line.lg { height: 18px; }
+.tt-skel-line.w-40 { width: 40% } .tt-skel-line.w-60 { width: 60% } .tt-skel-line.w-80 { width: 80% }
+.tt-skel-card { height: 84px; border-radius: var(--tt-r-lg); margin-bottom: .75rem; }
+
+/* ============================ MENOS MOVIMIENTO ======================== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
 /* ============================ TEMA OSCURO (opcional) =================== */
 body[data-tt-theme="dark"] {
   --tt-ink: #F8FAFC; --tt-ink-soft: #E2E8F0; --tt-slate: #94A3B8; --tt-mute: #64748B;

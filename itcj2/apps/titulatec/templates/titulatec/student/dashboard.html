@@ -35,7 +35,7 @@
 
   {# — Card de la fase actual (shell Fase 0) — #}
   <div class="px-3 position-relative" style="margin-top:-60px;z-index:2">
-    <div class="tt-card tt-card--hero">
+    <div class="tt-card tt-card--hero tt-anim-in">
       <div class="d-flex justify-content-between align-items-center">
         <span class="tt-kicker">Tu proceso</span>
         {{ pill('En construcción', 'amber', 'cone-striped') }}
@@ -49,9 +49,9 @@
     </div>
 
     <div class="tt-kicker mt-4 mb-2 px-1">El proceso (9 fases)</div>
-    <div class="tt-card p-0 overflow-hidden">
+    <div class="tt-card p-0 overflow-hidden tt-stagger">
       {% for ph in phases %}
-      <div class="d-flex align-items-center gap-3 p-3" {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
+      <div class="d-flex align-items-center gap-3 p-3 tt-hover-lift" {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
         <div class="d-flex align-items-center justify-content-center tt-mono"
              style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;background:var(--tt-mist);color:var(--tt-mute);border:1px solid var(--tt-line)">
           {{ '%02d'|format(ph.number) }}

@@ -34,6 +34,20 @@
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 
+{# — SKELETON de carga — úsalo en regiones que cargan vía HTMX (clase htmx-indicator) #}
+{% macro skel_line(w="") %}<div class="tt-skel tt-skel-line {{ w }}"></div>{% endmacro %}
+{% macro skel_card() %}<div class="tt-skel tt-skel-card"></div>{% endmacro %}
+{% macro skel_rows(n=4) %}
+  <div class="tt-card">
+    {% for _ in range(n) %}
+    <div class="d-flex align-items-center gap-2 py-2">
+      <div class="tt-skel" style="width:34px;height:34px;border-radius:9px;flex:0 0 auto"></div>
+      <div class="flex-grow-1">{{ skel_line("w-60") }}{{ skel_line("w-40") }}</div>
+    </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
 {# — DOCUMENTO subido (chip) — #}
 {% macro doc_chip(nombre, meta="", ext="PDF") %}
   <div class="tt-doc">
