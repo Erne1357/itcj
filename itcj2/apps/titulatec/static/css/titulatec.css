@@ -189,7 +189,8 @@ a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .tt-bottomnav {
-  position: sticky; bottom: 0; background: var(--tt-paper); border-top: 1px solid var(--tt-line);
+  position: sticky; bottom: 0; z-index: 20; background: var(--tt-paper);
+  border-top: 1px solid var(--tt-line);
   display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 4px;
 }
 .tt-bottomnav a {

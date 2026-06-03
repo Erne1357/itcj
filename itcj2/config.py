@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111356"
+    STATIC_VERSION: str = "1.0.1111357"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
