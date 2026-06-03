@@ -4,7 +4,7 @@
 {% block admin_main %}
 <div class="px-4 pt-4">
   <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Procesos de titulación</h1>
-  <div class="d-flex gap-2 mt-2">
+  <div class="d-flex flex-wrap gap-2 mt-2">
     {% for f, lbl in [('', 'Todos'), ('active', 'Activos'), ('completed', 'Completados'), ('on_hold', 'En espera'), ('cancelled', 'Cancelados')] %}
     <a href="/titulatec/admin/processes{{ '?status=' ~ f if f }}"
        class="btn btn-sm {{ 'tt-btn-ink' if status==f else 'tt-btn-ghost' }}">{{ lbl }}</a>
@@ -13,6 +13,7 @@
 </div>
 <div class="px-4 pt-3 pb-4">
   <div class="tt-card p-0 overflow-hidden">
+   <div class="tt-table-wrap">
     <table class="table table-hover align-middle mb-0" style="font-size:.85rem">
       <thead><tr style="background:var(--tt-mist)">
         <th class="tt-kicker">Folio</th><th class="tt-kicker">Alumno</th>
@@ -35,6 +36,7 @@
         {% endfor %}
       </tbody>
     </table>
+   </div>
   </div>
 </div>
 {% endblock %}

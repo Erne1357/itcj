@@ -11,7 +11,7 @@
   <div class="tt-card mb-3">
     <span class="tt-kicker">Nueva convocatoria</span>
     {% if periods %}
-    <form method="post" action="/titulatec/admin/cohorts" class="d-flex gap-2 align-items-end mt-2">
+    <form method="post" action="/titulatec/admin/cohorts" class="d-flex flex-wrap gap-2 align-items-end mt-2">
       <div class="flex-grow-1" style="max-width:360px">
         <label class="tt-label">Período académico</label>
         <select class="form-select" name="period_id" required>
@@ -28,6 +28,7 @@
 
   {# Lista #}
   <div class="tt-card p-0 overflow-hidden">
+   <div class="tt-table-wrap">
     <table class="table align-middle mb-0" style="font-size:.85rem">
       <thead><tr style="background:var(--tt-mist)">
         <th class="tt-kicker">Convocatoria</th><th class="tt-kicker">Período</th>
@@ -50,6 +51,7 @@
         {% endfor %}
       </tbody>
     </table>
+   </div>
   </div>
 </div>
 {% endblock %}

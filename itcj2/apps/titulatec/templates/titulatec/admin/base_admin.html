@@ -16,14 +16,19 @@
 {% set _is_coh   = '/titulatec/admin/cohorts' in _p %}
 {% set _is_appt  = '/titulatec/admin/appointments' in _p %}
 {% set _is_cer   = '/titulatec/admin/ceremonies' in _p %}
+{% set _section = 'Bandeja' if _is_inbox else 'Procesos' if _is_proc else 'Convocatorias' if _is_coh else 'Citas de cotejo' if _is_appt else 'Actos protocolarios' if _is_cer else 'TitulaTec · Admin' %}
 
 {% block content %}
-<div class="tt-admin">
+<div class="tt-admin" id="ttAdmin">
+  <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
   <aside class="side">
-    <div class="d-flex align-items-center gap-2 mb-4">
-      <div class="d-flex align-items-center justify-content-center tt-display"
-           style="width:28px;height:28px;background:var(--tt-accent);border-radius:7px;color:#1F1300;font-weight:700;font-size:1rem">T</div>
-      <div class="tt-display" style="font-size:.95rem;font-weight:600">TitulaTec · Admin</div>
+    <div class="d-flex align-items-center justify-content-between mb-4">
+      <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center justify-content-center tt-display"
+             style="width:28px;height:28px;background:var(--tt-accent);border-radius:7px;color:#1F1300;font-weight:700;font-size:1rem">T</div>
+        <div class="tt-display" style="font-size:.95rem;font-weight:600">TitulaTec · Admin</div>
+      </div>
+      <button type="button" class="tt-admin-close" id="ttAdminClose" aria-label="Cerrar menú"><i class="bi bi-x-lg"></i></button>
     </div>
     <a href="/titulatec/admin/" class="{{ 'active' if _is_inbox }}"><i class="bi bi-inbox"></i> Bandeja</a>
     <a href="/titulatec/admin/processes" class="{{ 'active' if _is_proc }}"><i class="bi bi-people"></i> Procesos</a>
@@ -35,6 +40,11 @@
     </div>
   </aside>
   <main class="main">
+    {# Topbar móvil: hamburguesa para abrir el drawer del sidebar (<992px). #}
+    <header class="tt-admin-topbar">
+      <button type="button" class="tt-burger" id="ttAdminBurger" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
+      <div class="tt-display" style="font-size:1rem;font-weight:600">{{ _section }}</div>
+    </header>
     <div class="tt-anim-in">{% block admin_main %}{% endblock %}</div>
   </main>
 </div>
@@ -48,6 +58,20 @@
               || 'No se pudo completar la acción.';
     if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
   });
+
+  // Drawer del sidebar admin en móvil/tablet (<992px).
+  (function () {
+    var admin = document.getElementById('ttAdmin');
+    if (!admin) return;
+    function open()  { admin.classList.add('side-open'); document.body.classList.add('tt-admin-locked'); }
+    function close() { admin.classList.remove('side-open'); document.body.classList.remove('tt-admin-locked'); }
+    document.getElementById('ttAdminBurger')?.addEventListener('click', open);
+    document.getElementById('ttAdminClose')?.addEventListener('click', close);
+    document.getElementById('ttAdminOverlay')?.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    // Al navegar por un item del menú, cierra el drawer.
+    admin.querySelectorAll('.side a').forEach(function (a) { a.addEventListener('click', close); });
+  })();
 </script>
 {% block admin_scripts %}{% endblock %}
 {% endblock %}

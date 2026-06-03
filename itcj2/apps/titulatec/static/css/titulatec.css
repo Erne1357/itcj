@@ -450,3 +450,57 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
 @media (min-width: 1280px) {
   .tt-canvas-inner { max-width: 1000px; }
 }
+
+/* ===========================================================================
+   ADMIN RESPONSIVE (Servicios Escolares / Titulaciones)
+   ---------------------------------------------------------------------------
+   Desktop: sidebar fijo (.tt-admin .side, ya definido arriba). En <992px el
+   sidebar pasa a drawer (off-canvas) + topbar con hamburguesa. El contenido
+   admin debe poder hacer scroll horizontal en su propia zona (tablas anchas).
+   =========================================================================== */
+.tt-admin-topbar { display: none; }
+.tt-admin-overlay { display: none; }
+.tt-admin-close { display: none; }
+
+/* Tablas anchas: scroll horizontal DENTRO de su tarjeta (no empuja la página).
+   Reutilizable en cualquier listado admin. */
+.tt-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tt-table-wrap > table { white-space: nowrap; margin-bottom: 0; }
+
+@media (max-width: 991.98px) {
+  .tt-admin { display: block; min-height: 100vh; min-height: 100dvh; }
+
+  /* Sidebar → drawer off-canvas */
+  .tt-admin .side {
+    position: fixed; top: 0; left: 0; height: 100%; width: 264px; max-width: 84vw;
+    transform: translateX(-100%); transition: transform .3s var(--tt-ease-drawer);
+    z-index: 1050; box-shadow: 6px 0 28px rgba(15, 23, 42, .28); overflow-y: auto;
+  }
+  .tt-admin.side-open .side { transform: none; }
+
+  .tt-admin-overlay {
+    display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .5);
+    opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility .3s ease; z-index: 1040;
+  }
+  .tt-admin.side-open .tt-admin-overlay { opacity: 1; visibility: visible; }
+  body.tt-admin-locked { overflow: hidden; }
+
+  .tt-admin .main { width: 100%; min-width: 0; }
+
+  /* Topbar móvil con hamburguesa */
+  .tt-admin-topbar {
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; z-index: 30;
+    background: var(--tt-paper); border-bottom: 1px solid var(--tt-line);
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+  }
+  .tt-admin-topbar .tt-burger { display: flex; }
+
+  /* Botón cerrar dentro del drawer (sobre fondo ink) */
+  .tt-admin-close {
+    display: flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 999px; flex: 0 0 auto;
+    background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .14);
+    color: #fff; cursor: pointer;
+  }
+}
