@@ -112,6 +112,17 @@ class DocumentService:
         doc.review_status = status
         doc.review_note = note or None
         doc.reviewed_by_id = reviewer_id
+
+        if status == "rejected":
+            from itcj2.apps.titulatec.models import TitulationProcess
+            from itcj2.apps.titulatec.services.notify import notify_student
+            proc = db.get(TitulationProcess, process_id)
+            if proc:
+                notify_student(db, proc.student_id, type="DOCUMENT_REJECTED",
+                               title="Un documento necesita correcciones",
+                               body=(note or "Revisa el documento rechazado y vuelve a subirlo."),
+                               process_id=process_id, phase_number=1)
+
         db.commit()
         return True
 

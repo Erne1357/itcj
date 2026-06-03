@@ -77,6 +77,25 @@ class AppointmentService:
             event_type=event_type, phase_number=2, payload=payload,
         ))
 
+    _MONTHS_ES = ["", "ene", "feb", "mar", "abr", "may", "jun",
+                  "jul", "ago", "sep", "oct", "nov", "dic"]
+
+    @staticmethod
+    def _notify_appt(db: Session, process_id: int, ntype: str, title: str,
+                     scheduled_at: datetime, location: str | None) -> None:
+        """Avisa al alumno (in-app) de un cambio en su cita. Best-effort."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.notify import notify_student
+
+        proc = db.get(TitulationProcess, process_id)
+        if not proc:
+            return
+        when = (f"{scheduled_at.day:02d} {AppointmentService._MONTHS_ES[scheduled_at.month]} "
+                f"{scheduled_at.year} · {scheduled_at:%H:%M}")
+        body = when + (f" · {location}" if location else "")
+        notify_student(db, proc.student_id, type=ntype, title=title, body=body,
+                       process_id=process_id, phase_number=2)
+
     @staticmethod
     def has_change_request(appt) -> bool:
         return bool(appt and appt.note and appt.note.startswith(CHANGE_REQUEST_PREFIX))
@@ -108,6 +127,8 @@ class AppointmentService:
             db.add(appt)
         AppointmentService._log(db, process_id, created_by_id, "appointment_scheduled",
                                 {"scheduled_at": scheduled_at.isoformat(), "location": location})
+        AppointmentService._notify_appt(db, process_id, "APPOINTMENT_SCHEDULED",
+                                        "Tu cita de cotejo fue agendada", scheduled_at, location)
         db.commit()
         db.refresh(appt)
         return appt
@@ -123,6 +144,8 @@ class AppointmentService:
         appt.note = note
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_rescheduled",
                                 {"scheduled_at": scheduled_at.isoformat()})
+        AppointmentService._notify_appt(db, appt.process_id, "APPOINTMENT_RESCHEDULED",
+                                        "Tu cita de cotejo fue reagendada", scheduled_at, location)
         db.commit()
         db.refresh(appt)
         return appt

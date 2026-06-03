@@ -273,6 +273,12 @@ class ImportService:
                     db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
                 processes_created += 1
 
+                from itcj2.apps.titulatec.services.notify import notify_student
+                notify_student(db, user.id, type="PROCESS_CREATED",
+                               title="Tu proceso de titulación está activo",
+                               body="Servicios Escolares te dio de alta. Empieza subiendo tus documentos iniciales.",
+                               process_id=proc.id, phase_number=1)
+
         db.commit()
         return {
             "created_users": created_users,

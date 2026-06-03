@@ -58,6 +58,13 @@ class PhaseService:
         ))
 
     @staticmethod
+    def _phase_label(db: Session, phase_number: int) -> str:
+        """'Fase NN · Nombre' para copys de notificación."""
+        from itcj2.apps.titulatec.models import PhaseDefinition
+        pdef = db.query(PhaseDefinition).filter_by(number=phase_number).first()
+        return f"Fase {phase_number:02d}" + (f" · {pdef.name}" if pdef else "")
+
+    @staticmethod
     def approve_phase(db: Session, process, phase_number: int, reviewer_id: int) -> dict:
         """Aprueba una fase, activa la siguiente aplicable (o completa el proceso)."""
         from itcj2.apps.titulatec.models import TitulationProcess
@@ -87,6 +94,19 @@ class PhaseService:
             process.current_phase = nxt
 
         PhaseService._log(db, process.id, reviewer_id, "phase_approved", phase_number)
+
+        from itcj2.apps.titulatec.services.notify import notify_student
+        if nxt is None:
+            notify_student(db, process.student_id, type="PROCESS_COMPLETED",
+                           title="¡Proceso de titulación completado!",
+                           body="Felicidades, concluiste todas las fases de tu titulación.",
+                           process_id=process.id)
+        else:
+            notify_student(db, process.student_id, type="PHASE_APPROVED",
+                           title="Avanzaste de fase",
+                           body=f"{PhaseService._phase_label(db, phase_number)} fue aprobada.",
+                           process_id=process.id, phase_number=nxt)
+
         db.commit()
         return {"next_phase": nxt, "completed": nxt is None}
 
@@ -99,4 +119,11 @@ class PhaseService:
         ph.rejection_reason = reason or None
         process.current_phase = phase_number
         PhaseService._log(db, process.id, reviewer_id, "phase_rejected", phase_number, {"reason": reason})
+
+        from itcj2.apps.titulatec.services.notify import notify_student
+        notify_student(db, process.student_id, type="PHASE_REJECTED",
+                       title="Una fase necesita correcciones",
+                       body=(reason or f"{PhaseService._phase_label(db, phase_number)} fue rechazada."),
+                       process_id=process.id, phase_number=phase_number)
+
         db.commit()
