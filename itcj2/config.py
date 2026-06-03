@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     VISTETEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
     VISTETEC_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,webp"
 
+    # TitulaTec — archivos del proceso de titulación.
+    # Estructura: instance/apps/titulatec/{convocatoria}/{control_number}/{tipo_documento}.{ext}
+    # Solo se conserva la última versión de cada documento (se sobreescribe por nombre fijo).
+    TITULATEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "titulatec")
+    TITULATEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
+    TITULATEC_MAX_PDF_SIZE: int = 10 * 1024 * 1024
+    TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
+    TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

@@ -29,6 +29,10 @@ def register_routers(app: FastAPI):
     from itcj2.apps.maint.router import maint_router
     app.include_router(maint_router)
 
+    # TitulaTec API v2 (proceso de titulación — /api/titulatec/v2)
+    from itcj2.apps.titulatec.router import titulatec_router
+    app.include_router(titulatec_router)
+
     # ── Fase 4: Page routers ─────────────────────────────────────────────────
     # Core pages (prefix /itcj): login, dashboard, perfil, config, móvil
     from itcj2.core.pages.router import core_pages_router
@@ -50,6 +54,10 @@ def register_routers(app: FastAPI):
     # Maint pages (prefix /maint): dashboard, tickets, admin
     from itcj2.apps.maint.pages.router import maint_pages_router
     app.include_router(maint_pages_router)
+
+    # TitulaTec pages (prefix /titulatec): landing, student, admin
+    from itcj2.apps.titulatec.pages.router import titulatec_pages_router
+    app.include_router(titulatec_pages_router)
 
     # Redirect raíz: autenticado → dashboard o móvil, no autenticado → login
     @app.get("/", include_in_schema=False)

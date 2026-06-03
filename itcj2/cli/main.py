@@ -23,6 +23,7 @@ from itcj2.cli.agendatec import agendatec_cli
 from itcj2.cli.vistetec import vistetec_cli
 from itcj2.cli.warehouse import warehouse_cli
 from itcj2.cli.maint import maint_cli
+from itcj2.cli.titulatec import titulatec_cli
 from itcj2.cli.celery import celery_cli
 
 
@@ -48,6 +49,7 @@ cli.add_command(agendatec_cli)
 cli.add_command(vistetec_cli)
 cli.add_command(warehouse_cli)
 cli.add_command(maint_cli)
+cli.add_command(titulatec_cli)
 cli.add_command(celery_cli)
 
 
