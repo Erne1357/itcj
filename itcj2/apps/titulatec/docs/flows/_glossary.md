@@ -64,3 +64,6 @@
 - Shell alumno (mobile): `templates/titulatec/base.html` + `.tt-mobile` + `.tt-bottomnav`.
 - HTMX devuelve **parciales HTML**; las acciones que mutan re-renderizan su sección.
 - Toasts/confirm: `window.TitulaTecUtils` (prohibido `alert/confirm/prompt` nativos).
+- **Movimiento/skeletons/micro-interacciones**: primitivas reutilizables del design system
+  (`tt-anim-in`, `tt-stagger`, `tt-hover-lift`, skeletons `skel_rows`, spinner automático en
+  botones HTMX). Toda vista nueva las reutiliza. Ver [docs/design/ui_motion.md](../design/ui_motion.md).
