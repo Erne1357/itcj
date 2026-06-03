@@ -56,6 +56,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 ### Transversales (building blocks)
 - [Motor de avance de fase: aprobar / rechazar](engine_approve_advance_phase.md) 🤖 — invocado por casi todos.
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — estado, instrucciones, CTA y timeline.
+- [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
 
 ### Referencias
 - [Máquina de estados (fases + citas + documentos)](00_state_machine.md)
