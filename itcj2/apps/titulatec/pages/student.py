@@ -122,6 +122,55 @@ async def dashboard(
     return render_titulatec(request, "titulatec/student/dashboard.html", ctx)
 
 
+@router.get("/perfil", name="titulatec.pages.student.perfil")
+async def perfil(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.student"])),
+):
+    """Mini-perfil del alumno: identidad + resumen del proceso + cerrar sesión.
+
+    Solo se enlaza en modo standalone (el shell mobile del core cubre el perfil
+    cuando la app corre embebida).
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.core.models.user import User
+    from itcj2.core.models.program import Program
+    from itcj2.apps.titulatec.models import PhaseDefinition
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    db = SessionLocal()
+    try:
+        user_id = int(user["sub"])
+        u = db.get(User, user_id)
+        process = DocumentService.get_active_process(db, user_id)
+
+        proc_ctx = None
+        if process:
+            program = db.get(Program, process.program_id) if process.program_id else None
+            pdef = db.query(PhaseDefinition).filter_by(number=process.current_phase).first()
+            proc_ctx = {
+                "folio": process.folio,
+                "modality": process.modality.name if process.modality else "—",
+                "program": program.name if program else None,
+                "period": process.cohort.period_code if process.cohort else None,
+                "current_phase": process.current_phase,
+                "phase_name": pdef.name if pdef else None,
+                "status": process.status,
+            }
+
+        ctx = {
+            "u": {
+                "name": (u.full_name if u else None) or "Alumno",
+                "control_number": (u.control_number or u.username) if u else None,
+                "email": u.email if u else None,
+            },
+            "proc": proc_ctx,
+        }
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/student/perfil.html", ctx)
+
+
 @router.get("/fase/{n}", name="titulatec.pages.student.phase_detail")
 async def phase_detail(
     n: int,

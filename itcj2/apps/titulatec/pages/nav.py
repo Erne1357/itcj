@@ -34,6 +34,19 @@ def sv(path: str) -> str:
             return "0"
 
 
+def sv_core(path: str) -> str:
+    """Versión de un estático del CORE (p. ej. el shell mobile reutilizado por el alumno)."""
+    try:
+        from itcj2.templates import sv as _sv_global
+        return _sv_global("core", path)
+    except Exception:
+        try:
+            from itcj2.config import get_settings
+            return str(get_settings().STATIC_VERSION)
+        except Exception:
+            return "0"
+
+
 # ---------------------------------------------------------------------------
 # Resolución del dashboard por rol (landing)
 # ---------------------------------------------------------------------------
@@ -90,6 +103,7 @@ def render_titulatec(
         "request": request,
         "current_user": user,
         "sv": sv,
+        "sv_core": sv_core,
         "current_route": request.url.path,
         **(context or {}),
     }

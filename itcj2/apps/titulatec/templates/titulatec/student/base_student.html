@@ -1,0 +1,136 @@
+{# ===========================================================================
+   base_student.html — shell del alumno de TitulaTec
+   ---------------------------------------------------------------------------
+   Mobile-first. Reutiliza el shell core (core/css|js/apps/mobile-app-shell.*):
+     · appbar con hamburguesa (móvil) + botón "volver" (solo embebido/iframe)
+     · drawer `.app-sidebar` tematizado (--app-primary* = ink/ámbar)
+     · en ≥992px el drawer pasa a un rail lateral persistente
+   El FAB de notificaciones se instancia pero se autosuprime dentro del iframe
+   (el shell ya expone el tab "Avisos"). Toda vista nueva del alumno extiende ESTE.
+
+   Bloques para hijos:
+     student_title · student_active (home|docs|cita|perfil) · student_appbar_left
+     student_appbar_title · student_appbar_sub · student_body · student_scripts
+   =========================================================================== #}
+{% extends "titulatec/base.html" %}
+{% from "titulatec/_macros.html" import student_nav %}
+
+{% block title %}{% block student_title %}TitulaTec{% endblock %}{% endblock %}
+{% block body_class %}tt-stu tt-mist{% endblock %}
+
+{# Clave de la pestaña activa (la usan el rail y el drawer). #}
+{% block student_active %}home{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="/static/core/css/apps/mobile-app-shell.css?v={{ sv_core('css/apps/mobile-app-shell.css') }}">
+  <link rel="stylesheet" href="/static/core/css/notifications/notifications.css?v={{ sv_core('css/notifications/notifications.css') }}">
+{% endblock %}
+
+{% block content %}
+{% set _uname = (current_user.name if current_user else None) or 'Alumno' %}
+{% set _uinitial = _uname[:1]|upper %}
+<div class="tt-shell">
+
+  {# — Rail lateral (desktop ≥992px) — #}
+  <aside class="tt-rail">
+    <div class="tt-rail-brand">
+      <div class="logo">TT</div>
+      <div class="min-w-0">
+        <div class="name">TitulaTec</div>
+        <div class="sub">Tu titulación</div>
+      </div>
+    </div>
+    <nav class="tt-rail-nav">{{ student_nav(self.student_active()|trim) }}</nav>
+    <div class="tt-rail-foot">
+      <div class="app-sidebar-footer" style="background:transparent;border-top:1px solid var(--tt-line);padding:14px 6px 0">
+        <div class="app-sidebar-user">
+          <div class="app-sidebar-user-avatar">{{ _uinitial }}</div>
+          <div class="app-sidebar-user-info">
+            <div class="app-sidebar-user-name">{{ _uname }}</div>
+            <div class="app-sidebar-user-role">Alumno</div>
+          </div>
+        </div>
+        <button type="button" class="app-sidebar-logout" data-tt-logout>
+          <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  {# — Columna principal — #}
+  <div class="tt-main">
+    <header class="tt-appbar">
+      {# Slot izquierdo: el dashboard pone el botón "volver al shell" (id mobileBackToDashboard,
+         visible solo embebido); las sub-páginas ponen un chevron "volver al dashboard". #}
+      {% block student_appbar_left %}{% endblock %}
+      <div class="flex-grow-1 min-w-0">
+        <div class="title">{% block student_appbar_title %}TitulaTec{% endblock %}</div>
+        {% block student_appbar_sub %}{% endblock %}
+      </div>
+      <button type="button" class="tt-burger" id="sidebarTrigger" aria-label="Abrir menú">
+        <i class="bi bi-list"></i>
+      </button>
+    </header>
+
+    <main class="tt-canvas">
+      <div class="tt-canvas-inner">
+        {% block student_body %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+
+{# — Drawer móvil (oculto en desktop por CSS) — #}
+<div class="app-sidebar-overlay" id="appSidebarOverlay"></div>
+<aside class="app-sidebar" id="appSidebar" tabindex="-1">
+  <div class="app-sidebar-header">
+    <h5 class="app-sidebar-title"><i class="bi bi-mortarboard-fill"></i> TitulaTec</h5>
+    <button type="button" class="app-sidebar-close" id="sidebarClose"><i class="bi bi-x-lg"></i></button>
+  </div>
+  <nav class="app-sidebar-nav">
+    <div class="app-sidebar-section">
+      <div class="app-sidebar-section-title">Navegación</div>
+      {{ student_nav(self.student_active()|trim) }}
+    </div>
+  </nav>
+  <div class="app-sidebar-footer">
+    <div class="app-sidebar-user">
+      <div class="app-sidebar-user-avatar">{{ _uinitial }}</div>
+      <div class="app-sidebar-user-info">
+        <div class="app-sidebar-user-name">{{ _uname }}</div>
+        <div class="app-sidebar-user-role">Alumno</div>
+      </div>
+    </div>
+    <button type="button" class="app-sidebar-logout" id="sidebarLogout">
+      <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+    </button>
+  </div>
+</aside>
+{% endblock %}
+
+{% block scripts %}
+  {# — Shell core: drawer, botón volver (postMessage al shell), detección de iframe — #}
+  <script src="/static/core/js/iframe_bridge.js?v={{ sv_core('js/iframe_bridge.js') }}"></script>
+  <script src="/static/core/js/apps/mobile-app-shell.js?v={{ sv_core('js/apps/mobile-app-shell.js') }}"></script>
+  {# — FAB de notificaciones por-app (se autosuprime dentro del iframe del shell) — #}
+  <script src="/static/core/js/notifications/app-fab-widget.js?v={{ sv_core('js/notifications/app-fab-widget.js') }}"></script>
+  <script>
+    if (window.AppNotificationFAB) {
+      try { new AppNotificationFAB('titulatec', '/api/core/v2', { color: '#0F172A', colorDark: '#0B1220' }); } catch (e) {}
+    }
+    function ttLogout() {
+      fetch('/api/core/v2/auth/logout', { method: 'POST', credentials: 'include' })
+        .catch(function () {})
+        .finally(function () {
+          if (window.self !== window.top) {
+            try { window.parent.postMessage({ type: 'LOGOUT', reason: 'titulatec' }, window.location.origin); } catch (e) {}
+          } else {
+            window.location.href = '/itcj/login';
+          }
+        });
+    }
+    document.getElementById('sidebarLogout')?.addEventListener('click', ttLogout);
+    document.querySelectorAll('[data-tt-logout]').forEach(function (b) { b.addEventListener('click', ttLogout); });
+  </script>
+  {% block student_scripts %}{% endblock %}
+{% endblock %}

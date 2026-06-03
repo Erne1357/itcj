@@ -1,28 +1,22 @@
-{% extends "titulatec/base.html" %}
-{% block title %}Documentos · TitulaTec{% endblock %}
-{% block body_class %}tt-mist{% endblock %}
+{% extends "titulatec/student/base_student.html" %}
+{% block student_title %}Documentos · TitulaTec{% endblock %}
+{% block student_active %}docs{% endblock %}
+{% block student_appbar_title %}Documentos iniciales{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Fase 01 · Acta · Certificado · CURP</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
 
-{% block content %}
-<div class="tt-mobile">
-  <header class="tt-appbar">
-    <a href="/titulatec/student/dashboard" class="tt-iconbtn"><i class="bi bi-chevron-left"></i></a>
-    <div class="flex-grow-1 min-w-0">
-      <div class="title">Documentos iniciales</div>
-      <div style="font-size:.75rem;color:var(--tt-mute)">Fase 01 · Acta · Certificado · CURP</div>
-    </div>
-  </header>
-
-  <div class="p-3">
+{% block student_body %}
+  <div class="p-3 p-lg-4">
     {% if not process %}
-      <div class="tt-card tt-card--accent">
-        <span class="tt-pill tt-pill--amber"><i class="bi bi-info-circle"></i> Sin proceso</span>
-        <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">
-          Aún no tienes un proceso de titulación activo. Aparecerá aquí cuando Servicios Escolares
-          te dé de alta en una convocatoria.
-        </p>
+      <div class="tt-empty tt-anim-in">
+        <div class="ico"><i class="bi bi-folder2-open"></i></div>
+        <h6>Sin proceso activo</h6>
+        <p>Aún no tienes un proceso de titulación. Aparecerá aquí cuando Servicios Escolares te dé de alta en una convocatoria.</p>
       </div>
     {% else %}
-      <div class="tt-card mb-3">
+      <div class="tt-card mb-3 tt-anim-in">
         <span class="tt-kicker">Sube tus 3 documentos</span>
         <p class="mb-0 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
           Deben ser los mismos que llevarás físicos a la cita de cotejo. Solo se conserva la última
@@ -52,25 +46,13 @@
       </div>
     {% endif %}
   </div>
+{% endblock %}
 
-  <nav class="tt-bottomnav mt-3">
-    <a href="/titulatec/student/dashboard"><i class="bi bi-house"></i><span>Inicio</span></a>
-    <a href="/titulatec/student/documents" class="active"><i class="bi bi-file-earmark-fill"></i><span>Documentos</span></a>
-    <a href="/titulatec/student/cita"><i class="bi bi-calendar-check"></i><span>Cita</span></a>
-    <a href="/itcj/m/"><i class="bi bi-person"></i><span>Perfil</span></a>
-  </nav>
-</div>
-
-{% block scripts %}
+{% block student_scripts %}
 <script>
-  // Toast de error/éxito desde respuestas HTMX (header HX-Trigger -> evento) o status 4xx.
   document.body.addEventListener('htmx:responseError', function (e) {
     const msg = e.detail.xhr.getResponseHeader('X-Tt-Error') || 'No se pudo procesar el archivo.';
     if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
   });
-  document.body.addEventListener('htmx:afterSwap', function () {
-    // Re-evalúa si ya están los 3 documentos para refrescar el botón de envío.
-  });
 </script>
-{% endblock %}
 {% endblock %}

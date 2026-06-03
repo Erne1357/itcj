@@ -86,17 +86,22 @@
   </header>
 {% endmacro %}
 
-{# — BOTTOM NAV — activo: home | docs | chat | perfil — #}
-{% macro bottomnav(activo="home", chat_badge=0) %}
-  <nav class="tt-bottomnav">
-    <a href="{{ url_for('titulatec.mi_proceso') }}" class="{{ 'active' if activo=='home' }}">
-      <i class="bi bi-house{{ '-fill' if activo=='home' }}"></i><span>Inicio</span></a>
-    <a href="{{ url_for('titulatec.documentos') }}" class="{{ 'active' if activo=='docs' }}">
-      <i class="bi bi-file-earmark{{ '-fill' if activo=='docs' }}"></i><span>Documentos</span></a>
-    <a href="{{ url_for('titulatec.chat') }}" class="{{ 'active' if activo=='chat' }}">
-      <i class="bi bi-chat{{ '-fill' if activo=='chat' }}"></i>
-      {% if chat_badge %}<span class="nav-badge">{{ chat_badge }}</span>{% endif %}<span>Chat</span></a>
-    <a href="{{ url_for('titulatec.perfil') }}" class="{{ 'active' if activo=='perfil' }}">
-      <i class="bi bi-person{{ '-fill' if activo=='perfil' }}"></i><span>Perfil</span></a>
-  </nav>
+{# — NAV DEL ALUMNO — items compartidos por el drawer (móvil) y el rail (desktop).
+   Reutiliza .app-sidebar-item del shell core (ya tematizado con --app-primary*).
+   activo: home | docs | cita    #}
+{% macro student_nav(activo="home") %}
+  {% set _items = [
+    ("home", "Inicio",          "house",          "/titulatec/student/dashboard"),
+    ("docs", "Documentos",      "file-earmark",   "/titulatec/student/documents"),
+    ("cita", "Cita de cotejo",  "calendar-check", "/titulatec/student/cita"),
+  ] %}
+  {% for key, label, icon, url in _items %}
+    <a href="{{ url }}" class="app-sidebar-item {{ 'active' if activo==key }}">
+      <i class="bi bi-{{ icon }}{{ '-fill' if activo==key }}"></i><span>{{ label }}</span>
+    </a>
+  {% endfor %}
+  {# Perfil: solo standalone (embebido lo da el tab Perfil del shell). #}
+  <a href="/titulatec/student/perfil" class="app-sidebar-item tt-standalone-only {{ 'active' if activo=='perfil' }}">
+    <i class="bi bi-person{{ '-fill' if activo=='perfil' }}"></i><span>Perfil</span>
+  </a>
 {% endmacro %}

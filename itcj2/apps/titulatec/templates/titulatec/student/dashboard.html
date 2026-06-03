@@ -1,24 +1,26 @@
-{% extends "titulatec/base.html" %}
+{% extends "titulatec/student/base_student.html" %}
 {% from "titulatec/_macros.html" import pill %}
-{% block title %}Mi proceso · TitulaTec{% endblock %}
-{% block body_class %}tt-mist{% endblock %}
+{% block student_title %}Mi proceso · TitulaTec{% endblock %}
+{% block student_active %}home{% endblock %}
+{% block student_appbar_title %}Mi proceso{% endblock %}
 
-{% block content %}
-<div class="tt-mobile">
+{# Raíz del alumno: el botón "volver" sale al shell (solo embebido, lo muestra el core). #}
+{% block student_appbar_left %}
+  <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+    <i class="bi bi-arrow-left"></i>
+  </button>
+{% endblock %}
 
-  {# — Hero ink con saludo + barra de progreso por fase — #}
-  <div class="tt-ink-bg position-relative overflow-hidden" style="padding:22px 20px 80px">
+{% block student_body %}
+
+  {# — Hero: saludo + barra de progreso por fase — #}
+  <div class="tt-ink-bg position-relative overflow-hidden" style="padding:22px 20px 78px;border-radius:0 0 var(--tt-r-xl) var(--tt-r-xl)">
     <div class="position-absolute" style="inset:0;opacity:.22;background:radial-gradient(circle at 100% 0%, var(--tt-accent) 0%, transparent 55%)"></div>
-    <div class="position-relative d-flex justify-content-between align-items-center">
-      <div>
-        <div style="font-size:.8rem;color:#94A3B8">Hola,</div>
-        <div class="tt-display" style="font-size:1.5rem;font-weight:600;color:#fff">{{ first_name or 'Alumno' }}.</div>
-      </div>
-      <span class="d-flex align-items-center justify-content-center" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.08);color:#fff">
-        <i class="bi bi-bell" style="font-size:1.25rem"></i>
-      </span>
+    <div class="position-relative">
+      <div style="font-size:.8rem;color:#94A3B8">Hola,</div>
+      <div class="tt-display" style="font-size:1.6rem;font-weight:600;color:#fff;line-height:1.1">{{ first_name or 'Alumno' }}.</div>
     </div>
-    <div class="position-relative" style="margin-top:24px">
+    <div class="position-relative" style="margin-top:22px">
       <div class="d-flex justify-content-between align-items-baseline mb-2">
         <span class="tt-mono" style="font-size:.6875rem;color:var(--tt-accent);font-weight:600;letter-spacing:1.4px;text-transform:uppercase">
           {{ current_phase|default(0) }} de 9 fases
@@ -33,46 +35,48 @@
     </div>
   </div>
 
-  {# — Card de la fase actual (shell Fase 0) — #}
-  <div class="px-3 position-relative" style="margin-top:-60px;z-index:2">
-    <div class="tt-card tt-card--hero tt-anim-in">
-      <div class="d-flex justify-content-between align-items-center">
-        <span class="tt-kicker">Tu proceso</span>
-        {{ pill('En construcción', 'amber', 'cone-striped') }}
-      </div>
-      <div class="tt-display mt-2" style="font-size:1.4rem;font-weight:600;line-height:1.1">
-        {{ phase_name or 'Bienvenido a TitulaTec' }}
-      </div>
-      <p class="mt-2 mb-0" style="font-size:.85rem;color:var(--tt-slate)">
-        Aquí llevarás tu titulación de principio a fin. El flujo por fases se habilitará pronto.
-      </p>
-    </div>
+  {# — Contenido: a 2 columnas en desktop, apilado en móvil — #}
+  <div class="px-3 px-lg-0 position-relative" style="margin-top:-58px;z-index:2">
+    <div class="tt-dash-grid">
 
-    <div class="tt-kicker mt-4 mb-2 px-1">El proceso (9 fases)</div>
-    <div class="tt-card p-0 overflow-hidden tt-stagger">
-      {% for ph in phases %}
-      {% set _cur = ph.number == current_phase %}
-      <a href="/titulatec/student/fase/{{ ph.number }}"
-         class="d-flex align-items-center gap-3 p-3 tt-hover-lift text-decoration-none"
-         style="color:inherit;{% if not loop.last %}border-bottom:1px solid var(--tt-line-soft);{% endif %}{% if _cur %}background:var(--tt-mist);{% endif %}">
-        <div class="d-flex align-items-center justify-content-center tt-mono"
-             style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;border:1px solid var(--tt-line);
-             {% if _cur %}background:var(--tt-accent);color:#1F1300;border-color:var(--tt-accent){% else %}background:var(--tt-mist);color:var(--tt-mute){% endif %}">
-          {{ '%02d'|format(ph.number) }}
+      {# Col A — fase actual #}
+      <div>
+        <div class="tt-card tt-card--hero tt-anim-in">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="tt-kicker">Tu proceso</span>
+            {{ pill('En construcción', 'amber', 'cone-striped') }}
+          </div>
+          <div class="tt-display mt-2" style="font-size:1.4rem;font-weight:600;line-height:1.1">
+            {{ phase_name or 'Bienvenido a TitulaTec' }}
+          </div>
+          <p class="mt-2 mb-0" style="font-size:.85rem;color:var(--tt-slate)">
+            Aquí llevarás tu titulación de principio a fin. Toca una fase para ver qué necesitas y dónde accionar.
+          </p>
         </div>
-        <div class="flex-grow-1" style="font-size:.875rem;font-weight:{{ '600' if _cur else '500' }}">{{ ph.name }}</div>
-        {% if _cur %}<span class="tt-pill tt-pill--amber" style="font-size:.6rem">Actual</span>{% endif %}
-        <i class="bi bi-chevron-right" style="color:var(--tt-mute);font-size:.8rem"></i>
-      </a>
-      {% endfor %}
+      </div>
+
+      {# Col B — lista de las 9 fases #}
+      <div>
+        <div class="tt-kicker mt-4 mt-lg-0 mb-2 px-1">El proceso (9 fases)</div>
+        <div class="tt-card p-0 overflow-hidden tt-stagger">
+          {% for ph in phases %}
+          {% set _cur = ph.number == current_phase %}
+          <a href="/titulatec/student/fase/{{ ph.number }}"
+             class="d-flex align-items-center gap-3 p-3 tt-hover-lift text-decoration-none"
+             style="color:inherit;{% if not loop.last %}border-bottom:1px solid var(--tt-line-soft);{% endif %}{% if _cur %}background:var(--tt-mist);{% endif %}">
+            <div class="d-flex align-items-center justify-content-center tt-mono"
+                 style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;border:1px solid var(--tt-line);
+                 {% if _cur %}background:var(--tt-accent);color:#1F1300;border-color:var(--tt-accent){% else %}background:var(--tt-mist);color:var(--tt-mute){% endif %}">
+              {{ '%02d'|format(ph.number) }}
+            </div>
+            <div class="flex-grow-1" style="font-size:.875rem;font-weight:{{ '600' if _cur else '500' }}">{{ ph.name }}</div>
+            {% if _cur %}<span class="tt-pill tt-pill--amber" style="font-size:.6rem">Actual</span>{% endif %}
+            <i class="bi bi-chevron-right" style="color:var(--tt-mute);font-size:.8rem"></i>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+
     </div>
   </div>
-
-  <nav class="tt-bottomnav mt-3">
-    <a href="/titulatec/student/dashboard" class="active"><i class="bi bi-house-fill"></i><span>Inicio</span></a>
-    <a href="/titulatec/student/documents"><i class="bi bi-file-earmark"></i><span>Documentos</span></a>
-    <a href="/titulatec/student/cita"><i class="bi bi-calendar-check"></i><span>Cita</span></a>
-    <a href="/itcj/m/"><i class="bi bi-person"></i><span>Perfil</span></a>
-  </nav>
-</div>
 {% endblock %}

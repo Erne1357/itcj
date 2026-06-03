@@ -1,19 +1,15 @@
-{% extends "titulatec/base.html" %}
+{% extends "titulatec/student/base_student.html" %}
 {% from "titulatec/_macros.html" import pill, estado_pill %}
-{% block title %}Fase {{ '%02d'|format(n) }} · TitulaTec{% endblock %}
-{% block body_class %}tt-mist{% endblock %}
+{% block student_title %}Fase {{ '%02d'|format(n) }} · TitulaTec{% endblock %}
+{% block student_active %}home{% endblock %}
+{% block student_appbar_title %}Fase {{ '%02d'|format(n) }}{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{{ phase.name }}</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
 
-{% block content %}
-<div class="tt-mobile">
-  <header class="tt-appbar">
-    <a href="/titulatec/student/dashboard" class="tt-iconbtn"><i class="bi bi-chevron-left"></i></a>
-    <div class="flex-grow-1 min-w-0">
-      <div class="title">Fase {{ '%02d'|format(n) }}</div>
-      <div style="font-size:.75rem;color:var(--tt-mute)">{{ phase.name }}</div>
-    </div>
-  </header>
-
-  <div class="p-3">
+{% block student_body %}
+  <div class="p-3 p-lg-4">
     {# — Encabezado de la fase — #}
     <div class="tt-card tt-card--hero tt-anim-in">
       <div class="d-flex align-items-center justify-content-between">
@@ -72,12 +68,4 @@
     </div>
     {% endif %}
   </div>
-
-  <nav class="tt-bottomnav mt-3">
-    <a href="/titulatec/student/dashboard" class="active"><i class="bi bi-house-fill"></i><span>Inicio</span></a>
-    <a href="/titulatec/student/documents"><i class="bi bi-file-earmark"></i><span>Documentos</span></a>
-    <a href="/titulatec/student/cita"><i class="bi bi-calendar-check"></i><span>Cita</span></a>
-    <a href="/itcj/m/"><i class="bi bi-person"></i><span>Perfil</span></a>
-  </nav>
-</div>
 {% endblock %}
