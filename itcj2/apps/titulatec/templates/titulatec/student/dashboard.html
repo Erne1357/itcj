@@ -14,7 +14,7 @@
 {% block student_body %}
 
   {# — Hero: saludo + barra de progreso por fase — #}
-  <div class="tt-ink-bg position-relative overflow-hidden" style="padding:22px 20px 78px;border-radius:0 0 var(--tt-r-xl) var(--tt-r-xl)">
+  <div class="tt-ink-bg tt-dash-hero position-relative overflow-hidden">
     <div class="position-absolute" style="inset:0;opacity:.22;background:radial-gradient(circle at 100% 0%, var(--tt-accent) 0%, transparent 55%)"></div>
     <div class="position-relative">
       <div style="font-size:.8rem;color:#94A3B8">Hola,</div>
@@ -36,7 +36,7 @@
   </div>
 
   {# — Contenido: a 2 columnas en desktop, apilado en móvil — #}
-  <div class="px-3 px-lg-0 position-relative" style="margin-top:-58px;z-index:2">
+  <div class="tt-dash-rise px-3 px-lg-0 position-relative" style="z-index:2">
     <div class="tt-dash-grid">
 
       {# Col A — fase actual #}

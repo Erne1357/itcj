@@ -359,9 +359,18 @@ body.tt-stu {
 /* — Estructura — */
 .tt-shell { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--tt-mist); }
 .tt-main  { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.tt-canvas { flex: 1; padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+/* Holgura inferior: deja respirar el contenido por encima del FAB (standalone) y
+   del home-indicator iOS. Embebido no tiene FAB → solo es aire extra. */
+.tt-canvas { flex: 1; padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 .tt-canvas-inner { width: 100%; }
 .tt-rail { display: none; }
+
+/* Dashboard: hero + "subida" de las tarjetas.
+   Móvil: el hero se extiende y las tarjetas suben para solaparlo (efecto tarjeta).
+   Desktop: el hero es una banda contenida y las columnas van debajo (evita texto
+   oscuro sobre el hero oscuro). */
+.tt-dash-hero { padding: 22px 20px 78px; border-radius: 0 0 var(--tt-r-xl) var(--tt-r-xl); }
+.tt-dash-rise { margin-top: -58px; }
 
 /* — Appbar (sticky, con safe-area y hamburguesa) — */
 .tt-appbar {
@@ -431,7 +440,10 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
   /* En desktop el drawer no aplica (lo cubre el rail). */
   body.tt-stu .app-sidebar, body.tt-stu .app-sidebar-overlay { display: none !important; }
   .tt-appbar { background: var(--tt-paper); }
-  .tt-canvas-inner { max-width: 920px; margin: 0 auto; padding: 0 28px; }
+  .tt-canvas-inner { max-width: 920px; margin: 0 auto; padding: 24px 28px; }
+  /* Hero contenido (no banda full-bleed) + columnas debajo, sin solape oscuro. */
+  .tt-dash-hero { padding: 26px 30px 30px; border-radius: var(--tt-r-xl); box-shadow: var(--tt-shadow-hero); }
+  .tt-dash-rise { margin-top: 20px; }
   /* Dashboard a 2 columnas donde aporta. */
   .tt-dash-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 20px; align-items: start; }
 }
