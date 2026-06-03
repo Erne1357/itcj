@@ -1,0 +1,234 @@
+/* ===========================================================================
+   TitulaTec — capa de diseño sobre Bootstrap 5
+   ---------------------------------------------------------------------------
+   Carga DESPUÉS de bootstrap.min.css. No reescribe Bootstrap: añade tokens
+   y clases utilitarias propias con prefijo .tt-* para reproducir el diseño
+   del prototipo con fidelidad.
+   =========================================================================== */
+
+:root {
+  /* — Neutros — */
+  --tt-ink: #0F172A;
+  --tt-ink-soft: #1F2937;
+  --tt-slate: #475569;
+  --tt-mute: #94A3B8;
+  --tt-line: #E2E8F0;
+  --tt-line-soft: #EEF2F7;
+  --tt-mist: #F8FAFC;
+  --tt-paper: #FFFFFF;
+
+  /* — Acentos — */
+  --tt-amber: #F59E0B;
+  --tt-amber-soft: #FEF3C7;
+  --tt-amber-ink: #78350F;
+  --tt-navy: #1E3A8A;
+  --tt-navy-soft: #DBEAFE;
+
+  /* — Estados — */
+  --tt-success: #16A34A;
+  --tt-success-soft: #DCFCE7;
+  --tt-danger: #DC2626;
+  --tt-danger-soft: #FEE2E2;
+  --tt-violet: #6D28D9;
+  --tt-violet-soft: #EDE9FE;
+
+  /* Acento activo (se puede sobrescribir por tema) */
+  --tt-accent: var(--tt-amber);
+  --tt-accent-soft: var(--tt-amber-soft);
+  --tt-accent-ink: var(--tt-amber-ink);
+
+  /* — Tipografía — */
+  --tt-display: "Bricolage Grotesque", system-ui, sans-serif;
+  --tt-ui: "Geist", system-ui, sans-serif;
+  --tt-serif: "Instrument Serif", Georgia, serif;
+  --tt-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* — Radios y sombras — */
+  --tt-r-sm: 8px;
+  --tt-r: 12px;
+  --tt-r-lg: 16px;
+  --tt-r-xl: 20px;
+  --tt-shadow-card: 0 1px 2px rgba(15, 23, 42, .04);
+  --tt-shadow-hero: 0 18px 40px -12px rgba(15, 23, 42, .22);
+
+  /* Remapeo de variables Bootstrap para que sus componentes hereden la marca */
+  --bs-primary: #0F172A;
+  --bs-body-font-family: var(--tt-ui);
+  --bs-body-color: var(--tt-ink);
+  --bs-border-color: var(--tt-line);
+  --bs-border-radius: var(--tt-r);
+}
+
+/* — Base — */
+body {
+  font-family: var(--tt-ui);
+  color: var(--tt-ink);
+  background: var(--tt-mist);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tt-display { font-family: var(--tt-display); letter-spacing: -.4px; }
+.tt-serif   { font-family: var(--tt-serif); font-style: italic; }
+.tt-mono    { font-family: var(--tt-mono); }
+.tt-kicker  { font-family: var(--tt-mono); font-size: .6875rem; font-weight: 600;
+              letter-spacing: 1.2px; text-transform: uppercase; color: var(--tt-mute); }
+
+/* — Superficies — */
+.tt-paper { background: var(--tt-paper); }
+.tt-mist  { background: var(--tt-mist); }
+.tt-ink-bg { background: var(--tt-ink); color: #fff; }
+
+/* ============================ CARD ====================================== */
+.tt-card {
+  background: var(--tt-paper);
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-lg);
+  padding: 16px;
+  box-shadow: var(--tt-shadow-card);
+}
+.tt-card--hero { border-radius: var(--tt-r-xl); box-shadow: var(--tt-shadow-hero); }
+.tt-card--accent { border-left: 3px solid var(--tt-accent); }
+.tt-card--success { border-left: 3px solid var(--tt-success); }
+.tt-card--danger { border-left: 3px solid var(--tt-danger); }
+.tt-card--violet { border-left: 3px solid var(--tt-violet); }
+a.tt-card, button.tt-card { display: block; width: 100%; text-align: left; cursor: pointer;
+  text-decoration: none; color: inherit; transition: transform .15s, box-shadow .15s; }
+a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
+  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, .15); }
+
+/* ============================ PILL / BADGE ============================== */
+.tt-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: .6875rem; font-weight: 600; line-height: 1.4;
+  border: 1px solid var(--tt-line); background: var(--tt-mist); color: var(--tt-slate);
+  white-space: nowrap;
+}
+.tt-pill i { font-size: .75rem; }
+.tt-pill--amber   { background: var(--tt-amber-soft); color: var(--tt-amber-ink); border-color: rgba(245,158,11,.3); }
+.tt-pill--success { background: var(--tt-success-soft); color: #166534; border-color: rgba(22,163,74,.25); }
+.tt-pill--danger  { background: var(--tt-danger-soft); color: #991B1B; border-color: rgba(220,38,38,.25); }
+.tt-pill--navy    { background: var(--tt-navy-soft); color: #1E3A8A; border-color: rgba(30,58,138,.2); }
+.tt-pill--violet  { background: var(--tt-violet-soft); color: #5B21B6; border-color: rgba(109,40,217,.2); }
+.tt-pill--ink     { background: var(--tt-ink); color: #fff; border-color: var(--tt-ink); }
+
+/* ============================ BOTONES ================================== */
+/* Se apoyan en .btn de Bootstrap; sólo redefinen color/forma. */
+.btn { border-radius: var(--tt-r); font-weight: 600; letter-spacing: -.1px; }
+.tt-btn-ink     { background: var(--tt-ink); color: #fff; border: 1px solid var(--tt-ink); }
+.tt-btn-ink:hover { background: #1e293b; color: #fff; }
+.tt-btn-accent  { background: var(--tt-accent); color: #1F1300; border: 1px solid var(--tt-accent); }
+.tt-btn-accent:hover { filter: brightness(.96); color: #1F1300; }
+.tt-btn-ghost   { background: transparent; color: var(--tt-ink); border: 1px solid var(--tt-line); }
+.tt-btn-ghost:hover { background: var(--tt-mist); }
+.tt-btn-soft    { background: var(--tt-mist); color: var(--tt-ink); border: 1px solid var(--tt-line); }
+
+/* ============================ INPUTS / FORM ============================ */
+.tt-label { font-size: .75rem; font-weight: 600; color: var(--tt-slate); margin-bottom: 6px; display: block; }
+.tt-field, .form-control, .form-select {
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r);
+  padding: 12px 14px; font-size: .875rem; background: var(--tt-paper); color: var(--tt-ink);
+}
+.tt-field:focus, .form-control:focus, .form-select:focus {
+  border-color: var(--tt-accent); box-shadow: 0 0 0 3px rgba(245,158,11,.18);
+}
+.tt-field--readonly { background: var(--tt-mist); color: var(--tt-slate); }
+
+/* ============================ PROGRESO POR FASES ======================= */
+.tt-phasebar { display: flex; gap: 4px; }
+.tt-phasebar > .seg { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); position: relative; }
+.tt-phasebar.on-light > .seg { background: var(--tt-line); }
+.tt-phasebar > .seg.is-done { background: var(--tt-success); }
+.tt-phasebar > .seg.is-current { background: var(--tt-accent); }
+.tt-phasebar > .seg.is-skipped { opacity: .4; }
+.tt-phasebar > .seg.is-done::after {
+  content: ""; position: absolute; top: -3px; right: 2px; width: 12px; height: 12px;
+  border-radius: 6px; background: var(--tt-success); border: 2px solid var(--tt-ink);
+}
+
+/* ============================ CHECKLIST / TAREAS ======================= */
+.tt-check { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.tt-check + .tt-check { border-top: 1px solid var(--tt-line-soft); }
+.tt-check .box {
+  width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--tt-line);
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto; color: #fff;
+}
+.tt-check.is-done .box { background: var(--tt-success); border-color: var(--tt-success); }
+.tt-check.is-done .label { color: var(--tt-mute); text-decoration: line-through; }
+.tt-check .label { flex: 1; font-size: .875rem; }
+
+/* ============================ DOCUMENTO (chip / card) ================== */
+.tt-doc { display: flex; align-items: center; gap: 10px;
+  background: var(--tt-mist); border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r); padding: 10px; }
+.tt-doc .thumb {
+  width: 32px; height: 40px; flex: 0 0 auto; border-radius: 5px;
+  background: var(--tt-danger-soft); border: 1px solid rgba(220,38,38,.2);
+  color: var(--tt-danger); font-family: var(--tt-mono); font-size: .5625rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.tt-dropzone {
+  position: relative;  /* contiene el .stretched-link del input file */
+  border: 1.5px dashed var(--tt-line); border-radius: var(--tt-r); background: var(--tt-mist);
+  padding: 22px 12px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.tt-dropzone:hover { border-color: var(--tt-accent); background: var(--tt-amber-soft); }
+
+/* ============================ SHELL MÓVIL ============================== */
+.tt-mobile {
+  max-width: 430px; margin: 0 auto; min-height: 100vh;
+  background: var(--tt-mist); display: flex; flex-direction: column;
+}
+.tt-appbar {
+  background: var(--tt-paper); border-bottom: 1px solid var(--tt-line);
+  padding: 10px 18px 14px; display: flex; align-items: center; gap: 10px;
+}
+.tt-appbar .title { font-family: var(--tt-display); font-size: 1.1875rem; font-weight: 600; letter-spacing: -.4px; }
+.tt-iconbtn {
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: 999px;
+  background: var(--tt-mist); border: 1px solid var(--tt-line); color: var(--tt-ink);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.tt-bottomnav {
+  position: sticky; bottom: 0; background: var(--tt-paper); border-top: 1px solid var(--tt-line);
+  display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 4px;
+}
+.tt-bottomnav a {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  text-decoration: none; color: var(--tt-mute); font-size: .65rem; font-weight: 500; position: relative;
+}
+.tt-bottomnav a i { font-size: 1.3rem; }
+.tt-bottomnav a.active { color: var(--tt-ink); font-weight: 600; }
+.tt-bottomnav a .nav-badge {
+  position: absolute; top: -3px; right: 50%; margin-right: -18px;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--tt-accent); color: #1F1300; font-size: .5625rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ============================ CHAT ===================================== */
+.tt-bubble { max-width: 80%; border-radius: 16px; padding: 10px 14px; font-size: .875rem; line-height: 1.5;
+  border: 1px solid var(--tt-line); background: var(--tt-paper); }
+.tt-bubble.mine { background: var(--tt-ink); color: #fff; border: 0; border-top-right-radius: 4px; margin-left: auto; }
+.tt-bubble.theirs { border-top-left-radius: 4px; }
+.tt-avatar { width: 28px; height: 28px; flex: 0 0 auto; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center; font-size: .625rem; font-weight: 700; }
+
+/* ============================ SIDEBAR ADMIN ============================ */
+.tt-admin { display: flex; min-height: 100vh; }
+.tt-admin .side { width: 240px; flex: 0 0 auto; background: var(--tt-ink); color: #fff;
+  display: flex; flex-direction: column; padding: 20px 14px; }
+.tt-admin .side a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px;
+  color: #94A3B8; font-size: .8125rem; font-weight: 500; text-decoration: none; }
+.tt-admin .side a.active { background: rgba(245,158,11,.15); color: var(--tt-accent); font-weight: 600; }
+.tt-admin .main { flex: 1; min-width: 0; background: var(--tt-mist); }
+
+/* ============================ TEMA OSCURO (opcional) =================== */
+body[data-tt-theme="dark"] {
+  --tt-ink: #F8FAFC; --tt-ink-soft: #E2E8F0; --tt-slate: #94A3B8; --tt-mute: #64748B;
+  --tt-line: #1F2937; --tt-line-soft: #111827; --tt-mist: #0F172A; --tt-paper: #111827;
+  --tt-amber-soft: #422006; --tt-amber-ink: #FCD34D; --tt-navy-soft: #1E3A8A;
+  --tt-success-soft: #064E3B; --tt-danger-soft: #450A0A; --tt-violet-soft: #4C1D95;
+}
+/* Acentos alternos */
+body[data-tt-accent="navy"]   { --tt-accent: var(--tt-navy);  --tt-accent-soft: var(--tt-navy-soft);  --tt-accent-ink: #1E3A8A; }
+body[data-tt-accent="violet"] { --tt-accent: var(--tt-violet);--tt-accent-soft: var(--tt-violet-soft);--tt-accent-ink: #4C1D95; }

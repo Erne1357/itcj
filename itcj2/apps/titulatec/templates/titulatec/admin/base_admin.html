@@ -1,0 +1,53 @@
+{# ===========================================================================
+   base_admin.html — shell de escritorio para TitulaTec (sidebar + main).
+   Define el menú UNA sola vez; el estado activo se deriva de `current_route`.
+   Las páginas admin extienden esto y solo rellenan {% block admin_main %}.
+
+   Bloques disponibles:
+     - admin_main      → contenido de <main> (obligatorio)
+     - admin_scripts   → JS extra de la página (el toast de error HTMX ya está incluido)
+     - head_extra      → heredado de base.html
+   =========================================================================== #}
+{% extends "titulatec/base.html" %}
+
+{% set _p = current_route or '' %}
+{% set _is_inbox = _p in ('/titulatec/admin', '/titulatec/admin/') %}
+{% set _is_proc  = '/titulatec/admin/processes' in _p %}
+{% set _is_coh   = '/titulatec/admin/cohorts' in _p %}
+{% set _is_appt  = '/titulatec/admin/appointments' in _p %}
+{% set _is_cer   = '/titulatec/admin/ceremonies' in _p %}
+
+{% block content %}
+<div class="tt-admin">
+  <aside class="side">
+    <div class="d-flex align-items-center gap-2 mb-4">
+      <div class="d-flex align-items-center justify-content-center tt-display"
+           style="width:28px;height:28px;background:var(--tt-accent);border-radius:7px;color:#1F1300;font-weight:700;font-size:1rem">T</div>
+      <div class="tt-display" style="font-size:.95rem;font-weight:600">TitulaTec · Admin</div>
+    </div>
+    <a href="/titulatec/admin/" class="{{ 'active' if _is_inbox }}"><i class="bi bi-inbox"></i> Bandeja</a>
+    <a href="/titulatec/admin/processes" class="{{ 'active' if _is_proc }}"><i class="bi bi-people"></i> Procesos</a>
+    <a href="/titulatec/admin/cohorts" class="{{ 'active' if _is_coh }}"><i class="bi bi-award"></i> Convocatorias</a>
+    <a href="/titulatec/admin/appointments" class="{{ 'active' if _is_appt }}"><i class="bi bi-calendar"></i> Citas de cotejo</a>
+    <a href="#" class="{{ 'active' if _is_cer }}"><i class="bi bi-mortarboard"></i> Actos protocolarios</a>
+    <div class="mt-auto">
+      <a href="/itcj/dashboard"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
+    </div>
+  </aside>
+  <main class="main">
+    {% block admin_main %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
+  document.body.addEventListener('htmx:responseError', function (e) {
+    var msg = (e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error'))
+              || 'No se pudo completar la acción.';
+    if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
+  });
+</script>
+{% block admin_scripts %}{% endblock %}
+{% endblock %}

@@ -1,0 +1,88 @@
+{# ===========================================================================
+   _macros.html — componentes reutilizables de TitulaTec
+   Úsalos con:  {% from "titulatec/_macros.html" import pill, doc_card, ... %}
+   =========================================================================== #}
+
+{# — PILL / BADGE de estado —
+   tone: neutral | amber | success | danger | navy | violet | ink
+   icon: nombre de Bootstrap Icon sin el prefijo 'bi-' (opcional) #}
+{% macro pill(text, tone="neutral", icon=None) %}
+  <span class="tt-pill tt-pill--{{ tone }}">
+    {%- if icon %}<i class="bi bi-{{ icon }}"></i>{% endif -%}
+    {{ text }}
+  </span>
+{% endmacro %}
+
+{# — Mapea un estado de fase/documento (códigos en inglés) a (texto, tono, icono) — #}
+{% macro estado_pill(estado) %}
+  {% if estado == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
+  {% elif estado == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
+  {% elif estado == "rejected" %}{{ pill("Rechazado", "danger", "exclamation-triangle") }}
+  {% elif estado == "in_progress" %}{{ pill("En curso", "amber", "clock") }}
+  {% elif estado == "pending" %}{{ pill("Pendiente", "neutral", "hourglass-split") }}
+  {% elif estado == "skipped" %}{{ pill("No aplica", "neutral", "dash-circle") }}
+  {% else %}{{ pill(estado, "neutral") }}{% endif %}
+{% endmacro %}
+
+{# — Mapea el estado de una cita de cotejo a (texto, tono, icono) — #}
+{% macro appt_pill(estado) %}
+  {% if estado == "scheduled" %}{{ pill("Agendada", "navy", "calendar-event") }}
+  {% elif estado == "confirmed" %}{{ pill("Confirmada", "violet", "check2-circle") }}
+  {% elif estado == "in_progress" %}{{ pill("En proceso", "amber", "hourglass-split") }}
+  {% elif estado == "attended" %}{{ pill("Asistió", "success", "check-lg") }}
+  {% elif estado == "no_show" %}{{ pill("No se presentó", "danger", "x-circle") }}
+  {% else %}{{ pill(estado, "neutral") }}{% endif %}
+{% endmacro %}
+
+{# — DOCUMENTO subido (chip) — #}
+{% macro doc_chip(nombre, meta="", ext="PDF") %}
+  <div class="tt-doc">
+    <div class="thumb">{{ ext }}</div>
+    <div class="flex-grow-1 min-w-0">
+      <div class="fw-semibold text-truncate" style="font-size:.8125rem">{{ nombre }}</div>
+      {% if meta %}<div class="tt-mono" style="font-size:.6875rem;color:var(--tt-mute)">{{ meta }}</div>{% endif %}
+    </div>
+    <i class="bi bi-three-dots" style="color:var(--tt-slate)"></i>
+  </div>
+{% endmacro %}
+
+{# — DROPZONE de subida (dispara POST HTMX multipart) —
+   post_url: endpoint que recibe el archivo y devuelve un parcial #}
+{% macro dropzone(label="Tocar para subir", hint="Archivo · cámara · galería", post_url="#") %}
+  <form class="tt-dropzone" hx-post="{{ post_url }}" hx-encoding="multipart/form-data"
+        hx-trigger="change from:input[type=file]" hx-swap="outerHTML">
+    <i class="bi bi-upload" style="font-size:1.25rem;color:var(--tt-mute)"></i>
+    <div class="fw-semibold mt-2" style="font-size:.8125rem">{{ label }}</div>
+    <div style="font-size:.6875rem;color:var(--tt-mute)">{{ hint }}</div>
+    <input type="file" name="archivo" hidden>
+  </form>
+{% endmacro %}
+
+{# — APPBAR móvil con botón de regreso opcional — #}
+{% macro appbar(titulo, sub=None, back_url=None) %}
+  <header class="tt-appbar">
+    {% if back_url %}
+      <a href="{{ back_url }}" class="tt-iconbtn"><i class="bi bi-chevron-left"></i></a>
+    {% endif %}
+    <div class="flex-grow-1 min-w-0">
+      <div class="title">{{ titulo }}</div>
+      {% if sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{{ sub }}</div>{% endif %}
+    </div>
+    {{ caller() if caller is defined else "" }}
+  </header>
+{% endmacro %}
+
+{# — BOTTOM NAV — activo: home | docs | chat | perfil — #}
+{% macro bottomnav(activo="home", chat_badge=0) %}
+  <nav class="tt-bottomnav">
+    <a href="{{ url_for('titulatec.mi_proceso') }}" class="{{ 'active' if activo=='home' }}">
+      <i class="bi bi-house{{ '-fill' if activo=='home' }}"></i><span>Inicio</span></a>
+    <a href="{{ url_for('titulatec.documentos') }}" class="{{ 'active' if activo=='docs' }}">
+      <i class="bi bi-file-earmark{{ '-fill' if activo=='docs' }}"></i><span>Documentos</span></a>
+    <a href="{{ url_for('titulatec.chat') }}" class="{{ 'active' if activo=='chat' }}">
+      <i class="bi bi-chat{{ '-fill' if activo=='chat' }}"></i>
+      {% if chat_badge %}<span class="nav-badge">{{ chat_badge }}</span>{% endif %}<span>Chat</span></a>
+    <a href="{{ url_for('titulatec.perfil') }}" class="{{ 'active' if activo=='perfil' }}">
+      <i class="bi bi-person{{ '-fill' if activo=='perfil' }}"></i><span>Perfil</span></a>
+  </nav>
+{% endmacro %}

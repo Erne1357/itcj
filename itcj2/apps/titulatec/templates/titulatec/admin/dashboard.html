@@ -1,0 +1,28 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Admin · TitulaTec{% endblock %}
+
+{% block admin_main %}
+<div class="px-4 pt-4">
+  <nav class="d-flex align-items-center gap-2 mb-1" style="font-size:.75rem;color:var(--tt-mute)">
+    <span>TitulaTec</span><i class="bi bi-chevron-right" style="font-size:.6rem"></i>
+    <span class="fw-semibold" style="color:var(--tt-ink)">Bandeja</span>
+  </nav>
+  <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">
+    Bandeja · <span class="tt-serif" style="font-weight:400">{{ role_label or 'Administración' }}</span>
+  </h1>
+</div>
+<div class="px-4 pt-4">
+  <div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Procesos activos</div><div class="tt-display" style="font-size:1.625rem;font-weight:600">{{ stats.active|default(0) }}</div></div></div>
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Pendientes de revisar</div><div class="tt-display" style="font-size:1.625rem;font-weight:600;color:var(--tt-amber)">{{ stats.pending|default(0) }}</div></div></div>
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Convocatorias</div><div class="tt-display" style="font-size:1.625rem;font-weight:600">{{ stats.cohorts|default(0) }}</div></div></div>
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Completados</div><div class="tt-display" style="font-size:1.625rem;font-weight:600;color:var(--tt-success)">{{ stats.completed|default(0) }}</div></div></div>
+  </div>
+  <div class="tt-card">
+    <div class="d-flex align-items-center gap-2">
+      <span class="tt-pill tt-pill--amber"><i class="bi bi-cone-striped"></i> En construcción</span>
+      <span style="font-size:.85rem;color:var(--tt-slate)">La bandeja tipo email y más reportes se habilitarán en las próximas fases.</span>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends "titulatec/base.html" %}
+{% from "titulatec/_macros.html" import pill %}
+{% block title %}Mi proceso · TitulaTec{% endblock %}
+{% block body_class %}tt-mist{% endblock %}
+
+{% block content %}
+<div class="tt-mobile">
+
+  {# — Hero ink con saludo + barra de progreso por fase — #}
+  <div class="tt-ink-bg position-relative overflow-hidden" style="padding:22px 20px 80px">
+    <div class="position-absolute" style="inset:0;opacity:.22;background:radial-gradient(circle at 100% 0%, var(--tt-accent) 0%, transparent 55%)"></div>
+    <div class="position-relative d-flex justify-content-between align-items-center">
+      <div>
+        <div style="font-size:.8rem;color:#94A3B8">Hola,</div>
+        <div class="tt-display" style="font-size:1.5rem;font-weight:600;color:#fff">{{ first_name or 'Alumno' }}.</div>
+      </div>
+      <span class="d-flex align-items-center justify-content-center" style="width:40px;height:40px;border-radius:20px;background:rgba(255,255,255,.08);color:#fff">
+        <i class="bi bi-bell" style="font-size:1.25rem"></i>
+      </span>
+    </div>
+    <div class="position-relative" style="margin-top:24px">
+      <div class="d-flex justify-content-between align-items-baseline mb-2">
+        <span class="tt-mono" style="font-size:.6875rem;color:var(--tt-accent);font-weight:600;letter-spacing:1.4px;text-transform:uppercase">
+          {{ current_phase|default(0) }} de 9 fases
+        </span>
+        <span style="font-size:.6875rem;color:#94A3B8;font-weight:500">{{ progress_pct|default(0) }}%</span>
+      </div>
+      <div class="tt-phasebar">
+        {% for i in range(9) %}
+          <div class="seg {{ 'is-done' if i < (current_phase|default(0)) else ('is-current' if i == (current_phase|default(0)) else '') }}"></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# — Card de la fase actual (shell Fase 0) — #}
+  <div class="px-3 position-relative" style="margin-top:-60px;z-index:2">
+    <div class="tt-card tt-card--hero">
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="tt-kicker">Tu proceso</span>
+        {{ pill('En construcción', 'amber', 'cone-striped') }}
+      </div>
+      <div class="tt-display mt-2" style="font-size:1.4rem;font-weight:600;line-height:1.1">
+        {{ phase_name or 'Bienvenido a TitulaTec' }}
+      </div>
+      <p class="mt-2 mb-0" style="font-size:.85rem;color:var(--tt-slate)">
+        Aquí llevarás tu titulación de principio a fin. El flujo por fases se habilitará pronto.
+      </p>
+    </div>
+
+    <div class="tt-kicker mt-4 mb-2 px-1">El proceso (9 fases)</div>
+    <div class="tt-card p-0 overflow-hidden">
+      {% for ph in phases %}
+      <div class="d-flex align-items-center gap-3 p-3" {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
+        <div class="d-flex align-items-center justify-content-center tt-mono"
+             style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;background:var(--tt-mist);color:var(--tt-mute);border:1px solid var(--tt-line)">
+          {{ '%02d'|format(ph.number) }}
+        </div>
+        <div class="flex-grow-1" style="font-size:.875rem;font-weight:500">{{ ph.name }}</div>
+        <i class="bi bi-chevron-right" style="color:var(--tt-mute);font-size:.8rem"></i>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <nav class="tt-bottomnav mt-3">
+    <a href="/titulatec/student/dashboard" class="active"><i class="bi bi-house-fill"></i><span>Inicio</span></a>
+    <a href="/titulatec/student/documents"><i class="bi bi-file-earmark"></i><span>Documentos</span></a>
+    <a href="/titulatec/student/cita"><i class="bi bi-calendar-check"></i><span>Cita</span></a>
+    <a href="/itcj/m/"><i class="bi bi-person"></i><span>Perfil</span></a>
+  </nav>
+</div>
+{% endblock %}
