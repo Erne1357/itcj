@@ -6,7 +6,7 @@
 |---|---|
 | **Actor(es)** | 👤 Alumno (`student`) |
 | **Permiso(s)** | `document.api.read.own` (ver) · `...upload.own` · `...delete.own` · `process.api.advance` (enviar) |
-| **Trigger** | El alumno entra a "Documentos" desde el bottomnav |
+| **Trigger** | El alumno entra a "Documentos" desde el menú del alumno (drawer/rail) o el CTA del detalle de fase |
 | **Precondiciones** | Tiene un `TitulationProcess` activo (creado en [import CSV](phase0_school_services_import_csv.md)); fase 1 `in_progress` |
 | **Estado final** | 3 `Document` subidos (`review_status=pending`) + fase 1 → `in_review` |
 
@@ -14,8 +14,8 @@ Documentos requeridos (`DocumentType.code`): `birth_certificate`, `high_school_c
 
 ## Ruta en la app (UI)
 
-1. Dashboard alumno `/titulatec/student/dashboard` → bottomnav **Documentos**
-   (o directo `/titulatec/student/documents`).
+1. Dashboard alumno `/titulatec/student/dashboard` → menú del alumno → **Documentos**
+   (o directo `/titulatec/student/documents`). Chrome: ver [integración en el shell](xcut_student_shell_embed.md).
 2. Por cada documento: tarjeta dropzone (parcial `partials/document_slot.html`).
    Tocar → seleccionar archivo (cámara/galería/PDF) → sube solo (HTMX `change`).
 3. Cuando los 3 están subidos, se habilita **"Enviar a revisión"**.

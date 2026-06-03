@@ -45,7 +45,7 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos |
 |---|---|---|---|---|---|---|---|
 | 1 | 🏛️ | card docs | aprobar doc | `POST /processes/{id}/documents/{type}/review` `action=approve` | `DocumentService.review` | `Document.review_status=approved`, `reviewed_by_id` | — |
-| 1b| 🏛️ | card docs | rechazar doc | idem `action=reject` (form `note`) | `DocumentService.review` | `review_status=rejected`, `review_note` | — |
+| 1b| 🏛️ | card docs | rechazar doc | idem `action=reject` (form `note`) | `DocumentService.review` | `review_status=rejected`, `review_note` | notif `DOCUMENT_REJECTED` al alumno |
 | 2 | 🏛️/🎓 | card fase | aprobar fase 1 | `POST /processes/{id}/phase/1/approve` | `PhaseService.approve_phase` ⤵ | fase1=`approved`, fase2=`in_progress`, `current_phase=2` | `phase_approved` |
 
 > Todas las acciones re-renderizan el parcial `partials/admin_process_detail.html` dentro
@@ -56,6 +56,12 @@ sequenceDiagram
 - Documentos en `approved` (o `rejected` con nota → el alumno re-sube).
 - Fase 1 `approved`, fase 2 `in_progress`, `current_phase=2`.
 - El proceso aparece en **"Por agendar"** de [Citas de cotejo](phase2_appointment_loop.md).
+
+## Notificaciones al alumno
+
+Rechazar un documento dispara `DOCUMENT_REJECTED` (link a la fase 1); aprobar la fase 1
+dispara `PHASE_APPROVED` (vía el motor). Llegan al tab **Avisos** del shell. Ver
+[integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
 
 ## Caminos alternos / errores ❗
 

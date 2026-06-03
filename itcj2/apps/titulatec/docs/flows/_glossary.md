@@ -60,8 +60,8 @@
 
 ## UI / convenciones front
 
-- Shell admin (desktop): `templates/titulatec/admin/base_admin.html` (sidebar único, activo por `current_route`).
-- Shell alumno (mobile): `templates/titulatec/base.html` + `.tt-mobile` + `.tt-bottomnav`.
+- Shell admin (desktop): `templates/titulatec/admin/base_admin.html` (sidebar único, activo por `current_route`; en <992px pasa a drawer + topbar, ver [responsive](xcut_student_shell_embed.md)).
+- Shell alumno (mobile-first): `templates/titulatec/student/base_student.html` (appbar + drawer hamburguesa core / rail en desktop; embebible en el shell del core sin chrome duplicada). Ver [integración en el shell](xcut_student_shell_embed.md).
 - HTMX devuelve **parciales HTML**; las acciones que mutan re-renderizan su sección.
 - Toasts/confirm: `window.TitulaTecUtils` (prohibido `alert/confirm/prompt` nativos).
 - **Movimiento/skeletons/micro-interacciones**: primitivas reutilizables del design system

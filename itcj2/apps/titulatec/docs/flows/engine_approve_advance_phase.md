@@ -52,6 +52,14 @@ sequenceDiagram
 `skipped`. Si no hay siguiente → `process.status=completed`, `completed_at`.
 Ver [máquina de estados](00_state_machine.md).
 
+## Notificaciones al alumno
+
+`approve_phase` / `reject_phase` avisan al alumno vía `services/notify.notify_student`
+(→ `NotificationService`, tab **Avisos** del shell): `PHASE_APPROVED` (link a la nueva fase),
+`PROCESS_COMPLETED` (última fase → link al dashboard) o `PHASE_REJECTED` (con motivo → link a
+la fase). Tabla de eventos en
+[integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
+
 ## Caminos alternos / errores ❗
 
 - Rechazo NO baja `current_phase` a otra fase: la deja en `n` para que el alumno corrija.

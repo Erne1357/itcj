@@ -49,12 +49,14 @@ sequenceDiagram
 | 0 | 🏛️ | `/admin/cohorts` | crear convocatoria | `POST /admin/cohorts` | (inline) | `Cohort(status=open)` | período no reutilizado |
 | 1 | 🏛️ | import | subir CSV | `POST /admin/cohorts/{id}/import/upload` | `ImportService.parse` + `autodetect_mapping` | — (CSV temporal por token) | heurística de encabezados sin acentos |
 | 2 | 🏛️ | preview | revalidar | `POST /admin/cohorts/{id}/import/revalidate` | `ImportService.build_preview` | — | match fuzzy carrera→`core_programs`, modalidad→`titulatec_modalities` |
-| 3 | 🏛️ | preview | confirmar | `POST /admin/cohorts/{id}/import/commit` | `ImportService.import_rows` | UPSERT `core_users` (merge por `control_number`, crea con `must_change_password`); `titulatec_processes` + 9 `titulatec_process_phases`; grant rol `student`; `is_app_active=true`; persiste mapeo a JSON | filas con error se omiten salvo override |
+| 3 | 🏛️ | preview | confirmar | `POST /admin/cohorts/{id}/import/commit` | `ImportService.import_rows` | UPSERT `core_users` (merge por `control_number`, crea con `must_change_password`); `titulatec_processes` + 9 `titulatec_process_phases`; grant rol `student`; `is_app_active=true`; persiste mapeo a JSON; notif `PROCESS_CREATED` por alumno | filas con error se omiten salvo override |
 
 ## Estado resultante
 
 - `TitulationProcess` por alumno (`current_phase` inicial, fase 1 `in_progress`).
 - Alumno puede entrar y ver su [flujo de documentos](phase1_student_upload_initial_docs.md).
+- Cada alumno nuevo recibe una notificación `PROCESS_CREATED` (tab **Avisos** del shell, link a
+  la fase 1). Ver [integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
 
 ## Caminos alternos / errores ❗
 
