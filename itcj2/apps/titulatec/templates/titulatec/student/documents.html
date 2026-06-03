@@ -1,0 +1,76 @@
+{% extends "titulatec/base.html" %}
+{% block title %}Documentos · TitulaTec{% endblock %}
+{% block body_class %}tt-mist{% endblock %}
+
+{% block content %}
+<div class="tt-mobile">
+  <header class="tt-appbar">
+    <a href="/titulatec/student/dashboard" class="tt-iconbtn"><i class="bi bi-chevron-left"></i></a>
+    <div class="flex-grow-1 min-w-0">
+      <div class="title">Documentos iniciales</div>
+      <div style="font-size:.75rem;color:var(--tt-mute)">Fase 01 · Acta · Certificado · CURP</div>
+    </div>
+  </header>
+
+  <div class="p-3">
+    {% if not process %}
+      <div class="tt-card tt-card--accent">
+        <span class="tt-pill tt-pill--amber"><i class="bi bi-info-circle"></i> Sin proceso</span>
+        <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">
+          Aún no tienes un proceso de titulación activo. Aparecerá aquí cuando Servicios Escolares
+          te dé de alta en una convocatoria.
+        </p>
+      </div>
+    {% else %}
+      <div class="tt-card mb-3">
+        <span class="tt-kicker">Sube tus 3 documentos</span>
+        <p class="mb-0 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
+          Deben ser los mismos que llevarás físicos a la cita de cotejo. Solo se conserva la última
+          versión de cada uno.
+        </p>
+      </div>
+
+      {% for slot in slots %}
+        {% with dtype=slot.dtype, doc=slot.doc, upload_url=slot.upload_url, delete_url=slot.delete_url, error=slot.error %}
+          {% include "titulatec/partials/document_slot.html" %}
+        {% endwith %}
+      {% endfor %}
+
+      <div class="d-grid mt-2">
+        {% if all_uploaded %}
+          <button class="btn tt-btn-ink" style="height:48px"
+                  hx-post="/titulatec/student/phase/1/submit"
+                  hx-swap="none"
+                  onclick="setTimeout(()=>location.reload(), 400)">
+            Enviar a revisión <i class="bi bi-arrow-right ms-1"></i>
+          </button>
+        {% else %}
+          <button class="btn tt-btn-soft" style="height:48px" disabled>
+            Sube los 3 documentos para continuar
+          </button>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <nav class="tt-bottomnav mt-3">
+    <a href="/titulatec/student/dashboard"><i class="bi bi-house"></i><span>Inicio</span></a>
+    <a href="/titulatec/student/documents" class="active"><i class="bi bi-file-earmark-fill"></i><span>Documentos</span></a>
+    <a href="/titulatec/student/cita"><i class="bi bi-calendar-check"></i><span>Cita</span></a>
+    <a href="/itcj/m/"><i class="bi bi-person"></i><span>Perfil</span></a>
+  </nav>
+</div>
+
+{% block scripts %}
+<script>
+  // Toast de error/éxito desde respuestas HTMX (header HX-Trigger -> evento) o status 4xx.
+  document.body.addEventListener('htmx:responseError', function (e) {
+    const msg = e.detail.xhr.getResponseHeader('X-Tt-Error') || 'No se pudo procesar el archivo.';
+    if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
+  });
+  document.body.addEventListener('htmx:afterSwap', function () {
+    // Re-evalúa si ya están los 3 documentos para refrescar el botón de envío.
+  });
+</script>
+{% endblock %}
+{% endblock %}
