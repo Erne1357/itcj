@@ -5,6 +5,20 @@
 > **sutil y profesional**. Definidas en `static/css/titulatec.css` (secciones MOTION /
 > SKELETONS) + `static/js/shared/titulatec-utils.js`. Respetan `prefers-reduced-motion`.
 
+## Curvas de easing (tokens)
+
+Las easings nativas de CSS son flojas. Usa los tokens (filosofía de Emil Kowalski):
+
+| Token | Valor | Para |
+|---|---|---|
+| `--tt-ease-out` | `cubic-bezier(0.23,1,0.32,1)` | Entradas/salidas y micro-interacciones UI (lo normal). |
+| `--tt-ease-in-out` | `cubic-bezier(0.77,0,0.175,1)` | Movimiento/morph en pantalla. |
+| `--tt-ease-drawer` | `cubic-bezier(0.32,0.72,0,1)` | Tipo iOS (drawers). |
+
+Reglas: **nunca `ease-in`** en UI (se siente lento); **nunca `transition: all`** (propiedad
+exacta); animar solo `transform`/`opacity`; duraciones **< 300ms** (press 100–160ms, dropdown
+150–250ms); **nunca desde `scale(0)`** (parte de `.96`–`.98` + opacidad).
+
 ## Qué hay disponible
 
 | Primitiva | Cómo se usa | Notas |
@@ -14,8 +28,10 @@
 | **Stagger en listas** | clase `tt-stagger` en el contenedor | Sus hijos directos entran escalonados (delays .03–.30s). Para listas/tarjetas. |
 | **Skeleton de carga** | macro `skel_rows(n)` / `skel_card()` / `skel_line(w)` dentro de un `id` con clase `htmx-indicator`, referenciado por `hx-indicator="#id"` | Visible **solo** durante la petición HTMX. Ver ejemplo abajo. |
 | **Botón ocupado** | **automático** | El emisor de una petición HTMX recibe `.htmx-request`; CSS añade spinner + `pointer-events:none` a `button`/`.btn`. Evita doble click sin JS. |
-| **Hover lift** | clase `tt-hover-lift` | Eleva/realza tarjetas y filas de lista al pasar el cursor. (Tablas: usa `table-hover` de Bootstrap.) |
-| **Press** | automático en `.btn` | `:active` baja 1px. |
+| **Hover lift** | clase `tt-hover-lift` | Eleva tarjetas/filas al cursor. **Gateado tras `@media (hover:hover) and (pointer:fine)`** → sin falso hover pegado en touch (alumno). Tablas: `table-hover` de Bootstrap. |
+| **Press (feedback al tacto)** | automático en `.btn`, `a.tt-card`, filas `a.tt-hover-lift`, bottomnav | `:active` escala sutil (`.97`/`.985`/`.92`). `scale()` también escala el contenido. Para otros elementos clicables, añade `tt-pressable`. |
+| **Toast** | `TitulaTecUtils.showToast` | Entra/sale desde el borde derecho (consistencia espacial) con `--tt-ease-out`, transición (no keyframes) → interrumpible al apilar. |
+| **Modal de confirmación** | `TitulaTecUtils.confirmDialog` | Centrado (origin center), escala desde `.96` + opacidad, `--tt-ease-out` ~220ms. |
 
 ## Ejemplo · skeleton para una región que recarga por HTMX
 

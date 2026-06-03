@@ -51,6 +51,11 @@
   --tt-shadow-card: 0 1px 2px rgba(15, 23, 42, .04);
   --tt-shadow-hero: 0 18px 40px -12px rgba(15, 23, 42, .22);
 
+  /* — Curvas de easing (Emil): las de CSS son flojas, estas tienen "punch" — */
+  --tt-ease-out: cubic-bezier(0.23, 1, 0.32, 1);       /* entradas/salidas UI */
+  --tt-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);   /* movimiento en pantalla */
+  --tt-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);    /* tipo iOS */
+
   /* Remapeo de variables Bootstrap para que sus componentes hereden la marca */
   --bs-primary: #0F172A;
   --bs-body-font-family: var(--tt-ui);
@@ -92,9 +97,13 @@ body {
 .tt-card--danger { border-left: 3px solid var(--tt-danger); }
 .tt-card--violet { border-left: 3px solid var(--tt-violet); }
 a.tt-card, button.tt-card { display: block; width: 100%; text-align: left; cursor: pointer;
-  text-decoration: none; color: inherit; transition: transform .15s, box-shadow .15s; }
-a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
-  box-shadow: 0 8px 24px -8px rgba(15, 23, 42, .15); }
+  text-decoration: none; color: inherit;
+  transition: transform .15s var(--tt-ease-out), box-shadow .15s var(--tt-ease-out); }
+a.tt-card:active, button.tt-card:active { transform: scale(.985); }
+@media (hover: hover) and (pointer: fine) {
+  a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
+    box-shadow: 0 8px 24px -8px rgba(15, 23, 42, .15); }
+}
 
 /* ============================ PILL / BADGE ============================== */
 .tt-pill {
@@ -232,11 +241,11 @@ a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
 @keyframes tt-spin     { to { transform: rotate(360deg) } }
 
 /* Entrada de página / contenido (parciales HTMX la reciben vía titulatec-utils.js) */
-.tt-anim-in { animation: tt-slide-up .24s cubic-bezier(.22,.61,.36,1) both; }
+.tt-anim-in { animation: tt-slide-up .24s var(--tt-ease-out) both; }
 .tt-fade-in { animation: tt-fade-in .2s ease both; }
 
 /* Stagger: cada hijo directo entra un pelín después */
-.tt-stagger > * { animation: tt-slide-up .26s cubic-bezier(.22,.61,.36,1) both; }
+.tt-stagger > * { animation: tt-slide-up .26s var(--tt-ease-out) both; }
 .tt-stagger > *:nth-child(1){animation-delay:.03s} .tt-stagger > *:nth-child(2){animation-delay:.06s}
 .tt-stagger > *:nth-child(3){animation-delay:.09s} .tt-stagger > *:nth-child(4){animation-delay:.12s}
 .tt-stagger > *:nth-child(5){animation-delay:.15s} .tt-stagger > *:nth-child(6){animation-delay:.18s}
@@ -244,12 +253,20 @@ a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
 .tt-stagger > *:nth-child(9){animation-delay:.27s} .tt-stagger > *:nth-child(n+10){animation-delay:.30s}
 
 /* Micro-interacciones */
-.tt-card, .tt-pill { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
-.btn { transition: transform .12s ease, background .15s ease, filter .15s ease, box-shadow .15s ease; }
-.btn:active { transform: translateY(1px); }
-.tt-hover-lift { transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
-.tt-hover-lift:hover { transform: translateY(-1px); box-shadow: 0 8px 24px -10px rgba(15,23,42,.18);
-  border-color: var(--tt-line); }
+.tt-card, .tt-pill { transition: transform .16s var(--tt-ease-out), box-shadow .16s var(--tt-ease-out), border-color .16s ease; }
+.btn { transition: transform .14s var(--tt-ease-out), background .15s ease, filter .15s ease, box-shadow .15s ease; }
+/* Feedback de press (Emil): el botón "responde" al tacto. scale() escala también su contenido. */
+.btn:active { transform: scale(.97); }
+.tt-pressable { transition: transform .14s var(--tt-ease-out); }
+.tt-pressable:active, a.tt-hover-lift:active, button.tt-hover-lift:active { transform: scale(.985); }
+.tt-hover-lift { transition: transform .16s var(--tt-ease-out), box-shadow .16s var(--tt-ease-out), border-color .16s ease; }
+.tt-bottomnav a { transition: transform .14s var(--tt-ease-out), color .15s ease; }
+.tt-bottomnav a:active { transform: scale(.92); }
+/* Hover sólo con cursor fino: evita el falso "hover pegado" al tocar en móvil (alumno) */
+@media (hover: hover) and (pointer: fine) {
+  .tt-hover-lift:hover { transform: translateY(-1px); box-shadow: 0 8px 24px -10px rgba(15,23,42,.18);
+    border-color: var(--tt-line); }
+}
 
 /* Botón ocupado durante una petición HTMX (htmx añade .htmx-request al emisor) */
 .btn.htmx-request, button.htmx-request { pointer-events: none; opacity: .72; }
@@ -273,12 +290,41 @@ a.tt-card:hover, button.tt-card:hover { transform: translateY(-1px);
 .tt-skel-line.w-40 { width: 40% } .tt-skel-line.w-60 { width: 60% } .tt-skel-line.w-80 { width: 80% }
 .tt-skel-card { height: 84px; border-radius: var(--tt-r-lg); margin-bottom: .75rem; }
 
+/* ============================ TOAST / MODAL (pulido) ================== */
+/* Toast: entra y sale desde el borde derecho (consistencia espacial), nunca
+   desde scale(0). Transición (no keyframes) → interrumpible al apilar varios. */
+#tt-toast-container .toast {
+  opacity: 0; transform: translateX(16px) scale(.98);
+  transition: opacity .22s var(--tt-ease-out), transform .22s var(--tt-ease-out);
+  will-change: opacity, transform;
+}
+#tt-toast-container .toast.show { opacity: 1; transform: none; }
+
+/* Modal de confirmación: centrado (transform-origin center), escala desde .96
+   + opacidad, ease-out fuerte y < 300ms. */
+.modal.fade .modal-dialog {
+  transform: scale(.96); opacity: 0;
+  transition: transform .22s var(--tt-ease-out), opacity .22s var(--tt-ease-out);
+}
+.modal.show .modal-dialog { transform: none; opacity: 1; }
+
+/* Dropzone: feedback de press sutil */
+.tt-dropzone { transition: border-color .15s ease, background .15s ease, transform .14s var(--tt-ease-out); }
+.tt-dropzone:active { transform: scale(.99); }
+
 /* ============================ MENOS MOVIMIENTO ======================== */
+/* Emil/A11y: menos movimiento = más suave, no cero. Conserva fades (ayudan a
+   comprender), elimina desplazamientos y escalas. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
+  .tt-anim-in, .tt-stagger > * {
+    animation: tt-fade-in .2s ease both !important; animation-delay: 0s !important;
   }
+  .tt-hover-lift:hover, a.tt-card:hover, button.tt-card:hover,
+  .btn:active, .tt-pressable:active, a.tt-hover-lift:active,
+  button.tt-hover-lift:active, .tt-bottomnav a:active, a.tt-card:active {
+    transform: none !important;
+  }
+  .tt-skel::after { animation: none !important; }   /* sin shimmer en movimiento */
 }
 
 /* ============================ TEMA OSCURO (opcional) =================== */
