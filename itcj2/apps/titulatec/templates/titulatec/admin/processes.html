@@ -1,0 +1,40 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Procesos · TitulaTec{% endblock %}
+
+{% block admin_main %}
+<div class="px-4 pt-4">
+  <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Procesos de titulación</h1>
+  <div class="d-flex gap-2 mt-2">
+    {% for f, lbl in [('', 'Todos'), ('active', 'Activos'), ('completed', 'Completados'), ('on_hold', 'En espera'), ('cancelled', 'Cancelados')] %}
+    <a href="/titulatec/admin/processes{{ '?status=' ~ f if f }}"
+       class="btn btn-sm {{ 'tt-btn-ink' if status==f else 'tt-btn-ghost' }}">{{ lbl }}</a>
+    {% endfor %}
+  </div>
+</div>
+<div class="px-4 pt-3 pb-4">
+  <div class="tt-card p-0 overflow-hidden">
+    <table class="table align-middle mb-0" style="font-size:.85rem">
+      <thead><tr style="background:var(--tt-mist)">
+        <th class="tt-kicker">Folio</th><th class="tt-kicker">Alumno</th>
+        <th class="tt-kicker">Nº control</th><th class="tt-kicker">Carrera</th>
+        <th class="tt-kicker">Fase actual</th><th class="tt-kicker">Estado</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="tt-mono">{{ r.folio }}</td>
+          <td class="fw-semibold">{{ r.student }}</td>
+          <td class="tt-mono" style="color:var(--tt-slate)">{{ r.control }}</td>
+          <td style="color:var(--tt-slate)">{{ r.program }}</td>
+          <td><span class="tt-pill tt-pill--navy">{{ '%02d'|format(r.phase) }} · {{ r.phase_name }}</span></td>
+          <td><span class="tt-pill tt-pill--{{ 'success' if r.status=='completed' else ('neutral' if r.status in ('cancelled','on_hold') else 'amber') }}">{{ r.status }}</span></td>
+          <td class="text-end"><a href="/titulatec/admin/processes/{{ r.id }}" class="btn btn-sm tt-btn-soft">Abrir <i class="bi bi-arrow-right ms-1"></i></a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center py-4" style="color:var(--tt-mute)">Sin procesos.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

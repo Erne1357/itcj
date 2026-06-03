@@ -1,0 +1,123 @@
+{# ===========================================================================
+   admin_process_detail.html — cuerpo del detalle de proceso (swap HTMX).
+   Re-renderizado por las acciones de revisión. Contexto: _detail_ctx(...)
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import estado_pill %}
+{% set BASE = '/titulatec/admin/processes/' ~ process.id %}
+
+{# — Header del alumno — #}
+<div class="tt-card mb-3">
+  <div class="d-flex justify-content-between align-items-start">
+    <div>
+      <span class="tt-kicker">{{ cohort_period }} · {{ process.folio }}</span>
+      <div class="tt-display" style="font-size:1.4rem;font-weight:600">{{ student.name }}</div>
+      <div class="d-flex gap-3 mt-1" style="font-size:.8rem;color:var(--tt-slate)">
+        <span class="tt-mono">{{ student.control }}</span>
+        {% if student.email %}<span class="tt-mono">{{ student.email }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="text-end">
+      <div>{{ estado_pill(process.status) if process.status != 'active' else '' }}</div>
+      <div class="mt-1" style="font-size:.78rem;color:var(--tt-slate)">
+        {{ program_name or 'Sin carrera' }}<br>{{ modality_name or 'Sin modalidad' }}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# — Tracker de fases — #}
+<div class="tt-card mb-3">
+  <span class="tt-kicker">Progreso por fase</span>
+  <div class="d-flex flex-column gap-1 mt-2">
+    {% for ph in phases %}
+    <div class="d-flex align-items-center gap-2 py-1" style="{{ 'opacity:.55' if ph.status=='skipped' }}">
+      <span class="tt-mono d-inline-flex align-items-center justify-content-center"
+            style="width:26px;height:26px;border-radius:7px;font-size:.66rem;font-weight:700;
+            background:{{ 'var(--tt-success-soft)' if ph.status=='approved' else ('var(--tt-amber-soft)' if ph.status in ('in_review','in_progress') else 'var(--tt-mist)') }};
+            color:{{ 'var(--tt-success)' if ph.status=='approved' else ('var(--tt-amber-ink)' if ph.status in ('in_review','in_progress') else 'var(--tt-mute)') }}">
+        {{ '%02d'|format(ph.number) }}</span>
+      <span class="flex-grow-1" style="font-size:.85rem;{{ 'font-weight:600' if ph.number==current_phase }}">{{ ph.name }}</span>
+      {{ estado_pill(ph.status) }}
+      {% if ph.status=='rejected' and ph.rejection_reason %}
+        <span style="font-size:.72rem;color:var(--tt-danger)">{{ ph.rejection_reason }}</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{# — Documentos iniciales (fase 1) — #}
+<div class="tt-card mb-3">
+  <span class="tt-kicker">Documentos iniciales (fase 01)</span>
+  <div class="mt-2">
+    {% for d in initial_docs %}
+    <div class="d-flex align-items-center gap-2 py-2" {% if not loop.last %}style="border-bottom:1px solid var(--tt-line-soft)"{% endif %}>
+      <div class="flex-grow-1">
+        <div style="font-size:.85rem;font-weight:500">{{ d.name }}</div>
+        {% if d.doc %}<div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ d.doc.original_name }} · {{ (d.doc.size_bytes/1024)|round|int }} KB</div>
+        {% else %}<div style="font-size:.72rem;color:var(--tt-mute)">No subido</div>{% endif %}
+      </div>
+      {% if d.doc %}
+        {{ estado_pill(d.doc.review_status) }}
+        <button class="btn btn-sm tt-btn-soft" title="Aprobar"
+                hx-post="{{ BASE }}/documents/{{ d.type_code }}/review" hx-vals='{"action":"approve"}'
+                hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-check-lg" style="color:var(--tt-success)"></i></button>
+        <button class="btn btn-sm tt-btn-soft" title="Rechazar"
+                hx-post="{{ BASE }}/documents/{{ d.type_code }}/review" hx-vals='{"action":"reject"}'
+                hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-x-lg" style="color:var(--tt-danger)"></i></button>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{# — Formato B (fase 3) — #}
+{% if formato_b %}
+<div class="tt-card mb-3">
+  <div class="d-flex align-items-center justify-content-between">
+    <span class="tt-kicker">Formato B (fase 03)</span>
+    {{ estado_pill(formato_b.status) }}
+  </div>
+  <div class="row g-2 mt-1" style="font-size:.82rem">
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Nombre:</span> {{ formato_b.datos.first_name }} {{ formato_b.datos.last_name }}</div>
+    <div class="col-md-3"><span style="color:var(--tt-mute)">Edad:</span> {{ formato_b.datos.age }}</div>
+    <div class="col-md-3"><span style="color:var(--tt-mute)">Celular:</span> {{ formato_b.datos.mobile_phone }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Carrera:</span> {{ formato_b.program_name or '—' }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Plan:</span> {{ formato_b.datos.study_plan }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Ingreso:</span> {{ formato_b.datos.admission_date }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Egreso:</span> {{ formato_b.datos.graduation_date }}</div>
+    <div class="col-12"><span style="color:var(--tt-mute)">Proyecto:</span> {{ formato_b.datos.project_name }}</div>
+  </div>
+  {% if formato_b.status == 'submitted' %}
+  <div class="d-flex gap-2 mt-3">
+    <button class="btn btn-sm tt-btn-ink"
+            hx-post="{{ BASE }}/format-b/review" hx-vals='{"action":"approve"}'
+            hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-check-lg me-1"></i>Aprobar Formato B</button>
+    <button class="btn btn-sm tt-btn-ghost"
+            hx-post="{{ BASE }}/format-b/review" hx-vals='{"action":"reject"}'
+            hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-x-lg me-1"></i>Rechazar</button>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# — Acciones de fase (sobre la fase actual) — #}
+{% if process.status == 'active' %}
+<div class="tt-card tt-card--accent">
+  <span class="tt-kicker">Fase actual · {{ '%02d'|format(current_phase) }}</span>
+  <p class="mb-2 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
+    Aprobar avanza el proceso a la siguiente fase. Rechazar la regresa al alumno con un motivo.</p>
+  <form class="d-flex gap-2 align-items-center" hx-post="{{ BASE }}/phase/{{ current_phase }}/reject"
+        hx-target="#process-detail" hx-swap="innerHTML">
+    <input class="form-control form-control-sm" name="reason" placeholder="Motivo de rechazo (opcional)" style="max-width:320px">
+    <button class="btn btn-sm tt-btn-ghost" type="submit"><i class="bi bi-x-lg me-1"></i>Rechazar fase</button>
+    <button class="btn btn-sm tt-btn-ink" type="button"
+            hx-post="{{ BASE }}/phase/{{ current_phase }}/approve"
+            hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-check-lg me-1"></i>Aprobar fase {{ '%02d'|format(current_phase) }}</button>
+  </form>
+</div>
+{% else %}
+<div class="tt-card">
+  <span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Proceso {{ process.status }}</span>
+</div>
+{% endif %}
