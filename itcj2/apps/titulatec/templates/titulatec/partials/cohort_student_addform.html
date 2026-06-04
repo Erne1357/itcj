@@ -1,0 +1,25 @@
+{# Alta unificada por nº de control. Re-render en #student-add (lookup) o tab completa (submit). #}
+<form class="tt-card d-flex flex-wrap align-items-end gap-2"
+      hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/students" hx-target="#cohort-tab-body" hx-select="#cohort-tab-body" hx-swap="outerHTML">
+  <div>
+    <label class="tt-kicker d-block mb-1">Nº de control</label>
+    <input class="form-control form-control-sm" name="control_number" value="{{ control }}" required style="max-width:160px"
+           hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students/lookup" hx-target="#student-add" hx-swap="innerHTML"
+           hx-trigger="change, keyup changed delay:500ms" hx-vals='js:{control: event.target.value}'>
+  </div>
+  {% if searched and found %}
+  <div><label class="tt-kicker d-block mb-1">Alumno</label><div class="form-control form-control-sm bg-light">{{ found.name }}</div></div>
+  {% elif searched and not found %}
+  <div><label class="tt-kicker d-block mb-1">Nombre (nuevo)</label><input class="form-control form-control-sm" name="full_name" required placeholder="Nombre completo" style="max-width:220px"></div>
+  <div><label class="tt-kicker d-block mb-1">Email</label><input class="form-control form-control-sm" name="email" type="email" placeholder="opcional" style="max-width:200px"></div>
+  {% endif %}
+  <div><label class="tt-kicker d-block mb-1">Carrera</label>
+    <select class="form-select form-select-sm" name="program_id" style="max-width:200px">
+      {% for p in programs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div>
+  <div><label class="tt-kicker d-block mb-1">Modalidad</label>
+    <select class="form-select form-select-sm" name="modality_id" style="max-width:200px">
+      {% for m in modalities %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></div>
+  {% if searched %}
+  <button class="btn btn-sm tt-btn-ink" type="submit">{{ 'Agregar' if found else 'Crear y agregar' }}</button>
+  {% endif %}
+</form>

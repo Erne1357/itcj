@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse, Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec, get_titulatec_roles
+from itcj2.core.utils.security import hash_nip
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.admin")
 
@@ -106,6 +107,23 @@ def _students_ctx(db, cohort_id, *, q, phase, page):
             "programs": _programs(db), "modalities": _modalities(db)}
 
 
+def _add_student(db, cohort, *, control, full_name, email, program_id, modality_id):
+    """Crea/adjunta un alumno a la convocatoria. Si es nuevo, le pone password=control."""
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.services.import_service import ImportService
+    existed = db.query(User).filter_by(control_number=control).first()
+    ImportService.import_rows(db, cohort, [{
+        "control_number": control, "full_name": full_name, "email": email,
+        "program_id": program_id, "modality_id": modality_id,
+    }])
+    if not existed:
+        user = db.query(User).filter_by(control_number=control).first()
+        if user:
+            user.password_hash = hash_nip(control)
+            user.must_change_password = True
+            db.commit()
+
+
 def _review_days_ctx(db, cohort_id: int, year: int, month: int) -> dict:
     import calendar as _cal
     from datetime import date as date_cls, timedelta
@@ -153,6 +171,51 @@ async def cohort_students(
     finally:
         db.close()
     return render_titulatec(request, "titulatec/partials/cohort_students_table.html", ctx)
+
+
+@router.get("/cohorts/{cohort_id}/students/lookup", name="titulatec.pages.admin.student_lookup")
+async def student_lookup(cohort_id: int, request: Request, control: str = "",
+                         user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+    from itcj2.database import SessionLocal
+    from itcj2.core.models.user import User
+    db = SessionLocal()
+    try:
+        found = db.query(User).filter_by(control_number=control.strip()).first() if control.strip() else None
+        ctx = {"cohort_id": cohort_id, "control": control.strip(),
+               "found": ({"name": found.full_name} if found else None),
+               "searched": bool(control.strip()),
+               "programs": _programs(db), "modalities": _modalities(db)}
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/partials/cohort_student_addform.html", ctx)
+
+
+@router.post("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.student_add")
+async def student_add(cohort_id: int, request: Request,
+                      user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"]))):
+    from fastapi.responses import Response
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.core.models.user import User
+    form = dict(await request.form())
+    control = (form.get("control_number") or "").strip()
+    db = SessionLocal()
+    try:
+        cohort = db.get(Cohort, cohort_id)
+        if not cohort or not control:
+            return Response(status_code=400, headers={"X-Tt-Error": "Falta el número de control."})
+        existed = db.query(User).filter_by(control_number=control).first()
+        full_name = (form.get("full_name") or (existed.full_name if existed else "")).strip()
+        if not full_name:
+            return Response(status_code=400, headers={"X-Tt-Error": "Falta el nombre del alumno."})
+        program_id = int(form["program_id"]) if form.get("program_id") else None
+        modality_id = int(form["modality_id"]) if form.get("modality_id") else None
+        _add_student(db, cohort, control=control, full_name=full_name, email=(form.get("email") or None),
+                     program_id=program_id, modality_id=modality_id)
+        ctx = _students_ctx(db, cohort_id, q="", phase=None, page=1)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/partials/cohort_students.html", ctx)
 
 
 @router.get("/cohorts/{cohort_id}/review-days", name="titulatec.pages.admin.review_days")
