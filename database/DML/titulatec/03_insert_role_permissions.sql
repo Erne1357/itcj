@@ -41,6 +41,7 @@ BEGIN
         'titulatec.cohort.api.create', 'titulatec.cohort.api.update', 'titulatec.cohort.api.import_csv',
         'titulatec.appointment.page.list', 'titulatec.appointment.api.create', 'titulatec.appointment.api.update',
         'titulatec.appointment.api.mark_attended', 'titulatec.appointment.api.reschedule',
+        'titulatec.document.page.list',
         'titulatec.notifications.api.read.own', 'titulatec.notifications.api.mark_read'
     ]) WHERE r.name = 'titulatec_school_services'
     ON CONFLICT DO NOTHING;
@@ -58,6 +59,8 @@ BEGIN
         'titulatec.appointment.page.list', 'titulatec.appointment.api.create', 'titulatec.appointment.api.update',
         'titulatec.appointment.api.mark_attended', 'titulatec.appointment.api.reschedule',
         'titulatec.officers.page.list', 'titulatec.officers.api.manage',
+        'titulatec.cohort.api.review_days',
+        'titulatec.document.page.list',
         'titulatec.notifications.api.read.own', 'titulatec.notifications.api.mark_read'
     ]) WHERE r.name = 'titulatec_school_services_head'
     ON CONFLICT DO NOTHING;
@@ -71,6 +74,7 @@ BEGIN
         'titulatec.process.api.approve_phase', 'titulatec.process.api.reject_phase',
         'titulatec.process.api.cancel', 'titulatec.process.api.hold',
         'titulatec.document.api.read.all', 'titulatec.document.api.approve', 'titulatec.document.api.reject',
+        'titulatec.document.page.list',
         'titulatec.format_b.api.read.all', 'titulatec.format_b.api.approve', 'titulatec.format_b.api.reject',
         'titulatec.ceremony.page.list', 'titulatec.ceremony.api.create', 'titulatec.ceremony.api.update',
         'titulatec.notifications.api.read.own', 'titulatec.notifications.api.mark_read'

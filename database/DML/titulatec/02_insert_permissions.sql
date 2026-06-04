@@ -98,7 +98,13 @@ BEGIN
 
     -- ==================== OFFICERS (encargados) ====================
     (v_app_id, 'titulatec.officers.page.list',  'Encargados (ver)',        'Ver y gestionar encargados por carrera'),
-    (v_app_id, 'titulatec.officers.api.manage', 'Encargados (gestionar)', 'Crear/editar encargados, usuarios y carreras')
+    (v_app_id, 'titulatec.officers.api.manage', 'Encargados (gestionar)', 'Crear/editar encargados, usuarios y carreras'),
+
+    -- ==================== COHORT - CONFIGURACION ====================
+    (v_app_id, 'titulatec.cohort.api.review_days', 'Dias de cotejo (configurar)', 'Configurar las fechas habilitadas para cotejo por convocatoria'),
+
+    -- ==================== DOCUMENT - PAGINAS ====================
+    (v_app_id, 'titulatec.document.page.list', 'Documentos (revision)', 'Bandeja de revision de documentos iniciales')
     ON CONFLICT (app_id, code) DO NOTHING;
 
     RAISE NOTICE '✅ Permisos de TitulaTec insertados';
