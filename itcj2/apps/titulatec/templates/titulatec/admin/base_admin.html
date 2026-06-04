@@ -33,7 +33,9 @@
     {% for it in admin_nav|default([]) %}
     <a href="{{ it.url }}" class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
     {% endfor %}
-    <div class="mt-auto">
+    {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
+       desocultado solo en ≥lg (d-lg-block); el JS lo re-oculta si estamos en iframe. #}
+    <div class="mt-auto d-none d-lg-block" id="ttBackItcj">
       <a href="/itcj/dashboard"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
     </div>
   </aside>
@@ -56,6 +58,12 @@
               || 'No se pudo completar la acción.';
     if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
   });
+
+  // En iframe (shell embebido) no mostramos "Volver a ITCJ" ni siquiera en desktop:
+  // quitamos d-lg-block para que el d-none lo mantenga oculto en todos los tamaños.
+  if (window.self !== window.top) {
+    document.getElementById('ttBackItcj')?.classList.remove('d-lg-block');
+  }
 
   // Drawer del sidebar admin en móvil/tablet (<992px).
   (function () {
