@@ -37,7 +37,7 @@
       <tbody>
         {% for c in cohorts %}
         <tr>
-          <td class="fw-semibold">{{ c.name }}</td>
+          <td class="fw-semibold"><a href="/titulatec/admin/cohorts/{{ c.id }}" class="text-decoration-none" style="color:var(--tt-ink)">{{ c.name }}</a></td>
           <td class="tt-mono">{{ c.period_code }}</td>
           <td><span class="tt-pill tt-pill--{{ 'success' if c.status=='open' else 'neutral' }}">{{ c.status }}</span></td>
           <td class="tt-mono">{{ c.processes }}</td>

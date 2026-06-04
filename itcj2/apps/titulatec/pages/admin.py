@@ -49,6 +49,35 @@ def _month_arg(raw: str):
     return today.year, today.month
 
 
+def _cohort_summary_ctx(db, cohort) -> dict:
+    from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
+    procs = db.query(TitulationProcess).filter_by(cohort_id=cohort.id).all()
+    by_phase = {}
+    for p in procs:
+        by_phase[p.current_phase] = by_phase.get(p.current_phase, 0) + 1
+    defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
+    phase_rows = [{"number": n, "name": defs.get(n, f"Fase {n}"), "count": by_phase.get(n, 0)}
+                  for n in sorted(by_phase)]
+    proc_ids = [p.id for p in procs]
+    with_appt = 0
+    if proc_ids:
+        with_appt = (db.query(ReviewAppointment.process_id)
+                     .filter(ReviewAppointment.process_id.in_(proc_ids)).distinct().count())
+    return {
+        "period_code": cohort.period_code, "status": cohort.status,
+        "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else None,
+        "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else None,
+        "total": len(procs), "phase_rows": phase_rows, "with_appt": with_appt,
+    }
+
+
+# STUB temporal (Task 3 lo reemplaza por la versión real con paginación):
+def _students_ctx(db, cohort_id, *, q, phase, page):
+    return {"cohort_id": cohort_id, "rows": [], "page": 1, "total_pages": 1,
+            "q": q or "", "phase": phase if phase is not None else "", "total": 0,
+            "programs": _programs(db), "modalities": _modalities(db)}
+
+
 def _review_days_ctx(db, cohort_id: int, year: int, month: int) -> dict:
     import calendar as _cal
     from datetime import date as date_cls, timedelta
@@ -215,6 +244,34 @@ async def cohort_create(
     finally:
         db.close()
     return RedirectResponse("/titulatec/admin/cohorts", status_code=303)
+
+
+@router.get("/cohorts/{cohort_id}", name="titulatec.pages.admin.cohort_detail")
+async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
+                        user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    tab = tab if tab in ("resumen", "dias", "alumnos") else "resumen"
+    db = SessionLocal()
+    try:
+        cohort = db.get(Cohort, cohort_id)
+        if not cohort:
+            return Response(status_code=404)
+        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        ctx = {"cohort": cohort.to_dict(), "cohort_id": cohort_id, "tab": tab,
+               "can_edit_days": "titulatec.cohort.api.review_days" in perms}
+        if tab == "resumen":
+            ctx["summary"] = _cohort_summary_ctx(db, cohort)
+        elif tab == "dias":
+            from datetime import date as _d
+            today = _d.today()
+            ctx["days"] = _review_days_ctx(db, cohort_id, today.year, today.month)
+        elif tab == "alumnos":
+            ctx["students"] = _students_ctx(db, cohort_id, q="", phase=None, page=1)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/cohort_detail.html", ctx)
 
 
 # ===========================================================================

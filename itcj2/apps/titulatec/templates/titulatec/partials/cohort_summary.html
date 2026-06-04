@@ -1,0 +1,22 @@
+<div id="cohort-tab-body">
+  <div class="tt-card" style="max-width:560px">
+    <div class="row g-3">
+      <div class="col-6"><span class="tt-kicker">Período</span><div class="tt-mono">{{ summary.period_code or '—' }}</div></div>
+      <div class="col-6"><span class="tt-kicker">Estado</span><div><span class="tt-pill tt-pill--{{ 'success' if summary.status=='open' else 'neutral' }}">{{ summary.status }}</span></div></div>
+      <div class="col-6"><span class="tt-kicker">Apertura</span><div class="tt-mono">{{ summary.opens_at or '—' }}</div></div>
+      <div class="col-6"><span class="tt-kicker">Cierre</span><div class="tt-mono">{{ summary.closes_at or '—' }}</div></div>
+      <div class="col-6"><span class="tt-kicker">Alumnos</span><div class="tt-mono">{{ summary.total }}</div></div>
+      <div class="col-6"><span class="tt-kicker">Con cita</span><div class="tt-mono">{{ summary.with_appt }}</div></div>
+    </div>
+  </div>
+  <div class="tt-card mt-3" style="max-width:560px">
+    <span class="tt-kicker">Alumnos por fase</span>
+    <div class="mt-2 d-flex flex-column gap-1">
+      {% for ph in summary.phase_rows %}
+      <div class="d-flex justify-content-between" style="font-size:.85rem">
+        <span>{{ '%02d'|format(ph.number) }} · {{ ph.name }}</span><span class="tt-mono">{{ ph.count }}</span>
+      </div>
+      {% else %}<p class="mb-0" style="font-size:.82rem;color:var(--tt-mute)">Sin alumnos aún.</p>{% endfor %}
+    </div>
+  </div>
+</div>
