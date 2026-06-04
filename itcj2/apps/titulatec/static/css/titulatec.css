@@ -504,3 +504,10 @@ body.in-mobile-iframe .tt-standalone-only { display: none !important; }
     color: #fff; cursor: pointer;
   }
 }
+
+/* ============================ KANBAN ================================== */
+.tt-kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; -webkit-overflow-scrolling: touch; }
+.tt-kanban-col { flex: 0 0 270px; min-width: 270px; background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg); padding: 12px; }
+.tt-kanban-col .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.tt-kanban-col .count { font-size: .7rem; font-weight: 700; color: var(--tt-mute); }
+.tt-kanban-card { display: block; background: var(--tt-paper); border: 1px solid var(--tt-line); border-radius: var(--tt-r); padding: 10px 12px; margin-bottom: 8px; text-decoration: none; color: inherit; }

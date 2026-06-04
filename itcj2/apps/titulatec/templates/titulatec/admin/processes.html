@@ -4,13 +4,28 @@
 {% block admin_main %}
 <div class="px-4 pt-4">
   <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Procesos de titulación</h1>
-  <div class="d-flex flex-wrap gap-2 mt-2">
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
     {% for f, lbl in [('', 'Todos'), ('active', 'Activos'), ('completed', 'Completados'), ('on_hold', 'En espera'), ('cancelled', 'Cancelados')] %}
-    <a href="/titulatec/admin/processes{{ '?status=' ~ f if f }}"
+    <a href="/titulatec/admin/processes?view={{ view|default('board') }}{{ '&status=' ~ f if f }}"
        class="btn btn-sm {{ 'tt-btn-ink' if status==f else 'tt-btn-ghost' }}">{{ lbl }}</a>
     {% endfor %}
+    <div class="ms-auto d-flex gap-2">
+      <a href="/titulatec/admin/processes?view=board{{ '&status=' ~ status if status }}"
+         class="btn btn-sm {{ 'tt-btn-ink' if (view|default('board'))=='board' else 'tt-btn-ghost' }}">
+        <i class="bi bi-kanban me-1"></i>Tablero
+      </a>
+      <a href="/titulatec/admin/processes?view=table{{ '&status=' ~ status if status }}"
+         class="btn btn-sm {{ 'tt-btn-ink' if (view|default('board'))=='table' else 'tt-btn-ghost' }}">
+        <i class="bi bi-table me-1"></i>Tabla
+      </a>
+    </div>
   </div>
 </div>
+{% if (view|default('board')) == 'board' %}
+<div class="px-4 pt-3 pb-4">
+  {% include "titulatec/admin/partials/processes_board.html" %}
+</div>
+{% else %}
 <div class="px-4 pt-3 pb-4">
   <div class="tt-card p-0 overflow-hidden">
    <div class="tt-table-wrap">
@@ -39,4 +54,5 @@
    </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,18 @@
+<div class="tt-kanban">
+  {% for col in columns %}
+  <div class="tt-kanban-col">
+    <div class="head">
+      <span class="tt-kicker">{{ '%02d'|format(col.number) }} · {{ col.name }}</span>
+      <span class="count">{{ col.cards|length }}</span>
+    </div>
+    {% for c in col.cards %}
+    <a class="tt-kanban-card tt-hover-lift" href="/titulatec/admin/processes/{{ c.id }}">
+      <div class="fw-semibold" style="font-size:.82rem">{{ c.student }}</div>
+      <div class="tt-mono" style="font-size:.68rem;color:var(--tt-mute)">{{ c.folio }} · {{ c.program or '—' }}</div>
+    </a>
+    {% else %}
+    <div style="font-size:.72rem;color:var(--tt-mute)">—</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>

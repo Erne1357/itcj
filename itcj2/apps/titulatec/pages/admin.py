@@ -340,14 +340,17 @@ def _detail_ctx(db, process_id: int) -> dict | None:
 async def processes(
     request: Request,
     status: str = "",
+    view: str = "board",
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
 ):
-    """Bandeja de procesos (lista con filtro por estado)."""
+    """Bandeja de procesos (tablero kanban o tabla, con filtro por estado)."""
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import TitulationProcess, PhaseDefinition
     from itcj2.apps.titulatec.services.scope_service import officer_programs
+
+    view = "table" if view == "table" else "board"
 
     db = SessionLocal()
     try:
@@ -356,7 +359,7 @@ async def processes(
         if scope != "ALL":
             if not scope:
                 return render_titulatec(request, "titulatec/admin/processes.html", {
-                    "rows": [], "status": status,
+                    "rows": [], "status": status, "view": view, "columns": [],
                 })
             q = q.filter(TitulationProcess.program_id.in_(scope))
         if status:
@@ -374,10 +377,18 @@ async def processes(
                 "phase": p.current_phase, "phase_name": defs.get(p.current_phase, ""),
                 "status": p.status,
             })
+        phase_defs = db.query(PhaseDefinition).filter_by(is_active=True).order_by(PhaseDefinition.order_index).all()
+        buckets = {ph.number: [] for ph in phase_defs}
+        for r in rows:
+            buckets.setdefault(r["phase"], []).append(r)
+        columns = [
+            {"number": ph.number, "name": ph.name, "cards": buckets.get(ph.number, [])}
+            for ph in phase_defs
+        ]
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/processes.html", {
-        "rows": rows, "status": status,
+        "rows": rows, "status": status, "view": view, "columns": columns,
     })
 
 
