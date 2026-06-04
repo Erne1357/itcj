@@ -1,1 +1,22 @@
-<div id="cohort-tab-body"><div class="tt-card">Alumnos (pendiente Task 3)</div></div>
+<div id="cohort-tab-body">
+  <div id="student-add" class="mb-3">
+    <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students/lookup"
+       hx-target="#student-add" hx-swap="innerHTML"><i class="bi bi-person-plus me-1"></i>Agregar alumno</a>
+    <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/cohorts/{{ cohort_id }}/import"><i class="bi bi-upload me-1"></i>Actualizar CSV</a>
+  </div>
+
+  <form class="d-flex flex-wrap gap-2 mb-2">
+    <input class="form-control form-control-sm" name="q" value="{{ q }}" placeholder="Buscar control o nombre" style="max-width:240px"
+           hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students" hx-target="#students-body" hx-swap="innerHTML"
+           hx-trigger="keyup changed delay:400ms" hx-include="closest form">
+    <select class="form-select form-select-sm" name="phase" style="max-width:160px"
+            hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students" hx-target="#students-body" hx-swap="innerHTML" hx-include="closest form">
+      <option value="">Todas las fases</option>
+      {% for n in range(0,9) %}<option value="{{ n }}" {{ 'selected' if phase|string == n|string }}>{{ '%02d'|format(n) }}</option>{% endfor %}
+    </select>
+  </form>
+
+  <div id="students-body">
+    {% include "titulatec/partials/cohort_students_table.html" %}
+  </div>
+</div>

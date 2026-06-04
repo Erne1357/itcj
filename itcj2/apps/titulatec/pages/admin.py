@@ -71,10 +71,38 @@ def _cohort_summary_ctx(db, cohort) -> dict:
     }
 
 
-# STUB temporal (Task 3 lo reemplaza por la versión real con paginación):
+_STUDENTS_PER_PAGE = 25
+
+
 def _students_ctx(db, cohort_id, *, q, phase, page):
-    return {"cohort_id": cohort_id, "rows": [], "page": 1, "total_pages": 1,
-            "q": q or "", "phase": phase if phase is not None else "", "total": 0,
+    from itcj2.core.models.user import User
+    from itcj2.core.models.program import Program
+    from itcj2.apps.titulatec.models import TitulationProcess, PhaseDefinition
+    page = max(1, page or 1)
+    base = (db.query(TitulationProcess, User)
+            .join(User, User.id == TitulationProcess.student_id)
+            .filter(TitulationProcess.cohort_id == cohort_id))
+    if q:
+        like = f"%{q.strip()}%"
+        base = base.filter((User.control_number.ilike(like)) | (User.full_name.ilike(like)))
+    if phase is not None:
+        base = base.filter(TitulationProcess.current_phase == phase)
+    total = base.count()
+    total_pages = max(1, (total + _STUDENTS_PER_PAGE - 1) // _STUDENTS_PER_PAGE)
+    page = min(page, total_pages)
+    rows_q = (base.order_by(TitulationProcess.created_at.desc())
+              .offset((page - 1) * _STUDENTS_PER_PAGE).limit(_STUDENTS_PER_PAGE).all())
+    defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
+    prog_names = {p.id: p.name for p in db.query(Program).all()}
+    rows = [{
+        "process_id": pr.id, "folio": pr.folio, "student": u.full_name,
+        "control": u.control_number or "—",
+        "program": prog_names.get(pr.program_id, "—"),
+        "phase": pr.current_phase, "phase_name": defs.get(pr.current_phase, ""),
+        "status": pr.status,
+    } for pr, u in rows_q]
+    return {"cohort_id": cohort_id, "rows": rows, "total": total, "page": page,
+            "total_pages": total_pages, "q": q or "", "phase": phase if phase is not None else "",
             "programs": _programs(db), "modalities": _modalities(db)}
 
 
@@ -106,6 +134,25 @@ def _review_days_ctx(db, cohort_id: int, year: int, month: int) -> dict:
         "next_month": f"{next_first.year}-{next_first.month:02d}",
         "count": len(allowed),
     }
+
+
+@router.get("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.cohort_students")
+async def cohort_students(
+    cohort_id: int,
+    request: Request,
+    q: str = "",
+    phase: str = "",
+    page: int = 1,
+    user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
+):
+    from itcj2.database import SessionLocal
+    ph = int(phase) if phase.strip().isdigit() else None
+    db = SessionLocal()
+    try:
+        ctx = _students_ctx(db, cohort_id, q=q, phase=ph, page=page)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/partials/cohort_students_table.html", ctx)
 
 
 @router.get("/cohorts/{cohort_id}/review-days", name="titulatec.pages.admin.review_days")
@@ -268,7 +315,7 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             today = _d.today()
             ctx["days"] = _review_days_ctx(db, cohort_id, today.year, today.month)
         elif tab == "alumnos":
-            ctx["students"] = _students_ctx(db, cohort_id, q="", phase=None, page=1)
+            ctx.update(_students_ctx(db, cohort_id, q="", phase=None, page=1))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/cohort_detail.html", ctx)
