@@ -51,6 +51,13 @@ def _parse_dt(raw: str | None) -> datetime | None:
         return None
 
 
+def _active_cohort_id(db):
+    from itcj2.apps.titulatec.models import Cohort
+    c = (db.query(Cohort).filter_by(status="open").order_by(Cohort.id.desc()).first()
+         or db.query(Cohort).order_by(Cohort.id.desc()).first())
+    return c.id if c else None
+
+
 def _to_int(raw) -> int | None:
     try:
         return int(raw) if raw not in (None, "") else None
@@ -107,6 +114,8 @@ def _detail_ctx(db, process_id: int) -> dict | None:
         })
 
     appt = AppointmentService.get_for_process(db, process_id)
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    allowed_days = [d.isoformat() for d in ReviewDayService.list_days(db, proc.cohort_id)] if proc.cohort_id else []
     return {
         "process": {"id": proc.id, "folio": proc.folio, "current_phase": proc.current_phase,
                     "status": proc.status},
@@ -118,6 +127,7 @@ def _detail_ctx(db, process_id: int) -> dict | None:
         "cohort_period": cohort.period_code if cohort else None,
         "appt": _appt_dict(appt),
         "docs": docs,
+        "allowed_days": allowed_days,
     }
 
 
@@ -283,9 +293,16 @@ async def schedule(
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     form = dict(await request.form())
-    dt = _parse_dt(form.get("scheduled_at"))
+    date_raw = form.get("appt_date")
+    time_raw = form.get("appt_time")
+    dt = _parse_dt(f"{date_raw}T{time_raw}") if date_raw and time_raw else None
     db = SessionLocal()
     try:
+        from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+        from itcj2.apps.titulatec.models import TitulationProcess
+        proc = db.get(TitulationProcess, process_id)
+        if dt and proc and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
+            return Response(status_code=400, headers={"X-Tt-Error": "Esa fecha no está habilitada para cotejo."})
         if dt:
             AppointmentService.create(
                 db, process_id, scheduled_at=dt, location=(form.get("location") or None),
@@ -305,9 +322,16 @@ async def reschedule(
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
     form = dict(await request.form())
-    dt = _parse_dt(form.get("scheduled_at"))
+    date_raw = form.get("appt_date")
+    time_raw = form.get("appt_time")
+    dt = _parse_dt(f"{date_raw}T{time_raw}") if date_raw and time_raw else None
     db = SessionLocal()
     try:
+        from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+        from itcj2.apps.titulatec.models import TitulationProcess
+        proc = db.get(TitulationProcess, process_id)
+        if dt and proc and not ReviewDayService.is_allowed(db, proc.cohort_id, dt.date()):
+            return Response(status_code=400, headers={"X-Tt-Error": "Esa fecha no está habilitada para cotejo."})
         appt = AppointmentService.get_for_process(db, process_id)
         if appt and dt:
             AppointmentService.reschedule(
