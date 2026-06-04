@@ -1,0 +1,43 @@
+{# Lista de encargados + alta. Re-render en #officers-body (HTMX). #}
+<form class="tt-card mb-3 d-flex flex-wrap align-items-end gap-2"
+      hx-post="/titulatec/admin/officers" hx-target="#officers-body" hx-swap="innerHTML">
+  <div class="flex-grow-1" style="min-width:180px">
+    <label class="tt-label">Nombre del encargado</label>
+    <input class="form-control" name="name" placeholder="Ej. Encargado Sistemas/Industrial" required>
+  </div>
+  <div style="min-width:200px">
+    <label class="tt-label">Usuarios</label>
+    <select class="form-select" name="user_ids" multiple size="3">
+      {% for u in dept_users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div style="min-width:200px">
+    <label class="tt-label">Carreras</label>
+    <select class="form-select" name="program_ids" multiple size="3">
+      {% for p in programs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="btn tt-btn-ink"><i class="bi bi-plus-lg me-1"></i>Crear</button>
+</form>
+
+<div class="d-flex flex-column gap-2">
+  {% for o in officers %}
+  <div class="tt-card">
+    <div class="d-flex justify-content-between align-items-start">
+      <div class="fw-semibold">{{ o.name }}</div>
+      <button class="btn btn-sm tt-btn-ghost" hx-post="/titulatec/admin/officers/{{ o.id }}/deactivate"
+              hx-target="#officers-body" hx-swap="innerHTML" hx-confirm="¿Quitar este encargado?">
+        <i class="bi bi-trash"></i></button>
+    </div>
+    <div class="d-flex flex-wrap gap-1 mt-2">
+      {% for u in o.users %}<span class="tt-pill tt-pill--navy">{{ u.name }}</span>{% endfor %}
+      {% for p in o.programs %}<span class="tt-pill tt-pill--amber">{{ p.name }}</span>{% endfor %}
+      {% if not o.users %}<span class="tt-pill">Sin usuarios</span>{% endif %}
+      {% if not o.programs %}<span class="tt-pill">Sin carreras</span>{% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="tt-empty"><div class="ico"><i class="bi bi-people"></i></div>
+    <h6>Aún no hay encargados</h6><p>Crea el primero arriba.</p></div>
+  {% endfor %}
+</div>
