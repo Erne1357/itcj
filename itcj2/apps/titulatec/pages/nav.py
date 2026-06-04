@@ -53,9 +53,10 @@ def sv_core(path: str) -> str:
 
 # Orden de prioridad: el primero que matchee gana.
 _ROLE_DASHBOARD = [
-    ("admin",                     "/titulatec/admin/"),
-    ("titulatec_titulaciones",    "/titulatec/admin/"),
-    ("titulatec_school_services", "/titulatec/admin/"),
+    ("admin",                          "/titulatec/admin/"),
+    ("titulatec_titulaciones",         "/titulatec/admin/"),
+    ("titulatec_school_services_head", "/titulatec/admin/"),
+    ("titulatec_school_services",      "/titulatec/admin/"),
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
     ("student",                   "/titulatec/student/dashboard"),  # rol global reciclado
