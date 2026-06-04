@@ -5,6 +5,17 @@ from sqlalchemy.orm import Session
 
 
 class DocumentService:
+    INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
+
+    @staticmethod
+    def initial_docs_all_approved(db, process_id: int) -> bool:
+        """True si los 3 documentos iniciales están en review_status='approved'."""
+        for code in DocumentService.INITIAL_DOC_TYPES:
+            doc = DocumentService.get_document(db, process_id, code)
+            if not doc or doc.review_status != "approved":
+                return False
+        return True
+
     @staticmethod
     def get_active_process(db: Session, student_id: int):
         """Proceso activo más reciente del alumno (o None)."""
