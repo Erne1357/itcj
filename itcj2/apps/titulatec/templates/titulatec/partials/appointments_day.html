@@ -1,0 +1,34 @@
+{# Agenda "del día" — citas de un día concreto (scoped). Swap en #appt-body. #}
+{% from "titulatec/_macros.html" import appt_pill %}
+
+<form class="tt-card mb-3 d-flex flex-wrap align-items-end gap-2"
+      hx-get="/titulatec/admin/appointments/day" hx-target="#appt-body" hx-swap="innerHTML"
+      hx-indicator="#appt-skel">
+  <div>
+    <label class="tt-kicker d-block mb-1">Día</label>
+    <input type="date" name="date" value="{{ day }}" class="form-control form-control-sm"
+           hx-get="/titulatec/admin/appointments/day" hx-target="#appt-body" hx-swap="innerHTML"
+           hx-indicator="#appt-skel">
+  </div>
+</form>
+
+<div class="tt-card">
+  <span class="tt-kicker"><i class="bi bi-calendar-day me-1"></i>Citas del {{ day }} ({{ rows|length }})</span>
+  <div class="mt-2 d-flex flex-column gap-1">
+    {% for r in rows %}
+    <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none tt-hover-lift"
+       style="border-radius:9px;border:1px solid var(--tt-line-soft)"
+       hx-get="/titulatec/admin/appointments/body?selected={{ r.process_id }}"
+       hx-target="#appt-body" hx-swap="innerHTML">
+      <span class="tt-mono" style="font-size:.82rem;font-weight:600;color:var(--tt-ink)">{{ r.time_label }}</span>
+      <div class="flex-grow-1 min-w-0">
+        <div style="font-size:.85rem;font-weight:600;color:var(--tt-ink)">{{ r.student }}</div>
+        <div class="tt-mono" style="font-size:.7rem;color:var(--tt-mute)">{{ r.control }} · {{ r.program }}</div>
+      </div>
+      {{ appt_pill(r.status) }}
+    </a>
+    {% else %}
+    <p class="mb-0" style="font-size:.82rem;color:var(--tt-mute)">Sin citas ese día.</p>
+    {% endfor %}
+  </div>
+</div>

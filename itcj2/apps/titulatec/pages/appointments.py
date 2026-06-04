@@ -176,6 +176,35 @@ def _render_body(request, db, *, selected_id, program_id=None, status=None, mine
     return render_titulatec(request, "titulatec/partials/appointments_body.html", ctx)
 
 
+def _time_label(dt) -> str:
+    return f"{dt:%H:%M}" if dt else "—"
+
+
+def _day_ctx(db, *, day, user_id) -> dict:
+    from itcj2.core.models.user import User
+    from itcj2.core.models.program import Program
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
+
+    scope = officer_programs(db, user_id)
+    allowed = None if scope == "ALL" else scope
+    rows = []
+    for a in AppointmentService.list_for_day(db, day, allowed_program_ids=allowed):
+        proc = a.process
+        u = db.get(User, proc.student_id) if proc else None
+        prog = db.get(Program, proc.program_id) if proc and proc.program_id else None
+        rows.append({
+            "process_id": a.process_id,
+            "student": u.full_name if u else "—",
+            "control": u.control_number if u else "—",
+            "program": prog.name if prog else "—",
+            "time_label": _time_label(a.scheduled_at),
+            "scheduled_label": _label(a.scheduled_at),
+            "status": a.status,
+        })
+    return {"day": day.isoformat(), "rows": rows}
+
+
 # ===========================================================================
 # Páginas / parciales
 # ===========================================================================
@@ -217,6 +246,27 @@ async def body(
                             status=status or None, mine=bool(mine), user_id=int(user["sub"]))
     finally:
         db.close()
+
+
+@router.get("/day", name="titulatec.pages.appointments.day")
+async def day(
+    request: Request,
+    date: str = "",
+    user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS)),
+):
+    """Sub-vista 'del día' (parcial HTMX dentro de #appt-body)."""
+    from datetime import date as date_cls, datetime
+    from itcj2.database import SessionLocal
+    try:
+        d = datetime.strptime(date, "%Y-%m-%d").date() if date else date_cls.today()
+    except ValueError:
+        d = date_cls.today()
+    db = SessionLocal()
+    try:
+        ctx = _day_ctx(db, day=d, user_id=int(user["sub"]))
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/partials/appointments_day.html", ctx)
 
 
 # ===========================================================================

@@ -62,6 +62,28 @@ class AppointmentService:
         return q.order_by(ReviewAppointment.scheduled_at).all()
 
     @staticmethod
+    def list_for_day(db: Session, day, *, allowed_program_ids: set | None = None) -> list:
+        """Citas cuyo scheduled_at cae en el día `day` (date), ordenadas por hora.
+
+        allowed_program_ids: None = sin restricción; set vacío = devuelve [].
+        """
+        from datetime import datetime, time, timedelta
+        from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+        if allowed_program_ids is not None and len(allowed_program_ids) == 0:
+            return []
+        start = datetime.combine(day, time.min)
+        end = start + timedelta(days=1)
+        q = (
+            db.query(ReviewAppointment)
+            .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+            .filter(ReviewAppointment.scheduled_at >= start,
+                    ReviewAppointment.scheduled_at < end)
+        )
+        if allowed_program_ids is not None:
+            q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
+        return q.order_by(ReviewAppointment.scheduled_at).all()
+
+    @staticmethod
     def list_pending_processes(db: Session, *, program_id: int | None = None,
                                allowed_program_ids: set | None = None) -> list:
         """Procesos en fase 2 (activos) que aún no tienen cita agendada.
