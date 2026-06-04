@@ -90,8 +90,25 @@ La confirmación del alumno (2) no se auto-notifica. Ver
 - Filtro de carrera vacío llega como `program_id=` → los params se parsean como `str`
   (no `int|None`) para evitar 422 (gotcha conocido).
 
+## Días configurables + calendario (jun-2026)
+
+- **La jefa configura fechas de cotejo por convocatoria** (`titulatec_cohort_review_days`, perm
+  `titulatec.cohort.api.review_days`, solo rol head) en `/admin/cohorts/{id}/review-days`
+  (calendario toggle). Servicio `ReviewDayService` (`list_days`/`is_allowed`/`toggle`).
+- **Agendar solo en esas fechas**: el form usa un `<select>` de fechas habilitadas + hora; el endpoint
+  valida `ReviewDayService.is_allowed(cohort, fecha)` → `400` + `X-Tt-Error` si no. Sin fechas
+  configuradas → aviso "la jefa aún no configura días".
+- **Elegibilidad ("Por agendar")** = proceso `active`, sin cita, con los **3 docs aprobados**
+  (`DocumentService.initial_docs_all_approved`), ver [revisión de documentos](phase1_school_services_review_docs.md).
+- **Agenda = calendario mensual** (vista default, `/admin/appointments/calendar?month=YYYY-MM`):
+  días no configurados en gris/tachado, configurados clickeables con **conteo de citas**
+  (`AppointmentService.counts_by_day`, acotado por scope). Click en día → detalle del día (`/day`).
+  Segmentado Calendario / Del día / Lista. El visor de documentos del cotejo tiene botón **expandir** →
+  modal `modal-xl`.
+
 ## Flujos relacionados
 
-- ← Previo: [revisión de docs iniciales](phase1_admin_review_initial_docs.md).
+- ← Previo: [revisión de docs iniciales (pestaña Documentos)](phase1_school_services_review_docs.md).
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
+- ⤵ Alcance: [días/encargados por carrera](engine_officer_scope.md).
 - → Siguiente: [Formato B](phase3_student_formato_b.md).

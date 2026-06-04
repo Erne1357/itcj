@@ -54,9 +54,17 @@
 | `DocumentService` | `services/document_service.py` | CRUD + review de documentos |
 | `FormatBService` | `services/format_b_service.py` | Formato B multi-step + review |
 | `ImportService` | `services/import_service.py` | Import CSV (auto-detect + merge) |
-| `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2) |
+| `AppointmentService` | `services/appointment_service.py` | Cita de cotejo (fase 2) + `counts_by_day`/`list_for_day` |
+| `ReviewDayService` | `services/review_day_service.py` | Fechas de cotejo por convocatoria (`list_days`/`is_allowed`/`toggle`) |
 
 > Patrón: métodos `@staticmethod`, primer arg `db: Session`, **commit dentro del service**.
+
+### Días de cotejo
+
+- `CohortReviewDay` (`titulatec_cohort_review_days`, `UNIQUE(cohort_id, date)`): fechas que la jefa
+  habilita por convocatoria. Perm `titulatec.cohort.api.review_days` (solo `titulatec_school_services_head`).
+- Pestaña **Documentos** (perm `titulatec.document.page.list`): bandeja de revisión; al aprobar las 3
+  iniciales, auto-avance fase 1→2. Elegibilidad de cotejo = `DocumentService.initial_docs_all_approved`.
 
 ## UI / convenciones front
 

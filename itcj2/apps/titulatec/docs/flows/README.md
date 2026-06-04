@@ -45,6 +45,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 ### Fase 1 — Documentos iniciales
 - [El alumno sube sus documentos iniciales](phase1_student_upload_initial_docs.md) 👤
 - [Servicios Escolares / Titulaciones revisa los documentos](phase1_admin_review_initial_docs.md) 🏛️🎓 ⤵ engine
+- [Revisión de documentos (pestaña Documentos + auto-avance)](phase1_school_services_review_docs.md) 🏛️🎓 ⤵ engine — bandeja dedicada; 3 aprobadas → fase 2.
 
 ### Fase 2 — Cita de cotejo
 - [Cita de cotejo (loop completo)](phase2_appointment_loop.md) 🏛️👤 ⤵ engine
