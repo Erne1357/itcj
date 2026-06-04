@@ -1,0 +1,16 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Documentos · TitulaTec{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Fase 01 · Servicios Escolares</span>
+  <h1 class="tt-display" style="font-size:1.5rem;font-weight:600;margin:.15rem 0 0">Revisión de documentos</h1>
+  <p class="mb-0" style="font-size:.82rem;color:var(--tt-slate)">
+    Aprueba o rechaza los documentos iniciales. Al aprobar los 3, el alumno queda listo para agendar cotejo.</p>
+</div>
+<div class="px-4 pb-4">
+  <div id="docs-skel" class="htmx-indicator" style="opacity:.5">Cargando…</div>
+  <div id="docs-body">
+    {% include "titulatec/partials/documents_body.html" %}
+  </div>
+</div>
+{% endblock %}

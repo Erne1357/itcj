@@ -13,6 +13,7 @@ from .admin import router as admin_router
 from .appointments import router as appointments_router
 from .roles import router as roles_router
 from .officers import router as officers_router
+from .documents import router as documents_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -22,3 +23,4 @@ titulatec_pages_router.include_router(admin_router)
 titulatec_pages_router.include_router(appointments_router)
 titulatec_pages_router.include_router(roles_router)
 titulatec_pages_router.include_router(officers_router)
+titulatec_pages_router.include_router(documents_router)
