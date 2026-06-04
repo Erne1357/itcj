@@ -21,7 +21,7 @@
 {% block content %}
 <div class="tt-admin" id="ttAdmin">
   <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
-  <aside class="side">
+  <aside class="side" hx-boost="true">
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div class="d-flex align-items-center gap-2">
         <div class="d-flex align-items-center justify-content-center tt-display"
@@ -36,7 +36,7 @@
     {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
        desocultado solo en ≥lg (d-lg-block); el JS lo re-oculta si estamos en iframe. #}
     <div class="mt-auto d-none d-lg-block" id="ttBackItcj">
-      <a href="/itcj/dashboard"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
+      <a href="/itcj/dashboard" hx-boost="false"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
     </div>
   </aside>
   <main class="main">

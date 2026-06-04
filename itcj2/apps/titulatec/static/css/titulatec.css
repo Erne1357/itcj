@@ -226,7 +226,8 @@ a.tt-card:active, button.tt-card:active { transform: scale(.985); }
 /* ============================ SIDEBAR ADMIN ============================ */
 .tt-admin { display: flex; min-height: 100vh; }
 .tt-admin .side { width: 240px; flex: 0 0 auto; background: var(--tt-ink); color: #fff;
-  display: flex; flex-direction: column; padding: 20px 14px; }
+  display: flex; flex-direction: column; padding: 20px 14px;
+  position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; }
 .tt-admin .side a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px;
   color: #94A3B8; font-size: .8125rem; font-weight: 500; text-decoration: none; }
 .tt-admin .side a.active { background: rgba(245,158,11,.15); color: var(--tt-accent); font-weight: 600; }
