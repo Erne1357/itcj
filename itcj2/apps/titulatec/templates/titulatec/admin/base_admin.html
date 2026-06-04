@@ -30,11 +30,9 @@
       </div>
       <button type="button" class="tt-admin-close" id="ttAdminClose" aria-label="Cerrar menú"><i class="bi bi-x-lg"></i></button>
     </div>
-    <a href="/titulatec/admin/" class="{{ 'active' if _is_inbox }}"><i class="bi bi-inbox"></i> Bandeja</a>
-    <a href="/titulatec/admin/processes" class="{{ 'active' if _is_proc }}"><i class="bi bi-people"></i> Procesos</a>
-    <a href="/titulatec/admin/cohorts" class="{{ 'active' if _is_coh }}"><i class="bi bi-award"></i> Convocatorias</a>
-    <a href="/titulatec/admin/appointments" class="{{ 'active' if _is_appt }}"><i class="bi bi-calendar"></i> Citas de cotejo</a>
-    <a href="#" class="{{ 'active' if _is_cer }}"><i class="bi bi-mortarboard"></i> Actos protocolarios</a>
+    {% for it in admin_nav|default([]) %}
+    <a href="{{ it.url }}" class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
+    {% endfor %}
     <div class="mt-auto">
       <a href="/itcj/dashboard"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
     </div>

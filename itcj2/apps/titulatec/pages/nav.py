@@ -88,6 +88,37 @@ def get_titulatec_roles(user_id: int) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Menú admin data-driven
+# ---------------------------------------------------------------------------
+
+_ADMIN_NAV = [
+    ("Bandeja",             "bi-inbox",       "/titulatec/admin/",             {"titulatec.dashboard.school_services", "titulatec.dashboard.titulaciones"}),
+    ("Procesos",            "bi-people",      "/titulatec/admin/processes",    {"titulatec.process.page.list"}),
+    ("Convocatorias",       "bi-award",       "/titulatec/admin/cohorts",      {"titulatec.cohort.page.list"}),
+    ("Citas de cotejo",     "bi-calendar",    "/titulatec/admin/appointments", {"titulatec.appointment.page.list"}),
+    ("Encargados",          "bi-people-fill", "/titulatec/admin/officers",     {"titulatec.officers.page.list"}),
+    ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
+]
+
+
+def admin_nav_items(user_id: int) -> list[dict]:
+    """Items del menú admin visibles según los permisos del usuario en titulatec."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    try:
+        with SessionLocal() as db:
+            perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    except Exception as exc:
+        logger.warning("Error obteniendo permisos titulatec para admin_nav (user %s): %s", user_id, exc)
+        return []
+    out = []
+    for label, icon, url, need in _ADMIN_NAV:
+        if perms & need:
+            out.append({"label": label, "icon": icon, "url": url})
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Render
 # ---------------------------------------------------------------------------
 
@@ -107,4 +138,11 @@ def render_titulatec(
         "current_route": request.url.path,
         **(context or {}),
     }
+    # Inyectar admin_nav solo si no viene ya en el contexto y hay usuario autenticado.
+    if "admin_nav" not in ctx and user is not None:
+        try:
+            ctx["admin_nav"] = admin_nav_items(int(user["sub"]))
+        except Exception as exc:
+            logger.warning("Error calculando admin_nav para user %s: %s", user.get("sub"), exc)
+            ctx["admin_nav"] = []
     return titulatec_templates.TemplateResponse(request, template, ctx, status_code=status_code)
