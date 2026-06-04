@@ -42,6 +42,8 @@
           <td><span class="tt-pill tt-pill--{{ 'success' if c.status=='open' else 'neutral' }}">{{ c.status }}</span></td>
           <td class="tt-mono">{{ c.processes }}</td>
           <td class="text-end">
+            <a href="/titulatec/admin/cohorts/{{ c.id }}/review-days" class="btn btn-sm tt-btn-ghost">
+              <i class="bi bi-calendar-check me-1"></i>Días de cotejo</a>
             <a href="/titulatec/admin/cohorts/{{ c.id }}/import" class="btn btn-sm tt-btn-soft">
               <i class="bi bi-upload me-1"></i>Importar alumnos</a>
           </td>

@@ -35,6 +35,86 @@ def _modalities(db):
     from itcj2.apps.titulatec.models import Modality
     return [{"id": m.id, "name": m.name} for m in db.query(Modality).filter_by(is_active=True).order_by(Modality.id).all()]
 
+
+def _month_arg(raw: str):
+    """'YYYY-MM' → (year, month); default mes actual."""
+    from datetime import date as date_cls, datetime
+    try:
+        d = datetime.strptime(raw, "%Y-%m") if raw else None
+    except ValueError:
+        d = None
+    if d:
+        return d.year, d.month
+    today = date_cls.today()
+    return today.year, today.month
+
+
+def _review_days_ctx(db, cohort_id: int, year: int, month: int) -> dict:
+    import calendar as _cal
+    from datetime import date as date_cls, timedelta
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    cohort = db.get(Cohort, cohort_id)
+    allowed = set(ReviewDayService.list_days(db, cohort_id))
+    matrix = _cal.Calendar(firstweekday=0).monthdatescalendar(year, month)
+    weeks = []
+    for wk in matrix:
+        cells = []
+        for d in wk:
+            cells.append({"date": d.isoformat(), "day": d.day,
+                          "in_month": d.month == month, "on": d in allowed})
+        weeks.append(cells)
+    prev_m = date_cls(year, month, 1) - timedelta(days=1)
+    next_first = (date_cls(year, month, 28) + timedelta(days=7)).replace(day=1)
+    return {
+        "cohort": cohort.to_dict() if cohort else None,
+        "cohort_id": cohort_id,
+        "year": year, "month": month,
+        "month_label": f"{_cal.month_name[month]} {year}",
+        "weeks": weeks,
+        "weekdays": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
+        "prev_month": f"{prev_m.year}-{prev_m.month:02d}",
+        "next_month": f"{next_first.year}-{next_first.month:02d}",
+        "count": len(allowed),
+    }
+
+
+@router.get("/cohorts/{cohort_id}/review-days", name="titulatec.pages.admin.review_days")
+async def review_days(cohort_id: int, request: Request, month: str = "",
+                      user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
+    from itcj2.database import SessionLocal
+    y, m = _month_arg(month)
+    db = SessionLocal()
+    try:
+        ctx = _review_days_ctx(db, cohort_id, y, m)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/cohort_review_days.html", ctx)
+
+
+@router.post("/cohorts/{cohort_id}/review-days/toggle", name="titulatec.pages.admin.review_days_toggle")
+async def review_days_toggle(cohort_id: int, request: Request,
+                             user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
+    from datetime import datetime
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    form = dict(await request.form())
+    month = form.get("month") or ""
+    try:
+        day = datetime.strptime(form.get("date", ""), "%Y-%m-%d").date()
+    except ValueError:
+        day = None
+    y, m = _month_arg(month)
+    db = SessionLocal()
+    try:
+        if day:
+            ReviewDayService.toggle(db, cohort_id, day, int(user["sub"]))
+        ctx = _review_days_ctx(db, cohort_id, y, m)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/cohort_review_days.html", ctx)
+
+
 _ROLE_LABELS = {
     "titulatec_titulaciones": "Titulaciones",
     "titulatec_school_services": "Servicios Escolares",
