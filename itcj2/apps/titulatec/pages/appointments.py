@@ -258,6 +258,49 @@ async def body(
         db.close()
 
 
+@router.get("/calendar", name="titulatec.pages.appointments.calendar")
+async def calendar(request: Request, month: str = "",
+                   user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
+    import calendar as _cal
+    from datetime import date as date_cls, datetime, time, timedelta
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
+    try:
+        base = datetime.strptime(month, "%Y-%m").date() if month else date_cls.today()
+    except ValueError:
+        base = date_cls.today()
+    y, m = base.year, base.month
+    db = SessionLocal()
+    try:
+        scope = officer_programs(db, int(user["sub"]))
+        allowed = None if scope == "ALL" else scope
+        cohort_id = _active_cohort_id(db)
+        on_days = set(ReviewDayService.list_days(db, cohort_id)) if cohort_id else set()
+        start = datetime.combine(date_cls(y, m, 1), time.min)
+        end = (datetime.combine(date_cls(y, m, 28), time.min) + timedelta(days=7)).replace(day=1, hour=0, minute=0)
+        counts = AppointmentService.counts_by_day(db, start, end, allowed_program_ids=allowed)
+        matrix = _cal.Calendar(firstweekday=0).monthdatescalendar(y, m)
+        weeks = []
+        for wk in matrix:
+            cells = []
+            for d in wk:
+                cells.append({"date": d.isoformat(), "day": d.day, "in_month": d.month == m,
+                              "on": d in on_days, "count": counts.get(d, 0)})
+            weeks.append(cells)
+        prev_m = (date_cls(y, m, 1) - timedelta(days=1))
+        next_first = (date_cls(y, m, 28) + timedelta(days=7)).replace(day=1)
+        ctx = {"weeks": weeks, "weekdays": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"],
+               "month_label": f"{_cal.month_name[m]} {y}",
+               "prev_month": f"{prev_m.year}-{prev_m.month:02d}",
+               "next_month": f"{next_first.year}-{next_first.month:02d}",
+               "no_config": not on_days}
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/partials/appointments_calendar.html", ctx)
+
+
 @router.get("/day", name="titulatec.pages.appointments.day")
 async def day(
     request: Request,

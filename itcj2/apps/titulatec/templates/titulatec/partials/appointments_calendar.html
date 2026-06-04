@@ -1,0 +1,35 @@
+{# Calendario mensual de citas de cotejo. Swap en #appt-body. #}
+<div id="tt-appt-cal" class="tt-card" style="max-width:680px">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/appointments/calendar?month={{ prev_month }}"
+       hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-chevron-left"></i></a>
+    <span class="tt-kicker">{{ month_label }}</span>
+    <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/appointments/calendar?month={{ next_month }}"
+       hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-chevron-right"></i></a>
+  </div>
+  {% if no_config %}
+  <p style="font-size:.8rem;color:var(--tt-amber-ink)"><i class="bi bi-exclamation-triangle me-1"></i>Esta convocatoria aún no tiene días de cotejo configurados.</p>
+  {% endif %}
+  <table class="tt-cal">
+    <thead><tr>{% for w in weekdays %}<th>{{ w }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for week in weeks %}
+      <tr>
+        {% for c in week %}
+        {% if not c.in_month %}
+        <td class="out"><span class="daynum">{{ c.day }}</span></td>
+        {% elif not c.on %}
+        <td class="off"><span class="daynum">{{ c.day }}</span></td>
+        {% else %}
+        <td class="on" hx-get="/titulatec/admin/appointments/day?date={{ c.date }}"
+            hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel">
+          <span class="daynum">{{ c.day }}</span>
+          {% if c.count %}<br><span class="count">{{ c.count }} cita{{ 's' if c.count != 1 }}</span>{% endif %}
+        </td>
+        {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

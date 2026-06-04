@@ -62,6 +62,23 @@ class AppointmentService:
         return q.order_by(ReviewAppointment.scheduled_at).all()
 
     @staticmethod
+    def counts_by_day(db: Session, start, end, *, allowed_program_ids: set | None = None) -> dict:
+        """{date: n_citas} en [start, end) (datetimes), acotado por carrera."""
+        from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+        if allowed_program_ids is not None and len(allowed_program_ids) == 0:
+            return {}
+        q = (db.query(ReviewAppointment)
+             .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
+             .filter(ReviewAppointment.scheduled_at >= start, ReviewAppointment.scheduled_at < end))
+        if allowed_program_ids is not None:
+            q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
+        out = {}
+        for a in q.all():
+            d = a.scheduled_at.date()
+            out[d] = out.get(d, 0) + 1
+        return out
+
+    @staticmethod
     def list_for_day(db: Session, day, *, allowed_program_ids: set | None = None) -> list:
         """Citas cuyo scheduled_at cae en el día `day` (date), ordenadas por hora.
 
