@@ -8,36 +8,8 @@
     {{ cohort.name if cohort else '' }} · Marca los días habilitados para agendar cotejo. ({{ count }} habilitados)</p>
 </div>
 <div class="px-4 pt-3 pb-4">
-  <div id="tt-cal-wrap" class="tt-card" style="max-width:520px">
-    <div class="d-flex align-items-center justify-content-between mb-2">
-      <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/review-days?month={{ prev_month }}"
-         hx-target="#tt-cal-wrap" hx-select="#tt-cal-wrap" hx-swap="outerHTML"><i class="bi bi-chevron-left"></i></a>
-      <span class="tt-kicker">{{ month_label }}</span>
-      <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/review-days?month={{ next_month }}"
-         hx-target="#tt-cal-wrap" hx-select="#tt-cal-wrap" hx-swap="outerHTML"><i class="bi bi-chevron-right"></i></a>
-    </div>
-    <table class="tt-cal">
-      <thead><tr>{% for w in weekdays %}<th>{{ w }}</th>{% endfor %}</tr></thead>
-      <tbody>
-        {% for week in weeks %}
-        <tr>
-          {% for c in week %}
-          {% if not c.in_month %}
-          <td class="out"><span class="daynum">{{ c.day }}</span></td>
-          {% else %}
-          <td class="{{ 'on sel' if c.on else 'on' }}"
-              hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/review-days/toggle"
-              hx-vals='{"date":"{{ c.date }}","month":"{{ year }}-{{ '%02d'|format(month) }}"}'
-              hx-target="#tt-cal-wrap" hx-select="#tt-cal-wrap" hx-swap="outerHTML">
-            <span class="daynum">{{ c.day }}</span>
-            {% if c.on %}<br><i class="bi bi-check-circle-fill" style="color:var(--tt-navy);font-size:.7rem"></i>{% endif %}
-          </td>
-          {% endif %}
-          {% endfor %}
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% set can_edit_days = True %}
+  {% set days = {'weeks':weeks,'weekdays':weekdays,'month_label':month_label,'prev_month':prev_month,'next_month':next_month,'year':year,'month':month} %}
+  {% include "titulatec/partials/cohort_days_calendar.html" %}
 </div>
 {% endblock %}
