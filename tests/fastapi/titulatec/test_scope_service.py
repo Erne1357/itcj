@@ -26,3 +26,12 @@ def test_vacio_sin_asignacion(mock_perms, mock_pids):
     mock_perms.return_value = set()
     mock_pids.return_value = set()
     assert officer_programs(MagicMock(), 1) == set()
+
+
+@patch("itcj2.apps.titulatec.services.scope_service._user_perms")
+def test_officer_sin_carreras_ve_set_vacio(mock_perms):
+    from unittest.mock import patch as _p
+    mock_perms.return_value = set()
+    with _p("itcj2.apps.titulatec.services.scope_service._program_ids_for_user", return_value=set()):
+        result = officer_programs(MagicMock(), 1)
+        assert result == set()

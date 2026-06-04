@@ -38,13 +38,21 @@ class AppointmentService:
 
     @staticmethod
     def list_appointments(db: Session, *, program_id: int | None = None,
-                          status: str | None = None, owner_id: int | None = None) -> list:
-        """Citas de la agenda, ordenadas por fecha. Filtros opcionales."""
+                          status: str | None = None, owner_id: int | None = None,
+                          allowed_program_ids: set | None = None) -> list:
+        """Citas de la agenda, ordenadas por fecha. Filtros opcionales.
+
+        allowed_program_ids: None = sin restricción de carrera; set vacío = devuelve [].
+        """
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+        if allowed_program_ids is not None and len(allowed_program_ids) == 0:
+            return []
         q = (
             db.query(ReviewAppointment)
             .join(TitulationProcess, ReviewAppointment.process_id == TitulationProcess.id)
         )
+        if allowed_program_ids is not None:
+            q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         if program_id:
             q = q.filter(TitulationProcess.program_id == program_id)
         if status:
@@ -54,9 +62,15 @@ class AppointmentService:
         return q.order_by(ReviewAppointment.scheduled_at).all()
 
     @staticmethod
-    def list_pending_processes(db: Session, *, program_id: int | None = None) -> list:
-        """Procesos en fase 2 (activos) que aún no tienen cita agendada."""
+    def list_pending_processes(db: Session, *, program_id: int | None = None,
+                               allowed_program_ids: set | None = None) -> list:
+        """Procesos en fase 2 (activos) que aún no tienen cita agendada.
+
+        allowed_program_ids: None = sin restricción de carrera; set vacío = devuelve [].
+        """
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+        if allowed_program_ids is not None and len(allowed_program_ids) == 0:
+            return []
         with_appt = [pid for (pid,) in db.query(ReviewAppointment.process_id).distinct()]
         q = db.query(TitulationProcess).filter(
             TitulationProcess.current_phase == 2,
@@ -64,6 +78,8 @@ class AppointmentService:
         )
         if with_appt:
             q = q.filter(~TitulationProcess.id.in_(with_appt))
+        if allowed_program_ids is not None:
+            q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         if program_id:
             q = q.filter(TitulationProcess.program_id == program_id)
         return q.order_by(TitulationProcess.created_at).all()

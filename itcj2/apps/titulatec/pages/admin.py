@@ -347,10 +347,18 @@ async def processes(
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import TitulationProcess, PhaseDefinition
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
 
     db = SessionLocal()
     try:
+        scope = officer_programs(db, int(user["sub"]))
         q = db.query(TitulationProcess)
+        if scope != "ALL":
+            if not scope:
+                return render_titulatec(request, "titulatec/admin/processes.html", {
+                    "rows": [], "status": status,
+                })
+            q = q.filter(TitulationProcess.program_id.in_(scope))
         if status:
             q = q.filter_by(status=status)
         defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}

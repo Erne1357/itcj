@@ -125,9 +125,14 @@ def _body_ctx(db, *, selected_id, program_id, status, mine, user_id) -> dict:
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
+
+    scope = officer_programs(db, user_id)
+    allowed = None if scope == "ALL" else scope
 
     appts = AppointmentService.list_appointments(
-        db, program_id=program_id, status=status or None, owner_id=user_id if mine else None)
+        db, program_id=program_id, status=status or None,
+        owner_id=user_id if mine else None, allowed_program_ids=allowed)
     rows = []
     for a in appts:
         proc = a.process
@@ -145,7 +150,8 @@ def _body_ctx(db, *, selected_id, program_id, status, mine, user_id) -> dict:
         })
 
     pending = []
-    for proc in AppointmentService.list_pending_processes(db, program_id=program_id):
+    for proc in AppointmentService.list_pending_processes(
+            db, program_id=program_id, allowed_program_ids=allowed):
         u = db.get(User, proc.student_id)
         prog = db.get(Program, proc.program_id) if proc.program_id else None
         pending.append({
