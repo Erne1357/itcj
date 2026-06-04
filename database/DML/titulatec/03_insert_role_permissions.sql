@@ -72,7 +72,6 @@ BEGIN
         'titulatec.process.api.cancel', 'titulatec.process.api.hold',
         'titulatec.document.api.read.all', 'titulatec.document.api.approve', 'titulatec.document.api.reject',
         'titulatec.format_b.api.read.all', 'titulatec.format_b.api.approve', 'titulatec.format_b.api.reject',
-        'titulatec.cohort.page.list', 'titulatec.cohort.page.detail', 'titulatec.cohort.api.read',
         'titulatec.ceremony.page.list', 'titulatec.ceremony.api.create', 'titulatec.ceremony.api.update',
         'titulatec.notifications.api.read.own', 'titulatec.notifications.api.mark_read'
     ]) WHERE r.name = 'titulatec_titulaciones'
@@ -110,6 +109,14 @@ BEGIN
     WHERE crp.role_id = r.id AND crp.perm_id = p.id
       AND r.name = 'titulatec_school_services'
       AND p.app_id = v_app_id AND p.code = 'titulatec.process.api.read.all';
+
+    -- Cleanup: Convocatorias (cohorts) son de Servicios Escolares; Titulaciones ya no las ve.
+    DELETE FROM core_role_permissions crp
+    USING core_roles r, core_permissions p
+    WHERE crp.role_id = r.id AND crp.perm_id = p.id
+      AND r.name = 'titulatec_titulaciones'
+      AND p.app_id = v_app_id
+      AND p.code IN ('titulatec.cohort.page.list', 'titulatec.cohort.page.detail', 'titulatec.cohort.api.read');
 
     RAISE NOTICE '✅ Asignación rol→permisos de TitulaTec completada';
 END $$;
