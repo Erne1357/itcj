@@ -21,7 +21,10 @@
 {% block content %}
 <div class="tt-admin" id="ttAdmin">
   <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
-  <aside class="side" hx-boost="true" hx-ext="morph" hx-swap="morph:innerHTML">
+  {# Navegación "estilo wire:navigate": cada item swappea SOLO #tt-admin-content
+     (morph), nunca el sidebar ni el <body> → el menú queda quieto, sin parpadeo,
+     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive). #}
+  <aside class="side" id="ttSide" hx-ext="morph">
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div class="d-flex align-items-center gap-2">
         <div class="d-flex align-items-center justify-content-center tt-display"
@@ -31,12 +34,15 @@
       <button type="button" class="tt-admin-close" id="ttAdminClose" aria-label="Cerrar menú"><i class="bi bi-x-lg"></i></button>
     </div>
     {% for it in admin_nav|default([]) %}
-    <a href="{{ it.url }}" class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
+    <a href="{{ it.url }}"
+       hx-get="{{ it.url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
+       hx-swap="morph:innerHTML" hx-push-url="true"
+       class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
     {% endfor %}
     {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
        desocultado solo en ≥lg (d-lg-block); el JS lo re-oculta si estamos en iframe. #}
     <div class="mt-auto d-none d-lg-block" id="ttBackItcj">
-      <a href="/itcj/dashboard" hx-boost="false"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
+      <a href="/itcj/dashboard"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
     </div>
   </aside>
   <main class="main">
@@ -45,7 +51,7 @@
       <button type="button" class="tt-burger" id="ttAdminBurger" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
       <div class="tt-display" style="font-size:1rem;font-weight:600">{{ _section }}</div>
     </header>
-    <div class="tt-anim-in">{% block admin_main %}{% endblock %}</div>
+    <div class="tt-anim-in" id="tt-admin-content">{% block admin_main %}{% endblock %}</div>
   </main>
 </div>
 {% endblock %}
@@ -64,6 +70,20 @@
   if (window.self !== window.top) {
     document.getElementById('ttBackItcj')?.classList.remove('d-lg-block');
   }
+
+  // Activo del menú: el sidebar no entra al swap, así que lo actualizamos por JS
+  // según la URL actual tras cada navegación HTMX (estilo wire:navigate).
+  function ttSetActive() {
+    var path = (location.pathname || '').replace(/\/$/, '');
+    document.querySelectorAll('#ttSide a[hx-get]').forEach(function (a) {
+      var url = (a.getAttribute('hx-get') || '').replace(/\/$/, '');
+      var on = url && url !== '#' &&
+        (url === path || (url !== '/titulatec/admin' && path.indexOf(url) === 0));
+      a.classList.toggle('active', !!on);
+    });
+  }
+  document.body.addEventListener('htmx:afterSettle', ttSetActive);
+  document.addEventListener('DOMContentLoaded', ttSetActive);
 
   // Drawer del sidebar admin en móvil/tablet (<992px).
   (function () {
