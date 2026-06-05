@@ -26,13 +26,14 @@
 sequenceDiagram
     actor SE as 🏛️ Servicios Escolares
     participant FE as Navegador (HTMX)
-    participant API as /admin/documents/{pid}/document/{code}/review
+    participant API as /admin/documents/{pid}/document/review
     participant DS as DocumentService
     participant PS as PhaseService
     participant DB as Postgres
-    SE->>FE: clic Aprobar/Rechazar (doc)
-    FE->>API: POST action=approve|reject
-    API->>DS: review(pid, code, status, reviewer)
+    SE->>FE: clic Aprobar/Rechazar (doc activo en el visor PDF.js)
+    FE->>API: POST type_code, action=approve|reject, note
+    Note over API: reject sin note → 400 (comentario obligatorio)
+    API->>DS: review(pid, type_code, status, note, reviewer)
     DS->>DB: Document.review_status = approved|rejected
     API->>DS: initial_docs_all_approved(pid)?
     alt los 3 approved y fase==1
@@ -47,7 +48,8 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD |
 |---|---|---|---|---|---|---|
 | 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped) | (lectura) |
-| 2 | 🏛️ | panel derecho | Aprueba/rechaza doc | `POST …/{pid}/document/{code}/review` | `DocumentService.review` | `Document.review_status` |
+| 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` | `Document.review_status`, `review_note` |
+| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / expande a modal | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` | (lectura) |
 | 3 | 🤖 | — | Auto-avance si 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.approve_phase` | fase1→approved, `current_phase=2`, `ProcessEvent` |
 
 ## Estado resultante

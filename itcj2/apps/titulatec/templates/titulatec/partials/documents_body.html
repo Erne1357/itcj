@@ -1,4 +1,6 @@
-{# Bandeja de revisión de documentos. Re-render en #docs-body (HTMX). #}
+{# Bandeja de revisión de documentos. Re-render en #docs-body (HTMX).
+   Visor con PDF.js (renderiza a canvas → inmune al bloqueo del visor PDF del
+   navegador). El dictamen (aprobar/rechazar + comentario) aplica al doc ACTIVO. #}
 {% from "titulatec/_macros.html" import estado_pill %}
 
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -42,44 +44,78 @@
       <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">Selecciona un alumno para revisar sus documentos.</p>
     </div>
     {% else %}
-    <div class="tt-card mb-3">
-      <span class="tt-kicker">{{ detail.folio }}</span>
-      <div class="tt-display" style="font-size:1.1rem;font-weight:600">{{ detail.student }}</div>
-      <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}</div>
-    </div>
-    <div class="tt-card mb-3">
-      <div class="d-flex flex-wrap gap-2 mb-2">
-        {% for d in detail.docs %}
-        <button class="btn btn-sm {{ 'tt-btn-soft' if d.has_file else 'tt-btn-ghost' }}"
-                {% if d.has_file %}onclick="ttDocView('{{ d.view_url }}', this)"{% else %}disabled{% endif %}>
-          {{ d.name }} {{ estado_pill(d.status) }}
-        </button>
-        {% endfor %}
+    {% set viewable = detail.docs | selectattr('has_file') | list %}
+    <div id="tt-doc-review" data-process="{{ detail.process_id }}">
+      <div class="tt-card mb-3">
+        <span class="tt-kicker">{{ detail.folio }}</span>
+        <div class="tt-display" style="font-size:1.1rem;font-weight:600">{{ detail.student }}</div>
+        <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}</div>
       </div>
-      {% set first = (detail.docs | selectattr('has_file') | list | first) %}
-      <iframe id="tt-docrev-viewer" title="Documento" src="{{ first.view_url if first else '' }}"
-              style="width:100%;height:420px;border:1px solid var(--tt-line);border-radius:10px;background:var(--tt-mist)"></iframe>
-      {% if not first %}<p class="mb-0 mt-2" style="font-size:.82rem;color:var(--tt-mute)">El alumno no ha subido documentos.</p>{% endif %}
-    </div>
-    <div class="tt-card">
-      <span class="tt-kicker">Dictamen por documento</span>
-      <div class="mt-2 d-flex flex-column gap-2">
-        {% for d in detail.docs if d.has_file %}
-        <div class="d-flex align-items-center gap-2">
-          <div class="flex-grow-1" style="font-size:.85rem">{{ d.name }} {{ estado_pill(d.status) }}</div>
-          <button class="btn btn-sm tt-btn-ink"
-                  hx-post="/titulatec/admin/documents/{{ detail.process_id }}/document/{{ d.type_code }}/review"
-                  hx-vals='{"action":"approve","status":"{{ status_filter }}"}'
-                  hx-target="#docs-body" hx-swap="innerHTML"><i class="bi bi-check-lg"></i></button>
-          <button class="btn btn-sm tt-btn-ghost"
-                  hx-post="/titulatec/admin/documents/{{ detail.process_id }}/document/{{ d.type_code }}/review"
-                  hx-vals='{"action":"reject","status":"{{ status_filter }}"}'
-                  hx-target="#docs-body" hx-swap="innerHTML"><i class="bi bi-x-lg"></i></button>
+
+      <div class="tt-card mb-3">
+        {# Selector de documentos (cambia el doc activo en el visor) #}
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          {% for d in viewable %}
+          <button type="button" class="btn btn-sm tt-docpick tt-btn-ghost"
+                  data-type="{{ d.type_code }}" data-url="{{ d.view_url }}" data-name="{{ d.name|e }}"
+                  data-mime="{{ d.mime }}" data-status="{{ d.status }}" data-note="{{ d.note|e if d.note }}">
+            {{ d.name }} {{ estado_pill(d.status) }}
+          </button>
+          {% endfor %}
+          {% if viewable %}
+          <button type="button" id="tt-doc-expand" class="btn btn-sm tt-btn-soft ms-auto" title="Expandir">
+            <i class="bi bi-arrows-fullscreen"></i><span class="d-none d-sm-inline ms-1">Expandir</span>
+          </button>
+          {% endif %}
         </div>
-        {% endfor %}
+
+        {% if viewable %}
+        <div id="tt-doc-stage" class="tt-doc-stage"></div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+          <a id="tt-doc-open" href="#" target="_blank" rel="noopener" class="btn btn-sm tt-btn-ghost">
+            <i class="bi bi-box-arrow-up-right me-1"></i>Abrir en pestaña</a>
+          <a id="tt-doc-download" href="#" class="btn btn-sm tt-btn-ghost">
+            <i class="bi bi-download me-1"></i>Descargar</a>
+        </div>
+        {% else %}
+        <p class="mb-0" style="font-size:.82rem;color:var(--tt-mute)">El alumno no ha subido documentos.</p>
+        {% endif %}
       </div>
-      {% if detail.all_approved %}
-      <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los 3 aprobados · listo para agendar cotejo</span></div>
+
+      {% if viewable %}
+      {# Dictamen del documento ACTIVO #}
+      <div class="tt-card">
+        <div class="d-flex align-items-center justify-content-between">
+          <span class="tt-kicker">Dictamen · <span id="tt-review-name"></span></span>
+          <span id="tt-review-status"></span>
+        </div>
+        <div id="tt-doc-note" class="mt-2" style="display:none">
+          <div class="tt-kicker" style="color:var(--tt-danger)">Último motivo de rechazo</div>
+          <div id="tt-doc-note-text" class="p-2 mt-1" style="font-size:.82rem;background:var(--tt-danger-soft);border-radius:8px;color:#991B1B"></div>
+        </div>
+        <form id="tt-review-form" class="mt-2">
+          <input type="hidden" name="type_code" id="tt-review-type">
+          <input type="hidden" name="status" value="{{ status_filter }}">
+          <label class="tt-label">Comentario <span style="color:var(--tt-mute);font-weight:400">(obligatorio si rechazas)</span></label>
+          <textarea name="note" id="tt-review-note" class="tt-field" rows="2" style="width:100%"
+                    placeholder="Motivo del rechazo y la corrección esperada…"></textarea>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" id="tt-inline-approve" class="btn btn-sm tt-btn-ink"
+                    hx-post="/titulatec/admin/documents/{{ detail.process_id }}/document/review"
+                    hx-vals='{"action":"approve"}' hx-include="#tt-review-form"
+                    hx-target="#docs-body" hx-swap="innerHTML">
+              <i class="bi bi-check-lg me-1"></i>Aprobar</button>
+            <button type="button" id="tt-inline-reject" class="btn btn-sm tt-btn-ghost" style="color:var(--tt-danger);border-color:rgba(220,38,38,.3)"
+                    hx-post="/titulatec/admin/documents/{{ detail.process_id }}/document/review"
+                    hx-vals='{"action":"reject"}' hx-include="#tt-review-form"
+                    hx-target="#docs-body" hx-swap="innerHTML">
+              <i class="bi bi-x-lg me-1"></i>Rechazar</button>
+          </div>
+        </form>
+        {% if detail.all_approved %}
+        <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los 3 aprobados · listo para agendar cotejo</span></div>
+        {% endif %}
+      </div>
       {% endif %}
     </div>
     {% endif %}
@@ -87,5 +123,177 @@
 </div>
 
 <script>
-  function ttDocView(url, btn) { var f = document.getElementById('tt-docrev-viewer'); if (f) f.src = url; }
+(function () {
+  var root = document.getElementById('tt-doc-review');
+  if (!root) return;
+  var picks = Array.prototype.slice.call(root.querySelectorAll('.tt-docpick'));
+  if (!picks.length) return;
+
+  // ---- PDF.js (carga perezosa; renderiza a canvas, inmune al bloqueo del navegador) ----
+  function pdfjs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (window._ttPdfjsP) return window._ttPdfjsP;
+    window._ttPdfjsP = new Promise(function (res, rej) {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+      s.onload = function () {
+        try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; } catch (e) {}
+        res(window.pdfjsLib);
+      };
+      s.onerror = function () { rej(new Error('pdfjs load failed')); };
+      document.head.appendChild(s);
+    });
+    return window._ttPdfjsP;
+  }
+
+  function fallback(el, url) {
+    el.innerHTML = '<div class="tt-doc-empty">No se pudo previsualizar aquí. '
+      + '<a href="' + url + '" target="_blank" rel="noopener">Abrir</a> · '
+      + '<a href="' + url + '?download=1">Descargar</a></div>';
+  }
+
+  function renderInto(el, url, mime) {
+    el.innerHTML = '<div class="tt-doc-loading"><span class="tt-spinner"></span> Cargando…</div>';
+    if (mime && mime.indexOf('pdf') === -1) {           // imagen
+      el.innerHTML = '';
+      var img = document.createElement('img');
+      img.src = url; img.alt = 'Documento'; img.className = 'tt-doc-img';
+      img.onerror = function () { fallback(el, url); };
+      el.appendChild(img);
+      return;
+    }
+    pdfjs().then(function (lib) {
+      return lib.getDocument(url).promise.then(function (pdf) {
+        el.innerHTML = '';
+        var width = el.clientWidth || 600;
+        var dpr = window.devicePixelRatio || 1;
+        var chain = Promise.resolve();
+        for (var n = 1; n <= pdf.numPages; n++) {
+          (function (pageNum) {
+            chain = chain.then(function () {
+              return pdf.getPage(pageNum).then(function (page) {
+                var vp = page.getViewport({ scale: 1 });
+                var scale = width / vp.width;
+                var svp = page.getViewport({ scale: scale * dpr });
+                var canvas = document.createElement('canvas');
+                canvas.className = 'tt-pdf-page';
+                canvas.width = svp.width; canvas.height = svp.height;
+                canvas.style.width = '100%';
+                el.appendChild(canvas);
+                return page.render({ canvasContext: canvas.getContext('2d'), viewport: svp }).promise;
+              });
+            });
+          })(n);
+        }
+        return chain;
+      });
+    }).catch(function () { fallback(el, url); });
+  }
+
+  // ---- Estado del doc activo ----
+  var stage = document.getElementById('tt-doc-stage');
+  var nameEl = document.getElementById('tt-review-name');
+  var statusEl = document.getElementById('tt-review-status');
+  var typeInput = document.getElementById('tt-review-type');
+  var noteWrap = document.getElementById('tt-doc-note');
+  var noteText = document.getElementById('tt-doc-note-text');
+  var openLink = document.getElementById('tt-doc-open');
+  var dlLink = document.getElementById('tt-doc-download');
+  var activeBtn = null;
+
+  function setActive(btn, intoModal) {
+    activeBtn = btn;
+    picks.forEach(function (p) { p.classList.toggle('tt-btn-ink', p === btn); p.classList.toggle('tt-btn-ghost', p !== btn); });
+    if (typeInput) typeInput.value = btn.dataset.type;
+    if (nameEl) nameEl.textContent = btn.dataset.name;
+    if (statusEl) statusEl.innerHTML = btn.querySelector('.tt-pill') ? btn.querySelector('.tt-pill').outerHTML : '';
+    if (openLink) openLink.href = btn.dataset.url;
+    if (dlLink) dlLink.href = btn.dataset.url + '?download=1';
+    if (noteWrap) {
+      if (btn.dataset.status === 'rejected' && btn.dataset.note) { noteText.textContent = btn.dataset.note; noteWrap.style.display = ''; }
+      else { noteWrap.style.display = 'none'; }
+    }
+    renderInto(stage, btn.dataset.url, btn.dataset.mime);
+    if (intoModal) renderModal(btn);
+  }
+
+  picks.forEach(function (p) { p.addEventListener('click', function () { setActive(p, false); }); });
+
+  // ---- Modal (visor grande + dictamen) ----
+  var modalEl = document.getElementById('tt-doc-modal');
+  var modalStage = document.getElementById('tt-modal-stage');
+  var modalPicks = document.getElementById('tt-modal-picks');
+  var modalOpen = document.getElementById('tt-modal-open');
+  var modalNote = document.getElementById('tt-modal-note');
+  var modalName = document.getElementById('tt-modal-name');
+  var modalApprove = document.getElementById('tt-modal-approve');
+  var modalReject = document.getElementById('tt-modal-reject');
+  var noteBox = document.getElementById('tt-review-note');
+  var inlineApprove = document.getElementById('tt-inline-approve');
+  var inlineReject = document.getElementById('tt-inline-reject');
+  var modalActive = null;  // pick actualmente mostrado en el modal
+
+  function renderModal(btn) {
+    if (!modalStage) return;
+    modalActive = btn;
+    if (modalOpen) modalOpen.href = btn.dataset.url;
+    if (modalName) modalName.textContent = btn.dataset.name;
+    if (modalPicks) Array.prototype.forEach.call(modalPicks.children, function (mb) {
+      var on = mb.dataset.type === btn.dataset.type;
+      mb.classList.toggle('tt-btn-ink', on); mb.classList.toggle('tt-btn-ghost', !on);
+    });
+    renderInto(modalStage, btn.dataset.url, btn.dataset.mime);
+  }
+
+  // Sincroniza la nota del modal hacia el form inline (fuente de verdad de HTMX).
+  function syncNoteToInline() { if (modalNote && noteBox) noteBox.value = modalNote.value; }
+  if (modalNote) modalNote.addEventListener('input', syncNoteToInline);
+
+  // Acción desde el modal: copia nota + fija el tipo activo del modal en el form
+  // inline y dispara su botón HTMX (reusa el mismo POST). Luego cierra el modal.
+  function actFromModal(action) {
+    if (!modalActive) return;
+    if (action === 'reject' && modalNote && !modalNote.value.trim()) {
+      if (window.TitulaTecUtils) TitulaTecUtils.showToast('Indica el motivo del rechazo.', 'danger');
+      modalNote.focus();
+      return;
+    }
+    if (typeInput) typeInput.value = modalActive.dataset.type;  // el doc activo es el del modal
+    syncNoteToInline();
+    var btn = action === 'approve' ? inlineApprove : inlineReject;
+    if (modalEl && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    if (btn) btn.click();
+  }
+  if (modalApprove) modalApprove.addEventListener('click', function () { actFromModal('approve'); });
+  if (modalReject) modalReject.addEventListener('click', function () { actFromModal('reject'); });
+
+  var expandBtn = document.getElementById('tt-doc-expand');
+  if (expandBtn && modalEl && window.bootstrap) {
+    expandBtn.addEventListener('click', function () {
+      // (re)construye los picks del modal a partir de los actuales
+      if (modalPicks) {
+        modalPicks.innerHTML = '';
+        picks.forEach(function (p) {
+          var mb = document.createElement('button');
+          mb.type = 'button'; mb.className = 'btn btn-sm tt-btn-ghost';
+          mb.dataset.type = p.dataset.type; mb.dataset.url = p.dataset.url; mb.dataset.mime = p.dataset.mime;
+          mb.dataset.name = p.dataset.name;
+          mb.innerHTML = p.innerHTML;
+          mb.addEventListener('click', function () { renderModal(mb); });
+          modalPicks.appendChild(mb);
+        });
+      }
+      // arranca el modal en el mismo doc que el visor inline y con la misma nota
+      if (modalNote && noteBox) modalNote.value = noteBox.value;
+      var inst = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+      inst.show();
+      setTimeout(function () { if (activeBtn) renderModal(activeBtn); }, 180);
+    });
+    // Al cerrar el modal, vuelca la nota del modal al panel normal.
+    modalEl.addEventListener('hidden.bs.modal', syncNoteToInline);
+  }
+
+  // init: primer doc
+  setActive(picks[0], false);
+})();
 </script>

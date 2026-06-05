@@ -34,6 +34,8 @@ def _doc_row(db, proc):
         docs.append({
             "type_code": code, "name": dt.name if dt else code, "status": status,
             "has_file": doc is not None,
+            "mime": (doc.mime_type if doc else None) or "application/pdf",
+            "note": doc.review_note if doc else None,
             "view_url": f"/titulatec/admin/documents/{proc.id}/document/{code}" if doc else None,
         })
     return {
@@ -77,7 +79,7 @@ def _to_int(raw):
 
 
 @router.get("", name="titulatec.pages.documents.home")
-async def home(request: Request, status: str = "", selected: str = "",
+async def home(request: Request, status: str = "pending", selected: str = "",
                user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -102,20 +104,26 @@ async def body(request: Request, status: str = "", selected: str = "",
     return render_titulatec(request, "titulatec/partials/documents_body.html", ctx)
 
 
-@router.post("/{process_id}/document/{type_code}/review", name="titulatec.pages.documents.review")
-async def review(process_id: int, type_code: str, request: Request,
+@router.post("/{process_id}/document/review", name="titulatec.pages.documents.review")
+async def review(process_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REVIEW_PERMS))):
-    """Aprueba/rechaza un doc; si quedan los 3 aprobados y la fase es 1, auto-avanza a fase 2."""
+    """Aprueba/rechaza un doc; si quedan los 3 aprobados y la fase es 1, auto-avanza a fase 2.
+    El tipo de documento llega en el form (type_code), no en la URL (panel de dictamen único)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
     form = dict(await request.form())
+    type_code = form.get("type_code") or ""
+    if not type_code:
+        return Response(status_code=400, headers={"X-Tt-Error": "Falta el documento a revisar."})
     action = form.get("action")
-    note = form.get("note")
+    note = (form.get("note") or "").strip() or None
     status_filter = form.get("status") or None
     new_status = "approved" if action == "approve" else "rejected"
+    if new_status == "rejected" and not note:
+        return Response(status_code=400, headers={"X-Tt-Error": "Indica el motivo del rechazo y la corrección esperada."})
     db = SessionLocal()
     try:
         DocumentService.review(db, process_id, type_code, status=new_status, note=note,
@@ -132,7 +140,7 @@ async def review(process_id: int, type_code: str, request: Request,
 
 
 @router.get("/{process_id}/document/{type_code}", name="titulatec.pages.documents.file")
-async def document_file(process_id: int, type_code: str, request: Request,
+async def document_file(process_id: int, type_code: str, request: Request, download: int = 0,
                         user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.all"]))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -149,5 +157,6 @@ async def document_file(process_id: int, type_code: str, request: Request,
         db.close()
     if not path.exists():
         return Response(status_code=404)
+    disp = "attachment" if download else "inline"
     return FileResponse(str(path), media_type=mime,
-                        headers={"Content-Disposition": f'inline; filename="{original}"'})
+                        headers={"Content-Disposition": f'{disp}; filename="{original or type_code}"'})

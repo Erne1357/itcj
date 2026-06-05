@@ -25,6 +25,24 @@
         <i class="bi bi-trash" style="color:var(--tt-danger)"></i>
       </button>
     </div>
+
+    {% if doc.review_status == 'rejected' %}
+    {# Rechazado: muestra el motivo y permite re-subir el corregido directamente (sin borrar). #}
+    <div class="mt-2 p-2" style="background:var(--tt-danger-soft);border-radius:8px">
+      <div class="tt-kicker" style="color:var(--tt-danger)"><i class="bi bi-exclamation-triangle me-1"></i>Necesita corrección</div>
+      {% if doc.review_note %}<div style="font-size:.8rem;color:#991B1B;margin-top:2px">{{ doc.review_note }}</div>{% endif %}
+    </div>
+    <form class="tt-dropzone mt-2" hx-post="{{ upload_url }}" hx-encoding="multipart/form-data"
+          hx-trigger="change from:#file-{{ dtype.code }}"
+          hx-target="#slot-{{ dtype.code }}" hx-swap="outerHTML" hx-disabled-elt="find input">
+      <i class="bi bi-arrow-repeat" style="font-size:1.1rem;color:var(--tt-accent)"></i>
+      <div class="fw-semibold mt-1" style="font-size:.8125rem">Subir documento corregido</div>
+      <input id="file-{{ dtype.code }}" type="file" name="archivo" hidden
+             accept="{{ '.pdf' if dtype.file_kind == 'pdf' else 'image/*' }}"
+             onclick="event.stopPropagation()">
+      <label for="file-{{ dtype.code }}" class="stretched-link" style="cursor:pointer"></label>
+    </form>
+    {% endif %}
   {% else %}
     <form class="tt-dropzone" hx-post="{{ upload_url }}" hx-encoding="multipart/form-data"
           hx-trigger="change from:#file-{{ dtype.code }}"

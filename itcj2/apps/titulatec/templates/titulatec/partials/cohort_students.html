@@ -1,22 +1,28 @@
-<div id="cohort-tab-body">
-  <div id="student-add" class="mb-3">
-    <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students/lookup"
-       hx-target="#student-add" hx-swap="innerHTML"><i class="bi bi-person-plus me-1"></i>Agregar alumno</a>
-    <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/cohorts/{{ cohort_id }}/import"><i class="bi bi-upload me-1"></i>Actualizar CSV</a>
+{# Contenido interno del tab Alumnos (sin wrapper #cohort-tab-body). #}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <div id="student-add">
+    {% include "titulatec/partials/cohort_student_addbtn.html" %}
   </div>
+  <a class="btn btn-sm tt-btn-soft" href="/titulatec/admin/cohorts/{{ cohort_id }}?tab=importar"
+     hx-get="/titulatec/admin/cohorts/{{ cohort_id }}?tab=importar"
+     hx-target="#cohort-pane" hx-select="#cohort-pane" hx-swap="outerHTML" hx-push-url="true">
+    <i class="bi bi-upload me-1"></i>Importar CSV</a>
+</div>
 
-  <form class="d-flex flex-wrap gap-2 mb-2">
-    <input class="form-control form-control-sm" name="q" value="{{ q }}" placeholder="Buscar control o nombre" style="max-width:240px"
+<form class="d-flex flex-wrap gap-2 mb-2">
+  <div class="tt-search">
+    <i class="bi bi-search"></i>
+    <input name="q" value="{{ q }}" placeholder="Buscar control o nombre"
            hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students" hx-target="#students-body" hx-swap="innerHTML"
            hx-trigger="keyup changed delay:400ms" hx-include="closest form">
-    <select class="form-select form-select-sm" name="phase" style="max-width:160px"
-            hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students" hx-target="#students-body" hx-swap="innerHTML" hx-include="closest form">
-      <option value="">Todas las fases</option>
-      {% for n in range(0,9) %}<option value="{{ n }}" {{ 'selected' if phase|string == n|string }}>{{ '%02d'|format(n) }}</option>{% endfor %}
-    </select>
-  </form>
-
-  <div id="students-body">
-    {% include "titulatec/partials/cohort_students_table.html" %}
   </div>
+  <select class="form-select form-select-sm" name="phase" style="max-width:160px"
+          hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/students" hx-target="#students-body" hx-swap="innerHTML" hx-include="closest form">
+    <option value="">Todas las fases</option>
+    {% for n in range(0,9) %}<option value="{{ n }}" {{ 'selected' if phase|string == n|string }}>{{ '%02d'|format(n) }}</option>{% endfor %}
+  </select>
+</form>
+
+<div id="students-body">
+  {% include "titulatec/partials/cohort_students_table.html" %}
 </div>

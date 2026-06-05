@@ -65,6 +65,7 @@ def _slot_ctx(dtype, doc, *, error: str | None = None) -> dict:
         "dtype": {"code": dtype.code, "name": dtype.name, "file_kind": dtype.file_kind},
         "doc": ({
             "review_status": doc.review_status,
+            "review_note": doc.review_note,
             "original_name": doc.original_name,
             "mime_type": doc.mime_type,
             "size_bytes": doc.size_bytes or 0,

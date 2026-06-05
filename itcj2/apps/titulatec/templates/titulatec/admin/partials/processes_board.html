@@ -3,16 +3,32 @@
   <div class="tt-kanban-col">
     <div class="head">
       <span class="tt-kicker">{{ '%02d'|format(col.number) }} · {{ col.name }}</span>
-      <span class="count">{{ col.cards|length }}</span>
+      <span class="count">{{ col.count }}</span>
     </div>
-    {% for c in col.cards %}
-    <a class="tt-kanban-card tt-hover-lift" href="/titulatec/admin/processes/{{ c.id }}">
-      <div class="fw-semibold" style="font-size:.82rem">{{ c.student }}</div>
-      <div class="tt-mono" style="font-size:.68rem;color:var(--tt-mute)">{{ c.folio }} · {{ c.program or '—' }}</div>
-    </a>
-    {% else %}
-    <div style="font-size:.72rem;color:var(--tt-mute)">—</div>
-    {% endfor %}
+    {% if col.count %}
+    <div class="health" title="{{ col.n_stuck }} atorado(s) de {{ col.count }}">
+      <i style="width:{{ (col.n_stuck / col.count * 100)|round|int }}%"></i>
+    </div>
+    {% endif %}
+    <div class="col-scroll">
+      <div class="body">
+        {% for c in col.cards %}
+        <a class="tt-kanban-card tt-hover-lift {{ 'is-stuck' if c.idle_level=='crit' }}" href="/titulatec/admin/processes/{{ c.id }}">
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <div class="fw-semibold text-truncate" style="font-size:.82rem">{{ c.student }}</div>
+            <span class="tt-pill tt-pill--idle-{{ c.idle_level }}" style="flex:0 0 auto">{{ c.idle_days }} d</span>
+          </div>
+          <div class="tt-mono text-truncate" style="font-size:.68rem;color:var(--tt-mute)">{{ c.folio }} · {{ c.program or '—' }}</div>
+          <div class="meta">
+            <span class="tt-progress" style="flex:1 1 auto"><i style="width:{{ c.progress_pct }}%"></i></span>
+            <span style="font-size:.66rem;color:var(--tt-mute);flex:0 0 auto">{{ c.modality }}</span>
+          </div>
+        </a>
+        {% else %}
+        <div style="font-size:.72rem;color:var(--tt-mute)">—</div>
+        {% endfor %}
+      </div>
+    </div>
   </div>
   {% endfor %}
 </div>

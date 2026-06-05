@@ -52,23 +52,37 @@ def _month_arg(raw: str):
 
 def _cohort_summary_ctx(db, cohort) -> dict:
     from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     procs = db.query(TitulationProcess).filter_by(cohort_id=cohort.id).all()
     by_phase = {}
     for p in procs:
         by_phase[p.current_phase] = by_phase.get(p.current_phase, 0) + 1
+    phase_defs = (db.query(PhaseDefinition).filter_by(is_active=True)
+                  .order_by(PhaseDefinition.order_index).all())
     defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
-    phase_rows = [{"number": n, "name": defs.get(n, f"Fase {n}"), "count": by_phase.get(n, 0)}
-                  for n in sorted(by_phase)]
+    max_phase = max((ph.number for ph in phase_defs), default=0) or 1
+    # Funnel: una franja por fase activa (incluye fases con 0 para ver el flujo completo).
+    phase_rows = [{"number": ph.number, "name": ph.name, "count": by_phase.get(ph.number, 0)}
+                  for ph in phase_defs]
+    total = len(procs)
+    completed = sum(1 for p in procs if p.status == "completed")
     proc_ids = [p.id for p in procs]
     with_appt = 0
     if proc_ids:
         with_appt = (db.query(ReviewAppointment.process_id)
                      .filter(ReviewAppointment.process_id.in_(proc_ids)).distinct().count())
+    try:
+        review_days = len(ReviewDayService.list_days(db, cohort.id))
+    except Exception:
+        review_days = 0
     return {
         "period_code": cohort.period_code, "status": cohort.status,
         "opens_at": cohort.opens_at.isoformat() if cohort.opens_at else None,
         "closes_at": cohort.closes_at.isoformat() if cohort.closes_at else None,
-        "total": len(procs), "phase_rows": phase_rows, "with_appt": with_appt,
+        "total": total, "phase_rows": phase_rows, "with_appt": with_appt,
+        "completed": completed,
+        "pct_completed": round(completed / total * 100) if total else 0,
+        "review_days": review_days, "max_phase": max_phase,
     }
 
 
@@ -188,6 +202,13 @@ async def student_lookup(cohort_id: int, request: Request, control: str = "",
     finally:
         db.close()
     return render_titulatec(request, "titulatec/partials/cohort_student_addform.html", ctx)
+
+
+@router.get("/cohorts/{cohort_id}/students/cancel", name="titulatec.pages.admin.student_add_cancel")
+async def student_add_cancel(cohort_id: int, request: Request,
+                            user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+    """Restaura el botón colapsado del alta manual (#student-add)."""
+    return render_titulatec(request, "titulatec/partials/cohort_student_addbtn.html", {"cohort_id": cohort_id})
 
 
 @router.post("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.student_add")
@@ -324,10 +345,15 @@ async def cohorts(
             for p in db.query(AcademicPeriod).order_by(AcademicPeriod.id.desc()).all()
             if p.id not in used
         ]
+        kpis = {
+            "total": len(rows),
+            "open": sum(1 for r in rows if r["status"] == "open"),
+            "students": sum(r["processes"] for r in rows),
+        }
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/cohorts.html", {
-        "cohorts": rows, "periods": periods,
+        "cohorts": rows, "periods": periods, "kpis": kpis,
     })
 
 
@@ -362,7 +388,7 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.services.authz_service import get_user_permissions_for_app
-    tab = tab if tab in ("resumen", "dias", "alumnos") else "resumen"
+    tab = tab if tab in ("resumen", "dias", "alumnos", "importar") else "resumen"
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
@@ -373,6 +399,8 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
                "can_edit_days": "titulatec.cohort.api.review_days" in perms}
         if tab == "resumen":
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
+        elif tab == "importar":
+            pass  # el wizard de importación se sirve con el cohort ya en ctx
         elif tab == "dias":
             from datetime import date as _d
             today = _d.today()
@@ -587,17 +615,37 @@ def _detail_ctx(db, process_id: int) -> dict | None:
 async def processes(
     request: Request,
     status: str = "",
-    view: str = "board",
+    view: str = "table",
+    stuck: int = 0,
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
 ):
-    """Bandeja de procesos (tablero kanban o tabla, con filtro por estado)."""
+    """Bandeja de procesos (tabla densa o tablero kanban) con KPIs, funnel de
+    fases y señal de atoro (días sin moverse)."""
+    from datetime import datetime
+    from itcj2.config import get_settings
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
     from itcj2.core.models.program import Program
-    from itcj2.apps.titulatec.models import TitulationProcess, PhaseDefinition
+    from itcj2.apps.titulatec.models import (
+        TitulationProcess, PhaseDefinition, ProcessPhase, Modality,
+    )
     from itcj2.apps.titulatec.services.scope_service import officer_programs
 
-    view = "table" if view == "table" else "board"
+    view = "table" if view != "board" else "board"
+    settings = get_settings()
+    warn_days = settings.TITULATEC_IDLE_WARN_DAYS
+    crit_days = settings.TITULATEC_IDLE_CRIT_DAYS
+
+    def _empty(extra=None):
+        ctx = {
+            "rows": [], "status": status, "view": view, "stuck": stuck, "columns": [],
+            "kpis": {"total": 0, "active": 0, "completed": 0, "on_hold": 0,
+                     "cancelled": 0, "pct_completed": 0, "n_stuck": 0},
+            "idle_warn": warn_days, "idle_crit": crit_days,
+        }
+        if extra:
+            ctx.update(extra)
+        return ctx
 
     db = SessionLocal()
     try:
@@ -605,37 +653,84 @@ async def processes(
         q = db.query(TitulationProcess)
         if scope != "ALL":
             if not scope:
-                return render_titulatec(request, "titulatec/admin/processes.html", {
-                    "rows": [], "status": status, "view": view, "columns": [],
-                })
+                return render_titulatec(request, "titulatec/admin/processes.html", _empty())
             q = q.filter(TitulationProcess.program_id.in_(scope))
         if status:
             q = q.filter_by(status=status)
+
+        procs = q.order_by(TitulationProcess.created_at.desc()).all()
+
+        # KPIs sobre el universo filtrado por status/scope (antes del filtro stuck).
+        kpis = {"total": len(procs), "active": 0, "completed": 0,
+                "on_hold": 0, "cancelled": 0, "pct_completed": 0, "n_stuck": 0}
+        for p in procs:
+            if p.status in kpis:
+                kpis[p.status] += 1
+        if kpis["total"]:
+            kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)
+
+        # Definiciones de fase + progreso.
+        phase_defs = (db.query(PhaseDefinition)
+                      .filter_by(is_active=True)
+                      .order_by(PhaseDefinition.order_index).all())
         defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
+        max_phase = max((ph.number for ph in phase_defs), default=0) or 1
+
+        # Idle: started_at de la fase ACTUAL de cada proceso, en una sola query.
+        proc_ids = [p.id for p in procs]
+        phase_started = {}
+        if proc_ids:
+            for ph in (db.query(ProcessPhase)
+                       .filter(ProcessPhase.process_id.in_(proc_ids)).all()):
+                phase_started[(ph.process_id, ph.phase_number)] = ph.started_at
+
+        modalities = {m.id: m.name for m in db.query(Modality).all()}
+        now = datetime.now()
+
         rows = []
-        for p in q.order_by(TitulationProcess.created_at.desc()).all():
+        for p in procs:
             u = db.get(User, p.student_id)
             prog = db.get(Program, p.program_id) if p.program_id else None
+            since = phase_started.get((p.id, p.current_phase)) or p.updated_at
+            idle_days = max(0, (now - since).days) if since else 0
+            idle_level = ("crit" if idle_days >= crit_days
+                          else "warn" if idle_days >= warn_days else "ok")
+            progress_pct = max(0, min(100, round(p.current_phase / max_phase * 100)))
             rows.append({
                 "id": p.id, "folio": p.folio,
                 "student": u.full_name if u else "—",
                 "control": u.control_number if u else "—",
                 "program": prog.name if prog else "—",
+                "modality": modalities.get(p.modality_id, "—"),
                 "phase": p.current_phase, "phase_name": defs.get(p.current_phase, ""),
                 "status": p.status,
+                "idle_days": idle_days, "idle_level": idle_level,
+                "progress_pct": progress_pct,
             })
-        phase_defs = db.query(PhaseDefinition).filter_by(is_active=True).order_by(PhaseDefinition.order_index).all()
+
+        kpis["n_stuck"] = sum(1 for r in rows if r["idle_level"] == "crit")
+
+        if stuck:
+            rows = [r for r in rows if r["idle_level"] == "crit"]
+
+        # Columnas del kanban: agrupar por fase actual.
         buckets = {ph.number: [] for ph in phase_defs}
         for r in rows:
             buckets.setdefault(r["phase"], []).append(r)
-        columns = [
-            {"number": ph.number, "name": ph.name, "cards": buckets.get(ph.number, [])}
-            for ph in phase_defs
-        ]
+        columns = []
+        for ph in phase_defs:
+            cards = buckets.get(ph.number, [])
+            columns.append({
+                "number": ph.number, "name": ph.name, "cards": cards,
+                "count": len(cards),
+                "n_stuck": sum(1 for c in cards if c["idle_level"] == "crit"),
+            })
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/processes.html", {
-        "rows": rows, "status": status, "view": view, "columns": columns,
+        "rows": rows, "status": status, "view": view, "stuck": stuck,
+        "columns": columns, "kpis": kpis,
+        "idle_warn": warn_days, "idle_crit": crit_days,
     })
 
 

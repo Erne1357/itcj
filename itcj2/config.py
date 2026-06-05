@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111367"
+    STATIC_VERSION: str = "1.0.1111374"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     TITULATEC_MAX_PDF_SIZE: int = 10 * 1024 * 1024
     TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+    # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
+    TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
+    TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
 
 
     model_config = {"env_file": ".env", "extra": "ignore"}

@@ -77,3 +77,6 @@ docker/.active-color
 docker/nginx/upstream.conf
 # Manifiesto de estaticos (Pilar 2 - se genera en deploy)
 static-manifest.json
+
+skills-lock.json
+.agents/

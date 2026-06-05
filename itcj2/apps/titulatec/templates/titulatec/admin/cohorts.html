@@ -3,33 +3,48 @@
 
 {% block admin_main %}
 <div class="px-4 pt-4">
-  <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Convocatorias</h1>
-</div>
-
-<div class="px-4 pt-4">
-  {# Alta de convocatoria #}
-  <div class="tt-card mb-3">
-    <span class="tt-kicker">Nueva convocatoria</span>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <h1 class="tt-display mb-0" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Convocatorias</h1>
     {% if periods %}
-    <form method="post" action="/titulatec/admin/cohorts" class="d-flex flex-wrap gap-2 align-items-end mt-2">
-      <div class="flex-grow-1" style="max-width:360px">
-        <label class="tt-label">Período académico</label>
-        <select class="form-select" name="period_id" required>
-          {% for p in periods %}<option value="{{ p.id }}">{{ p.code }} · {{ p.name }}</option>{% endfor %}
-        </select>
-      </div>
-      <button class="btn tt-btn-ink"><i class="bi bi-plus-lg me-1"></i>Crear</button>
-    </form>
-    {% else %}
-    <p class="mb-0 mt-1" style="font-size:.85rem;color:var(--tt-slate)">
-      Todas las convocatorias por período ya existen. Crea un período académico en ITCJ para abrir otra.</p>
+    <button class="btn btn-sm tt-btn-ink ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#new-cohort">
+      <i class="bi bi-plus-lg me-1"></i>Nueva convocatoria
+    </button>
     {% endif %}
   </div>
 
-  {# Lista #}
+  {# KPIs #}
+  <div class="tt-kpis tt-stagger mt-3">
+    <div class="tt-kpi"><div class="tt-kicker">Convocatorias</div><div class="num">{{ kpis.total }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Abiertas</div><div class="num">{{ kpis.open }}</div></div>
+    <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ kpis.students }}</div></div>
+  </div>
+
+  {# Alta de convocatoria (colapsable) #}
+  {% if periods %}
+  <div class="collapse mt-3" id="new-cohort">
+    <div class="tt-card">
+      <span class="tt-kicker">Nueva convocatoria</span>
+      <form method="post" action="/titulatec/admin/cohorts" class="d-flex flex-wrap gap-2 align-items-end mt-2">
+        <div class="flex-grow-1" style="max-width:360px">
+          <label class="tt-label">Período académico</label>
+          <select class="form-select" name="period_id" required>
+            {% for p in periods %}<option value="{{ p.id }}">{{ p.code }} · {{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <button class="btn tt-btn-ink"><i class="bi bi-plus-lg me-1"></i>Crear</button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <p class="mt-2 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
+    Todas las convocatorias por período ya existen. Crea un período académico en ITCJ para abrir otra.</p>
+  {% endif %}
+</div>
+
+<div class="px-4 pt-4 pb-4">
   <div class="tt-card p-0 overflow-hidden">
    <div class="tt-table-wrap">
-    <table class="table align-middle mb-0" style="font-size:.85rem">
+    <table class="table table-hover align-middle mb-0 tt-table-cards" style="font-size:.85rem">
       <thead><tr style="background:var(--tt-mist)">
         <th class="tt-kicker">Convocatoria</th><th class="tt-kicker">Período</th>
         <th class="tt-kicker">Estado</th><th class="tt-kicker">Alumnos</th><th></th>
@@ -37,19 +52,20 @@
       <tbody>
         {% for c in cohorts %}
         <tr>
-          <td class="fw-semibold"><a href="/titulatec/admin/cohorts/{{ c.id }}" class="text-decoration-none" style="color:var(--tt-ink)">{{ c.name }}</a></td>
-          <td class="tt-mono">{{ c.period_code }}</td>
-          <td><span class="tt-pill tt-pill--{{ 'success' if c.status=='open' else 'neutral' }}">{{ c.status }}</span></td>
-          <td class="tt-mono">{{ c.processes }}</td>
+          <td data-label="Convocatoria" class="fw-semibold"><a href="/titulatec/admin/cohorts/{{ c.id }}" class="text-decoration-none" style="color:var(--tt-ink)">{{ c.name }}</a></td>
+          <td data-label="Período" class="tt-mono">{{ c.period_code }}</td>
+          <td data-label="Estado"><span class="tt-pill tt-pill--{{ 'success' if c.status=='open' else 'neutral' }}">{{ c.status }}</span></td>
+          <td data-label="Alumnos" class="tt-mono">{{ c.processes }}</td>
           <td class="text-end">
             <a href="/titulatec/admin/cohorts/{{ c.id }}" class="btn btn-sm tt-btn-ink">
-              <i class="bi bi-list-ul me-1"></i>Detalles</a>
-            <a href="/titulatec/admin/cohorts/{{ c.id }}/import" class="btn btn-sm tt-btn-soft">
-              <i class="bi bi-upload me-1"></i>Importar alumnos</a>
+              <i class="bi bi-list-ul me-1"></i><span class="d-none d-sm-inline">Detalles</span></a>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center py-4" style="color:var(--tt-mute)">Sin convocatorias aún.</td></tr>
+        <tr><td colspan="5" class="text-center py-5" style="color:var(--tt-mute)">
+          <i class="bi bi-inbox d-block mb-2" style="font-size:1.6rem;opacity:.5"></i>
+          Sin convocatorias aún. {% if periods %}Crea una con <strong>Nueva convocatoria</strong>.{% endif %}
+        </td></tr>
         {% endfor %}
       </tbody>
     </table>

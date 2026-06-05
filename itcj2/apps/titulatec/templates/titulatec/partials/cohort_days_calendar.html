@@ -1,5 +1,5 @@
-{# Calendario de días de cotejo. Si can_edit_days: celdas toggle-ables; si no, read-only. #}
-<div id="cohort-tab-body">
+{# Calendario de días de cotejo. Si can_edit_days: celdas toggle-ables; si no, read-only.
+   Contenido interno del tab (sin wrapper #cohort-tab-body). #}
 <div id="tt-cal-wrap" class="tt-card" style="max-width:520px">
   <div class="d-flex align-items-center justify-content-between mb-2">
     <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/review-days?month={{ days.prev_month }}"
@@ -33,5 +33,4 @@
       {% endfor %}
     </tbody>
   </table>
-</div>
 </div>
