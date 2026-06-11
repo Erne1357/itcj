@@ -361,7 +361,7 @@
             '<div class="text-center py-3 text-muted">' +
             '<span class="spinner-border spinner-border-sm me-2"></span>Cargando técnicos...</div>';
 
-        MaintUtils.api.fetch(API_TECHNICIANS + '?per_page=200')
+        MaintUtils.api.fetch(API_TECHNICIANS)
             .then(function (data) {
                 _allTechs = data.data || [];
                 _renderTechListInModal(_allTechs);

@@ -530,6 +530,10 @@ async def resolve_ticket(
             detail="Solo los técnicos asignados o dispatchers pueden resolver tickets",
         )
 
+    # D-F: dispatcher/admin conservan la vía rápida ASSIGNED → RESOLVED;
+    # técnicos/coordinadores deben pasar por IN_PROGRESS antes de resolver.
+    is_fast_resolver = bool(user_roles & {'dispatcher', 'admin'})
+
     resolved, warnings = ticket_service.resolve_ticket(
         db=db,
         ticket_id=ticket_id,
@@ -541,6 +545,7 @@ async def resolve_ticket(
         time_invested_minutes=body.time_invested_minutes,
         observations=body.observations,
         materials_used=body.materials_used,
+        is_fast_resolver=is_fast_resolver,
     )
     try:
         MaintNotificationHelper.notify_ticket_resolved(db, resolved)

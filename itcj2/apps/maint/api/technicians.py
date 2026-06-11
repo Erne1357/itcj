@@ -25,43 +25,43 @@ async def list_technicians(
     user: dict = require_perms("maint", ["maint.assignments.api.assign"]),
     db: DbSession = None,
 ):
-    """Lista todos los usuarios con rol tech_maint o dispatcher en la app maint."""
-    from itcj2.core.models.user_app_role import UserAppRole
-    from itcj2.core.models.app import App
-    from itcj2.core.models.role import Role
+    """Lista usuarios asignables como ejecutores de tickets: técnicos + coordinadores activos.
+
+    Capta los roles tanto por asignación directa (core_user_app_roles) como por
+    PUESTO organizacional (core_position_app_roles) vía _get_users_with_roles_in_app:
+    el alta canónica de técnicos es por puesto, y la query anterior (solo UserAppRole)
+    los dejaba invisibles (BUG 1-B). El helper ya filtra User.is_active.
+
+    dispatcher queda EXCLUIDO a propósito: enruta tickets, no los ejecuta (auditoría M4).
+    Respuesta normalizada a la convención {success, data, total} (BUG 1-A).
+    """
+    from itcj2.core.services.authz_service import _get_users_with_roles_in_app
     from itcj2.core.models.user import User
 
-    app = db.query(App).filter_by(key='maint').first()
-    if not app:
-        return {"technicians": []}
-
-    roles = db.query(Role).filter(Role.name.in_(['tech_maint', 'dispatcher', 'admin'])).all()
-    role_ids = {r.id for r in roles}
-
-    users = (
-        db.query(User)
-        .join(UserAppRole, UserAppRole.user_id == User.id)
-        .filter(
-            UserAppRole.app_id == app.id,
-            UserAppRole.role_id.in_(role_ids),
-        )
-        .distinct()
-        .all()
-    )
+    # Ejecutores asignables (D-B / H1): técnicos y coordinadores general / de área.
+    PICKER_ROLES = ["tech_maint", "maint_general_coordinator", "maint_area_coordinator"]
+    user_ids = _get_users_with_roles_in_app(db, "maint", PICKER_ROLES)
 
     result = []
-    for u in users:
-        areas = assignment_service.get_technician_areas(db, u.id)
-        result.append({
-            "id": u.id,
-            "name": u.full_name,
-            "areas": [
-                {"area_code": a.area_code, "is_primary": a.is_primary}
-                for a in areas
-            ],
-        })
+    if user_ids:
+        users = (
+            db.query(User)
+            .filter(User.id.in_(user_ids), User.is_active.is_(True))
+            .order_by(User.full_name)
+            .all()
+        )
+        for u in users:
+            areas = assignment_service.get_technician_areas(db, u.id)
+            result.append({
+                "id": u.id,
+                "name": u.full_name,
+                "areas": [
+                    {"area_code": a.area_code, "is_primary": a.is_primary}
+                    for a in areas
+                ],
+            })
 
-    return {"technicians": result}
+    return {"success": True, "data": result, "total": len(result)}
 
 
 # ==================== ÁREAS DE UN TÉCNICO ====================

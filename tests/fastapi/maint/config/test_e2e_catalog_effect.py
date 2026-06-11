@@ -423,7 +423,7 @@ class TestResolveTicketCatalogoDinamicoExtendido:
         """
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
-        db, ticket = self._make_db_with_ticket("ASSIGNED")
+        db, ticket = self._make_db_with_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
 
         try:
             resolve_ticket(
@@ -459,7 +459,7 @@ class TestResolveTicketCatalogoDinamicoExtendido:
         """maintenance_type='EXPERIMENTAL' no está en el catálogo → 400."""
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
-        db, ticket = self._make_db_with_ticket("ASSIGNED")
+        db, ticket = self._make_db_with_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
 
         with pytest.raises(HTTPException) as exc_info:
             resolve_ticket(
@@ -493,7 +493,7 @@ class TestResolveTicketCatalogoDinamicoExtendido:
         """
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
-        db, ticket = self._make_db_with_ticket("ASSIGNED")
+        db, ticket = self._make_db_with_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
 
         try:
             resolve_ticket(
@@ -529,7 +529,7 @@ class TestResolveTicketCatalogoDinamicoExtendido:
         """service_origin='SIDERAL' no está en el catálogo → 400."""
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
-        db, ticket = self._make_db_with_ticket("ASSIGNED")
+        db, ticket = self._make_db_with_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
 
         with pytest.raises(HTTPException) as exc_info:
             resolve_ticket(

@@ -137,8 +137,10 @@
                 '<i class="bi bi-play-circle me-1"></i>Iniciar Progreso</button>');
         }
 
-        // Resolver
-        if ((t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS') && ctx.canResolve && (isActiveTech || ctx.isDispatcher)) {
+        // Resolver — D-F: solo dispatcher resuelve directo desde ASSIGNED;
+        // técnicos/coordinadores deben iniciar progreso (IN_PROGRESS) primero.
+        var canResolveNow = t.status === 'IN_PROGRESS' || (t.status === 'ASSIGNED' && ctx.isDispatcher);
+        if (canResolveNow && ctx.canResolve && (isActiveTech || ctx.isDispatcher)) {
             btns.push('<button class="btn btn-sm btn-success" id="resolveBtn">' +
                 '<i class="bi bi-check-circle me-1"></i>Resolver</button>');
         }
@@ -574,7 +576,7 @@
                     '</div>';
             }
         } else {
-            var canAct = (t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS') && ctx.canResolve;
+            var canAct = (t.status === 'IN_PROGRESS' || (t.status === 'ASSIGNED' && ctx.isDispatcher)) && ctx.canResolve;
             html += '<div class="text-muted text-center py-4">' +
                 '<i class="bi bi-hourglass-split fs-2 d-block mb-2"></i>' +
                 (canAct ? 'Usa el botón <strong>Resolver</strong> para registrar la resolución.' : 'El ticket aún no ha sido resuelto.') +

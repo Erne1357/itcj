@@ -86,7 +86,7 @@
 
     function _loadTechnicians() {
         return MaintUtils.api.fetch(API_BASE + '/technicians')
-            .then(function (data) { return data.technicians || []; });
+            .then(function (data) { return data.data || []; });
     }
 
     function _renderTechList(technicians) {

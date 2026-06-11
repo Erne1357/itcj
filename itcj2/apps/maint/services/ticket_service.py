@@ -342,12 +342,17 @@ def resolve_ticket(
     time_invested_minutes: int,
     observations: str = None,
     materials_used: list = None,
+    is_fast_resolver: bool = False,
 ) -> tuple:
     """
     Resuelve el ticket. El resolutor puede ser:
     - Un técnico activamente asignado → acción RESOLVED_BY_ASSIGNED
     - Cualquier dispatcher            → acción RESOLVED_BY_DISPATCHER
     La validación de quién puede resolver se hace en la capa API (con los permisos).
+
+    is_fast_resolver=True (solo dispatcher/admin) habilita la vía rápida
+    ASSIGNED → RESOLVED. Para el resto (técnicos/coordinadores) el ticket debe
+    estar en IN_PROGRESS antes de resolver (D-F).
     """
     ticket = db.get(MaintTicket, ticket_id)
     if not ticket:
@@ -355,6 +360,14 @@ def resolve_ticket(
 
     if ticket.status not in ('ASSIGNED', 'IN_PROGRESS'):
         raise HTTPException(status_code=400, detail='El ticket no puede ser resuelto en su estado actual')
+
+    # D-F: la vía rápida ASSIGNED → RESOLVED queda reservada a dispatcher/admin.
+    # Técnicos y coordinadores deben iniciar el progreso primero (pasar por IN_PROGRESS).
+    if ticket.status == 'ASSIGNED' and not is_fast_resolver:
+        raise HTTPException(
+            status_code=400,
+            detail='Debes iniciar el progreso del ticket antes de resolverlo.',
+        )
 
     from itcj2.apps.maint.utils.catalog_cache import get_maint_type_codes, get_service_origin_codes
     valid_maint_types = get_maint_type_codes()
