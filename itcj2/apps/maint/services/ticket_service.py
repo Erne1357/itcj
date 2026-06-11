@@ -159,6 +159,21 @@ def get_ticket_by_id(db: Session, ticket_id: int, user_id: int = None) -> MaintT
 
 # ==================== LISTAR TICKETS ====================
 
+def _get_tech_maint_area_codes(db: Session, user_id: int) -> list[str]:
+    """Códigos de área de especialidad de un técnico (maint_technician_areas).
+
+    Vacío si el técnico no tiene áreas configuradas. Usado para el scope de
+    visibilidad read.area (D-G/H3).
+    """
+    from itcj2.apps.maint.models.technician_area import MaintTechnicianArea
+    rows = (
+        db.query(MaintTechnicianArea.area_code)
+        .filter(MaintTechnicianArea.user_id == user_id)
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
 def list_tickets(
     db: Session,
     user_id: int,
@@ -187,14 +202,33 @@ def list_tickets(
     """
     query = db.query(MaintTicket)
 
-    # Coordinadores (área y general) ven todos los tickets — tienen
-    # maint.tickets.api.read.all y operan el tablero de asignación.
-    FULL_ACCESS_ROLES = {'admin', 'dispatcher', 'tech_maint',
+    # Acceso total: admin, dispatcher y coordinadores (read.all + operan tableros).
+    # tech_maint YA NO: ve solo asignados / propios / de su área (D-G/H3); antes
+    # estaba en FULL_ACCESS y veía TODOS los tickets del campus.
+    FULL_ACCESS_ROLES = {'admin', 'dispatcher',
                          'maint_area_coordinator', 'maint_general_coordinator'}
     DEPT_ACCESS_ROLES = {'department_head', 'secretary'}
 
     if FULL_ACCESS_ROLES & set(user_roles):
         pass  # Sin restricción
+    elif 'tech_maint' in set(user_roles):
+        # D-G/H3: el técnico ve tickets ASIGNADOS a él, PROPIOS, o de categorías
+        # de sus ÁREAS de especialidad (maint_technician_areas).
+        from itcj2.apps.maint.models import MaintTicketTechnician
+        from itcj2.apps.maint.models.category import MaintCategory
+        area_codes = _get_tech_maint_area_codes(db, user_id)
+        assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
+            MaintTicketTechnician.user_id == user_id,
+            MaintTicketTechnician.unassigned_at.is_(None),
+        )
+        conds = [
+            MaintTicket.requester_id == user_id,
+            MaintTicket.id.in_(assigned_subq),
+        ]
+        if area_codes:
+            cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
+            conds.append(MaintTicket.category_id.in_(cat_subq))
+        query = query.filter(or_(*conds))
     elif DEPT_ACCESS_ROLES & set(user_roles):
         # H5: el usuario puede tener >1 puesto activo en >1 departamento. Resolver
         # TODOS y filtrar con .in_() (antes .first() devolvía un depto ALEATORIO, o
@@ -663,8 +697,8 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
 
     roles = set(user_roles_in_app(db, user_id, 'maint'))
 
-    # Acceso total (coordinadores incluidos: tienen tickets.api.read.all)
-    if roles & {'admin', 'dispatcher', 'tech_maint',
+    # Acceso total: admin, dispatcher, coordinadores (read.all). tech_maint NO (D-G/H3).
+    if roles & {'admin', 'dispatcher',
                 'maint_area_coordinator', 'maint_general_coordinator'}:
         return True
 
@@ -675,6 +709,12 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
     # Técnico asignado activo
     if any(t.user_id == user_id and t.unassigned_at is None for t in ticket.technicians):
         return True
+
+    # tech_maint: ve tickets de categorías de sus áreas de especialidad (D-G/H3).
+    if 'tech_maint' in roles:
+        area_codes = _get_tech_maint_area_codes(db, user_id)
+        if ticket.category and ticket.category.code in area_codes:
+            return True
 
     # Jefe/secretaria de departamento
     if roles & {'department_head', 'secretary'}:
@@ -708,8 +748,13 @@ def start_progress(
     roles = set(user_roles or [])
     is_active_tech = any(t.user_id == user_id and t.unassigned_at is None for t in ticket.technicians)
     can_start = is_active_tech or bool(roles & {'dispatcher', 'admin'})
+    # D-G/H3: un técnico puede iniciar tickets de su área aunque no esté asignado.
+    if not can_start and 'tech_maint' in roles:
+        area_codes = _get_tech_maint_area_codes(db, user_id)
+        if ticket.category and ticket.category.code in area_codes:
+            can_start = True
     if not can_start:
-        raise HTTPException(status_code=403, detail='Solo los técnicos asignados o dispatchers pueden iniciar progreso')
+        raise HTTPException(status_code=403, detail='Solo los técnicos de esa área, los asignados o los dispatchers pueden iniciar progreso')
 
     old_status = ticket.status
     now = now_local()
