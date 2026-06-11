@@ -8,15 +8,16 @@
 {% block page_vars %}
 <script>
 var TICKET_CTX = {
-    ticketId:     {{ ticket_id }},
-    currentUserId: {{ current_user.sub if current_user else 0 }},
-    userRoles:    {{ user_roles | tojson }},
-    isAdmin:      {{ ('admin' in user_roles) | lower }},
-    isDispatcher: {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
-    isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
-    canResolve:   {{ ('tech_maint' in user_roles or 'dispatcher' in user_roles or 'admin' in user_roles) | lower }},
-    canAssign:    {{ (can_assign | default(false)) | lower }},
-    canRate:      {{ ('department_head' in user_roles or 'secretary' in user_roles or 'staff' in user_roles) | lower }},
+    ticketId:           {{ ticket_id }},
+    currentUserId:      {{ current_user.sub if current_user else 0 }},
+    userRoles:          {{ user_roles | tojson }},
+    isAdmin:            {{ ('admin' in user_roles) | lower }},
+    isDispatcher:       {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    isTechMaint:        {{ ('tech_maint' in user_roles) | lower }},
+    isAreaCoordinator:  {{ ('maint_area_coordinator' in user_roles) | lower }},
+    canResolve:         {{ ('tech_maint' in user_roles or 'dispatcher' in user_roles or 'admin' in user_roles) | lower }},
+    canAssign:          {{ (can_assign | default(false)) | lower }},
+    canRate:            {{ ('department_head' in user_roles or 'secretary' in user_roles or 'staff' in user_roles) | lower }},
 };
 </script>
 {% endblock %}
@@ -248,6 +249,42 @@ var TICKET_CTX = {
                 <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-warning btn-sm" id="confirmRateBtn">
                     <i class="bi bi-star-fill me-1"></i>Enviar Calificación
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Devolver al coordinador general (coord. de área) -->
+<div class="modal fade" id="returnToGeneralModal" tabindex="-1" aria-labelledby="returnToGeneralModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <div>
+                    <h5 class="modal-title fw-semibold" id="returnToGeneralModalLabel">
+                        <i class="bi bi-arrow-return-left me-2 text-warning"></i>Devolver al coordinador general
+                    </h5>
+                    <p class="text-muted small mb-0">El ticket será enrutado al coordinador general que elijas.</p>
+                </div>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-medium" for="return-general-select">
+                    Coordinador general destino <span class="text-danger">*</span>
+                </label>
+                <div id="return-targets-loading" class="text-muted small mb-2">
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                    Cargando coordinadores generales...
+                </div>
+                <select class="form-select form-select-sm d-none" id="return-general-select">
+                    <option value="">Selecciona un coordinador general...</option>
+                </select>
+                <div id="return-targets-error" class="d-none text-danger small mt-1"></div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning btn-sm" id="btn-confirm-return-general" disabled>
+                    <i class="bi bi-arrow-return-left me-1"></i>Devolver
                 </button>
             </div>
         </div>

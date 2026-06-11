@@ -27,10 +27,17 @@ async def home_landing(
 
     is_admin = ("admin" in roles) or (user.get("role") == "admin")
 
-    # La secretaría/dispatcher tiene como pantalla principal la Bandeja de entrada
-    # (ahí recibe los tickets nuevos para repartirlos a los coordinadores).
+    # El dispatcher va directo a la Bandeja de entrada (su pantalla principal).
     if "dispatcher" in roles and not is_admin:
         return RedirectResponse(url="/maint/triage", status_code=302)
+
+    # El coordinador general va al tablero de asignación (su cola "mine").
+    if "maint_general_coordinator" in roles and not is_admin:
+        return RedirectResponse(url="/maint/asignacion", status_code=302)
+
+    # El coordinador de área también va al tablero de asignación.
+    if "maint_area_coordinator" in roles and not is_admin:
+        return RedirectResponse(url="/maint/asignacion", status_code=302)
 
     # Determinar el CTA principal según rol
     if roles & {"admin", "dispatcher"}:

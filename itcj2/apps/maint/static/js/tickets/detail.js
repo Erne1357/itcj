@@ -10,6 +10,8 @@
     var ctx = window.TICKET_CTX || {};
     var _ticket = null;
     var _activeTab = 'info';
+    var _returnModal = null;
+    var _returnTargets = null; // cache de coordinadores generales
 
     var STATUS_LABEL = {
         PENDING: 'Pendiente', ASSIGNED: 'Asignado', IN_PROGRESS: 'En Progreso',
@@ -48,6 +50,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         _bindTabs();
         _loadTicket();
+        _initReturnModal();
     });
 
     function _loadTicket() {
@@ -159,6 +162,16 @@
                 '<i class="bi bi-x-circle me-1"></i>Cancelar</button>');
         }
 
+        // Devolver al coordinador general (solo coord. de área, ticket de su propia cola, abierto)
+        var isMyTicket = t.coordinator && String(t.coordinator.id) === String(ctx.currentUserId);
+        if (ctx.isAreaCoordinator && isMyTicket && t.is_open) {
+            btns.push('<button class="btn btn-sm btn-outline-warning" id="returnToGeneralBtn">' +
+                '<i class="bi bi-arrow-return-left me-1"></i>' +
+                '<span class="d-none d-sm-inline">Devolver al coordinador general</span>' +
+                '<span class="d-inline d-sm-none">Devolver</span>' +
+                '</button>');
+        }
+
         container.innerHTML = btns.join('');
 
         var startBtn = document.getElementById('startBtn');
@@ -172,6 +185,9 @@
 
         var cancelBtn = document.getElementById('cancelBtn');
         if (cancelBtn) cancelBtn.addEventListener('click', function () { _openCancelModal(); });
+
+        var returnBtn = document.getElementById('returnToGeneralBtn');
+        if (returnBtn) returnBtn.addEventListener('click', function () { _openReturnModal(); });
     }
 
     // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -726,6 +742,106 @@
                 })
                 .catch(function (err) { MaintUtils.toast(err.message, 'error'); });
         };
+    }
+
+    // ── Devolver al coordinador general (coord. de área) ─────────────────────
+
+    function _initReturnModal() {
+        var el = document.getElementById('returnToGeneralModal');
+        if (!el) return;
+        _returnModal = new bootstrap.Modal(el);
+        el.addEventListener('hidden.bs.modal', function () {
+            document.getElementById('return-general-select').value = '';
+            document.getElementById('btn-confirm-return-general').disabled = true;
+        });
+        document.getElementById('return-general-select').addEventListener('change', function () {
+            document.getElementById('btn-confirm-return-general').disabled = !this.value;
+        });
+        document.getElementById('btn-confirm-return-general').addEventListener('click', _handleReturn);
+    }
+
+    function _openReturnModal() {
+        if (!_returnModal) return;
+
+        // Resetear estado
+        var sel = document.getElementById('return-general-select');
+        sel.innerHTML = '<option value="">Selecciona un coordinador general...</option>';
+        sel.classList.add('d-none');
+        document.getElementById('btn-confirm-return-general').disabled = true;
+        document.getElementById('return-targets-error').classList.add('d-none');
+        document.getElementById('return-targets-loading').classList.remove('d-none');
+
+        _returnModal.show();
+
+        if (_returnTargets !== null) {
+            _populateReturnSelect(_returnTargets);
+        } else {
+            _loadReturnTargets();
+        }
+    }
+
+    function _loadReturnTargets() {
+        MaintUtils.api.fetch(API_BASE + '/tickets/route-targets')
+            .then(function (data) {
+                _returnTargets = (data.data || []).filter(function (c) { return c.is_general; });
+                _populateReturnSelect(_returnTargets);
+            })
+            .catch(function (err) {
+                document.getElementById('return-targets-loading').classList.add('d-none');
+                var errEl = document.getElementById('return-targets-error');
+                errEl.textContent = 'No se pudo cargar la lista: ' + _esc(err.message || 'Error desconocido');
+                errEl.classList.remove('d-none');
+            });
+    }
+
+    function _populateReturnSelect(targets) {
+        document.getElementById('return-targets-loading').classList.add('d-none');
+        var sel = document.getElementById('return-general-select');
+
+        if (!targets || !targets.length) {
+            var errEl = document.getElementById('return-targets-error');
+            errEl.textContent = 'No hay coordinadores generales disponibles.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+
+        sel.innerHTML = '<option value="">Selecciona un coordinador general...</option>';
+        targets.forEach(function (c) {
+            var opt = document.createElement('option');
+            opt.value = c.user_id;
+            opt.textContent = c.name || ('Usuario #' + c.user_id);
+            sel.appendChild(opt);
+        });
+        sel.classList.remove('d-none');
+    }
+
+    function _handleReturn() {
+        var coordId = document.getElementById('return-general-select').value;
+        if (!coordId || !ctx.ticketId) return;
+
+        var btn = document.getElementById('btn-confirm-return-general');
+        MaintUtils.loading.show(btn, 'Devolviendo...');
+
+        MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/route', {
+            method: 'POST',
+            body: JSON.stringify({ coordinator_id: parseInt(coordId, 10) }),
+        })
+        .then(function (data) {
+            MaintUtils.loading.hide(btn);
+            _returnModal.hide();
+            // Invalidar cache
+            _returnTargets = null;
+            var coordName = (data.data && data.data.coordinator && data.data.coordinator.name) || '';
+            var msg = 'Ticket devuelto correctamente';
+            if (coordName) msg += ' a ' + _esc(coordName);
+            MaintUtils.toast(msg, 'success');
+            _reload();
+        })
+        .catch(function (err) {
+            MaintUtils.loading.hide(btn);
+            var msg = (err && err.message) ? err.message : 'Error al devolver el ticket';
+            MaintUtils.toast(msg, 'error', 0);
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

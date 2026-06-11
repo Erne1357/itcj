@@ -76,6 +76,9 @@
         }
     }
 
+    // URL de la gestión de usuarios del core
+    var CORE_USERS_URL = '/itcj/config/users';
+
     // === RENDER TABLA ===
     function _renderTable() {
         var tbody = document.getElementById('tbody-coordinators');
@@ -87,9 +90,37 @@
                 '<i class="fas fa-users me-2 opacity-50"></i>' +
                 'No hay coordinadores registrados. Asigna el rol ' +
                 '<code>maint_area_coordinator</code> o <code>maint_general_coordinator</code> ' +
-                'a un usuario para que aparezca aquí.' +
+                'a un usuario en ' +
+                '<a href="' + CORE_USERS_URL + '" class="fw-medium">Configuraci\xf3n → Usuarios</a>' +
+                ' para que aparezca aqu\xed.' +
                 '</td></tr>';
             return;
+        }
+
+        // Banner si hay coordinadores de área sin áreas configuradas
+        var missingAreas = _coordinators.filter(function (c) {
+            return !c.is_general && (!c.areas || c.areas.length === 0);
+        });
+        var banner = document.getElementById('coordinators-missing-areas-banner');
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = 'coordinators-missing-areas-banner';
+            var tableWrap = tbody.closest('.table-responsive');
+            if (tableWrap) tableWrap.parentNode.insertBefore(banner, tableWrap);
+        }
+        if (missingAreas.length) {
+            banner.className = 'alert alert-warning d-flex align-items-start gap-2 mb-3 py-2';
+            banner.innerHTML =
+                '<i class="fas fa-exclamation-triangle mt-1 flex-shrink-0"></i>' +
+                '<div class="small">' +
+                '<strong>' + missingAreas.length + ' coordinador' + (missingAreas.length !== 1 ? 'es' : '') + ' de \xe1rea sin \xe1reas configuradas.</strong> ' +
+                'Usa el bot\xf3n <em>Editar \xe1reas</em> en la fila correspondiente para asignarlas. ' +
+                'Si necesitas otorgar el rol de coordinador a un usuario, ve a ' +
+                '<a href="' + CORE_USERS_URL + '" class="alert-link fw-medium">Configuraci\xf3n → Usuarios</a>.' +
+                '</div>';
+        } else {
+            banner.className = 'd-none';
+            banner.innerHTML = '';
         }
 
         tbody.innerHTML = _coordinators.map(function (coord) {
@@ -100,16 +131,17 @@
                 ? '<span class="badge bg-primary-subtle text-primary-emphasis">' +
                   '<i class="fas fa-globe me-1"></i>General</span>'
                 : '<span class="badge bg-secondary-subtle text-secondary-emphasis">' +
-                  '<i class="fas fa-map-marker-alt me-1"></i>Área</span>';
+                  '<i class="fas fa-map-marker-alt me-1"></i>\xc1rea</span>';
 
             var areasHtml = isGen
-                ? '<span class="text-muted fst-italic small">Todas las áreas</span>'
+                ? '<span class="text-muted fst-italic small">Todas las \xe1reas</span>'
                 : (areas.length
                     ? areas.map(function (a) {
                         return '<span class="badge bg-light text-secondary border me-1" style="font-size:.75rem;">' +
                                MaintUtils.escapeHtml(a) + '</span>';
                     }).join('')
-                    : '<span class="text-warning small"><i class="fas fa-exclamation-triangle me-1"></i>Sin áreas asignadas</span>'
+                    : '<span class="badge bg-warning text-dark me-1" style="font-size:.75rem;">' +
+                      '<i class="fas fa-exclamation-triangle me-1"></i>Sin \xe1reas</span>'
                   );
 
             var editBtn = isGen
