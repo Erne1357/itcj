@@ -64,6 +64,8 @@ async def list_tickets(
     page: int = 1,
     per_page: int = 20,
     assigned_to: str = None,
+    requester: str = None,
+    unrated: int = None,
     user: dict = require_perms("maint", [
         "maint.tickets.api.read.own",
         "maint.tickets.api.read.department",
@@ -71,7 +73,8 @@ async def list_tickets(
     ]),
     db: DbSession = None,
 ):
-    """`assigned_to=me` filtra a tickets donde el user es técnico activo."""
+    """Filtros de pestaña: `assigned_to=me` (técnico activo), `requester=me`
+    (Mis solicitudes), `unrated=1` (Por calificar: resueltos sin calificación)."""
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "maint")
@@ -87,6 +90,8 @@ async def list_tickets(
         page=page,
         per_page=per_page,
         assigned_to_me=(assigned_to == "me"),
+        requester_me=(requester == "me"),
+        unrated=bool(unrated),
     )
     return {
         **{k: v for k, v in result.items() if k != "tickets"},

@@ -172,6 +172,8 @@ def list_tickets(
     per_page: int = 20,
     assigned_to_me: bool = False,
     coordinator_id: int = None,
+    requester_me: bool = False,
+    unrated: bool = False,
 ) -> dict:
     """
     Lista tickets según el rol del usuario:
@@ -194,17 +196,16 @@ def list_tickets(
     if FULL_ACCESS_ROLES & set(user_roles):
         pass  # Sin restricción
     elif DEPT_ACCESS_ROLES & set(user_roles):
-        dept_id = department_id
-        if not dept_id:
-            try:
-                from itcj2.core.models.position import UserPosition
-                up = db.query(UserPosition).filter_by(user_id=user_id, is_active=True).first()
-                if up and up.position:
-                    dept_id = up.position.department_id
-            except Exception:
-                pass
-        if dept_id:
-            query = query.filter(MaintTicket.requester_department_id == dept_id)
+        # H5: el usuario puede tener >1 puesto activo en >1 departamento. Resolver
+        # TODOS y filtrar con .in_() (antes .first() devolvía un depto ALEATORIO, o
+        # filter(id==-1) si el puesto no tenía department_id).
+        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+        dept_ids = [d["id"] for d in _resolve_user_departments(db, user_id)]
+        if department_id is not None:
+            # Solo puede acotar a uno de SUS departamentos.
+            dept_ids = [department_id] if department_id in dept_ids else [-1]
+        if dept_ids:
+            query = query.filter(MaintTicket.requester_department_id.in_(dept_ids))
         else:
             query = query.filter(MaintTicket.id == -1)
     else:
@@ -244,6 +245,16 @@ def list_tickets(
 
     if coordinator_id is not None:
         query = query.filter(MaintTicket.coordinator_id == coordinator_id)
+
+    # H4: filtros de las pestañas de depto (Mis solicitudes / Por calificar).
+    if requester_me:
+        query = query.filter(MaintTicket.requester_id == user_id)
+
+    if unrated:
+        query = query.filter(
+            MaintTicket.status.in_(('RESOLVED_SUCCESS', 'RESOLVED_FAILED')),
+            MaintTicket.rated_at.is_(None),
+        )
 
     query = query.order_by(MaintTicket.created_at.desc())
     pagination = paginate(query, page=page, per_page=per_page)

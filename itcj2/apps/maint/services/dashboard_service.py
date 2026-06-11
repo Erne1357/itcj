@@ -53,9 +53,11 @@ def _apply_visibility(query, user_id: int, user_roles: list, db: Session):
         return query  # Sin restricción
 
     if DEPT_ACCESS_ROLES & roles:
-        dept_id = _resolve_dept_id(db, user_id)
-        if dept_id:
-            return query.filter(MaintTicket.requester_department_id == dept_id)
+        # H5: multi-depto (antes _resolve_dept_id usaba .first() → un depto aleatorio).
+        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+        dept_ids = [d["id"] for d in _resolve_user_departments(db, user_id)]
+        if dept_ids:
+            return query.filter(MaintTicket.requester_department_id.in_(dept_ids))
         # Sin departamento resuelto → retornar nada (seguro)
         return query.filter(MaintTicket.id == -1)
 
