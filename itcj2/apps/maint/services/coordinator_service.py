@@ -146,7 +146,10 @@ class CoordinatorService:
     @staticmethod
     def list_area_coordinators(db: Session) -> list[dict]:
         """
-        Retorna los coordinadores de área (los que NO son generales pero tienen áreas asignadas).
+        Coordinadores de área = usuarios con rol maint_area_coordinator (fuente de verdad, M6).
+        Las áreas (maint_coordinator_areas) se adjuntan pero pueden estar vacías → la UI
+        marca "sin áreas". Antes se derivaba de la TABLA de áreas, dejando fuera a quien
+        tenía el rol sin áreas e incluyendo a quien tenía áreas sin el rol (luego 400 al asignar).
         """
         from itcj2.core.services.authz_service import _get_users_with_roles_in_app
         from itcj2.core.models.user import User
@@ -154,20 +157,23 @@ class CoordinatorService:
 
         general_ids = set(_get_users_with_roles_in_app(db, "maint", ["maint_general_coordinator"]))
 
-        result: dict[int, dict] = {}
-        area_rows = db.query(MaintCoordinatorArea).order_by(MaintCoordinatorArea.user_id).all()
-        for row in area_rows:
-            uid = row.user_id
-            if uid in general_ids:
-                continue
-            if uid not in result:
-                user = db.get(User, uid)
-                if not user:
-                    continue
-                result[uid] = {"user_id": uid, "name": user.full_name, "areas": []}
-            result[uid]["areas"].append(row.area_code)
+        areas_by_user: dict[int, list[str]] = {}
+        for row in db.query(MaintCoordinatorArea).order_by(MaintCoordinatorArea.user_id).all():
+            areas_by_user.setdefault(row.user_id, []).append(row.area_code)
 
-        return list(result.values())
+        result: list[dict] = []
+        for uid in _get_users_with_roles_in_app(db, "maint", ["maint_area_coordinator"]):
+            if uid in general_ids:
+                continue  # un general no se lista como de área
+            user = db.get(User, uid)
+            if not user:
+                continue
+            result.append({
+                "user_id": uid,
+                "name": user.full_name,
+                "areas": areas_by_user.get(uid, []),
+            })
+        return result
 
     @staticmethod
     def list_coordinators(db: Session) -> list[dict]:
@@ -198,21 +204,28 @@ class CoordinatorService:
                 "is_general": True,
             }
 
-        # 2. Coordinadores de área con sus áreas
-        area_rows = db.query(MaintCoordinatorArea).order_by(MaintCoordinatorArea.user_id).all()
-        for row in area_rows:
-            uid = row.user_id
-            if uid not in result:
-                user = db.get(User, uid)
-                if not user:
-                    continue
-                result[uid] = {
-                    "user_id": uid,
-                    "name": user.full_name,
-                    "areas": [],
-                    "is_general": False,
-                }
-            result[uid]["areas"].append(row.area_code)
+        # 2. Coordinadores de área por ROL (fuente de verdad, M6), con áreas adjuntas.
+        #    Antes se derivaban de las filas de maint_coordinator_areas: un coordinador
+        #    sin áreas no aparecía en route-targets, y uno con áreas pero sin rol aparecía
+        #    y luego fallaba con 400 al asignar.
+        areas_by_user: dict[int, list[str]] = {}
+        for row in db.query(MaintCoordinatorArea).order_by(MaintCoordinatorArea.user_id).all():
+            areas_by_user.setdefault(row.user_id, []).append(row.area_code)
+
+        for uid in _get_users_with_roles_in_app(db, "maint", ["maint_area_coordinator"]):
+            if uid in result:
+                # Ya listado como general: adjunta áreas sin duplicar la entrada.
+                result[uid]["areas"] = areas_by_user.get(uid, [])
+                continue
+            user = db.get(User, uid)
+            if not user:
+                continue
+            result[uid] = {
+                "user_id": uid,
+                "name": user.full_name,
+                "areas": areas_by_user.get(uid, []),
+                "is_general": False,
+            }
 
         return list(result.values())
 

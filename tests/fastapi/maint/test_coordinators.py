@@ -615,8 +615,8 @@ class TestListCoordinators:
         from itcj2.apps.maint.models.coordinator_area import MaintCoordinatorArea
         from itcj2.core.models.user import User
 
-        # 2 coordinadores generales
-        mock_get_users.return_value = [1, 2]
+        # _get_users_with_roles_in_app se llama 2 veces (M6): generales, luego de área.
+        mock_get_users.side_effect = [[1, 2], [3]]
 
         db = MagicMock()
 

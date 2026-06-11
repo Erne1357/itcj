@@ -199,25 +199,75 @@ class TestRouteTicketService:
         )
         assert ticket.coordinator_id == 10
 
-    def test_area_coord_cannot_route(self):
-        """Coordinador de área no puede enrutar → PermissionError (fail-fast, no DB calls needed)."""
+    def test_area_coord_cannot_route_foreign_ticket(self):
+        """M5: coordinador de área NO puede enrutar un ticket que no está en su cola → PermissionError."""
         from itcj2.apps.maint.services.assignment_service import route_ticket
 
         db = MagicMock()
-        # ticket is returned from db.get on first call
-        ticket = _make_ticket(coordinator_id=None)
+        # ticket enrutado a OTRO coordinador (no al performer 40) → falla por propiedad
+        ticket = _make_ticket(coordinator_id=99)
         db.get.return_value = ticket
 
         with pytest.raises(PermissionError) as exc_info:
             route_ticket(
                 db=db,
                 ticket_id=1,
-                target_coordinator_id=99,
+                target_coordinator_id=10,
                 performed_by_id=40,
                 performer_roles={"maint_area_coordinator"},
                 is_global_admin=False,
             )
-        assert "área" in str(exc_info.value).lower()
+        assert "cola" in str(exc_info.value).lower()
+
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.is_coordinator")
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.is_general_coordinator")
+    def test_area_coord_can_return_own_ticket_to_general(self, mock_is_general, mock_is_coord):
+        """M5: el coordinador de área puede DEVOLVER un ticket de su cola a un coordinador general."""
+        from itcj2.apps.maint.services.assignment_service import route_ticket
+
+        mock_is_coord.return_value = True     # target es coordinador
+        mock_is_general.return_value = True   # target es general
+
+        db = MagicMock()
+        ticket = _make_ticket(coordinator_id=40)  # enrutado al area coord (performer)
+        target_user = _make_user(10, "General Coord")
+        db.get.side_effect = [ticket, target_user]
+
+        route_ticket(
+            db=db,
+            ticket_id=1,
+            target_coordinator_id=10,
+            performed_by_id=40,
+            performer_roles={"maint_area_coordinator"},
+            is_global_admin=False,
+        )
+        assert ticket.coordinator_id == 10
+        db.commit.assert_called_once()
+
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.is_coordinator")
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.is_general_coordinator")
+    def test_area_coord_cannot_return_to_non_general(self, mock_is_general, mock_is_coord):
+        """M5: devolver a un target que NO es general → PermissionError."""
+        from itcj2.apps.maint.services.assignment_service import route_ticket
+
+        mock_is_coord.return_value = True      # target es coordinador
+        mock_is_general.return_value = False   # pero NO general
+
+        db = MagicMock()
+        ticket = _make_ticket(coordinator_id=40)  # propio del performer
+        target_user = _make_user(30, "Area Coord 2")
+        db.get.side_effect = [ticket, target_user]
+
+        with pytest.raises(PermissionError) as exc_info:
+            route_ticket(
+                db=db,
+                ticket_id=1,
+                target_coordinator_id=30,
+                performed_by_id=40,
+                performer_roles={"maint_area_coordinator"},
+                is_global_admin=False,
+            )
+        assert "general" in str(exc_info.value).lower()
 
     def test_closed_ticket_raises_409(self):
         """Ticket cerrado no se puede enrutar → HTTPException 409."""
@@ -531,8 +581,9 @@ class TestCoordinatorServiceHelpers:
         from itcj2.apps.maint.models.coordinator_area import MaintCoordinatorArea
         from itcj2.core.models.user import User
 
-        # user_id=1 es general; user_id=3 es de área
-        mock_get_users.return_value = [1]
+        # M6: list_area_coordinators deriva del ROL → el helper se llama 2 veces
+        # (generales=[1], luego área=[3]). user 1 es general, user 3 es de área.
+        mock_get_users.side_effect = [[1], [3]]
 
         db = MagicMock()
         u3 = MagicMock(spec=User)

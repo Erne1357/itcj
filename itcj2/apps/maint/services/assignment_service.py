@@ -82,12 +82,16 @@ def assign_technicians(
         if not technician:
             raise HTTPException(status_code=404, detail=f'Usuario {user_id} no encontrado')
 
-        # Validar que tenga el rol de técnico o admin en maint
+        # Validar que el destino sea un ejecutor válido: técnico, admin o coordinador (H1).
+        # Los coordinadores (general/área) pueden asignarse como ejecutores del ticket;
+        # antes solo se aceptaba tech_maint/admin → coordinador general no podía asignarse
+        # a sí mismo y el ticket quedaba atorado en PENDING.
         tech_roles = set(user_roles_in_app(db, user_id, 'maint'))
-        if not (tech_roles & {'tech_maint', 'admin'}):
+        if not (tech_roles & {'tech_maint', 'admin',
+                              'maint_general_coordinator', 'maint_area_coordinator'}):
             raise HTTPException(
                 status_code=400,
-                detail=f'El usuario {user_id} no tiene rol de técnico en la app de mantenimiento',
+                detail=f'El usuario {user_id} no es técnico ni coordinador en la app de mantenimiento',
             )
 
         # Restricción dura por área: solo coordinadores de área tienen límite
@@ -156,14 +160,63 @@ def unassign_technician(
     unassigned_by_id: int,
     user_id: int,
     reason: str = None,
+    unassigner_roles: set | list | None = None,
+    is_global_admin: bool = False,
 ) -> MaintTicketTechnician:
     """
     Remueve la asignación activa de un técnico en el ticket.
     Si no quedan técnicos activos, el ticket regresa a PENDING.
+
+    Guards (H2 — simétrico con assign_technicians, antes unassign no validaba nada):
+    - El ticket debe estar en ASSIGNED o IN_PROGRESS (no resuelto/cerrado/cancelado).
+    - Un coordinador (sin dispatcher/admin) solo puede desasignar en tickets enrutados
+      a él (coordinator_id == self); el de área además respeta la restricción de área.
     """
+    from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+
     ticket = db.get(MaintTicket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail='Ticket no encontrado')
+
+    # Estado: solo se desasigna donde hay técnicos activos.
+    if ticket.status not in ('ASSIGNED', 'IN_PROGRESS'):
+        raise HTTPException(
+            status_code=400,
+            detail='Solo se pueden remover técnicos de tickets asignados o en progreso',
+        )
+
+    # Resolver roles del que desasigna si no se pasaron (overhead extra).
+    if unassigner_roles is None:
+        unassigner_roles = user_roles_in_app(db, unassigned_by_id, 'maint')
+    unassigner_roles_set = set(unassigner_roles)
+
+    # Propiedad de enrutado: el coordinador solo desasigna en su propia cola.
+    # Admin (global o rol) omite la regla, igual que en assign_technicians.
+    is_coord_role = bool(
+        unassigner_roles_set & {"maint_area_coordinator", "maint_general_coordinator"}
+    )
+    if is_coord_role and not is_global_admin and "admin" not in unassigner_roles_set:
+        if ticket.coordinator_id != unassigned_by_id:
+            raise HTTPException(
+                status_code=403,
+                detail="El ticket no está enrutado a ti; no puedes desasignar a sus técnicos.",
+            )
+        # Coordinador de área (no general): además respeta la restricción de área del técnico.
+        if (
+            "maint_general_coordinator" not in unassigner_roles_set
+            and "maint_area_coordinator" in unassigner_roles_set
+            and not CoordinatorService.can_assign_technician(
+                db=db,
+                assigner_id=unassigned_by_id,
+                assigner_roles=unassigner_roles_set,
+                technician_id=user_id,
+                is_global_admin=is_global_admin,
+            )
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="El técnico no pertenece a tu(s) área(s) de coordinación.",
+            )
 
     # Buscar la asignación activa del técnico
     active_assignment = next(
@@ -190,9 +243,10 @@ def unassign_technician(
         },
     ))
 
-    # Si no quedan técnicos activos, regresar a PENDING
+    # Si no quedan técnicos activos, regresar a PENDING (M1: también desde IN_PROGRESS,
+    # antes un ticket EN PROGRESO quedaba huérfano con 0 técnicos al remover al último).
     remaining_active = [t for t in ticket.technicians if t.unassigned_at is None and t.id != active_assignment.id]
-    if not remaining_active and ticket.status == 'ASSIGNED':
+    if not remaining_active and ticket.status in ('ASSIGNED', 'IN_PROGRESS'):
         old_status = ticket.status
         ticket.status = 'PENDING'
         ticket.updated_at = now
@@ -339,15 +393,26 @@ def route_ticket(
 
     roles = set(performer_roles)
 
+    # Coordinador de área "puro" (sin dispatcher/general/admin): por defecto NO enruta,
+    # pero SÍ puede DEVOLVER un ticket propio a un coordinador general (M5).
+    is_area_only_coord = (
+        "maint_area_coordinator" in roles
+        and "dispatcher" not in roles
+        and "maint_general_coordinator" not in roles
+        and "admin" not in roles
+        and not is_global_admin
+    )
+
     # Evaluar permiso del performer primero (fail-fast sin extra queries)
     if is_global_admin or "admin" in roles:
         # Admin global: puede enrutar a cualquier coordinador
         pass
-    elif "maint_area_coordinator" in roles and "dispatcher" not in roles and "maint_general_coordinator" not in roles:
-        # Coordinador de área (sin otros roles privilegiados): no puede enrutar tickets
-        raise PermissionError(
-            "Los coordinadores de área no pueden enrutar tickets"
-        )
+    elif is_area_only_coord:
+        # Solo puede devolver tickets que tenga en su propia cola (M5).
+        if ticket.coordinator_id != performed_by_id:
+            raise PermissionError(
+                "Solo puedes devolver al coordinador general los tickets de tu cola"
+            )
     elif "dispatcher" not in roles and "maint_general_coordinator" not in roles:
         raise PermissionError(
             "No tienes permiso para enrutar tickets"
@@ -373,12 +438,14 @@ def route_ticket(
                 ),
             )
 
-    # Restricción adicional para dispatcher: solo puede enrutar a coordinadores GENERALES
-    if "dispatcher" in roles and not is_global_admin and "admin" not in roles:
+    # Restricción de target: dispatcher (enruta) y coordinador de área (devuelve) solo
+    # pueden apuntar a coordinadores GENERALES.
+    if (("dispatcher" in roles) or is_area_only_coord) and not is_global_admin and "admin" not in roles:
         target_is_general = CoordinatorService.is_general_coordinator(db, target_coordinator_id)
         if not target_is_general:
+            who = "La secretaría" if "dispatcher" in roles else "Un coordinador de área"
             raise PermissionError(
-                "La secretaría solo puede enrutar a un coordinador general"
+                f"{who} solo puede enrutar a un coordinador general"
             )
 
     from_coordinator_id = ticket.coordinator_id

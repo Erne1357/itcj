@@ -357,6 +357,10 @@ async def route_targets(
     elif "maint_general_coordinator" in user_roles:
         # General ve todos (generales + área)
         coords = CoordinatorService.list_coordinators(db)
+    elif "maint_area_coordinator" in user_roles:
+        # M5: el coordinador de área solo puede DEVOLVER a un coordinador general.
+        generals = CoordinatorService.list_general_coordinators(db)
+        coords = [{"user_id": c["user_id"], "name": c["name"], "is_general": True, "areas": []} for c in generals]
     else:
         coords = []
 
@@ -464,6 +468,16 @@ async def route_ticket(
     except Exception as e:
         logger.error("Error al enrutar ticket %s: %s", ticket_id, e)
         raise HTTPException(status_code=500, detail="Error interno al enrutar ticket")
+
+    # H6: notificar al coordinador destino (in-app + WS a su canal personal).
+    try:
+        MaintNotificationHelper.notify_ticket_routed(
+            db, ticket, ticket.coordinator_id, routed_by_id=user_id
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("notify_ticket_routed failed for ticket %s: %s", ticket.id, exc)
 
     coordinator_data = None
     try:

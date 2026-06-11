@@ -234,6 +234,54 @@ class MaintNotificationHelper:
             logger.error(f"[maint] Error en notify_technician_assigned: {exc}", exc_info=True)
 
     @staticmethod
+    def notify_ticket_routed(db: Session, ticket, coordinator_id: int, routed_by_id: int = None) -> None:
+        """Notifica al coordinador cuando se le enruta (o devuelve) un ticket a su cola (H6).
+
+        NotificationService.create hace in-app (DB) + push WS al canal personal del
+        usuario (/notify) — antes el enrutado solo dejaba ActionLog y el coordinador
+        no se enteraba de tickets nuevos salvo abriendo la página.
+        """
+        try:
+            from itcj2.core.models.user import User
+
+            # No notificar el auto-enrutado (el coordinador general se asigna a sí mismo).
+            if routed_by_id is not None and routed_by_id == coordinator_id:
+                return
+
+            coordinator = db.get(User, coordinator_id)
+            if not coordinator:
+                return
+
+            context = {'ticket': ticket, 'coordinator': coordinator}
+            rendered = render_notification(
+                db=db,
+                code='ticket_routed',
+                context=context,
+                fallback_title=f'Ticket #{ticket.ticket_number} enrutado a tu cola',
+                fallback_body=f'{ticket.title[:100]}',
+            )
+
+            NotificationService.create(
+                db=db,
+                user_id=coordinator_id,
+                app_name='maint',
+                type='TICKET_ROUTED',
+                title=rendered['title'],
+                body=rendered['body'],
+                data={
+                    'ticket_id': ticket.id,
+                    'url': f'{_BASE_URL}/{ticket.id}',
+                    'priority': ticket.priority,
+                    'category': ticket.category.name if ticket.category else '',
+                },
+            )
+
+            logger.info(f"[maint] TICKET_ROUTED → {coordinator.full_name} para #{ticket.ticket_number}")
+
+        except Exception as exc:
+            logger.error(f"[maint] Error en notify_ticket_routed: {exc}", exc_info=True)
+
+    @staticmethod
     def notify_ticket_in_progress(db: Session, ticket) -> None:
         """Notifica al solicitante que el técnico comenzó a trabajar en su ticket."""
         try:

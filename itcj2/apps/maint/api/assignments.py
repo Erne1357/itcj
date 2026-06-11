@@ -62,13 +62,19 @@ async def unassign_technician(
     user: dict = require_perms("maint", ["maint.assignments.api.unassign"]),
     db: DbSession = None,
 ):
+    from itcj2.core.services.authz_service import user_roles_in_app
+
     user_id = int(user["sub"])
+    is_global_admin = user.get("role") == "admin"
+    unassigner_roles = user_roles_in_app(db, user_id, "maint")
     assignment_service.unassign_technician(
         db=db,
         ticket_id=ticket_id,
         unassigned_by_id=user_id,
         user_id=body.user_id,
         reason=body.reason,
+        unassigner_roles=unassigner_roles,
+        is_global_admin=is_global_admin,
     )
     try:
         from itcj2.sockets.maint import broadcast_ticket_unassigned
