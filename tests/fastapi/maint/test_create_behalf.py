@@ -134,23 +134,21 @@ class TestAdminCreateOnBehalf:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Caso 2: requester de OTRO depto → 400
+# Caso 2: requester de OTRO depto → PERMITIDO (maint atiende a todo el instituto)
 # ─────────────────────────────────────────────────────────────────────
 
-class TestCreateBehalfWrongDept:
+class TestCreateBehalfCrossDept:
     @patch("itcj2.apps.maint.services.notification_helper.MaintNotificationHelper.notify_ticket_created")
     @patch("itcj2.apps.maint.services.ticket_service.create_ticket")
-    def test_requester_different_dept_returns_400(self, mock_create, mock_notify, app_and_db):
-        _, client, mock_db = app_and_db
+    def test_requester_different_dept_allowed(self, mock_create, mock_notify, app_and_db):
+        """Mantenimiento atiende a TODO el instituto: crear en nombre de un
+        solicitante de CUALQUIER departamento es válido. El depto del ticket se
+        deriva del solicitante (el endpoint pasa department_id=None al service).
 
-        # La query de pertenencia al depto usa: db.query(...).join(...).join(...).filter(...).first()
-        # Configurar la cadena de MagicMock para retornar None (no pertenece al depto):
-        # Cualquier encadenamiento de .join/.filter termina retornando None en .first()
-        q = MagicMock()
-        q.join.return_value = q
-        q.filter.return_value = q
-        q.first.return_value = None          # no pertenece
-        mock_db.query.return_value = q
+        (Antes el endpoint exigía mismo-depto y devolvía 400; esa restricción se
+        eliminó a propósito — ver api/tickets.py create_ticket.)"""
+        _, client, mock_db = app_and_db
+        mock_create.return_value = _mock_ticket()
 
         payload = {**VALID_PAYLOAD, "requester_id": 30}
         r = client.post(
@@ -158,11 +156,13 @@ class TestCreateBehalfWrongDept:
             json=payload,
             headers=_admin_headers(user_id=1),
         )
-        assert r.status_code == 400, r.text
-        body = r.json()
-        msg = (body.get("detail") or body.get("error") or "").lower()
-        assert "departamento" in msg
-        mock_create.assert_not_called()
+        assert r.status_code == 201, r.text
+
+        call_kwargs = mock_create.call_args.kwargs
+        assert call_kwargs["requester_id"] == 30
+        assert call_kwargs["created_by_id"] == 1
+        # Depto NO se fuerza desde el creador: se deriva del solicitante.
+        assert call_kwargs["department_id"] is None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -284,15 +284,19 @@ class TestUsersEndpoint:
     def test_admin_with_dept_id_returns_data(self, app_and_db):
         _, client, mock_db = app_and_db
 
-        # Simular que la query devuelve dos usuarios
-        mock_db.query.return_value.join.return_value.join.return_value.filter.return_value\
-            .distinct.return_value.order_by.return_value.all.return_value = [
-            (1, "Juan", "Pérez", "juan@itcj.edu.mx"),
-            (2, "María", "García", "maria@itcj.edu.mx"),
+        # El endpoint arma: query(...).outerjoin×3.filter[.filter].order_by.limit.all()
+        # devolviendo 5-tuplas (id, first, last, email, dept_name). Mock self-chained.
+        q = MagicMock()
+        for m in ("outerjoin", "filter", "order_by", "limit"):
+            getattr(q, m).return_value = q
+        q.all.return_value = [
+            (1, "Juan", "Pérez", "juan@itcj.edu.mx", "Sistemas"),
+            (2, "María", "García", "maria@itcj.edu.mx", "Sistemas"),
         ]
+        mock_db.query.return_value = q
 
         r = client.get("/api/maint/v2/users?department_id=5", headers=_admin_headers())
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
         body = r.json()
         assert body["success"] is True
         assert body["total"] == 2

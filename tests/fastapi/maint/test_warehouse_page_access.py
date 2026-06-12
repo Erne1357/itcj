@@ -6,11 +6,18 @@ Tras la migración a la app warehouse global, las páginas usan
 ``itcj2/apps/maint/utils/warehouse_auth.py``), que deriva los permisos
 ``warehouse.*`` del rol maint del usuario.
 
-Cobertura:
-  - admin       → todas (200)
-  - dispatcher  → todas excepto categories (302 en categories)
-  - tech_maint  → solo dashboard + products (302 en categories/entries/movements)
-  - sin perms   → todas redirigen (302)
+Denegación: `PageForbidden` ya NO redirige al dashboard — renderiza la página
+de error **403** de la app (ver `page_forbidden_handler` en `itcj2/main.py`,
+"antes redirigía al dashboard"). Falta de autenticación sí sigue redirigiendo
+(302 → /itcj/login).
+
+Modelo de capacidad (verificado contra la BD real, jun-2026):
+  - admin (= jefe head_equipment_maint)  → TODAS (incl. categories, adjust,
+    entries.create, products.create/delete) → 200.
+  - dispatcher (= secretaría)            → todas excepto categories → 403 en categories.
+  - tech_maint                           → dashboard + products (api.consume para
+    consumir materiales) → 403 en categories/entries/movements.
+  - sin perms                            → 403 en todas.
 """
 import time
 from unittest.mock import MagicMock, patch
@@ -120,10 +127,10 @@ class TestPageAccessByRole:
                 f"role={role_key} perm={required_perm} presente → esperado 200, fue {r.status_code}"
             )
         else:
-            assert r.status_code == 302, (
-                f"role={role_key} perm={required_perm} ausente → esperado 302, fue {r.status_code}"
+            # PageForbidden → página de error 403 (ya no redirige al dashboard).
+            assert r.status_code == 403, (
+                f"role={role_key} perm={required_perm} ausente → esperado 403, fue {r.status_code}"
             )
-            assert r.headers["location"] == "/itcj/dashboard"
 
     def test_no_auth_redirects_to_login(self, app_client):
         for url, _ in PAGES:
@@ -154,8 +161,7 @@ class TestTechMaintScope:
             return_value=PERMS_BY_ROLE["tech_maint"],
         ):
             r = app_client.get(url, headers=_headers(role=None))
-        assert r.status_code == 302
-        assert r.headers["location"] == "/itcj/dashboard"
+        assert r.status_code == 403
 
     @pytest.mark.parametrize("url", [
         "/maint/warehouse/dashboard",
@@ -184,7 +190,7 @@ class TestDispatcherScope:
                 "/maint/warehouse/categories",
                 headers=_headers(role=None),
             )
-        assert r.status_code == 302
+        assert r.status_code == 403
 
     @pytest.mark.parametrize("url", [
         "/maint/warehouse/dashboard",
