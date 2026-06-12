@@ -514,6 +514,8 @@ async def start_ticket(
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
+    if user.get("role") == "admin" and "admin" not in user_roles:
+        user_roles.append("admin")  # M10: admin global (JWT) uniforme en start/resolve/cancel
     ticket = ticket_service.start_progress(db, ticket_id, user_id, user_roles)
     try:
         MaintNotificationHelper.notify_ticket_in_progress(db, ticket)
@@ -535,6 +537,8 @@ async def resolve_ticket(
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = set(user_roles_in_app(db, user_id, "maint"))
+    if user.get("role") == "admin":
+        user_roles.add("admin")  # M10: admin global (JWT) uniforme en start/resolve/cancel
 
     ticket = ticket_service.get_ticket_by_id(db, ticket_id)
 
@@ -653,6 +657,8 @@ async def cancel_ticket(
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
+    if user.get("role") == "admin" and "admin" not in user_roles:
+        user_roles.append("admin")  # M10: admin global (JWT) uniforme en start/resolve/cancel
     ticket = ticket_service.cancel_ticket(
         db=db,
         ticket_id=ticket_id,

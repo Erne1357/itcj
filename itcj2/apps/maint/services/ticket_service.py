@@ -85,7 +85,14 @@ def create_ticket(
             status_code=400,
             detail='El solicitante pertenece a varios departamentos; debes indicar `department_id` explícitamente.',
         )
-    # else: ningún depto — department_id queda None (no bloquea, queda nulo en BD)
+    else:
+        # U13: bloquear creación sin departamento resuelto (decisión de producto).
+        # Antes el ticket se creaba con requester_department_id NULL → invisible para
+        # todos los dashboards de departamento.
+        raise HTTPException(
+            status_code=400,
+            detail='El solicitante no tiene un departamento activo; no se puede crear el ticket. Asigna un puesto con departamento al usuario.',
+        )
 
     # Restricción: máximo 3 tickets sin calificar
     unrated = db.query(MaintTicket).filter(

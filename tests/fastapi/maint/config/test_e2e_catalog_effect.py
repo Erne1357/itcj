@@ -234,7 +234,7 @@ class TestPrioridadSlaDinamico:
 
         # Cadena universal de queries con los accesos de generate_ticket_number controlados.
         chain = MagicMock()
-        chain.join.return_value.filter.return_value.distinct.return_value.all.return_value = []
+        chain.join.return_value.filter.return_value.distinct.return_value.all.return_value = [(7,)]
         chain.filter.return_value.count.return_value = 0
         chain.filter.return_value.filter.return_value.count.return_value = 0
         chain.filter.return_value.order_by.return_value.first.return_value = None
@@ -344,12 +344,12 @@ class TestPrioridadSlaDinamico:
 
         # Cadena universal de queries.
         # Puntos clave que deben devolver valores controlados:
-        #   .join().filter().distinct().all()  → [] (sin departamentos del usuario)
+        #   .join().filter().distinct().all()  → [(7,)] (1 depto; U13 exige departamento)
         #   .filter().count()                  → 0  (sin tickets sin calificar)
         #   .filter().order_by().first()       → None (ticket previo inexistente en generate_ticket_number)
         #   .filter_by().first()               → None (unicidad en generate_ticket_number, sin colisión)
         chain = MagicMock()
-        chain.join.return_value.filter.return_value.distinct.return_value.all.return_value = []
+        chain.join.return_value.filter.return_value.distinct.return_value.all.return_value = [(7,)]
         chain.filter.return_value.count.return_value = 0
         chain.filter.return_value.filter.return_value.count.return_value = 0
         chain.filter.return_value.order_by.return_value.first.return_value = None
