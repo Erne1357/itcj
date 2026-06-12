@@ -9,7 +9,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from itcj2.dependencies import DbSession, require_perms
+from itcj2.dependencies import DbSession, require_app
 
 router = APIRouter(tags=["maint-users"])
 logger = logging.getLogger(__name__)
@@ -21,21 +21,31 @@ logger = logging.getLogger(__name__)
 def search_users(
     search: str = None,
     department_id: int = None,
-    user: dict = require_perms("maint", ["maint.tickets.api.create.behalf"]),
+    user: dict = require_app("maint"),
     db: DbSession = None,
 ):
     """Busca usuarios activos del instituto para el selector "Solicitar para".
 
-    Solo accesible para quien puede crear en nombre de otro (puesto del jefe
-    o secretaría de mantenimiento; admin global).
+    Solo accesible para quien tiene el PERMISO real de behalf en maint (jefe o
+    secretaría de mantenimiento). Se gatea aquí explícitamente —y NO con
+    require_perms— porque require_perms deja pasar al admin GLOBAL del sistema,
+    y un jefe de otro departamento (admin global) NO debe usar este picker.
 
     - `search`: término (>=2 chars) que busca en nombre, apellido, usuario,
-      correo o número de control en TODO el instituto. Es lo normal en este
-      flujo porque mantenimiento atiende a cualquier departamento.
+      correo o número de control en TODO el instituto (maint atiende a cualquier
+      departamento).
     - `department_id`: alternativa para listar usuarios de un depto concreto.
 
-    Devuelve hasta 50 usuarios con su departamento (para contexto visual).
+    Devuelve hasta 150 usuarios con su departamento (para contexto visual).
     """
+    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    _uid = int(user["sub"])
+    if "maint.tickets.api.create.behalf" not in get_user_permissions_for_app(db, _uid, "maint", include_positions=True):
+        raise HTTPException(
+            status_code=403,
+            detail="No tienes permiso para crear solicitudes en nombre de otro usuario",
+        )
+
     from sqlalchemy import or_, func
     from itcj2.core.models.user import User
     from itcj2.core.models.position import Position, UserPosition

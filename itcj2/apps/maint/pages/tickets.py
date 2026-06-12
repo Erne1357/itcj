@@ -22,24 +22,26 @@ async def ticket_create(
     user: dict = Depends(require_page_app("maint", perms=["maint.tickets.page.create"])),
 ) -> HTMLResponse:
     from itcj2.apps.maint.utils import catalog_cache
-    from itcj2.database import get_db as _get_db
+    from itcj2.database import SessionLocal
     from itcj2.core.services.authz_service import get_user_permissions_for_app
 
     # Prioridades activas (con is_default) para renderizar las tarjetas desde BD
     priorities = [p for p in catalog_cache.get_priorities() if p.get("is_active")]
 
-    # Flag para mostrar el selector "Solicitar para" en el formulario
+    # Flag para mostrar el selector "Solicitar para" en el formulario.
+    # Behalf requiere el PERMISO real de maint (jefe/secretaría de mantenimiento):
+    # ser admin GLOBAL del sistema NO basta — un jefe de otro departamento con
+    # rol admin global no debe crear solicitudes en nombre de terceros en maint.
     can_create_behalf = False
-    if user.get("role") == "admin":
-        can_create_behalf = True
-    else:
-        try:
-            db = next(_get_db())
-            uid = int(user["sub"])
-            user_perms = get_user_permissions_for_app(db, uid, "maint", include_positions=True)
-            can_create_behalf = "maint.tickets.api.create.behalf" in user_perms
-        except Exception:
-            can_create_behalf = False
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        user_perms = get_user_permissions_for_app(db, uid, "maint", include_positions=True)
+        can_create_behalf = "maint.tickets.api.create.behalf" in user_perms
+    except Exception:
+        can_create_behalf = False
+    finally:
+        db.close()
 
     return render_maint(request, "maint/tickets/create.html", {
         "active_page": "tickets_create",

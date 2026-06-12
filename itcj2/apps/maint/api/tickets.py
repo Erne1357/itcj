@@ -113,15 +113,17 @@ async def create_ticket(
     requester_id = user_id
     department_for_ticket = body.department_id
     if body.requester_id is not None and body.requester_id != user_id:
-        # El creador quiere crear en nombre de otro: verificar permiso
+        # Crear en nombre de otro: requiere el PERMISO real de maint
+        # (jefe/secretaría de mantenimiento). Ser admin GLOBAL del sistema NO
+        # basta — el bypass de admin global se omite a propósito aquí para que
+        # un jefe de otro departamento no pueda crear behalf en maint.
         from itcj2.core.services.authz_service import get_user_permissions_for_app
-        if user.get("role") != "admin":
-            user_perms = get_user_permissions_for_app(db, user_id, "maint", include_positions=True)
-            if "maint.tickets.api.create.behalf" not in user_perms:
-                raise HTTPException(
-                    status_code=403,
-                    detail="No tienes permiso para crear solicitudes en nombre de otro usuario",
-                )
+        user_perms = get_user_permissions_for_app(db, user_id, "maint", include_positions=True)
+        if "maint.tickets.api.create.behalf" not in user_perms:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permiso para crear solicitudes en nombre de otro usuario",
+            )
 
         # Mantenimiento atiende a TODO el instituto: el solicitante puede ser de
         # cualquier departamento. El depto del ticket se deriva del solicitante
