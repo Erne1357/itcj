@@ -215,12 +215,14 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
         })
 
     # ── Ayuda (visible solo si tiene al menos un perm de help) ───────────────
-    # Granular 100% por permiso. Admin (rol maint "admin" o admin global del
-    # JWT) bypassa perms — ve las 3 pestañas y todas las guías.
-    is_admin_global = ("admin" in roles) or (str(jwt_role) == "admin")
-    has_requester = is_admin_global or "maint.help.page.requester" in perms
-    has_admin_help = is_admin_global or "maint.help.page.admin" in perms
-    has_tech_help = is_admin_global or "maint.help.page.tech" in perms
+    # Granular 100% por permiso. Solo el rol ADMIN de la app maint (que incluye
+    # al jefe de mantenimiento, admin vía su puesto) ve las 3 pestañas y todas
+    # las guías. Ser admin GLOBAL del sistema NO basta: un jefe de otro
+    # departamento (department_head) solo ve la guía de solicitante.
+    is_maint_admin = ("admin" in roles)
+    has_requester = is_maint_admin or "maint.help.page.requester" in perms
+    has_admin_help = is_maint_admin or "maint.help.page.admin" in perms
+    has_tech_help = is_maint_admin or "maint.help.page.tech" in perms
 
     if has_requester or has_admin_help or has_tech_help:
         # URL preferida = la primera que el usuario tenga acceso, en este orden:
@@ -254,7 +256,8 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
             "tech": has_tech_help,
         },
         # Si True, las guías de /maint/help/* se muestran todas sin gating.
-        "help_all": is_admin_global,
+        # Solo para el rol admin de la app maint (NO admin global del sistema).
+        "help_all": is_maint_admin,
     }
 
 

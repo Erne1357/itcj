@@ -1,7 +1,9 @@
 """Páginas de ayuda (manual de usuario) para Mantenimiento.
 
 El acceso es 100% granular por permiso (`maint.help.page.{requester|admin|tech}`).
-Admin (rol maint "admin" o admin global del JWT) bypassa los perms.
+Solo el rol "admin" de la app maint (que incluye al jefe de mantenimiento, admin
+vía su puesto) bypassa los perms y ve las 3 vistas. Ser admin GLOBAL del sistema
+NO basta: un jefe de otro departamento ve solo la guía de solicitante.
 
 A diferencia de `require_page_app`, estas rutas **no lanzan 403** cuando el
 usuario no tiene el perm de esa vista: redirigen (302) a la primera vista de
@@ -56,11 +58,14 @@ def _resolve_help_access(request: Request, db: Session):
         roles = set(user_roles_in_app(db, uid, "maint"))
     except Exception:
         roles = set()
-    is_admin = ("admin" in roles) or (str(user.get("role")) == "admin")
+    # Solo el rol ADMIN de la app maint (incluye al jefe de mantenimiento, admin
+    # vía su puesto) ve las 3 vistas. Admin GLOBAL del sistema NO basta — un jefe
+    # de otro departamento solo ve la guía de solicitante (su permiso real).
+    is_maint_admin = ("admin" in roles)
 
     perms = get_user_permissions_for_app(db, uid, "maint")
     allowed = {
-        v: (is_admin or _VIEW_PERM[v] in perms) for v in _VIEW_ORDER
+        v: (is_maint_admin or _VIEW_PERM[v] in perms) for v in _VIEW_ORDER
     }
     best_url = next(
         (_VIEW_URL[v] for v in _VIEW_ORDER if allowed[v]), None
