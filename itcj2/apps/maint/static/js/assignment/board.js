@@ -29,10 +29,10 @@
     };
 
     var PRIORITY_LABELS = {
-        ALTA:    { label: 'Alta',    cls: 'bg-danger' },
-        MEDIA:   { label: 'Media',   cls: 'bg-warning text-dark' },
         BAJA:    { label: 'Baja',    cls: 'bg-success' },
-        CRITICA: { label: 'Crítica', cls: 'bg-dark' },
+        MEDIA:   { label: 'Media',   cls: 'bg-warning text-dark' },
+        ALTA:    { label: 'Alta',    cls: 'bg-danger' },
+        URGENTE: { label: 'Urgente', cls: 'bg-dark' },
     };
 
     // === ESTADO ===

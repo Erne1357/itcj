@@ -208,6 +208,7 @@ async def assignment_board(
         active_technicians = [
             {
                 "user_id": t.user_id,
+                "name": t.user.full_name if t.user else f"#{t.user_id}",  # U1: nombre, no "#id"
                 "assigned_at": t.assigned_at.isoformat() if getattr(t, "assigned_at", None) else None,
             }
             for t in ticket.technicians
