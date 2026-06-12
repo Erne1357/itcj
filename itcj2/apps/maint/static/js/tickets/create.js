@@ -349,9 +349,9 @@
     }
 
     function _esc(s) {
-        var d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(s || '')));
-        return d.innerHTML;
+        // H9: escapa comillas además de &<> para ser seguro en atributos (title="...").
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(s || '').replace(/[&<>"']/g, function (ch) { return map[ch]; });
     }
 
     // ── Aviso de solicitudes sin calificar ────────────────────────────────────
@@ -726,9 +726,9 @@
     }
 
     function _esc(s) {
-        var d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(s || '')));
-        return d.innerHTML;
+        // H9: escapa comillas además de &<> para ser seguro en atributos (title="...").
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(s || '').replace(/[&<>"']/g, function (ch) { return map[ch]; });
     }
 
 })();
