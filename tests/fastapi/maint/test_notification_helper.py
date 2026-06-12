@@ -159,3 +159,48 @@ class TestNotificationDedup:
 
         recipients = [c.kwargs["user_id"] for c in mock_create.call_args_list]
         assert 100 not in recipients  # requester excluido
+
+
+# ─────────────────────────────────────────────────────────────────────
+# H11 — el broadcast WS no filtra contenido interno hacia el room compartido
+# ─────────────────────────────────────────────────────────────────────
+
+class TestInternalCommentWSPayload:
+    @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
+    @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
+    @patch("itcj2.sockets.maint.broadcast_ticket_comment_added")
+    def test_internal_comment_ws_payload_omits_preview(self, mock_bc, mock_async, mock_create):
+        """H11: para comentarios internos el payload WS no lleva preview/autor
+        (el room de ticket incluye al solicitante)."""
+        ticket = _fake_ticket(id=1, requester_id=100,
+                              active_technicians=[_tech_assignment(20)])
+        comment = MagicMock(content="Dato sensible staff-only", is_internal=True, id=5)
+        db = MagicMock()
+        db.get.return_value = MagicMock(full_name="TECH")
+
+        MaintNotificationHelper.notify_comment_added(db, ticket, comment, author_id=20)
+
+        assert mock_bc.called
+        payload = mock_bc.call_args.args[1]
+        assert payload["is_internal"] is True
+        assert "preview" not in payload
+        assert "author_name" not in payload
+        assert "Dato sensible" not in str(payload)
+
+    @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
+    @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
+    @patch("itcj2.sockets.maint.broadcast_ticket_comment_added")
+    def test_public_comment_ws_payload_includes_preview(self, mock_bc, mock_async, mock_create):
+        """Un comentario público sí difunde preview + autor por WS."""
+        ticket = _fake_ticket(id=1, requester_id=100,
+                              active_technicians=[_tech_assignment(20)])
+        comment = MagicMock(content="Hola a todos", is_internal=False, id=6)
+        db = MagicMock()
+        db.get.return_value = MagicMock(full_name="ANA")
+
+        MaintNotificationHelper.notify_comment_added(db, ticket, comment, author_id=20)
+
+        payload = mock_bc.call_args.args[1]
+        assert payload["is_internal"] is False
+        assert payload["preview"] == "Hola a todos"
+        assert payload["author_name"] == "ANA"

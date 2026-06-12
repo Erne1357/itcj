@@ -730,6 +730,12 @@
         var modal = new bootstrap.Modal(document.getElementById('cancelModal'));
         modal.show();
         document.getElementById('confirmCancelBtn').onclick = function () {
+            // U5: deshabilitar el botón + spinner para evitar doble POST.
+            var btn = this;
+            if (btn.disabled) return;
+            var original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Cancelando…';
             var reason = (document.getElementById('cancelReason').value || '').trim();
             MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/cancel', {
                 method: 'POST',
@@ -740,7 +746,12 @@
                     MaintUtils.toast('Ticket cancelado', 'info');
                     setTimeout(function () { window.location.href = '/maint/tickets'; }, 1000);
                 })
-                .catch(function (err) { MaintUtils.toast(err.message, 'error'); });
+                .catch(function (err) {
+                    // Re-habilitar solo en error (en éxito se navega fuera).
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                    MaintUtils.toast(err.message, 'error');
+                });
         };
     }
 
@@ -1046,6 +1057,22 @@
         // Nuevo comentario
         socket.on('ticket_comment_added', function (payload) {
             if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            // H11: comentarios internos solo se muestran a staff (dispatcher/tech/
+            // admin). El solicitante no debe enterarse ni de su existencia por WS.
+            var canSeeInternal = ctx.isDispatcher || ctx.isTechMaint || ctx.isAdmin;
+            if (payload.is_internal && !canSeeInternal) return;
+            // Para internos el payload no trae preview; refrescar para traerlo de la
+            // API (que ya filtra visibilidad) si el tab está activo.
+            if (payload.is_internal && payload.content === undefined && payload.preview === undefined) {
+                var commentsTab = document.querySelector('#detailTabs .nav-link.active');
+                if (commentsTab && commentsTab.dataset && commentsTab.dataset.tab === 'comments') {
+                    if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+                } else {
+                    _bumpCommentBadge();
+                    _showCommentIndicator();
+                }
+                return;
+            }
             var activeTab = document.querySelector('#detailTabs .nav-link.active');
             if (activeTab && activeTab.dataset && activeTab.dataset.tab === 'comments') {
                 _appendComment(payload);

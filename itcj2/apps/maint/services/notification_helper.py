@@ -579,18 +579,23 @@ class MaintNotificationHelper:
                 f"[maint] TICKET_COMMENT enviado a {len(recipients)} usuarios para #{ticket.ticket_number}"
             )
 
-            _async_broadcast(broadcast_ticket_comment_added(
-                ticket.id,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'comment_id': comment.id,
-                    'author_id': author_id,
-                    'author_name': author_name,
-                    'is_internal': comment.is_internal,
-                    'preview': preview,
-                },
-            ))
+            # H11: el room de un ticket es compartido (incluye al solicitante).
+            # Para comentarios INTERNOS no se difunde el preview ni el autor por
+            # WS — solo un ping con is_internal para que los clientes STAFF
+            # refresquen (la API filtra la visibilidad). Así el contenido
+            # staff-only nunca cruza el cable hacia el solicitante.
+            ws_payload = {
+                'ticket_id': ticket.id,
+                'ticket_number': ticket.ticket_number,
+                'comment_id': comment.id,
+                'is_internal': comment.is_internal,
+            }
+            if not comment.is_internal:
+                ws_payload['author_id'] = author_id
+                ws_payload['author_name'] = author_name
+                ws_payload['preview'] = preview
+
+            _async_broadcast(broadcast_ticket_comment_added(ticket.id, ws_payload))
 
         except Exception as exc:
             logger.error(f"[maint] Error en notify_comment_added: {exc}", exc_info=True)

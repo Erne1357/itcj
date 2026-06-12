@@ -13,16 +13,20 @@ async def triage_board(
     request: Request,
     user: dict = Depends(require_page_app("maint", perms=["maint.assignments.page.triage"])),
 ) -> HTMLResponse:
-    from itcj2.database import get_db as _get_db
+    from itcj2.database import SessionLocal
     from itcj2.core.services.authz_service import user_roles_in_app
 
+    # U7: usar SessionLocal con cierre explícito (antes `next(get_db())` dejaba la
+    # conexión abierta → fuga de conexiones PgBouncer bajo carga).
     user_roles = []
+    db = SessionLocal()
     try:
-        db = next(_get_db())
         uid = int(user["sub"])
         user_roles = list(user_roles_in_app(db, uid, "maint"))
     except Exception:
         pass
+    finally:
+        db.close()
 
     # El coordinador general necesita ver su propia cola además de los sin enrutar
     is_general_coordinator = "maint_general_coordinator" in user_roles
