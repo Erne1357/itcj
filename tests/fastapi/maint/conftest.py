@@ -22,6 +22,7 @@ _BROADCAST_FNS = (
     "broadcast_ticket_canceled",
     "broadcast_ticket_comment_added",
     "broadcast_ticket_rated",
+    "broadcast_ticket_routed",
 )
 
 

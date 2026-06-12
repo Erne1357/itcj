@@ -98,31 +98,19 @@ class MaintNotificationHelper:
 
     @staticmethod
     def notify_ticket_created(db: Session, ticket) -> None:
-        """Notifica a dispatchers cuando se crea un nuevo ticket."""
+        """Notifica a dispatchers/admins cuando se crea un nuevo ticket."""
         try:
-            from itcj2.core.models.user_app_role import UserAppRole
-            from itcj2.core.models.app import App
-            from itcj2.core.models.role import Role
+            from itcj2.core.services.authz_service import _get_users_with_roles_in_app
             from itcj2.sockets.maint import broadcast_ticket_created
 
-            app = db.query(App).filter_by(key='maint').first()
-            if not app:
-                return
-
-            dispatcher_role = db.query(Role).filter_by(name='dispatcher').first()
-            admin_role = db.query(Role).filter_by(name='admin').first()
-            role_ids = {r.id for r in [dispatcher_role, admin_role] if r}
-
-            if not role_ids:
-                return
-
-            assignments = db.query(UserAppRole).filter(
-                UserAppRole.app_id == app.id,
-                UserAppRole.role_id.in_(role_ids),
-            ).all()
+            # H7: resolver destinatarios por ROL incluyendo los heredados por
+            # PUESTO (secretaria/jefe de maint reciben dispatcher/admin vía
+            # core_position_app_roles, no por core_user_app_roles). Antes solo
+            # se miraba UserAppRole → la gente que opera la bandeja no se enteraba.
+            recipient_ids = _get_users_with_roles_in_app(db, 'maint', ['dispatcher', 'admin'])
 
             requester_name = ticket.requester.full_name if ticket.requester else 'Desconocido'
-            recipients = {a.user_id for a in assignments}
+            recipients = set(recipient_ids)
             recipients.discard(ticket.requester_id)
 
             context = {
@@ -243,6 +231,7 @@ class MaintNotificationHelper:
         """
         try:
             from itcj2.core.models.user import User
+            from itcj2.sockets.maint import broadcast_ticket_routed
 
             # No notificar el auto-enrutado (el coordinador general se asigna a sí mismo).
             if routed_by_id is not None and routed_by_id == coordinator_id:
@@ -277,6 +266,17 @@ class MaintNotificationHelper:
             )
 
             logger.info(f"[maint] TICKET_ROUTED → {coordinator.full_name} para #{ticket.ticket_number}")
+
+            # M8: refresco en vivo del tablero de asignación del coordinador.
+            _async_broadcast(broadcast_ticket_routed(
+                coordinator_id,
+                {
+                    'ticket_id': ticket.id,
+                    'ticket_number': ticket.ticket_number,
+                    'coordinator_id': coordinator_id,
+                    'priority': ticket.priority,
+                },
+            ))
 
         except Exception as exc:
             logger.error(f"[maint] Error en notify_ticket_routed: {exc}", exc_info=True)
@@ -402,11 +402,16 @@ class MaintNotificationHelper:
 
     @staticmethod
     def notify_ticket_canceled(db: Session, ticket) -> None:
-        """Notifica a los técnicos activos cuando se cancela el ticket."""
+        """Notifica a los técnicos activos y al CREADOR cuando se cancela el ticket."""
         try:
             from itcj2.sockets.maint import broadcast_ticket_canceled
 
-            active_tech_ids = [t.user_id for t in ticket.active_technicians]
+            # M7: el creador debe enterarse de la cancelación (con motivo), salvo
+            # que él mismo la haya cancelado. Antes solo se avisaba a los técnicos.
+            canceled_by_id = getattr(ticket, 'canceled_by_id', None)
+            recipient_ids: set = {t.user_id for t in ticket.active_technicians}
+            if ticket.requester_id and ticket.requester_id != canceled_by_id:
+                recipient_ids.add(ticket.requester_id)
 
             context = {
                 'ticket': ticket,
@@ -420,10 +425,10 @@ class MaintNotificationHelper:
                 fallback_body=ticket.cancel_reason or ticket.title[:80],
             )
 
-            for tech_id in active_tech_ids:
+            for user_id in recipient_ids:
                 NotificationService.create(
                     db=db,
-                    user_id=tech_id,
+                    user_id=user_id,
                     app_name='maint',
                     type='TICKET_CANCELED',
                     title=rendered['title'],
@@ -435,13 +440,13 @@ class MaintNotificationHelper:
                 )
 
             logger.info(
-                f"[maint] TICKET_CANCELED enviado a {len(active_tech_ids)} técnicos para #{ticket.ticket_number}"
+                f"[maint] TICKET_CANCELED enviado a {len(recipient_ids)} usuarios para #{ticket.ticket_number}"
             )
 
             department_id = getattr(ticket, 'requester_department_id', None)
             _async_broadcast(broadcast_ticket_canceled(
                 ticket.id,
-                active_tech_ids,
+                [t.user_id for t in ticket.active_technicians],
                 {
                     'ticket_id': ticket.id,
                     'ticket_number': ticket.ticket_number,

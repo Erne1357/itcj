@@ -433,7 +433,8 @@
 
     function _buildCommentsTab(t) {
         var comments = t.comments || [];
-        var canInternal = ctx.isDispatcher || ctx.isTechMaint;
+        // M9: los coordinadores (asignadores) también comentan internamente.
+        var canInternal = ctx.isDispatcher || ctx.isTechMaint || ctx.isAssigner;
 
         var html = '<div class="card border-0 shadow-sm"><div class="card-body">';
 
@@ -1058,8 +1059,8 @@
         socket.on('ticket_comment_added', function (payload) {
             if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
             // H11: comentarios internos solo se muestran a staff (dispatcher/tech/
-            // admin). El solicitante no debe enterarse ni de su existencia por WS.
-            var canSeeInternal = ctx.isDispatcher || ctx.isTechMaint || ctx.isAdmin;
+            // admin/coordinador). El solicitante no debe enterarse por WS.
+            var canSeeInternal = ctx.isDispatcher || ctx.isTechMaint || ctx.isAdmin || ctx.isAssigner;
             if (payload.is_internal && !canSeeInternal) return;
             // Para internos el payload no trae preview; refrescar para traerlo de la
             // API (que ya filtra visibilidad) si el tab está activo.

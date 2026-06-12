@@ -50,7 +50,42 @@
         _initModal();
         _loadTriage();
         _setupEventListeners();
+        _initRealtime();
     });
+
+    // === REALTIME (M8) ===
+    // El tablero se mantenía estático: los broadcasts existían pero nadie
+    // escuchaba. Ahora la bandeja del dispatcher refresca en vivo al crearse,
+    // enrutarse, asignarse o cancelarse un ticket.
+    function _debounce(fn, wait) {
+        var t = null;
+        return function () {
+            var ctx = this, args = arguments;
+            clearTimeout(t);
+            t = setTimeout(function () { fn.apply(ctx, args); }, wait);
+        };
+    }
+
+    function _initRealtime() {
+        var tries = 0;
+        var timer = setInterval(function () {
+            if (window.__maintSocket) {
+                clearInterval(timer);
+                _bindRealtime(window.__maintSocket);
+            } else if (++tries > 50) {
+                clearInterval(timer);  // socket nunca llegó (~10s) — se queda manual
+            }
+        }, 200);
+    }
+
+    function _bindRealtime(socket) {
+        if (window.__maintJoinDispatcher) window.__maintJoinDispatcher();
+        var reload = _debounce(function () { _loadTriage(); }, 400);
+        socket.on('ticket_created',  reload);
+        socket.on('ticket_routed',   reload);
+        socket.on('ticket_assigned', reload);
+        socket.on('ticket_canceled', reload);
+    }
 
     // === MODAL ===
     function _initModal() {

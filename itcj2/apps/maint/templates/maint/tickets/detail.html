@@ -15,6 +15,7 @@ var TICKET_CTX = {
     isDispatcher:       {{ ('dispatcher' in user_roles or 'admin' in user_roles) | lower }},
     isTechMaint:        {{ ('tech_maint' in user_roles) | lower }},
     isAreaCoordinator:  {{ ('maint_area_coordinator' in user_roles) | lower }},
+    isAssigner:         {{ ('maint_general_coordinator' in user_roles or 'maint_area_coordinator' in user_roles) | lower }},
     canResolve:         {{ ('tech_maint' in user_roles or 'dispatcher' in user_roles or 'admin' in user_roles) | lower }},
     canAssign:          {{ (can_assign | default(false)) | lower }},
     canRate:            {{ ('department_head' in user_roles or 'secretary' in user_roles or 'staff' in user_roles) | lower }},

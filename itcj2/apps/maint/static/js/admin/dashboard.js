@@ -14,6 +14,8 @@ var TICKETS_URL = '/maint/tickets/';
 var _currentDeptId = null;
 var _dashLevel     = null;   // 'full' | 'summary'
 var _charts        = {};
+var _myDeptIds     = [];     // U6: departamentos del usuario (para join de rooms WS)
+var _realtimeBound = false;
 
 // === COLORES ===
 var STATUS_COLORS = {
@@ -68,12 +70,60 @@ function setupEventListeners() {
     }
 }
 
+// === REALTIME (U6) ===
+function _dashDebounce(fn, wait) {
+    var t = null;
+    return function () {
+        var ctx = this, args = arguments;
+        clearTimeout(t);
+        t = setTimeout(function () { fn.apply(ctx, args); }, wait);
+    };
+}
+
+function initDashboardRealtime() {
+    if (_realtimeBound) {
+        // Ya enlazado: solo asegurar el join de cualquier dept nuevo.
+        _joinMyDeptRooms();
+        return;
+    }
+    var tries = 0;
+    var timer = setInterval(function () {
+        if (window.__maintSocket) {
+            clearInterval(timer);
+            _bindDashboardRealtime(window.__maintSocket);
+        } else if (++tries > 50) {
+            clearInterval(timer);
+        }
+    }, 200);
+}
+
+function _joinMyDeptRooms() {
+    if (!window.__maintJoinDept) return;
+    _myDeptIds.forEach(function (id) { window.__maintJoinDept(id); });
+}
+
+function _bindDashboardRealtime(socket) {
+    _realtimeBound = true;
+    _joinMyDeptRooms();
+    var reload = _dashDebounce(function () { loadDashboard(_currentDeptId); }, 600);
+    socket.on('ticket_created',         reload);
+    socket.on('ticket_assigned',        reload);
+    socket.on('ticket_status_changed',  reload);
+    socket.on('ticket_resolved',        reload);
+    socket.on('ticket_canceled',        reload);
+}
+
 // === CARGA DE DEPARTAMENTOS ===
 function loadDepartments() {
     MaintUtils.api.fetch(API_BASE + '/me/departments')
         .then(function (resp) {
             var depts      = (resp && resp.data)         || [];
             var isAdminGlb = (resp && resp.is_admin_global) || false;
+
+            // U6: con los departamentos resueltos, suscribir los rooms WS para
+            // refrescar el dashboard en vivo (antes dept:{id} era código muerto).
+            _myDeptIds = depts.map(function (d) { return d.id; });
+            initDashboardRealtime();
 
             var sel  = document.getElementById('deptSelector');
             var wrap = document.getElementById('deptSelectorWrap');

@@ -204,3 +204,61 @@ class TestInternalCommentWSPayload:
         assert payload["is_internal"] is False
         assert payload["preview"] == "Hola a todos"
         assert payload["author_name"] == "ANA"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# M7 — la cancelación notifica al creador (salvo que él mismo cancele)
+# ─────────────────────────────────────────────────────────────────────
+
+class TestCancelNotifiesCreator:
+    @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
+    @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
+    def test_creator_notified_when_staff_cancels(self, mock_bc, mock_create):
+        ticket = _fake_ticket(id=3, requester_id=100,
+                              active_technicians=[_tech_assignment(20)])
+        ticket.cancel_reason = "Duplicado"
+        ticket.canceled_by_id = 7674  # un dispatcher, no el creador
+        db = MagicMock()
+
+        MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+
+        recipients = {c.kwargs["user_id"] for c in mock_create.call_args_list}
+        assert 100 in recipients   # creador avisado
+        assert 20 in recipients    # técnico avisado
+
+    @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
+    @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
+    def test_creator_not_notified_when_self_cancels(self, mock_bc, mock_create):
+        ticket = _fake_ticket(id=3, requester_id=100, active_technicians=[])
+        ticket.cancel_reason = "Ya no aplica"
+        ticket.canceled_by_id = 100  # el propio creador
+        db = MagicMock()
+
+        MaintNotificationHelper.notify_ticket_canceled(db, ticket)
+
+        recipients = {c.kwargs["user_id"] for c in mock_create.call_args_list}
+        assert 100 not in recipients  # no auto-aviso
+
+
+# ─────────────────────────────────────────────────────────────────────
+# H7 — destinatarios de ticket_created por ROL incluyendo herencia por PUESTO
+# ─────────────────────────────────────────────────────────────────────
+
+class TestTicketCreatedRecipientsByPosition:
+    @patch("itcj2.apps.maint.services.notification_helper.NotificationService.create")
+    @patch("itcj2.apps.maint.services.notification_helper._async_broadcast")
+    @patch("itcj2.core.services.authz_service._get_users_with_roles_in_app")
+    def test_uses_role_helper_with_position_inheritance(self, mock_helper, mock_bc, mock_create):
+        # incluye un dispatcher por puesto (8285) que UserAppRole no captaría
+        mock_helper.return_value = [8285, 7670]
+        ticket = _fake_ticket(id=9, requester_id=100)
+        db = MagicMock()
+
+        MaintNotificationHelper.notify_ticket_created(db, ticket)
+
+        mock_helper.assert_called_once()
+        args = mock_helper.call_args.args
+        assert args[1] == "maint"
+        assert set(args[2]) == {"dispatcher", "admin"}
+        recipients = {c.kwargs["user_id"] for c in mock_create.call_args_list}
+        assert recipients == {8285, 7670}  # requester (100) no está en la lista

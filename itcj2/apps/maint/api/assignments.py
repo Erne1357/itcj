@@ -51,6 +51,17 @@ async def assign_technicians(
     except Exception as exc:
         db.rollback()
         logger.warning("notify_technician_assigned failed for ticket %s: %s", ticket.id, exc)
+    # U10: email al técnico recién asignado (best-effort; no-op si la cuenta de
+    # correo de maint no está conectada).
+    try:
+        from itcj2.core.models.user import User
+        from itcj2.apps.maint.services.email_helper import MaintEmailHelper
+        for tech_id in body.user_ids:
+            technician = db.get(User, tech_id)
+            if technician:
+                MaintEmailHelper.send_assigned(db, ticket, technician)
+    except Exception as exc:
+        logger.warning("send_assigned failed for ticket %s: %s", ticket.id, exc)
     return {"success": True, "assigned_count": len(result)}
 
 

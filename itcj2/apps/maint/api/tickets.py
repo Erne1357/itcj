@@ -577,6 +577,13 @@ async def resolve_ticket(
     except Exception as exc:
         db.rollback()
         logger.warning("notify_ticket_resolved failed for ticket %s: %s", resolved.id, exc)
+    # U10: email al solicitante pidiendo evaluación (best-effort; no-op si la
+    # cuenta de correo de maint no está conectada — clave sin auto-cierre).
+    try:
+        from itcj2.apps.maint.services.email_helper import MaintEmailHelper
+        MaintEmailHelper.send_resolved(db, resolved)
+    except Exception as exc:
+        logger.warning("send_resolved failed for ticket %s: %s", resolved.id, exc)
     response = {"status": resolved.status, "ticket_number": resolved.ticket_number}
     if warnings:
         response["warnings"] = warnings
@@ -673,4 +680,13 @@ async def cancel_ticket(
     except Exception as exc:
         db.rollback()
         logger.warning("notify_ticket_canceled failed for ticket %s: %s", ticket.id, exc)
+    # U10/M7: email al creador con el motivo (best-effort; no-op si la cuenta de
+    # correo no está conectada o si él mismo canceló).
+    try:
+        from itcj2.apps.maint.services.email_helper import MaintEmailHelper
+        requester = ticket.requester
+        if requester and getattr(ticket, "canceled_by_id", None) != ticket.requester_id:
+            MaintEmailHelper.send_canceled(db, ticket, requester)
+    except Exception as exc:
+        logger.warning("send_canceled failed for ticket %s: %s", ticket.id, exc)
     return {"status": ticket.status, "ticket_number": ticket.ticket_number}

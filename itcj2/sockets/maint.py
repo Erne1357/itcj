@@ -116,6 +116,15 @@ async def broadcast_ticket_canceled(
         await sio.emit("ticket_canceled", payload, to=_dept_room(int(department_id)), namespace=NAMESPACE)
 
 
+async def broadcast_ticket_routed(coordinator_id: int, payload: dict):
+    """Broadcast cuando se enruta/devuelve un ticket a la cola de un coordinador.
+
+    Se emite a su room personal (tech:{coordinator_id}) para que el tablero de
+    asignación refresque en vivo (M8). El aviso in-app va aparte por el canal
+    de notificaciones del core (NotificationService)."""
+    await sio.emit("ticket_routed", payload, to=_tech_room(coordinator_id), namespace=NAMESPACE)
+
+
 async def broadcast_ticket_comment_added(ticket_id: int, payload: dict):
     """Broadcast cuando se agrega un comentario a un ticket."""
     await sio.emit("ticket_comment_added", payload, to=_ticket_room(ticket_id), namespace=NAMESPACE)

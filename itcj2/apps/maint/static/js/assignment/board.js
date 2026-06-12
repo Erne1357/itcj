@@ -59,7 +59,34 @@
         _loadAreas();
         _loadBoard();
         _setupEventListeners();
+        _initRealtime();
     });
+
+    // === REALTIME (M8/M9) ===
+    // La cola del coordinador refresca en vivo cuando el dispatcher le enruta un
+    // ticket (ticket_routed → room personal) o cambia una asignación visible.
+    function _initRealtime() {
+        var tries = 0;
+        var timer = setInterval(function () {
+            if (window.__maintSocket) {
+                clearInterval(timer);
+                _bindRealtime(window.__maintSocket);
+            } else if (++tries > 50) {
+                clearInterval(timer);
+            }
+        }, 200);
+    }
+
+    function _bindRealtime(socket) {
+        // Room personal: ahí llega ticket_routed cuando el dispatcher enruta a
+        // la cola de este coordinador.
+        if (window.__maintJoinTech) window.__maintJoinTech();
+        var reload = _debounce(function () { _loadBoard(); }, 400);
+        socket.on('ticket_routed',     reload);
+        socket.on('ticket_assigned',   reload);
+        socket.on('ticket_unassigned', reload);
+        socket.on('ticket_canceled',   reload);
+    }
 
     // === MODALES ===
     function _initModals() {
