@@ -339,12 +339,18 @@ def get_technician_areas(db: Session, user_id: int) -> list[MaintTechnicianArea]
 
 
 def get_technicians_by_area(db: Session, area_code: str) -> list:
-    """Retorna técnicos con el área de especialidad indicada."""
+    """Retorna técnicos ACTIVOS con el área de especialidad indicada.
+
+    U15: filtra `User.is_active` (antes podía devolver usuarios dados de baja).
+    """
     from itcj2.core.models.user import User as UserModel
     return (
         db.query(UserModel)
         .join(MaintTechnicianArea, MaintTechnicianArea.user_id == UserModel.id)
-        .filter(MaintTechnicianArea.area_code == area_code)
+        .filter(
+            MaintTechnicianArea.area_code == area_code,
+            UserModel.is_active == True,  # noqa: E712
+        )
         .all()
     )
 

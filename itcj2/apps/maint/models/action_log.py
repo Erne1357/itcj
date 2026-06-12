@@ -14,6 +14,7 @@ class MaintTicketActionLog(Base):
         TECHNICIAN_ASSIGNED       — Técnico asignado
         TECHNICIAN_UNASSIGNED     — Técnico removido
         STATUS_CHANGED            — Cambio de estado
+        TICKET_ROUTED             — Enrutado/devuelto a la cola de un coordinador
         RESOLVED_BY_ASSIGNED      — Resuelto por técnico formalmente asignado
         RESOLVED_BY_DISPATCHER    — Resuelto por dispatcher NO asignado al ticket
         RATED                     — Calificado por el solicitante
@@ -37,6 +38,7 @@ class MaintTicketActionLog(Base):
     # RESOLVED_BY_DISPATCHER: {resolver_id, resolver_name, had_active_technicians: bool, active_technician_ids: [...]}
     # EDITED:                 {field, old_value, new_value}
     # STATUS_CHANGED:         {from_status, to_status}
+    # TICKET_ROUTED:          {from_coordinator_id, to_coordinator_id, to_coordinator_name, by}
 
     # Relaciones
     ticket = relationship('MaintTicket', back_populates='action_logs')
