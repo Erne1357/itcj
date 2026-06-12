@@ -47,6 +47,7 @@ var PRIORITY_COLORS = {
 document.addEventListener('DOMContentLoaded', function () {
     loadDepartments();
     setupEventListeners();
+    loadUnratedSection();
 });
 
 // === SETUP ===
@@ -157,15 +158,17 @@ function loadDashboard(deptId) {
 // === RENDER COMPLETO ===
 function renderDashboard(data, level) {
     renderKpis(data.kpis || {}, level);
-    renderUnassigned(data.unassigned_tickets || []);
-    renderRecentOpen(data.recent_open || []);
+    // U3: pasar el KPI real de "sin asignar" para que el badge
+    // no muestre el largo de la lista truncada (máx 10), sino el total real.
+    renderUnassigned(data.unassigned_tickets || [], (data.kpis || {}).unassigned);
+    renderRecentOpen(data.recent_open || [], (data.kpis || {}).open_total);
 
     var fullSection = document.getElementById('fullSection');
     var levelBadge  = document.getElementById('levelBadge');
 
     if (level === 'full') {
         if (fullSection) fullSection.classList.remove('d-none');
-        renderOverdue(data.overdue_tickets || []);
+        renderOverdue(data.overdue_tickets || [], (data.kpis || {}).overdue);
         renderByStatus(data.by_status || {});
         renderByCategory(data.by_category || []);
         // "Por técnico" oculto si la API no la entrega (caso dh: reservado a admins maint).
@@ -241,12 +244,16 @@ function hideFullKpis() {
     if (ratedCol) ratedCol.classList.add('d-none');
 }
 
-// === TABLA: SIN ASIGNAR ===
-function renderUnassigned(tickets) {
+// === TABLA: SIN ASIGNAR (alcance: Departamento) ===
+// U3 fix: el badge usa el KPI real (kpiTotal), no tickets.length,
+// ya que la API devuelve máximo ~10 tickets en la lista pero el total
+// puede ser mayor. El KPI viene de data.kpis.unassigned.
+function renderUnassigned(tickets, kpiTotal) {
     var tbody   = document.getElementById('unassignedBody');
     var countEl = document.getElementById('unassignedCount');
 
-    if (countEl) countEl.textContent = tickets.length;
+    var realTotal = (kpiTotal !== null && kpiTotal !== undefined) ? kpiTotal : tickets.length;
+    if (countEl) countEl.textContent = realTotal;
 
     if (!tickets.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">' +
@@ -266,8 +273,10 @@ function renderUnassigned(tickets) {
     }).join('');
 }
 
-// === TABLA: ÚLTIMOS ABIERTOS ===
-function renderRecentOpen(tickets) {
+// === TABLA: ÚLTIMOS ABIERTOS (alcance: Departamento) ===
+// El segundo argumento kpiTotal no se muestra como badge aquí (no hay countEl
+// para "Últimos abiertos"), pero se recibe por consistencia de firma.
+function renderRecentOpen(tickets, kpiTotal) {
     var tbody = document.getElementById('recentOpenBody');
 
     if (!tickets.length) {
@@ -287,12 +296,46 @@ function renderRecentOpen(tickets) {
     }).join('');
 }
 
-// === TABLA: VENCIDOS (solo full) ===
-function renderOverdue(tickets) {
+// === SECCIÓN: PENDIENTES DE EVALUAR (Mi cuenta personal) ===
+// M12: carga el conteo de tickets resueltos sin calificar del usuario actual
+// usando ?unrated=1&per_page=1 (fetch liviano) y muestra el enlace a la vista filtrada.
+function loadUnratedSection() {
+    var container = document.getElementById('unratedSection');
+    if (!container) return;
+
+    var countEl = document.getElementById('unratedCount');
+    var linkEl  = document.getElementById('unratedLink');
+
+    fetch('/api/maint/v2/tickets?unrated=1&per_page=1', { credentials: 'include' })
+        .then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        })
+        .then(function (data) {
+            var total = (data.total !== undefined) ? data.total : 0;
+            if (countEl) countEl.textContent = total;
+            if (total > 0) {
+                container.classList.remove('d-none');
+                if (linkEl) linkEl.href = '/maint/tickets?unrated=1';
+            } else {
+                // Ocultar si no hay pendientes
+                container.classList.add('d-none');
+            }
+        })
+        .catch(function () {
+            // Si falla no mostrar la sección
+            container.classList.add('d-none');
+        });
+}
+
+// === TABLA: VENCIDOS (solo full, alcance: Departamento) ===
+// U3 fix: badge usa el KPI real (kpis.overdue), no tickets.length.
+function renderOverdue(tickets, kpiTotal) {
     var tbody   = document.getElementById('overdueBody');
     var countEl = document.getElementById('overdueCount');
 
-    if (countEl) countEl.textContent = tickets.length;
+    var realTotal = (kpiTotal !== null && kpiTotal !== undefined) ? kpiTotal : tickets.length;
+    if (countEl) countEl.textContent = realTotal;
 
     if (!tickets.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">' +

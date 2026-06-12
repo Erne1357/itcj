@@ -122,6 +122,7 @@
                style="background:var(--maint-primary-light);">
             <span class="fw-semibold small" style="color:var(--maint-primary-dark);">
               <i class="fas fa-exclamation-circle me-1 text-warning"></i>Sin asignar
+              <span class="badge bg-secondary bg-opacity-50 ms-1 fw-normal" style="font-size:0.65rem;">Depto</span>
             </span>
             <span class="badge bg-warning text-dark" id="unassignedCount">0</span>
           </div>
@@ -155,6 +156,7 @@
                style="background:var(--maint-primary-light);">
             <span class="fw-semibold small" style="color:var(--maint-primary-dark);">
               <i class="fas fa-folder-open me-1 text-primary"></i>Últimos abiertos
+              <span class="badge bg-secondary bg-opacity-50 ms-1 fw-normal" style="font-size:0.65rem;">Depto</span>
             </span>
           </div>
           <div class="card-body p-0">
@@ -190,6 +192,7 @@
              style="background:var(--maint-primary-light);">
           <span class="fw-semibold small" style="color:var(--maint-primary-dark);">
             <i class="fas fa-clock me-1 text-danger"></i>Tickets vencidos
+            <span class="badge bg-secondary bg-opacity-50 ms-1 fw-normal" style="font-size:0.65rem;">Depto</span>
           </span>
           <span class="badge bg-danger" id="overdueCount">0</span>
         </div>
@@ -276,6 +279,28 @@
     </div><!-- /fullSection -->
 
   </div><!-- /dashContent -->
+
+  <!-- ── Pendientes de evaluar (Mías) ──────────────────────────────────── -->
+  <!-- M12: sección personal — muestra tickets resueltos sin calificar del usuario.
+       loadUnratedSection() la muestra/oculta dinámicamente según el conteo. -->
+  <div id="unratedSection" class="d-none mb-3">
+    <div class="card shadow-sm border-warning border-start border-start-3">
+      <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <i class="fas fa-star text-warning"></i>
+          <span class="small fw-semibold">
+            Tienes <span id="unratedCount" class="fw-bold text-warning">0</span>
+            solicitud(es) resuelta(s) pendientes de calificar
+          </span>
+          <span class="badge bg-secondary bg-opacity-50 fw-normal" style="font-size:0.65rem;">Mías</span>
+        </div>
+        <a id="unratedLink" href="/maint/tickets?unrated=1"
+           class="btn btn-sm btn-warning text-dark fw-semibold">
+          <i class="fas fa-star me-1"></i>Calificar ahora
+        </a>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Footer nivel ──────────────────────────────────────────────────── -->
   <div class="text-end mt-2 mb-3">
