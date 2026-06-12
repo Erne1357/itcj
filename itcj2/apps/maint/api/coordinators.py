@@ -97,7 +97,7 @@ def set_coordinator_areas(
 @router.get("/areas")
 def list_areas_for_board(
     request: Request,
-    user: dict = require_perms("maint", ["maint.assignments.page.list"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.read", "maint.assignments.page.list"]),
     db: DbSession = None,
 ):
     """
@@ -117,7 +117,7 @@ def list_areas_for_board(
 def get_technicians_by_area(
     area_code: str,
     request: Request,
-    user: dict = require_perms("maint", ["maint.assignments.page.list"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.read", "maint.assignments.page.list"]),
     db: DbSession = None,
 ):
     """
