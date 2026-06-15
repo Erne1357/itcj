@@ -360,11 +360,24 @@ class TestAssignTechniciansAreaRestriction:
 class TestAssignEndpointAreaGate:
     """Tests HTTP del endpoint de asignación con restricción de área."""
 
+    @patch("itcj2.core.services.authz_service.user_roles_in_app")
+    @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
+    @patch("itcj2.core.services.authz_service.has_any_assignment")
     @patch("itcj2.apps.maint.services.assignment_service.assign_technicians")
     @patch("itcj2.apps.maint.services.notification_helper.MaintNotificationHelper.notify_technician_assigned")
-    def test_admin_assign_ok(self, mock_notify, mock_assign, app_and_db):
-        """Admin global puede asignar (bypass completo)."""
+    def test_admin_assign_ok(
+        self, mock_notify, mock_assign, mock_has_assign, mock_get_perms, mock_roles, app_and_db
+    ):
+        """Admin REAL de maint puede asignar.
+
+        Tras la auditoría, asignar exige rol/permiso operativo REAL en maint;
+        ser admin GLOBAL del sistema (JWT role='admin') ya NO basta por bypass.
+        """
         _, client, mock_db = app_and_db
+
+        mock_has_assign.return_value = True
+        mock_get_perms.return_value = {"maint.assignments.api.assign"}
+        mock_roles.return_value = {"admin"}
 
         assignment = MagicMock()
         assignment.id = 1
@@ -378,12 +391,41 @@ class TestAssignEndpointAreaGate:
         r = client.post(
             "/api/maint/v2/tickets/1/assign",
             json={"user_ids": [50]},
-            headers=_admin_headers(user_id=1),
+            headers=_plain_headers(user_id=1),
         )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["success"] is True
         assert body["assigned_count"] == 1
+
+    @patch("itcj2.core.services.authz_service.user_roles_in_app")
+    @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
+    @patch("itcj2.core.services.authz_service.has_any_assignment")
+    @patch("itcj2.apps.maint.services.assignment_service.assign_technicians")
+    def test_global_admin_without_maint_role_assign_blocked(
+        self, mock_assign, mock_has_assign, mock_get_perms, mock_roles, app_and_db
+    ):
+        """Admin GLOBAL del sistema SIN rol operativo en maint → 403 al asignar.
+
+        Regresión de la auditoría: 'admin global del sistema ≠ operador de maint'.
+        """
+        _, client, mock_db = app_and_db
+
+        mock_has_assign.return_value = True
+        # Jefe de otro depto: tiene perms de solicitante pero NO de asignar.
+        mock_get_perms.return_value = {
+            "maint.tickets.api.create",
+            "maint.tickets.api.read.department",
+        }
+        mock_roles.return_value = {"department_head"}
+
+        r = client.post(
+            "/api/maint/v2/tickets/1/assign",
+            json={"user_ids": [50]},
+            headers=_admin_headers(user_id=1),  # JWT role='admin' (global)
+        )
+        assert r.status_code == 403, r.text
+        mock_assign.assert_not_called()
 
     @patch("itcj2.core.services.authz_service.user_roles_in_app")
     @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
@@ -665,12 +707,22 @@ class TestListCoordinators:
 
 class TestAssignmentBoard:
     @patch("itcj2.apps.maint.services.ticket_service.list_tickets")
+    @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
+    @patch("itcj2.core.services.authz_service.has_any_assignment")
     @patch("itcj2.core.services.authz_service.user_roles_in_app")
-    def test_board_admin_returns_tickets(self, mock_roles, mock_list, app_and_db):
-        """Admin puede ver el board; devuelve estructura correcta."""
+    def test_board_admin_returns_tickets(
+        self, mock_roles, mock_has_assign, mock_get_perms, mock_list, app_and_db
+    ):
+        """Admin REAL de maint puede ver el board; devuelve estructura correcta.
+
+        El board es vista operativa: exige permiso REAL; el admin GLOBAL del
+        sistema ya NO lo lee por bypass (allow_global_admin=False).
+        """
         _, client, mock_db = app_and_db
 
         mock_roles.return_value = {"admin"}
+        mock_has_assign.return_value = True
+        mock_get_perms.return_value = {"maint.assignments.page.list"}
 
         ticket_mock = MagicMock()
         ticket_mock.id = 1
@@ -696,7 +748,7 @@ class TestAssignmentBoard:
 
         r = client.get(
             "/api/maint/v2/tickets/board",
-            headers=_admin_headers(user_id=1),
+            headers=_plain_headers(user_id=1),
         )
         assert r.status_code == 200, r.text
         body = r.json()

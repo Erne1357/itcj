@@ -26,14 +26,16 @@ logger = logging.getLogger(__name__)
 async def assign_technicians(
     ticket_id: int,
     body: AssignTechnicianRequest,
-    user: dict = require_perms("maint", ["maint.assignments.api.assign"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.assign"], allow_global_admin=False),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
-    is_global_admin = user.get("role") == "admin"
     assigner_roles = user_roles_in_app(db, user_id, "maint")
+    # Acción operativa: el admin global del sistema NO asigna por bypass; el
+    # "admin" operativo se detecta por su rol REAL en maint (no por el JWT).
+    is_global_admin = "admin" in set(assigner_roles)
     result = assignment_service.assign_technicians(
         db=db,
         ticket_id=ticket_id,
@@ -70,14 +72,16 @@ async def assign_technicians(
 async def unassign_technician(
     ticket_id: int,
     body: UnassignTechnicianRequest,
-    user: dict = require_perms("maint", ["maint.assignments.api.unassign"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.unassign"], allow_global_admin=False),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app
 
     user_id = int(user["sub"])
-    is_global_admin = user.get("role") == "admin"
     unassigner_roles = user_roles_in_app(db, user_id, "maint")
+    # Acción operativa: admin global del sistema NO opera por bypass; "admin"
+    # operativo = rol REAL en maint.
+    is_global_admin = "admin" in set(unassigner_roles)
     assignment_service.unassign_technician(
         db=db,
         ticket_id=ticket_id,

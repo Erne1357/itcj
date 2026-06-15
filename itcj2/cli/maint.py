@@ -138,6 +138,7 @@ def init_maint_command():
             "09_assign_warehouse_user_roles.sql",
             "10_add_coordinator_roles_permissions.sql",
             "11_seed_coordinators_scaffold.sql",
+            "12_seed_maint_team_users.sql",
         ])
         click.echo()
         click.echo("   🔄 Ejecutando seed-config (config/*.sql)...")

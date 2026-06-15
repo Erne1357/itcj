@@ -160,7 +160,7 @@ async def assignment_board(
     area_code: str = None,
     page: int = 1,
     per_page: int = 50,
-    user: dict = require_perms("maint", ["maint.assignments.page.list"]),
+    user: dict = require_perms("maint", ["maint.assignments.page.list"], allow_global_admin=False),
     db: DbSession = None,
 ):
     """
@@ -172,14 +172,17 @@ async def assignment_board(
 
     El endpoint se ubica en tickets_router (antes de /{ticket_id}) para evitar que
     FastAPI interprete "board" como un ticket_id entero.
+
+    Vista operativa: el admin global del sistema NO la consume por bypass; requiere
+    rol operativo REAL en maint (el "admin" se detecta por el rol real).
     """
     from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.apps.maint.services import assignment_service as asgn_svc
     from itcj2.apps.maint.services.coordinator_service import CoordinatorService
 
     user_id = int(user["sub"])
-    is_global_admin = user.get("role") == "admin"
-    user_roles = list(user_roles_in_app(db, user_id, "maint")) if not is_global_admin else ["admin"]
+    user_roles = list(user_roles_in_app(db, user_id, "maint"))
+    is_global_admin = "admin" in user_roles
 
     board_statuses = ["PENDING", "ASSIGNED", "IN_PROGRESS"]
     if status and status in board_statuses:
@@ -269,7 +272,7 @@ async def assignment_board(
 # ==================== TRIAGE: TICKETS POR ENRUTAR ====================
 @router.get("/triage")
 async def triage_tickets(
-    user: dict = require_perms("maint", ["maint.assignments.page.triage"]),
+    user: dict = require_perms("maint", ["maint.assignments.page.triage"], allow_global_admin=False),
     db: DbSession = None,
 ):
     """
@@ -285,8 +288,8 @@ async def triage_tickets(
     from itcj2.apps.maint.models.ticket import MaintTicket
 
     user_id = int(user["sub"])
-    is_global_admin = user.get("role") == "admin"
     user_roles = set(user_roles_in_app(db, user_id, "maint"))
+    is_global_admin = "admin" in user_roles
 
     def _serialize_triage_ticket(t: MaintTicket) -> dict:
         coord = None
@@ -337,7 +340,7 @@ async def triage_tickets(
 # ==================== DESTINOS DE ENRUTADO ====================
 @router.get("/route-targets")
 async def route_targets(
-    user: dict = require_perms("maint", ["maint.assignments.api.route"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.route"], allow_global_admin=False),
     db: DbSession = None,
 ):
     """
@@ -346,14 +349,17 @@ async def route_targets(
     - maint_general_coordinator: coordinadores de área + coordinadores generales.
     - admin: todos (generales + área).
 
+    Vista operativa: el admin global del sistema NO la consume por bypass; el "admin"
+    se detecta por el rol REAL en maint.
+
     Respuesta: {"success": True, "data": [...{user_id, name, is_general, areas}...]}
     """
     from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.apps.maint.services.coordinator_service import CoordinatorService
 
     user_id = int(user["sub"])
-    is_global_admin = user.get("role") == "admin"
     user_roles = set(user_roles_in_app(db, user_id, "maint"))
+    is_global_admin = "admin" in user_roles
 
     if is_global_admin or "admin" in user_roles:
         # Admin ve todos
@@ -442,7 +448,7 @@ async def update_ticket(
 async def route_ticket(
     ticket_id: int,
     body: RouteTicketRequest,
-    user: dict = require_perms("maint", ["maint.assignments.api.route"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.route"], allow_global_admin=False),
     db: DbSession = None,
 ):
     """
@@ -450,13 +456,17 @@ async def route_ticket(
     Secretaría (dispatcher) solo puede enrutar a coordinadores generales.
     Coordinador general puede enrutar a cualquier coordinador o a sí mismo.
     Admin puede enrutar a cualquier coordinador.
+
+    Acción operativa: el admin global del sistema NO la ejecuta por bypass —
+    requiere rol operativo real en maint (admin de maint, dispatcher o
+    coordinador de área). El admin de maint se detecta por su rol real.
     """
     from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.apps.maint.services.assignment_service import route_ticket as _route
 
     user_id = int(user["sub"])
-    is_global_admin = user.get("role") == "admin"
     performer_roles = set(user_roles_in_app(db, user_id, "maint"))
+    is_global_admin = "admin" in performer_roles
 
     try:
         ticket = _route(
@@ -511,14 +521,12 @@ async def route_ticket(
 @router.post("/{ticket_id}/start")
 async def start_ticket(
     ticket_id: int,
-    user: dict = require_perms("maint", ["maint.tickets.api.resolve"]),
+    user: dict = require_perms("maint", ["maint.tickets.api.resolve"], allow_global_admin=False),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
-    if user.get("role") == "admin" and "admin" not in user_roles:
-        user_roles.append("admin")  # M10: admin global (JWT) uniforme en start/resolve/cancel
     ticket = ticket_service.start_progress(db, ticket_id, user_id, user_roles)
     try:
         MaintNotificationHelper.notify_ticket_in_progress(db, ticket)
@@ -534,14 +542,12 @@ async def start_ticket(
 async def resolve_ticket(
     ticket_id: int,
     body: ResolveTicketRequest,
-    user: dict = require_perms("maint", ["maint.tickets.api.resolve"]),
+    user: dict = require_perms("maint", ["maint.tickets.api.resolve"], allow_global_admin=False),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = set(user_roles_in_app(db, user_id, "maint"))
-    if user.get("role") == "admin":
-        user_roles.add("admin")  # M10: admin global (JWT) uniforme en start/resolve/cancel
 
     ticket = ticket_service.get_ticket_by_id(db, ticket_id)
 
@@ -661,14 +667,12 @@ async def rate_ticket(
 async def cancel_ticket(
     ticket_id: int,
     body: CancelTicketRequest,
-    user: dict = require_perms("maint", ["maint.tickets.api.cancel"]),
+    user: dict = require_perms("maint", ["maint.tickets.api.cancel"], allow_global_admin=False),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app
     user_id = int(user["sub"])
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
-    if user.get("role") == "admin" and "admin" not in user_roles:
-        user_roles.append("admin")  # M10: admin global (JWT) uniforme en start/resolve/cancel
     ticket = ticket_service.cancel_ticket(
         db=db,
         ticket_id=ticket_id,

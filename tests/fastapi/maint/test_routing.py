@@ -422,7 +422,13 @@ class TestRouteEndpoint:
 
     @patch("itcj2.apps.maint.services.assignment_service.route_ticket")
     def test_admin_route_ok(self, mock_route, app_and_db):
-        """Admin puede enrutar un ticket → 200."""
+        """Admin REAL de maint puede enrutar un ticket → 200.
+
+        Tras la auditoría, enrutar exige el rol/permiso operativo REAL en maint;
+        ser admin GLOBAL del sistema (JWT role='admin') ya NO basta por bypass
+        (require_perms allow_global_admin=False). Aquí el usuario tiene el rol
+        'admin' real en maint.
+        """
         _, client, mock_db = app_and_db
 
         ticket = _make_ticket(coordinator_id=20)
@@ -430,15 +436,53 @@ class TestRouteEndpoint:
         ticket.coordinator = coord_user
         mock_route.return_value = ticket
 
-        r = client.post(
-            "/api/maint/v2/tickets/1/route",
-            json={"coordinator_id": 20},
-            headers=_admin_headers(user_id=1),
-        )
+        with (
+            patch("itcj2.core.services.authz_service.has_any_assignment", return_value=True),
+            patch(
+                "itcj2.core.services.authz_service.get_user_permissions_for_app",
+                return_value={"maint.assignments.api.route"},
+            ),
+            patch(
+                "itcj2.core.services.authz_service.user_roles_in_app",
+                return_value={"admin"},
+            ),
+        ):
+            r = client.post(
+                "/api/maint/v2/tickets/1/route",
+                json={"coordinator_id": 20},
+                headers=_plain_headers(user_id=1),
+            )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["success"] is True
         assert body["data"]["ticket_id"] == 1
+
+    @patch("itcj2.apps.maint.services.assignment_service.route_ticket")
+    def test_global_admin_without_maint_role_route_blocked(self, mock_route, app_and_db):
+        """Admin GLOBAL del sistema SIN rol operativo en maint → 403 al enrutar.
+
+        Regresión de la auditoría: 'admin global del sistema ≠ operador de maint'.
+        """
+        _, client, mock_db = app_and_db
+
+        with (
+            patch("itcj2.core.services.authz_service.has_any_assignment", return_value=True),
+            patch(
+                "itcj2.core.services.authz_service.get_user_permissions_for_app",
+                return_value={"maint.tickets.api.create", "maint.tickets.api.read.department"},
+            ),
+            patch(
+                "itcj2.core.services.authz_service.user_roles_in_app",
+                return_value={"department_head"},
+            ),
+        ):
+            r = client.post(
+                "/api/maint/v2/tickets/1/route",
+                json={"coordinator_id": 20},
+                headers=_admin_headers(user_id=1),
+            )
+        assert r.status_code == 403, r.text
+        mock_route.assert_not_called()
 
     @patch("itcj2.apps.maint.services.assignment_service.route_ticket")
     def test_dispatcher_to_area_coord_returns_403(self, mock_route, app_and_db):
@@ -486,7 +530,12 @@ class TestTriageEndpoint:
     """Tests HTTP del endpoint GET /tickets/triage."""
 
     def test_admin_sees_unrouted_tickets(self, app_and_db):
-        """Admin ve tickets sin enrutar en la respuesta de triage."""
+        """Admin REAL de maint ve tickets sin enrutar en la respuesta de triage.
+
+        El triage es vista operativa: exige rol/permiso REAL (admin/dispatcher en
+        maint); el admin GLOBAL del sistema ya NO la lee por bypass
+        (allow_global_admin=False).
+        """
         _, client, mock_db = app_and_db
 
         ticket1 = _make_ticket(1, "PENDING", coordinator_id=None)
@@ -499,15 +548,47 @@ class TestTriageEndpoint:
             ticket1
         ]
 
-        r = client.get(
-            "/api/maint/v2/tickets/triage",
-            headers=_admin_headers(user_id=1),
-        )
+        with (
+            patch("itcj2.core.services.authz_service.has_any_assignment", return_value=True),
+            patch(
+                "itcj2.core.services.authz_service.get_user_permissions_for_app",
+                return_value={"maint.assignments.page.triage"},
+            ),
+            patch(
+                "itcj2.core.services.authz_service.user_roles_in_app",
+                return_value={"admin"},
+            ),
+        ):
+            r = client.get(
+                "/api/maint/v2/tickets/triage",
+                headers=_plain_headers(user_id=1),
+            )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["success"] is True
         assert "unrouted" in body["data"]
         assert "mine" in body["data"]
+
+    def test_global_admin_without_maint_role_triage_blocked(self, app_and_db):
+        """Admin GLOBAL del sistema SIN rol operativo en maint → 403 en /triage."""
+        _, client, mock_db = app_and_db
+
+        with (
+            patch("itcj2.core.services.authz_service.has_any_assignment", return_value=True),
+            patch(
+                "itcj2.core.services.authz_service.get_user_permissions_for_app",
+                return_value={"maint.tickets.api.create"},
+            ),
+            patch(
+                "itcj2.core.services.authz_service.user_roles_in_app",
+                return_value={"department_head"},
+            ),
+        ):
+            r = client.get(
+                "/api/maint/v2/tickets/triage",
+                headers=_admin_headers(user_id=1),  # JWT role='admin' (global)
+            )
+        assert r.status_code == 403, r.text
 
     def test_no_auth_returns_401(self, app_and_db):
         _, client, _ = app_and_db
