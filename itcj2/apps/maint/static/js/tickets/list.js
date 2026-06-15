@@ -41,6 +41,7 @@
     var _searchTimer = null;
     var _isTechMaint = false;
     var _isDeptHead  = false;
+    var _isAssigner  = false;
 
     // ── Init ──────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
@@ -57,12 +58,13 @@
     function _detectRoles() {
         var ctx = window.MAINT_CTX || {};
         _isTechMaint = !!ctx.isTechMaint && !ctx.isAdmin && !ctx.isDispatcher;
+        _isAssigner  = !!ctx.isAssigner  && !ctx.isAdmin && !ctx.isDispatcher;
         _isDeptHead  = !!ctx.isDeptHead  && !ctx.isAdmin && !ctx.isDispatcher && !ctx.isTechMaint;
     }
 
     // ── Configurar visibilidad de chips de scope ──────────────────────────────
     // "Mi departamento" → solo jefe/secretaria (isDeptHead)
-    // "Asignados a mí" → solo técnicos puros (isTechMaint)
+    // "Asignados a mí" → técnicos Y coordinadores (pueden auto-asignarse, H1)
     // "Mis solicitudes" y "Por calificar" → todos
     function _configureScopeChips() {
         var chipDept     = document.getElementById('chip-dept');
@@ -72,7 +74,8 @@
             if (!_isDeptHead) chipDept.classList.add('d-none');
         }
         if (chipAssigned) {
-            if (!_isTechMaint) chipAssigned.classList.add('d-none');
+            // Técnicos y coordinadores pueden ser técnicos activos de un ticket.
+            if (!(_isTechMaint || _isAssigner)) chipAssigned.classList.add('d-none');
         }
 
         // Default de scope según rol (se puede sobreescribir por URL params):
