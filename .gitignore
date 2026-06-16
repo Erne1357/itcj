@@ -80,3 +80,5 @@ static-manifest.json
 
 skills-lock.json
 .agents/
+
+graphify-out/
