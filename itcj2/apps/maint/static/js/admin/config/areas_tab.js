@@ -486,7 +486,7 @@
 
         try {
             var data = await MaintUtils.api.fetch(API_TECHNICIANS);
-            _technicians = data.technicians || [];
+            _technicians = data.data || [];
             _renderTechniciansTable();
         } catch (e) {
             container.innerHTML =

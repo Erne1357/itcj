@@ -1,0 +1,96 @@
+{# ===========================================================================
+   import_preview.html — mapeo de columnas + preview editable + commit (HTMX).
+   Todo dentro de un <form>; los selects de mapeo revalidan; el botón crea.
+   Contexto: cohort_id, token, headers, mapping, fields, preview, programs,
+             modalities, total, importable, warnings, errors
+   =========================================================================== #}
+{% set FIELD_LABEL = {'control_number':'Nº control','full_name':'Nombre','email':'Correo','career':'Carrera','modality':'Modalidad'} %}
+
+<form id="import-form">
+  <input type="hidden" name="token" value="{{ token }}">
+
+  {# Resumen #}
+  <div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Filas detectadas</div><div class="tt-display" style="font-size:1.6rem;font-weight:600">{{ total }}</div></div></div>
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Listas para importar</div><div class="tt-display" style="font-size:1.6rem;font-weight:600;color:var(--tt-success)">{{ importable }}</div></div></div>
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Con advertencia</div><div class="tt-display" style="font-size:1.6rem;font-weight:600;color:var(--tt-amber)">{{ warnings }}</div></div></div>
+    <div class="col-md-3"><div class="tt-card"><div class="tt-kicker">Con error</div><div class="tt-display" style="font-size:1.6rem;font-weight:600;color:var(--tt-danger)">{{ errors }}</div></div></div>
+  </div>
+
+  {# Mapeo de columnas (auto-detectado, ajustable) #}
+  <div class="tt-card mb-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <span class="tt-kicker">Mapeo de columnas</span>
+      <span style="font-size:.72rem;color:var(--tt-mute)">El sistema lo detectó; ajústalo si hace falta.</span>
+    </div>
+    <div class="row g-2">
+      {% for f in fields %}
+      <div class="col-md-auto">
+        <label class="tt-label">{{ FIELD_LABEL[f] }}</label>
+        <select class="form-select form-select-sm" name="map_{{ f }}"
+                hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/import/revalidate"
+                hx-target="#import-body" hx-swap="innerHTML" hx-include="closest form" hx-trigger="change">
+          <option value="" {{ 'selected' if not mapping[f] }}>— ninguna —</option>
+          {% for h in headers %}<option value="{{ h }}" {{ 'selected' if mapping[f]==h }}>{{ h }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# Tabla editable #}
+  <div class="tt-card p-0 overflow-hidden mb-3">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0" style="font-size:.8rem">
+        <thead><tr style="background:var(--tt-mist)">
+          <th class="tt-kicker" style="width:34px"></th>
+          <th class="tt-kicker">Estado</th>
+          <th class="tt-kicker">Nº control</th>
+          <th class="tt-kicker">Nombre</th>
+          <th class="tt-kicker">Correo</th>
+          <th class="tt-kicker">Carrera</th>
+          <th class="tt-kicker">Modalidad</th>
+        </tr></thead>
+        <tbody>
+          {% for r in preview %}
+          <tr>
+            <td><input type="checkbox" class="form-check-input" name="row-{{ r.idx }}-include"
+                       {{ 'checked' if r.status != 'error' }}></td>
+            <td>
+              {% if r.status == 'ok' %}<span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i></span>
+              {% elif r.status == 'warning' %}<span class="tt-pill tt-pill--amber" title="{{ r.issues|map(attribute=1)|join('; ') }}"><i class="bi bi-exclamation-triangle"></i></span>
+              {% else %}<span class="tt-pill tt-pill--danger" title="{{ r.issues|map(attribute=1)|join('; ') }}"><i class="bi bi-x-lg"></i></span>{% endif %}
+            </td>
+            <td><input class="form-control form-control-sm tt-mono" style="width:110px" name="row-{{ r.idx }}-control_number" value="{{ r.control_number }}"></td>
+            <td><input class="form-control form-control-sm" style="min-width:160px" name="row-{{ r.idx }}-full_name" value="{{ r.full_name }}"></td>
+            <td><input class="form-control form-control-sm tt-mono" style="min-width:200px" name="row-{{ r.idx }}-email" value="{{ r.email }}"></td>
+            <td>
+              <select class="form-select form-select-sm" style="min-width:170px" name="row-{{ r.idx }}-program_id">
+                <option value="" {{ 'selected' if not r.program_id }}>{{ ('?? ' ~ r.career_raw) if r.career_raw else '—' }}</option>
+                {% for p in programs %}<option value="{{ p.id }}" {{ 'selected' if p.id==r.program_id }}>{{ p.name }}</option>{% endfor %}
+              </select>
+            </td>
+            <td>
+              <select class="form-select form-select-sm" style="min-width:150px" name="row-{{ r.idx }}-modality_id">
+                <option value="" {{ 'selected' if not r.modality_id }}>{{ ('?? ' ~ r.modality_raw) if r.modality_raw else '—' }}</option>
+                {% for m in modalities %}<option value="{{ m.id }}" {{ 'selected' if m.id==r.modality_id }}>{{ m.name }}</option>{% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center">
+    <div style="font-size:.8rem;color:var(--tt-slate)">
+      Las filas marcadas se importarán: se crea/empata el alumno (por nº control), su proceso y rol.
+    </div>
+    <button class="btn tt-btn-ink"
+            hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/import/commit"
+            hx-target="#import-body" hx-swap="innerHTML" hx-include="closest form">
+      Importar alumnos <i class="bi bi-arrow-right ms-1"></i>
+    </button>
+  </div>
+</form>

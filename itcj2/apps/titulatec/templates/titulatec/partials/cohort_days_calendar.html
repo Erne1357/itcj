@@ -1,0 +1,36 @@
+{# Calendario de días de cotejo. Si can_edit_days: celdas toggle-ables; si no, read-only.
+   Contenido interno del tab (sin wrapper #cohort-tab-body). #}
+<div id="tt-cal-wrap" class="tt-card" style="max-width:520px">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/review-days?month={{ days.prev_month }}"
+       hx-target="#tt-cal-wrap" hx-select="#tt-cal-wrap" hx-swap="outerHTML"><i class="bi bi-chevron-left"></i></a>
+    <span class="tt-kicker">{{ days.month_label }}{{ '' if can_edit_days else ' · solo lectura' }}</span>
+    <a class="btn btn-sm tt-btn-ghost" hx-get="/titulatec/admin/cohorts/{{ cohort_id }}/review-days?month={{ days.next_month }}"
+       hx-target="#tt-cal-wrap" hx-select="#tt-cal-wrap" hx-swap="outerHTML"><i class="bi bi-chevron-right"></i></a>
+  </div>
+  <table class="tt-cal">
+    <thead><tr>{% for w in days.weekdays %}<th>{{ w }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for week in days.weeks %}
+      <tr>
+        {% for c in week %}
+        {% if not c.in_month %}
+        <td class="out"><span class="daynum">{{ c.day }}</span></td>
+        {% elif can_edit_days %}
+        <td class="{{ 'on sel' if c.on else 'on' }}"
+            hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/review-days/toggle"
+            hx-vals='{"date":"{{ c.date }}","month":"{{ days.year }}-{{ '%02d'|format(days.month) }}"}'
+            hx-target="#tt-cal-wrap" hx-select="#tt-cal-wrap" hx-swap="outerHTML">
+          <span class="daynum">{{ c.day }}</span>
+          {% if c.on %}<br><i class="bi bi-check-circle-fill" style="color:var(--tt-navy);font-size:.7rem"></i>{% endif %}
+        </td>
+        {% else %}
+        <td class="{{ 'sel' if c.on else 'off' }}"><span class="daynum">{{ c.day }}</span>
+          {% if c.on %}<br><i class="bi bi-check-circle-fill" style="color:var(--tt-navy);font-size:.7rem"></i>{% endif %}</td>
+        {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

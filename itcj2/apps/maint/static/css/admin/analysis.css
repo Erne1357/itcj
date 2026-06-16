@@ -23,6 +23,10 @@
     height: 220px;
 }
 
+.chart-wrap-sm canvas {
+    max-height: 220px;
+}
+
 /* ── Skeleton ────────────────────────────────────────────────────── */
 .mn-skeleton {
     background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);

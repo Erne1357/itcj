@@ -1,0 +1,24 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Citas de cotejo · TitulaTec{% endblock %}
+
+{% from "titulatec/_macros.html" import skel_rows %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Fase 02 · Servicios Escolares</span>
+  <h1 class="tt-display" style="font-size:1.5rem;font-weight:600;margin:.15rem 0 0">Citas de cotejo</h1>
+  <p class="mb-0" style="font-size:.82rem;color:var(--tt-slate)">
+    Agenda y atiende el cotejo de documentos físicos por carrera.</p>
+</div>
+<div class="px-4 pb-4">
+  <div class="d-flex gap-2 mb-3">
+    <button class="btn btn-sm tt-btn-ghost" type="button" hx-get="/titulatec/admin/appointments/calendar" hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-calendar3 me-1"></i>Calendario</button>
+    <button class="btn btn-sm tt-btn-ghost" type="button" hx-get="/titulatec/admin/appointments/day" hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-calendar-day me-1"></i>Del día</button>
+    <button class="btn btn-sm tt-btn-ghost" type="button" hx-get="/titulatec/admin/appointments/body" hx-target="#appt-body" hx-swap="innerHTML" hx-indicator="#appt-skel"><i class="bi bi-list-ul me-1"></i>Lista</button>
+  </div>
+  {# Skeleton mientras se recarga la agenda (visible sólo durante la petición HTMX) #}
+  <div id="appt-skel" class="htmx-indicator">{{ skel_rows(5) }}</div>
+  <div id="appt-body" hx-get="/titulatec/admin/appointments/calendar" hx-trigger="load" hx-swap="innerHTML">
+    {% include "titulatec/partials/appointments_body.html" %}
+  </div>
+</div>
+{% endblock %}

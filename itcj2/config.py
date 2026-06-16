@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111353"
+    STATIC_VERSION: str = "1.0.1111381"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     VISTETEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "vistetec", "garments")
     VISTETEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
     VISTETEC_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,webp"
+
+    # TitulaTec — archivos del proceso de titulación.
+    # Estructura: instance/apps/titulatec/{convocatoria}/{control_number}/{tipo_documento}.{ext}
+    # Solo se conserva la última versión de cada documento (se sobreescribe por nombre fijo).
+    TITULATEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "titulatec")
+    TITULATEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
+    TITULATEC_MAX_PDF_SIZE: int = 10 * 1024 * 1024
+    TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
+    TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+    # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
+    TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
+    TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
 
 
     model_config = {"env_file": ".env", "extra": "ignore"}

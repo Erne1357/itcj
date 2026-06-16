@@ -27,10 +27,15 @@ class TestApplyVisibility:
         ds._apply_visibility(q, user_id=1, user_roles=["dispatcher"], db=MagicMock())
         q.filter.assert_not_called()
 
-    def test_tech_maint_no_filter(self):
+    def test_tech_maint_scoped_by_area(self):
+        """D-G/H3: tech_maint YA NO es full-access en el dashboard.
+
+        Ve solo asignados/propios/de su área → se aplica un filter (condición
+        construida por _tech_maint_visibility_cond), no pasa sin restricción.
+        """
         q = self._make_query()
         ds._apply_visibility(q, user_id=1, user_roles=["tech_maint"], db=MagicMock())
-        q.filter.assert_not_called()
+        q.filter.assert_called_once()
 
     def test_dept_head_filters_by_department(self):
         q = self._make_query()

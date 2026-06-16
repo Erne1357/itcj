@@ -107,18 +107,27 @@
         MaintUtils.api.fetch(
             API_BASE + '/tickets/warehouse-products?search=' + encodeURIComponent(query) + '&limit=15'
         ).then(function (data) {
-            _showSearchResults(data.products || []);
+            _showSearchResults(data.products || [], query);
         }).catch(function () {
             _hideSearchResults();
         });
     }
 
-    function _showSearchResults(products) {
+    function _showSearchResults(products, query) {
         var container = document.getElementById('materialSearchResults');
         if (!container) return;
 
         if (!products.length) {
-            container.style.display = 'none';
+            // Estado vacío explícito: el almacén solo lista productos CON stock disponible.
+            // La causa más común de "no aparece" es que el producto no tiene entradas de stock.
+            container.innerHTML =
+                '<div class="list-group-item small text-muted">' +
+                '<i class="bi bi-info-circle me-1"></i>Sin productos con stock disponible' +
+                (query ? ' para "' + _esc(query) + '"' : '') + '.' +
+                '<br><a href="/maint/warehouse/entries" target="_blank" class="small">' +
+                'Registrar entrada de stock</a>' +
+                '</div>';
+            container.style.display = 'block';
             return;
         }
 
@@ -277,16 +286,21 @@
         var serviceOrigin = document.getElementById('serviceOrigin').value;
         var resolutionNotes = document.getElementById('resolutionNotes').value.trim();
         var timeInvestedStr = document.getElementById('timeInvested').value;
-        var timeInvested = parseInt(timeInvestedStr, 10);
+        var timeValue = parseFloat(timeInvestedStr);
+        var timeUnit = document.getElementById('timeUnit').value;
+        // Normalizar a minutos según la unidad seleccionada
+        var unitFactor = timeUnit === 'days' ? 1440 : (timeUnit === 'hours' ? 60 : 1);
+        var timeInvested = Math.round(timeValue * unitFactor);
         var observations = document.getElementById('resolutionObservations').value.trim();
+
+        var timeBad = !timeInvestedStr || isNaN(timeValue) || timeValue <= 0 || timeInvested < 1;
 
         _setInvalid('maintenanceType', !maintenanceType);
         _setInvalid('serviceOrigin', !serviceOrigin);
         _setInvalid('resolutionNotes', resolutionNotes.length < 10);
-        _setInvalid('timeInvested', !timeInvestedStr || isNaN(timeInvested) || timeInvested < 1);
+        _setInvalid('timeInvested', timeBad);
 
-        if (!maintenanceType || !serviceOrigin || resolutionNotes.length < 10 ||
-            !timeInvestedStr || isNaN(timeInvested) || timeInvested < 1) {
+        if (!maintenanceType || !serviceOrigin || resolutionNotes.length < 10 || timeBad) {
             valid = false;
         }
 

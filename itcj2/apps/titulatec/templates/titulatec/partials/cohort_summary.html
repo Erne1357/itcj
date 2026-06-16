@@ -1,0 +1,35 @@
+{# Resumen de la convocatoria. Contenido interno del tab (sin wrapper #cohort-tab-body). #}
+<div class="tt-kpis tt-stagger">
+  <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ summary.total }}</div></div>
+  <div class="tt-kpi"><div class="tt-kicker">Completados</div><div class="num">{{ summary.completed }} <small>{{ summary.pct_completed }}%</small></div></div>
+  <div class="tt-kpi"><div class="tt-kicker">Con cita</div><div class="num">{{ summary.with_appt }}</div></div>
+  <div class="tt-kpi"><div class="tt-kicker">Días de cotejo</div><div class="num">{{ summary.review_days }}</div></div>
+</div>
+
+<div class="tt-card mt-3">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="tt-kicker">Distribución por fase</span>
+    <span style="font-size:.72rem;color:var(--tt-mute)">{{ summary.total }} alumno{{ 's' if summary.total != 1 }}</span>
+  </div>
+  {% if summary.total %}
+  <div class="tt-funnel">
+    {% set ncols = summary.phase_rows|length %}
+    {% for ph in summary.phase_rows %}
+    {% set ratio = (loop.index0 / (ncols - 1)) if ncols > 1 else 0 %}
+    {% set hue = (222 - ratio * 184)|round|int %}
+    <div class="seg {{ 'is-empty' if not ph.count }}" style="flex-grow:{{ ph.count }};background:hsl({{ hue }},68%,46%)"
+         title="{{ '%02d'|format(ph.number) }} · {{ ph.name }} — {{ ph.count }} alumno(s)">{{ ph.count if ph.count }}</div>
+    {% endfor %}
+  </div>
+  <div class="mt-3 d-flex flex-column gap-1">
+    {% for ph in summary.phase_rows %}
+    <div class="d-flex align-items-center justify-content-between" style="font-size:.82rem">
+      <span><span class="tt-mono" style="color:var(--tt-mute)">{{ '%02d'|format(ph.number) }}</span> · {{ ph.name }}</span>
+      <span class="tt-mono fw-semibold">{{ ph.count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="mb-0" style="font-size:.85rem;color:var(--tt-mute)">Sin alumnos aún. Usa el tab <strong>Importar</strong> o agrega alumnos manualmente desde <strong>Alumnos</strong>.</p>
+  {% endif %}
+</div>

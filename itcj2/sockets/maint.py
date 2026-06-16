@@ -4,6 +4,7 @@ WebSocket namespace /maint para la app de Mantenimiento.
 Mirrors itcj2/sockets/helpdesk.py — sin team rooms (maint no tiene split por área).
 Rooms: ticket:{id}, tech:{user_id}, dispatcher:all, dept:{id}.
 """
+import asyncio
 import logging
 
 from itcj2.core.utils.socket_auth import current_user_from_environ
@@ -115,6 +116,15 @@ async def broadcast_ticket_canceled(
         await sio.emit("ticket_canceled", payload, to=_dept_room(int(department_id)), namespace=NAMESPACE)
 
 
+async def broadcast_ticket_routed(coordinator_id: int, payload: dict):
+    """Broadcast cuando se enruta/devuelve un ticket a la cola de un coordinador.
+
+    Se emite a su room personal (tech:{coordinator_id}) para que el tablero de
+    asignación refresque en vivo (M8). El aviso in-app va aparte por el canal
+    de notificaciones del core (NotificationService)."""
+    await sio.emit("ticket_routed", payload, to=_tech_room(coordinator_id), namespace=NAMESPACE)
+
+
 async def broadcast_ticket_comment_added(ticket_id: int, payload: dict):
     """Broadcast cuando se agrega un comentario a un ticket."""
     await sio.emit("ticket_comment_added", payload, to=_ticket_room(ticket_id), namespace=NAMESPACE)
@@ -125,6 +135,77 @@ async def broadcast_ticket_rated(ticket_id: int, technician_ids: list, payload: 
     for tech_id in technician_ids:
         await sio.emit("ticket_rated", payload, to=_tech_room(tech_id), namespace=NAMESPACE)
     await sio.emit("ticket_rated", payload, to=_ticket_room(ticket_id), namespace=NAMESPACE)
+
+
+# ==================== ACL Helpers (H10) ====================
+# Validan rol/pertenencia/visibilidad antes de unir un socket a un room.
+# Abren su propia sesión sync (ORM sync del proyecto); las queries son por PK/
+# índice y los joins ocurren una vez por carga de página → costo despreciable.
+
+def _user_maint_roles(db, user_id: int) -> set:
+    from itcj2.core.services.authz_service import user_roles_in_app
+    try:
+        return set(user_roles_in_app(db, user_id, "maint"))
+    except Exception:
+        return set()
+
+
+_FULL_ACCESS_MAINT = {"admin", "dispatcher",
+                      "maint_area_coordinator", "maint_general_coordinator"}
+
+
+def _can_join_dispatcher(user: dict | None) -> bool:
+    """Solo dispatcher/admin pueden escuchar la bandeja global (dispatcher:all)."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        roles = _user_maint_roles(db, int(user["sub"]))
+        return bool(roles & {"dispatcher", "admin"})
+    finally:
+        db.close()
+
+
+def _can_join_dept(user: dict | None, dept_id: int) -> bool:
+    """Un usuario solo escucha el room de SU departamento; full-access ve todos."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        roles = _user_maint_roles(db, uid)
+        if roles & _FULL_ACCESS_MAINT:
+            return True
+        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+        dept_ids = {d["id"] for d in _resolve_user_departments(db, uid)}
+        return dept_id in dept_ids
+    finally:
+        db.close()
+
+
+def _can_join_ticket(user: dict | None, ticket_id: int) -> bool:
+    """Reusa can_user_view_ticket: mismo scope que la API de detalle."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        from itcj2.apps.maint.models.ticket import MaintTicket
+        from itcj2.apps.maint.services.ticket_service import can_user_view_ticket
+        ticket = db.get(MaintTicket, ticket_id)
+        if not ticket:
+            return False
+        return can_user_view_ticket(db, ticket, int(user["sub"]))
+    finally:
+        db.close()
 
 
 # ==================== Event Registration ====================
@@ -155,6 +236,12 @@ def register_maint_namespace(sio_server):
             return
         if ticket_id <= 0:
             await sio_server.emit("error", {"error": "invalid_ticket_id"}, to=sid, namespace=NAMESPACE)
+            return
+        # H10: validar visibilidad del ticket antes de unir al room.
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_ticket, user, ticket_id):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
             return
         await sio_server.enter_room(sid, _ticket_room(ticket_id), namespace=NAMESPACE)
         await sio_server.emit("joined_ticket", {"ticket_id": ticket_id}, to=sid, namespace=NAMESPACE)
@@ -203,6 +290,12 @@ def register_maint_namespace(sio_server):
 
     @sio_server.on("join_dispatcher", namespace=NAMESPACE)
     async def on_join_dispatcher(sid, data=None):
+        # H10: solo dispatcher/admin escuchan la bandeja global.
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_dispatcher, user):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
+            return
         await sio_server.enter_room(sid, _dispatcher_room(), namespace=NAMESPACE)
         await sio_server.emit("joined_dispatcher", {}, to=sid, namespace=NAMESPACE)
 
@@ -222,6 +315,12 @@ def register_maint_namespace(sio_server):
             return
         if dept_id <= 0:
             await sio_server.emit("error", {"error": "invalid_department_id"}, to=sid, namespace=NAMESPACE)
+            return
+        # H10: validar pertenencia al departamento (o rol full-access).
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_dept, user, dept_id):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
             return
         await sio_server.enter_room(sid, _dept_room(dept_id), namespace=NAMESPACE)
         await sio_server.emit("joined_dept", {"department_id": dept_id}, to=sid, namespace=NAMESPACE)

@@ -1,0 +1,121 @@
+{# ===========================================================================
+   partials/formato_b_step.html — un paso del Formato B (swap HTMX completo).
+   Root #formato-b-body para que hx-swap="outerHTML" actualice también el stepper.
+   Contexto: step (1|2|3|'done') · datos (dict) · programs (list) · saved (bool)
+   =========================================================================== #}
+<div id="formato-b-body">
+
+  {% if step != 'done' %}
+  {# — Stepper — #}
+  <div class="tt-paper px-3 pt-2 pb-3" style="border-bottom:1px solid var(--tt-line)">
+    <div class="d-flex gap-2">
+      {% for i in range(1, 4) %}
+      <div style="flex:1;height:5px;border-radius:3px;background:{{ 'var(--tt-accent)' if i <= step else 'var(--tt-line)' }}"></div>
+      {% endfor %}
+    </div>
+    <div class="d-flex justify-content-between mt-2" style="font-size:.6875rem;color:var(--tt-mute)">
+      <span style="{{ 'color:var(--tt-success);font-weight:600' if step > 1 else ('color:var(--tt-ink);font-weight:600' if step == 1 else '') }}">
+        {% if step > 1 %}<i class="bi bi-check-lg"></i> {% endif %}Personal</span>
+      <span style="{{ 'color:var(--tt-success);font-weight:600' if step > 2 else ('color:var(--tt-ink);font-weight:600' if step == 2 else '') }}">
+        {% if step > 2 %}<i class="bi bi-check-lg"></i> {% endif %}Escolar</span>
+      <span style="{{ 'color:var(--tt-ink);font-weight:600' if step == 3 }}">Proyecto</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {% set HX = 'hx-target="#formato-b-body" hx-swap="outerHTML"' %}
+
+  {# ==================== PASO 1 · PERSONAL ==================== #}
+  {% if step == 1 %}
+  <form class="p-3 d-grid gap-3" hx-post="/titulatec/student/formato-b/step/1" hx-target="#formato-b-body" hx-swap="outerHTML">
+    <div class="row g-2">
+      <div class="col-6"><label class="tt-label">Nombre(s)</label><input class="form-control" name="first_name" value="{{ datos.first_name }}"></div>
+      <div class="col-6"><label class="tt-label">Apellido paterno</label><input class="form-control" name="last_name" value="{{ datos.last_name }}"></div>
+    </div>
+    <div><label class="tt-label">Apellido materno</label><input class="form-control" name="middle_name" value="{{ datos.middle_name }}"></div>
+    <div class="row g-2">
+      <div class="col-7"><label class="tt-label">Género</label>
+        <select class="form-select" name="gender">
+          <option value="" {{ 'selected' if not datos.gender }}>—</option>
+          <option value="male"        {{ 'selected' if datos.gender=='male' }}>Hombre</option>
+          <option value="female"      {{ 'selected' if datos.gender=='female' }}>Mujer</option>
+          <option value="unspecified" {{ 'selected' if datos.gender=='unspecified' }}>Prefiero no decir</option>
+        </select>
+      </div>
+      <div class="col-5"><label class="tt-label">Edad</label><input class="form-control" type="number" min="0" name="age" value="{{ datos.age }}"></div>
+    </div>
+    <div class="row g-2">
+      <div class="col-6"><label class="tt-label">Celular</label><input class="form-control" name="mobile_phone" value="{{ datos.mobile_phone }}"></div>
+      <div class="col-6"><label class="tt-label">Teléfono</label><input class="form-control" name="phone" value="{{ datos.phone }}"></div>
+    </div>
+    <div class="row g-2">
+      <div class="col-4"><label class="tt-label">C.P.</label><input class="form-control" name="postal_code" value="{{ datos.postal_code }}"></div>
+      <div class="col-8"><label class="tt-label">Colonia</label><input class="form-control" name="neighborhood" value="{{ datos.neighborhood }}"></div>
+    </div>
+    <div><label class="tt-label">Calle</label><input class="form-control" name="street" value="{{ datos.street }}"></div>
+    <div class="row g-2">
+      <div class="col-6"><label class="tt-label">Núm. exterior</label><input class="form-control" name="ext_number" value="{{ datos.ext_number }}"></div>
+      <div class="col-6"><label class="tt-label">Núm. interior</label><input class="form-control" name="int_number" value="{{ datos.int_number }}"></div>
+    </div>
+    <button class="btn tt-btn-ink w-100" style="height:52px">Continuar a escolar <i class="bi bi-arrow-right ms-1"></i></button>
+  </form>
+  {% endif %}
+
+  {# ==================== PASO 2 · ESCOLAR ==================== #}
+  {% if step == 2 %}
+  <form class="p-3 d-grid gap-3" hx-post="/titulatec/student/formato-b/step/2" hx-target="#formato-b-body" hx-swap="outerHTML">
+    <div><label class="tt-label">Número de control</label>
+      <input class="form-control tt-field--readonly tt-mono" value="{{ datos.control_number }}" readonly></div>
+    <div><label class="tt-label">Carrera</label>
+      <select class="form-select" name="program_id">
+        <option value="" {{ 'selected' if not datos.program_id }}>— Selecciona —</option>
+        {% for p in programs %}<option value="{{ p.id }}" {{ 'selected' if p.id==datos.program_id }}>{{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label class="tt-label">Plan de estudio</label><input class="form-control" name="study_plan" value="{{ datos.study_plan }}"></div>
+    <div><label class="tt-label">Tipo de titulación</label>
+      <input class="form-control tt-field--readonly" name="titulation_type" value="{{ datos.titulation_type }}" readonly></div>
+    <div class="row g-2">
+      <div class="col-6"><label class="tt-label">Fecha de ingreso</label><input class="form-control" type="month" name="admission_date" value="{{ datos.admission_date }}"></div>
+      <div class="col-6"><label class="tt-label">Fecha de egreso</label><input class="form-control" type="month" name="graduation_date" value="{{ datos.graduation_date }}"></div>
+    </div>
+    <p style="font-size:.72rem;color:var(--tt-mute);line-height:1.5">
+      Sin importar el día. Primer mes del primer semestre inscrito · último mes del último semestre inscrito.</p>
+    <div class="d-flex gap-2">
+      <button type="button" class="btn tt-btn-ghost" hx-get="/titulatec/student/formato-b/step/1" hx-target="#formato-b-body" hx-swap="outerHTML">
+        <i class="bi bi-arrow-left"></i></button>
+      <button class="btn tt-btn-ink flex-grow-1" style="height:52px">Continuar a proyecto <i class="bi bi-arrow-right ms-1"></i></button>
+    </div>
+  </form>
+  {% endif %}
+
+  {# ==================== PASO 3 · PROYECTO ==================== #}
+  {% if step == 3 %}
+  <form class="p-3 d-grid gap-3" hx-post="/titulatec/student/formato-b/step/3" hx-target="#formato-b-body" hx-swap="outerHTML">
+    <div><label class="tt-label">Nombre del proyecto</label>
+      <textarea class="form-control" name="project_name" rows="3" placeholder="Título de tu trabajo de titulación">{{ datos.project_name }}</textarea></div>
+    <div class="d-flex gap-2">
+      <button type="button" class="btn tt-btn-ghost" hx-get="/titulatec/student/formato-b/step/2" hx-target="#formato-b-body" hx-swap="outerHTML">
+        <i class="bi bi-arrow-left"></i></button>
+      <button class="btn tt-btn-accent flex-grow-1" style="height:52px">Enviar Formato B <i class="bi bi-send ms-1"></i></button>
+    </div>
+  </form>
+  {% endif %}
+
+  {# ==================== ÉXITO ==================== #}
+  {% if step == 'done' %}
+  <div class="p-3">
+    <div class="tt-card tt-card--success text-center">
+      <div class="d-flex justify-content-center mb-2">
+        <span class="d-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:24px;background:var(--tt-success-soft);color:var(--tt-success)">
+          <i class="bi bi-check-lg" style="font-size:1.6rem"></i></span>
+      </div>
+      <div class="tt-display" style="font-size:1.3rem;font-weight:600">Formato B enviado</div>
+      <p class="mb-3 mt-1" style="font-size:.85rem;color:var(--tt-slate)">
+        Titulaciones lo revisará. En máximo 5 días hábiles recibirás tu asignación de sinodales.</p>
+      <a href="/titulatec/student/dashboard" class="btn tt-btn-ink">Volver al inicio</a>
+    </div>
+  </div>
+  {% endif %}
+
+</div>

@@ -1,0 +1,61 @@
+{# ===========================================================================
+   cita_card.html — tarjeta de estado de la cita de cotejo del alumno.
+   Swap HTMX dentro de #tt-cita-card. Contexto: _cita_card_ctx(...)
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import pill, appt_pill %}
+
+{% if not process %}
+  <div class="tt-card tt-card--accent">
+    <span class="tt-pill tt-pill--amber"><i class="bi bi-info-circle"></i> Sin proceso</span>
+    <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">
+      Aún no tienes un proceso de titulación activo.</p>
+  </div>
+{% elif not appt %}
+  <div class="tt-card tt-card--accent">
+    <span class="tt-pill tt-pill--navy"><i class="bi bi-calendar-event"></i> Pendiente de agenda</span>
+    <p class="mb-0 mt-2" style="font-size:.85rem;color:var(--tt-slate)">
+      Servicios Escolares agendará tu cita de cotejo. Te avisaremos cuando tenga fecha.
+      Mientras tanto, prepara los documentos del checklist de abajo.</p>
+  </div>
+{% else %}
+  <div class="tt-card tt-card--hero">
+    <div class="d-flex align-items-center justify-content-between">
+      <span class="tt-kicker">Tu cita de cotejo</span>
+      {{ appt_pill(appt.status) }}
+    </div>
+    <div class="tt-display mt-2" style="font-size:1.25rem;font-weight:600">{{ appt.scheduled_label }}</div>
+    <div class="mt-1" style="font-size:.85rem;color:var(--tt-slate)">
+      <i class="bi bi-geo-alt me-1"></i>{{ appt.location or 'Lugar por confirmar' }}</div>
+
+    {% if appt.change_requested %}
+      <div class="mt-3 p-2" style="background:var(--tt-amber-soft);border-radius:9px">
+        <span style="font-size:.82rem;color:var(--tt-amber-ink)">
+          <i class="bi bi-arrow-repeat me-1"></i>Solicitaste un cambio. Servicios Escolares revisará y te reagendará.</span>
+      </div>
+    {% elif appt.status == 'scheduled' %}
+      <div class="d-flex gap-2 mt-3">
+        <button class="btn tt-btn-ink flex-grow-1" style="height:44px"
+                hx-post="/titulatec/student/cita/confirmar" hx-target="#tt-cita-card" hx-swap="innerHTML">
+          <i class="bi bi-check-lg me-1"></i>Confirmar asistencia</button>
+        <button class="btn tt-btn-ghost" style="height:44px" type="button"
+                onclick="document.getElementById('tt-change-form').classList.toggle('d-none')">
+          <i class="bi bi-arrow-repeat"></i></button>
+      </div>
+      <form id="tt-change-form" class="d-none mt-2"
+            hx-post="/titulatec/student/cita/solicitar-cambio" hx-target="#tt-cita-card" hx-swap="innerHTML">
+        <label class="tt-kicker d-block mb-1">Motivo del cambio</label>
+        <textarea name="reason" class="form-control form-control-sm" rows="2"
+                  placeholder="Ej: tengo examen ese día" required></textarea>
+        <button class="btn btn-sm tt-btn-soft mt-2" type="submit">Solicitar cambio de cita</button>
+      </form>
+    {% elif appt.status == 'confirmed' %}
+      <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Confirmaste tu asistencia</span></div>
+    {% elif appt.status == 'in_progress' %}
+      <div class="mt-3"><span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split"></i> Cotejo en proceso</span></div>
+    {% elif appt.status == 'attended' %}
+      <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Cotejo realizado</span></div>
+    {% elif appt.status == 'no_show' %}
+      <div class="mt-3"><span class="tt-pill tt-pill--danger"><i class="bi bi-x-circle"></i> No asististe — contacta a Servicios Escolares</span></div>
+    {% endif %}
+  </div>
+{% endif %}

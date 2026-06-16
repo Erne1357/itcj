@@ -1,0 +1,58 @@
+{% extends "titulatec/student/base_student.html" %}
+{% block student_title %}Documentos · TitulaTec{% endblock %}
+{% block student_active %}docs{% endblock %}
+{% block student_appbar_title %}Documentos iniciales{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Fase 01 · Acta · Certificado · CURP</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
+
+{% block student_body %}
+  <div class="p-3 p-lg-4">
+    {% if not process %}
+      <div class="tt-empty tt-anim-in">
+        <div class="ico"><i class="bi bi-folder2-open"></i></div>
+        <h6>Sin proceso activo</h6>
+        <p>Aún no tienes un proceso de titulación. Aparecerá aquí cuando Servicios Escolares te dé de alta en una convocatoria.</p>
+      </div>
+    {% else %}
+      <div class="tt-card mb-3 tt-anim-in">
+        <span class="tt-kicker">Sube tus 3 documentos</span>
+        <p class="mb-0 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
+          Deben ser los mismos que llevarás físicos a la cita de cotejo. Solo se conserva la última
+          versión de cada uno.
+        </p>
+      </div>
+
+      {% for slot in slots %}
+        {% with dtype=slot.dtype, doc=slot.doc, upload_url=slot.upload_url, delete_url=slot.delete_url, error=slot.error %}
+          {% include "titulatec/partials/document_slot.html" %}
+        {% endwith %}
+      {% endfor %}
+
+      <div class="d-grid mt-2">
+        {% if all_uploaded %}
+          <button class="btn tt-btn-ink" style="height:48px"
+                  hx-post="/titulatec/student/phase/1/submit"
+                  hx-swap="none"
+                  onclick="setTimeout(()=>location.reload(), 400)">
+            Enviar a revisión <i class="bi bi-arrow-right ms-1"></i>
+          </button>
+        {% else %}
+          <button class="btn tt-btn-soft" style="height:48px" disabled>
+            Sube los 3 documentos para continuar
+          </button>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block student_scripts %}
+<script>
+  document.body.addEventListener('htmx:responseError', function (e) {
+    const msg = e.detail.xhr.getResponseHeader('X-Tt-Error') || 'No se pudo procesar el archivo.';
+    if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
+  });
+</script>
+{% endblock %}

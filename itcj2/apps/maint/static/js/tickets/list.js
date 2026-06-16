@@ -1,5 +1,10 @@
 /**
  * tickets-list.js — Lista de tickets de Mantenimiento
+ *
+ * Chips de scope (vista): Mi departamento | Asignados a mí | Mis solicitudes | Por calificar
+ * Chips de estado: filtro adicional dentro del scope activo.
+ * Lee los query params de la URL al cargar para activar la pestaña correcta
+ * (permite que un enlace externo abra una vista filtrada, p.ej. ?unrated=1).
  */
 'use strict';
 
@@ -25,41 +30,140 @@
     var PRIORITY_LABEL = { BAJA: 'Baja', MEDIA: 'Media', ALTA: 'Alta', URGENTE: 'Urgente' };
 
     // ── Estado ────────────────────────────────────────────────────────────────
+    // scope: 'dept' | 'assigned' | 'mine' | 'unrated' | ''
     var _state = {
+        scope: '',
         status: '', category_id: '', priority: '', search: '',
-        page: 1, per_page: 20, assigned_to: '',
+        page: 1, per_page: 20,
+        // Campos derivados del scope (enviados al API):
+        assigned_to: '', requester: '', unrated: '',
     };
     var _searchTimer = null;
     var _isTechMaint = false;
+    var _isDeptHead  = false;
+    var _isAssigner  = false;
 
     // ── Init ──────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
-        _detectRoleAndSetDefault();
+        _detectRoles();
+        _configureScopeChips();
+        _readUrlParams();
         _loadCategories();
         _bindFilters();
+        _loadUnratedCount();
         _fetchTickets();
     });
 
-    function _detectRoleAndSetDefault() {
-        // Default chip por rol:
-        //   tech_maint puro (NO admin/dispatcher) → "Asignados a mí".
-        //   Otros → "Todos".
-        // MAINT_CTX viene inyectado en el template Jinja con los roles del user.
+    // ── Detección de rol ──────────────────────────────────────────────────────
+    function _detectRoles() {
         var ctx = window.MAINT_CTX || {};
         _isTechMaint = !!ctx.isTechMaint && !ctx.isAdmin && !ctx.isDispatcher;
+        _isAssigner  = !!ctx.isAssigner  && !ctx.isAdmin && !ctx.isDispatcher;
+        _isDeptHead  = !!ctx.isDeptHead  && !ctx.isAdmin && !ctx.isDispatcher && !ctx.isTechMaint;
+    }
 
-        var btns = document.querySelectorAll('.mn-status-filter');
-        btns.forEach(function (b) { b.classList.remove('active'); });
-        var defaultBtn;
-        if (_isTechMaint) {
-            defaultBtn = document.querySelector('[data-assigned="me"]');
-            _state.assigned_to = 'me';
-        } else {
-            // "Todos" es el último botón con data-status="" sin data-assigned.
-            var all = document.querySelectorAll('.mn-status-filter[data-status=""]:not([data-assigned])');
-            defaultBtn = all[all.length - 1];
+    // ── Configurar visibilidad de chips de scope ──────────────────────────────
+    // "Mi departamento" → solo jefe/secretaria (isDeptHead)
+    // "Asignados a mí" → técnicos Y coordinadores (pueden auto-asignarse, H1)
+    // "Mis solicitudes" y "Por calificar" → todos
+    function _configureScopeChips() {
+        var chipDept     = document.getElementById('chip-dept');
+        var chipAssigned = document.getElementById('chip-assigned');
+
+        if (chipDept) {
+            if (!_isDeptHead) chipDept.classList.add('d-none');
         }
-        if (defaultBtn) defaultBtn.classList.add('active');
+        if (chipAssigned) {
+            // Técnicos y coordinadores pueden ser técnicos activos de un ticket.
+            if (!(_isTechMaint || _isAssigner)) chipAssigned.classList.add('d-none');
+        }
+
+        // Default de scope según rol (se puede sobreescribir por URL params):
+        if (_isTechMaint) {
+            _state.scope = 'assigned';
+        } else if (_isDeptHead) {
+            _state.scope = 'dept';
+        } else {
+            _state.scope = 'mine';
+        }
+        _applyScopeToState();
+    }
+
+    // ── Leer query params de la URL para activar pestaña correcta ─────────────
+    // Soporta: ?unrated=1, ?requester=me, ?assigned_to=me
+    // Permite que enlaces externos abran una vista filtrada.
+    function _readUrlParams() {
+        var params = new URLSearchParams(window.location.search);
+
+        if (params.get('unrated') === '1') {
+            _state.scope = 'unrated';
+        } else if (params.get('requester') === 'me') {
+            _state.scope = 'mine';
+        } else if (params.get('assigned_to') === 'me') {
+            if (_isTechMaint) _state.scope = 'assigned';
+        }
+        // status desde URL (ej: ?status=PENDING)
+        if (params.get('status')) {
+            _state.status = params.get('status');
+        }
+        _applyScopeToState();
+    }
+
+    // ── Derivar assigned_to/requester/unrated según scope ────────────────────
+    function _applyScopeToState() {
+        _state.assigned_to = '';
+        _state.requester   = '';
+        _state.unrated     = '';
+
+        if (_state.scope === 'assigned') {
+            _state.assigned_to = 'me';
+        } else if (_state.scope === 'mine') {
+            _state.requester = 'me';
+        } else if (_state.scope === 'unrated') {
+            _state.unrated = '1';
+        }
+        // scope === 'dept' → sin params extra (el backend lo aplica por rol)
+
+        _activateScopeChip(_state.scope);
+    }
+
+    // ── Marcar chip de scope activo ───────────────────────────────────────────
+    function _activateScopeChip(scope) {
+        document.querySelectorAll('#scopeFilters .mn-status-filter').forEach(function (b) {
+            b.classList.remove('active');
+        });
+        var map = {
+            dept:     'chip-dept',
+            assigned: 'chip-assigned',
+            mine:     'chip-mine',
+            unrated:  'chip-unrated',
+        };
+        var targetId = map[scope];
+        if (targetId) {
+            var el = document.getElementById(targetId);
+            // Solo activar si el chip es visible (no d-none)
+            if (el && !el.classList.contains('d-none')) {
+                el.classList.add('active');
+            }
+        }
+    }
+
+    // ── Cargar conteo de "Por calificar" para el badge ────────────────────────
+    // Fetch liviano con per_page=1 para leer solo el total.
+    function _loadUnratedCount() {
+        MaintUtils.api.fetch(API_BASE + '/tickets?unrated=1&per_page=1')
+            .then(function (data) {
+                var total = data.total || 0;
+                var badge = document.getElementById('unratedBadge');
+                if (!badge) return;
+                if (total > 0) {
+                    badge.textContent = total > 99 ? '99+' : String(total);
+                    badge.classList.remove('d-none');
+                } else {
+                    badge.classList.add('d-none');
+                }
+            })
+            .catch(function () { /* badge de conteo es opcional */ });
     }
 
     function _loadCategories() {
@@ -77,13 +181,35 @@
     }
 
     function _bindFilters() {
+        // ── Chips de scope (vista) ────────────────────────────────────────────
+        var scopeContainer = document.getElementById('scopeFilters');
+        if (scopeContainer) {
+            scopeContainer.addEventListener('click', function (e) {
+                var btn = e.target.closest('.mn-status-filter');
+                if (!btn || btn.classList.contains('d-none')) return;
+                _state.scope  = btn.dataset.scope || '';
+                _state.status = '';  // reset status al cambiar scope
+                _state.page   = 1;
+                _applyScopeToState();
+                // Resetear chips de status al cambiar scope
+                document.querySelectorAll('#statusFilters .mn-status-filter').forEach(function (b) {
+                    b.classList.remove('active');
+                });
+                var allBtn = document.querySelector('#statusFilters .mn-status-filter--all');
+                if (allBtn) allBtn.classList.add('active');
+                _fetchTickets();
+            });
+        }
+
+        // ── Chips de estado ───────────────────────────────────────────────────
         document.getElementById('statusFilters').addEventListener('click', function (e) {
             var btn = e.target.closest('.mn-status-filter');
             if (!btn) return;
-            document.querySelectorAll('.mn-status-filter').forEach(function (b) { b.classList.remove('active'); });
+            document.querySelectorAll('#statusFilters .mn-status-filter').forEach(function (b) {
+                b.classList.remove('active');
+            });
             btn.classList.add('active');
             _state.status = btn.dataset.status || '';
-            _state.assigned_to = btn.dataset.assigned || '';
             _state.page = 1;
             _fetchTickets();
         });
@@ -111,14 +237,30 @@
         });
 
         document.getElementById('clearFilters').addEventListener('click', function () {
-            _state = { status: '', category_id: '', priority: '', search: '', page: 1, per_page: 20, assigned_to: '' };
+            // Restaurar scope al default del rol
+            if (_isTechMaint) {
+                _state.scope = 'assigned';
+            } else if (_isDeptHead) {
+                _state.scope = 'dept';
+            } else {
+                _state.scope = 'mine';
+            }
+            _state.status = '';
+            _state.category_id = '';
+            _state.priority = '';
+            _state.search = '';
+            _state.page = 1;
+            _applyScopeToState();
+
             document.getElementById('searchInput').value = '';
             document.getElementById('categoryFilter').value = '';
             document.getElementById('priorityFilter').value = '';
-            document.querySelectorAll('.mn-status-filter').forEach(function (b) { b.classList.remove('active'); });
-            // "Todos" es el último botón con data-status="" sin data-assigned.
-            var all = document.querySelectorAll('.mn-status-filter[data-status=""]:not([data-assigned])');
-            if (all.length) all[all.length - 1].classList.add('active');
+            // Reset chips de status
+            document.querySelectorAll('#statusFilters .mn-status-filter').forEach(function (b) {
+                b.classList.remove('active');
+            });
+            var allBtn = document.querySelector('#statusFilters .mn-status-filter--all');
+            if (allBtn) allBtn.classList.add('active');
             _fetchTickets();
         });
     }
@@ -133,11 +275,13 @@
         }
 
         var params = new URLSearchParams({ page: _state.page, per_page: _state.per_page });
-        if (_state.status)      params.set('status', _state.status);
+        if (_state.status)      params.set('status',      _state.status);
         if (_state.category_id) params.set('category_id', _state.category_id);
-        if (_state.priority)    params.set('priority', _state.priority);
-        if (_state.search)      params.set('search', _state.search);
+        if (_state.priority)    params.set('priority',    _state.priority);
+        if (_state.search)      params.set('search',      _state.search);
         if (_state.assigned_to) params.set('assigned_to', _state.assigned_to);
+        if (_state.requester)   params.set('requester',   _state.requester);
+        if (_state.unrated)     params.set('unrated',     _state.unrated);
 
         MaintUtils.api.fetch(API_BASE + '/tickets?' + params.toString())
             .then(function (data) {
@@ -290,9 +434,9 @@
     }
 
     function _esc(s) {
-        var d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(s || '')));
-        return d.innerHTML;
+        // H9: escapa comillas además de &<> para ser seguro en atributos (title="...").
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(s || '').replace(/[&<>"']/g, function (ch) { return map[ch]; });
     }
 
 })();

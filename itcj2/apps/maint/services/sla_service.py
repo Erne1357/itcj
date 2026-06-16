@@ -73,9 +73,7 @@ def notify_overdue(db: Session, ticket) -> int:
 
     Devuelve el número de notificaciones creadas.
     """
-    from itcj2.core.models.user_app_role import UserAppRole
-    from itcj2.core.models.app import App
-    from itcj2.core.models.role import Role
+    from itcj2.core.services.authz_service import _get_users_with_roles_in_app
     from itcj2.core.services.notification_service import NotificationService
     from itcj2.utils import async_broadcast as _async_broadcast
 
@@ -89,18 +87,9 @@ def notify_overdue(db: Session, ticket) -> int:
     }
 
     # ── Dispatchers y admins en la app maint ──────────────────────────────
-    app = db.query(App).filter_by(key='maint').first()
-    dispatcher_admin_ids: set = set()
-    if app:
-        dispatcher_role = db.query(Role).filter_by(name='dispatcher').first()
-        admin_role = db.query(Role).filter_by(name='admin').first()
-        role_ids = {r.id for r in [dispatcher_role, admin_role] if r}
-        if role_ids:
-            rows = db.query(UserAppRole).filter(
-                UserAppRole.app_id == app.id,
-                UserAppRole.role_id.in_(role_ids),
-            ).all()
-            dispatcher_admin_ids = {r.user_id for r in rows}
+    # H7: por ROL incluyendo herencia por PUESTO (secretaria/jefe de maint
+    # tienen dispatcher/admin vía core_position_app_roles, no UserAppRole).
+    dispatcher_admin_ids = set(_get_users_with_roles_in_app(db, 'maint', ['dispatcher', 'admin']))
 
     recipient_ids = active_tech_ids | dispatcher_admin_ids
     if not recipient_ids:

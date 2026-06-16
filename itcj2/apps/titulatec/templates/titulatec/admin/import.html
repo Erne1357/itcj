@@ -1,0 +1,36 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Importar alumnos · TitulaTec{% endblock %}
+
+{% block admin_main %}
+<div class="px-4 pt-4">
+  <nav class="d-flex align-items-center gap-2 mb-1" style="font-size:.75rem;color:var(--tt-mute)">
+    <a href="/titulatec/admin/cohorts" style="color:inherit;text-decoration:none">Convocatorias</a>
+    <i class="bi bi-chevron-right" style="font-size:.6rem"></i>
+    <span class="fw-semibold" style="color:var(--tt-ink)">Importar alumnos</span>
+  </nav>
+  <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">
+    Importar alumnos · <span class="tt-serif" style="font-weight:400">{{ cohort.period_code if cohort else '' }}</span>
+  </h1>
+  <p style="font-size:.82rem;color:var(--tt-slate)">
+    Sube el CSV del Forms. Detectamos las columnas automáticamente; podrás ajustar el mapeo y
+    corregir filas antes de crear los procesos.
+  </p>
+</div>
+
+<div class="px-4 pt-2 pb-4">
+  {# Paso 1: subir #}
+  <form class="tt-dropzone" style="max-width:520px"
+        hx-post="/titulatec/admin/cohorts/{{ cohort.id }}/import/upload"
+        hx-encoding="multipart/form-data" hx-trigger="change from:#csv-file"
+        hx-target="#import-body" hx-swap="innerHTML">
+    <i class="bi bi-filetype-csv" style="font-size:1.6rem;color:var(--tt-mute)"></i>
+    <div class="fw-semibold mt-2" style="font-size:.9rem">Selecciona el archivo CSV</div>
+    <div style="font-size:.72rem;color:var(--tt-mute)">.csv exportado del Forms de la convocatoria</div>
+    <input id="csv-file" type="file" name="archivo" accept=".csv,text/csv" hidden>
+    <label for="csv-file" class="stretched-link" style="cursor:pointer"></label>
+  </form>
+
+  {# Paso 2-3: mapeo + preview + commit (HTMX) #}
+  <div id="import-body" class="mt-3"></div>
+</div>
+{% endblock %}

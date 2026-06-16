@@ -85,7 +85,14 @@ def create_ticket(
             status_code=400,
             detail='El solicitante pertenece a varios departamentos; debes indicar `department_id` explícitamente.',
         )
-    # else: ningún depto — department_id queda None (no bloquea, queda nulo en BD)
+    else:
+        # U13: bloquear creación sin departamento resuelto (decisión de producto).
+        # Antes el ticket se creaba con requester_department_id NULL → invisible para
+        # todos los dashboards de departamento.
+        raise HTTPException(
+            status_code=400,
+            detail='El solicitante no tiene un departamento activo; no se puede crear el ticket. Asigna un puesto con departamento al usuario.',
+        )
 
     # Restricción: máximo 3 tickets sin calificar
     unrated = db.query(MaintTicket).filter(
@@ -159,6 +166,21 @@ def get_ticket_by_id(db: Session, ticket_id: int, user_id: int = None) -> MaintT
 
 # ==================== LISTAR TICKETS ====================
 
+def _get_tech_maint_area_codes(db: Session, user_id: int) -> list[str]:
+    """Códigos de área de especialidad de un técnico (maint_technician_areas).
+
+    Vacío si el técnico no tiene áreas configuradas. Usado para el scope de
+    visibilidad read.area (D-G/H3).
+    """
+    from itcj2.apps.maint.models.technician_area import MaintTechnicianArea
+    rows = (
+        db.query(MaintTechnicianArea.area_code)
+        .filter(MaintTechnicianArea.user_id == user_id)
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
 def list_tickets(
     db: Session,
     user_id: int,
@@ -171,6 +193,9 @@ def list_tickets(
     page: int = 1,
     per_page: int = 20,
     assigned_to_me: bool = False,
+    coordinator_id: int = None,
+    requester_me: bool = False,
+    unrated: bool = False,
 ) -> dict:
     """
     Lista tickets según el rol del usuario:
@@ -184,23 +209,44 @@ def list_tickets(
     """
     query = db.query(MaintTicket)
 
-    FULL_ACCESS_ROLES = {'admin', 'dispatcher', 'tech_maint'}
+    # Acceso total: admin, dispatcher y coordinadores (read.all + operan tableros).
+    # tech_maint YA NO: ve solo asignados / propios / de su área (D-G/H3); antes
+    # estaba en FULL_ACCESS y veía TODOS los tickets del campus.
+    FULL_ACCESS_ROLES = {'admin', 'dispatcher',
+                         'maint_area_coordinator', 'maint_general_coordinator'}
     DEPT_ACCESS_ROLES = {'department_head', 'secretary'}
 
     if FULL_ACCESS_ROLES & set(user_roles):
         pass  # Sin restricción
+    elif 'tech_maint' in set(user_roles):
+        # D-G/H3: el técnico ve tickets ASIGNADOS a él, PROPIOS, o de categorías
+        # de sus ÁREAS de especialidad (maint_technician_areas).
+        from itcj2.apps.maint.models import MaintTicketTechnician
+        from itcj2.apps.maint.models.category import MaintCategory
+        area_codes = _get_tech_maint_area_codes(db, user_id)
+        assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
+            MaintTicketTechnician.user_id == user_id,
+            MaintTicketTechnician.unassigned_at.is_(None),
+        )
+        conds = [
+            MaintTicket.requester_id == user_id,
+            MaintTicket.id.in_(assigned_subq),
+        ]
+        if area_codes:
+            cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
+            conds.append(MaintTicket.category_id.in_(cat_subq))
+        query = query.filter(or_(*conds))
     elif DEPT_ACCESS_ROLES & set(user_roles):
-        dept_id = department_id
-        if not dept_id:
-            try:
-                from itcj2.core.models.position import UserPosition
-                up = db.query(UserPosition).filter_by(user_id=user_id, is_active=True).first()
-                if up and up.position:
-                    dept_id = up.position.department_id
-            except Exception:
-                pass
-        if dept_id:
-            query = query.filter(MaintTicket.requester_department_id == dept_id)
+        # H5: el usuario puede tener >1 puesto activo en >1 departamento. Resolver
+        # TODOS y filtrar con .in_() (antes .first() devolvía un depto ALEATORIO, o
+        # filter(id==-1) si el puesto no tenía department_id).
+        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+        dept_ids = [d["id"] for d in _resolve_user_departments(db, user_id)]
+        if department_id is not None:
+            # Solo puede acotar a uno de SUS departamentos.
+            dept_ids = [department_id] if department_id in dept_ids else [-1]
+        if dept_ids:
+            query = query.filter(MaintTicket.requester_department_id.in_(dept_ids))
         else:
             query = query.filter(MaintTicket.id == -1)
     else:
@@ -236,6 +282,19 @@ def list_tickets(
                     MaintTicketTechnician.unassigned_at.is_(None),
                 )
             )
+        )
+
+    if coordinator_id is not None:
+        query = query.filter(MaintTicket.coordinator_id == coordinator_id)
+
+    # H4: filtros de las pestañas de depto (Mis solicitudes / Por calificar).
+    if requester_me:
+        query = query.filter(MaintTicket.requester_id == user_id)
+
+    if unrated:
+        query = query.filter(
+            MaintTicket.status.in_(('RESOLVED_SUCCESS', 'RESOLVED_FAILED')),
+            MaintTicket.rated_at.is_(None),
         )
 
     query = query.order_by(MaintTicket.created_at.desc())
@@ -335,12 +394,17 @@ def resolve_ticket(
     time_invested_minutes: int,
     observations: str = None,
     materials_used: list = None,
+    is_fast_resolver: bool = False,
 ) -> tuple:
     """
     Resuelve el ticket. El resolutor puede ser:
     - Un técnico activamente asignado → acción RESOLVED_BY_ASSIGNED
     - Cualquier dispatcher            → acción RESOLVED_BY_DISPATCHER
     La validación de quién puede resolver se hace en la capa API (con los permisos).
+
+    is_fast_resolver=True (solo dispatcher/admin) habilita la vía rápida
+    ASSIGNED → RESOLVED. Para el resto (técnicos/coordinadores) el ticket debe
+    estar en IN_PROGRESS antes de resolver (D-F).
     """
     ticket = db.get(MaintTicket, ticket_id)
     if not ticket:
@@ -348,6 +412,14 @@ def resolve_ticket(
 
     if ticket.status not in ('ASSIGNED', 'IN_PROGRESS'):
         raise HTTPException(status_code=400, detail='El ticket no puede ser resuelto en su estado actual')
+
+    # D-F: la vía rápida ASSIGNED → RESOLVED queda reservada a dispatcher/admin.
+    # Técnicos y coordinadores deben iniciar el progreso primero (pasar por IN_PROGRESS).
+    if ticket.status == 'ASSIGNED' and not is_fast_resolver:
+        raise HTTPException(
+            status_code=400,
+            detail='Debes iniciar el progreso del ticket antes de resolverlo.',
+        )
 
     from itcj2.apps.maint.utils.catalog_cache import get_maint_type_codes, get_service_origin_codes
     valid_maint_types = get_maint_type_codes()
@@ -632,8 +704,9 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
 
     roles = set(user_roles_in_app(db, user_id, 'maint'))
 
-    # Acceso total
-    if roles & {'admin', 'dispatcher', 'tech_maint'}:
+    # Acceso total: admin, dispatcher, coordinadores (read.all). tech_maint NO (D-G/H3).
+    if roles & {'admin', 'dispatcher',
+                'maint_area_coordinator', 'maint_general_coordinator'}:
         return True
 
     # Propio
@@ -643,6 +716,12 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
     # Técnico asignado activo
     if any(t.user_id == user_id and t.unassigned_at is None for t in ticket.technicians):
         return True
+
+    # tech_maint: ve tickets de categorías de sus áreas de especialidad (D-G/H3).
+    if 'tech_maint' in roles:
+        area_codes = _get_tech_maint_area_codes(db, user_id)
+        if ticket.category and ticket.category.code in area_codes:
+            return True
 
     # Jefe/secretaria de departamento
     if roles & {'department_head', 'secretary'}:
@@ -676,8 +755,13 @@ def start_progress(
     roles = set(user_roles or [])
     is_active_tech = any(t.user_id == user_id and t.unassigned_at is None for t in ticket.technicians)
     can_start = is_active_tech or bool(roles & {'dispatcher', 'admin'})
+    # D-G/H3: un técnico puede iniciar tickets de su área aunque no esté asignado.
+    if not can_start and 'tech_maint' in roles:
+        area_codes = _get_tech_maint_area_codes(db, user_id)
+        if ticket.category and ticket.category.code in area_codes:
+            can_start = True
     if not can_start:
-        raise HTTPException(status_code=403, detail='Solo los técnicos asignados o dispatchers pueden iniciar progreso')
+        raise HTTPException(status_code=403, detail='Solo los técnicos de esa área, los asignados o los dispatchers pueden iniciar progreso')
 
     old_status = ticket.status
     now = now_local()
@@ -748,6 +832,15 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
     except Exception:
         active_techs = []
 
+    try:
+        coordinator = (
+            {"id": ticket.coordinator.id, "name": ticket.coordinator.full_name}
+            if ticket.coordinator
+            else ({"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None)
+        )
+    except Exception:
+        coordinator = {"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None
+
     return {
         "id": ticket.id,
         "ticket_number": ticket.ticket_number,
@@ -761,6 +854,7 @@ def serialize_ticket_summary(ticket: MaintTicket) -> dict:
         "category": cat,
         "requester": req,
         "active_technicians": active_techs,
+        "coordinator": coordinator,
         "is_overdue": bool(
             due_at_local
             and due_at_local < now
@@ -894,11 +988,23 @@ def serialize_ticket_detail(ticket: MaintTicket) -> dict:
     except Exception:
         status_logs = []
 
+    # coordinator ya viene incluido en serialize_ticket_summary via data;
+    # se sobreescribe aquí para garantizar que en detalle también sea correcto.
+    try:
+        coordinator_detail = (
+            {"id": ticket.coordinator.id, "name": ticket.coordinator.full_name}
+            if ticket.coordinator
+            else ({"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None)
+        )
+    except Exception:
+        coordinator_detail = {"id": ticket.coordinator_id, "name": None} if ticket.coordinator_id else None
+
     data.update({
         "description": ticket.description,
         "custom_fields": ticket.custom_fields or {},
         "requester_department": dept,
         "requester_position": requester_position,
+        "coordinator": coordinator_detail,
         "maintenance_type": ticket.maintenance_type,
         "service_origin": ticket.service_origin,
         "resolution_notes": ticket.resolution_notes,

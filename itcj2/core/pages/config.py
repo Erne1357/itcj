@@ -47,10 +47,30 @@ def _assert_admin(user: dict) -> None:
     uid = int(user["sub"])
     _db = SessionLocal()
     try:
-        if "admin" not in user_roles_in_app(_db, uid, "itcj"):
-            raise PageForbidden()
+        is_admin = "admin" in user_roles_in_app(_db, uid, "itcj")
+        # Release implicit BEGIN explicitly. Sin esto, pgbouncer (transaction mode)
+        # puede dejar la conexión "idle in transaction" si el request es cancelado
+        # antes de que el pool de SQLAlchemy haga rollback.
+        _db.rollback()
+    except PageForbidden:
+        try:
+            _db.rollback()
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            _db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        _db.close()
+        try:
+            _db.close()
+        except Exception:
+            pass
+    if not is_admin:
+        raise PageForbidden()
 
 
 # ---------------------------------------------------------------------------

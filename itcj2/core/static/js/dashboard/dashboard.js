@@ -8,6 +8,7 @@ class WindowsDesktop {
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'maint', name: 'Mantenimiento', icon: 'wrench', customImage: true },
+      { id: 'titulatec', name: 'TitulaTec', icon: 'graduation-cap', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
       //{ id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
@@ -340,6 +341,12 @@ class WindowsDesktop {
         url: "/maint/",
         iframeSrc: "/maint/",
         icon: "wrench",
+      },
+      titulatec: {
+        name: "TitulaTec",
+        url: "/titulatec/",
+        iframeSrc: "/titulatec/",
+        icon: "graduation-cap",
       },
       vistetec: {
         name: "VisteTec",

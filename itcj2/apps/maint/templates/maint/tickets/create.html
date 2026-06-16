@@ -51,6 +51,34 @@
                         <div class="invalid-feedback">Selecciona el departamento al que pertenece esta solicitud.</div>
                     </div>
 
+                    {% if can_create_behalf %}
+                    <!-- Selector "Solicitar para" (jefe/secretaría/admin) -->
+                    <div id="behalfWrap" class="mb-4" style="display:none;">
+                        <label class="form-label fw-semibold">
+                            <i class="bi bi-person-check me-1" style="color:var(--maint-primary)"></i>
+                            Solicitar para
+                        </label>
+                        <!-- Trigger: campo visual de solo lectura -->
+                        <div id="behalfTrigger" class="mn-behalf-trigger" role="button" tabindex="0"
+                             aria-haspopup="dialog" aria-expanded="false" title="Cambiar solicitante">
+                            <span id="behalfTriggerAvatar" class="mn-avatar mn-avatar-lg"
+                                  style="background:var(--maint-accent);">YO</span>
+                            <div class="d-flex flex-column overflow-hidden">
+                                <span id="behalfTriggerName" class="mn-behalf-name">— Yo mismo —</span>
+                                <span id="behalfTriggerEmail" class="mn-behalf-email" style="display:none;"></span>
+                            </div>
+                            <i class="bi bi-chevron-down text-muted ms-auto flex-shrink-0 small"></i>
+                        </div>
+                        <div class="form-text">Haz clic para buscar y elegir a cualquier usuario del instituto si deseas crear esta solicitud en su nombre.</div>
+                        <!-- Hidden: el valor real que se envía -->
+                        <input type="hidden" id="behalfUserId">
+                    </div>
+
+                    <script>const CAN_CREATE_BEHALF = true;</script>
+                    {% else %}
+                    <script>const CAN_CREATE_BEHALF = false;</script>
+                    {% endif %}
+
                     <!-- Campos dinámicos -->
                     <div id="customFieldsSection" class="mb-4" style="display:none;">
                         <label class="form-label fw-semibold">
@@ -66,21 +94,19 @@
                             <i class="bi bi-flag me-1" style="color:var(--maint-primary)"></i>
                             Prioridad
                         </label>
+                        {# Tarjetas renderizadas desde BD (maint_priority); la marcada con is_default queda preseleccionada #}
+                        {% set icon_map = {'BAJA':'bi-arrow-down-circle','MEDIA':'bi-dash-circle','ALTA':'bi-arrow-up-circle','URGENTE':'bi-exclamation-circle'} %}
+                        {% set ns = namespace(default='') %}
                         <div class="d-flex flex-wrap gap-2" id="priorityCards">
-                            <div class="mn-priority-card mn-priority-baja" data-priority="BAJA">
-                                <i class="bi bi-arrow-down-circle me-1"></i>Baja
+                            {% for p in priorities %}
+                            {% if p.is_default %}{% set ns.default = p.code %}{% endif %}
+                            <div class="mn-priority-card mn-priority-{{ p.code|lower }}{{ ' selected' if p.is_default else '' }}"
+                                 data-priority="{{ p.code }}"{% if p.is_default %} data-default="true"{% endif %}>
+                                <i class="bi {{ icon_map.get(p.code, 'bi-flag') }} me-1"></i>{{ p.label }}
                             </div>
-                            <div class="mn-priority-card mn-priority-media selected" data-priority="MEDIA">
-                                <i class="bi bi-dash-circle me-1"></i>Media
-                            </div>
-                            <div class="mn-priority-card mn-priority-alta" data-priority="ALTA">
-                                <i class="bi bi-arrow-up-circle me-1"></i>Alta
-                            </div>
-                            <div class="mn-priority-card mn-priority-urgente" data-priority="URGENTE">
-                                <i class="bi bi-exclamation-circle me-1"></i>Urgente
-                            </div>
+                            {% endfor %}
                         </div>
-                        <input type="hidden" id="priorityId" value="MEDIA">
+                        <input type="hidden" id="priorityId" value="{{ ns.default }}">
                     </div>
 
                     <!-- Título -->
@@ -147,6 +173,34 @@
 
     </div>
 </div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal "Solicitar para" -->
+                    <div class="modal fade" id="behalfModal" tabindex="-1" aria-labelledby="behalfModalLabel" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header border-0 pb-0">
+                                    <h5 class="modal-title fw-bold" id="behalfModalLabel"
+                                        style="color:var(--maint-primary-dark);">
+                                        <i class="bi bi-people me-2"></i>Solicitar para
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                                </div>
+                                <div class="modal-body pt-2">
+                                    <!-- Buscador -->
+                                    <div class="mn-search-wrapper mb-3">
+                                        <i class="bi bi-search"></i>
+                                        <input type="text" id="behalfSearchInput"
+                                               class="form-control form-control-sm"
+                                               placeholder="Buscar por nombre...">
+                                    </div>
+                                    <!-- Lista de usuarios -->
+                                    <ul id="behalfUserList" class="mn-behalf-list" role="listbox"></ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 {% endblock %}
 
 {% block extra_js %}

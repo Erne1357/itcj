@@ -1,0 +1,19 @@
+{# Wizard de importación CSV embebido en el tab "Importar" del detalle.
+   Reusa los mismos endpoints/partials del asistente standalone (upload→preview→commit). #}
+<p style="font-size:.82rem;color:var(--tt-slate);max-width:560px">
+  Sube el CSV del Forms. Detectamos las columnas automáticamente; podrás ajustar el mapeo y
+  corregir filas antes de crear los procesos.
+</p>
+
+<form class="tt-dropzone" style="max-width:520px"
+      hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/import/upload"
+      hx-encoding="multipart/form-data" hx-trigger="change from:#csv-file"
+      hx-target="#import-body" hx-swap="innerHTML">
+  <i class="bi bi-filetype-csv" style="font-size:1.6rem;color:var(--tt-mute)"></i>
+  <div class="fw-semibold mt-2" style="font-size:.9rem">Selecciona el archivo CSV</div>
+  <div style="font-size:.72rem;color:var(--tt-mute)">.csv exportado del Forms de la convocatoria</div>
+  <input id="csv-file" type="file" name="archivo" accept=".csv,text/csv" hidden>
+  <label for="csv-file" class="stretched-link" style="cursor:pointer"></label>
+</form>
+
+<div id="import-body" class="mt-3"></div>

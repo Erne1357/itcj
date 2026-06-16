@@ -1,0 +1,24 @@
+{% extends "titulatec/student/base_student.html" %}
+{% block student_title %}Formato B · TitulaTec{% endblock %}
+{% block student_active %}home{% endblock %}
+{% block student_appbar_title %}Formato B{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Personal · Escolar · Proyecto</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
+
+{% block student_body %}
+  {% if not process %}
+    <div class="p-3 p-lg-4">
+      <div class="tt-empty tt-anim-in">
+        <div class="ico"><i class="bi bi-pencil-square"></i></div>
+        <h6>Sin proceso activo</h6>
+        <p>El Formato B se habilita cuando tengas un proceso de titulación activo.</p>
+      </div>
+    </div>
+  {% else %}
+    <div class="p-3 p-lg-4">
+      {% include "titulatec/partials/formato_b_step.html" %}
+    </div>
+  {% endif %}
+{% endblock %}

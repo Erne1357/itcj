@@ -1244,7 +1244,7 @@ class TestResolveTicketCatalogValidation:
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
         db = MagicMock()
-        ticket = self._make_ticket("ASSIGNED")
+        ticket = self._make_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
         db.get.return_value = ticket
 
         try:
@@ -1286,7 +1286,7 @@ class TestResolveTicketCatalogValidation:
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
         db = MagicMock()
-        ticket = self._make_ticket("ASSIGNED")
+        ticket = self._make_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
         db.get.return_value = ticket
 
         with pytest.raises(HTTPException) as exc_info:
@@ -1319,7 +1319,7 @@ class TestResolveTicketCatalogValidation:
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
         db = MagicMock()
-        ticket = self._make_ticket("ASSIGNED")
+        ticket = self._make_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
         db.get.return_value = ticket
 
         with pytest.raises(HTTPException) as exc_info:
@@ -1352,7 +1352,7 @@ class TestResolveTicketCatalogValidation:
         from itcj2.apps.maint.services.ticket_service import resolve_ticket
 
         db = MagicMock()
-        ticket = self._make_ticket("ASSIGNED")
+        ticket = self._make_ticket("IN_PROGRESS")  # D-F: resolver exige IN_PROGRESS salvo dispatcher/admin
         db.get.return_value = ticket
 
         with pytest.raises(HTTPException) as exc_info:

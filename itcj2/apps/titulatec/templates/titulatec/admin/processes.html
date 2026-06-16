@@ -1,0 +1,247 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Procesos · TitulaTec{% endblock %}
+
+{% block admin_main %}
+{% set qbase = 'view=' ~ (view|default('table')) ~ ('&stuck=1' if stuck else '') %}
+<div class="px-4 pt-4">
+  <h1 class="tt-display" style="font-size:1.875rem;font-weight:500;letter-spacing:-.7px">Procesos de titulación</h1>
+
+  {# ===== KPIs ===== #}
+  <div class="tt-kpis tt-stagger mt-3">
+    <a class="tt-kpi {{ 'is-active' if not status and not stuck }}"
+       href="/titulatec/admin/processes?view={{ view|default('table') }}">
+      <div class="tt-kicker">Total</div>
+      <div class="num">{{ kpis.total }}</div>
+    </a>
+    <a class="tt-kpi {{ 'is-active' if status=='active' }}"
+       href="/titulatec/admin/processes?view={{ view|default('table') }}&status=active">
+      <div class="tt-kicker">Activos</div>
+      <div class="num">{{ kpis.active }}</div>
+    </a>
+    <a class="tt-kpi {{ 'is-active' if status=='completed' }}"
+       href="/titulatec/admin/processes?view={{ view|default('table') }}&status=completed">
+      <div class="tt-kicker">Completados</div>
+      <div class="num">{{ kpis.completed }} <small>{{ kpis.pct_completed }}%</small></div>
+    </a>
+    <a class="tt-kpi {{ 'is-active' if status=='on_hold' }}"
+       href="/titulatec/admin/processes?view={{ view|default('table') }}&status=on_hold">
+      <div class="tt-kicker">En espera</div>
+      <div class="num">{{ kpis.on_hold }}</div>
+    </a>
+    <a class="tt-kpi tt-kpi--stuck {{ 'is-on' if kpis.n_stuck else '' }} {{ 'is-active' if stuck }}"
+       href="/titulatec/admin/processes?view={{ view|default('table') }}{{ '&status=' ~ status if status }}&stuck=1">
+      <div class="tt-kicker">Atorados <i class="bi bi-exclamation-triangle"></i></div>
+      <div class="num">{{ kpis.n_stuck }}</div>
+    </a>
+  </div>
+
+  {# ===== Filtros + vista + buscador ===== #}
+  <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+    {% for f, lbl in [('', 'Todos'), ('active', 'Activos'), ('completed', 'Completados'), ('on_hold', 'En espera'), ('cancelled', 'Cancelados')] %}
+    <a href="/titulatec/admin/processes?view={{ view|default('table') }}{{ '&status=' ~ f if f }}{{ '&stuck=1' if stuck }}"
+       class="btn btn-sm {{ 'tt-btn-ink' if status==f else 'tt-btn-ghost' }}">{{ lbl }}</a>
+    {% endfor %}
+
+    <div class="ms-auto d-flex align-items-center gap-2">
+      {% if (view|default('table')) == 'table' %}
+      <label class="tt-search" aria-label="Buscar proceso">
+        <i class="bi bi-search"></i>
+        <input type="search" id="proc-search" placeholder="Buscar alumno, control o folio…" autocomplete="off">
+      </label>
+      {% endif %}
+      <a href="/titulatec/admin/processes?view=table{{ '&status=' ~ status if status }}{{ '&stuck=1' if stuck }}"
+         class="btn btn-sm {{ 'tt-btn-ink' if (view|default('table'))=='table' else 'tt-btn-ghost' }}">
+        <i class="bi bi-table me-1"></i>Tabla
+      </a>
+      <a href="/titulatec/admin/processes?view=board{{ '&status=' ~ status if status }}{{ '&stuck=1' if stuck }}"
+         class="btn btn-sm {{ 'tt-btn-ink' if (view|default('table'))=='board' else 'tt-btn-ghost' }}">
+        <i class="bi bi-kanban me-1"></i>Tablero
+      </a>
+    </div>
+  </div>
+
+  {# ===== Funnel de fases (solo tabla) ===== #}
+  {% if (view|default('table')) == 'table' and columns %}
+  <div class="d-flex align-items-center gap-3 mt-3">
+    <div class="tt-funnel flex-grow-1" id="proc-funnel">
+      {% set ncols = columns|length %}
+      {% for col in columns %}
+      {% set ratio = (loop.index0 / (ncols - 1)) if ncols > 1 else 0 %}
+      {% set hue = (222 - ratio * 184)|round|int %}
+      <button type="button" class="seg {{ 'is-empty' if not col.count }}" data-phase="{{ col.number }}"
+              style="flex-grow:{{ col.count }};background:hsl({{ hue }},68%,46%)"
+              title="{{ '%02d'|format(col.number) }} · {{ col.name }} — {{ col.count }} proceso(s)">
+        {{ col.count if col.count }}
+      </button>
+      {% endfor %}
+    </div>
+    <span class="tt-funnel-legend">Distribución por fase</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if (view|default('table')) == 'board' %}
+<div class="px-4 pt-3 pb-4">
+  {% include "titulatec/admin/partials/processes_board.html" %}
+</div>
+{# JS del tablero: fija el alto al viewport (1 sola zona de scroll horizontal;
+   cada columna scrollea vertical) y muestra fades "hay más" auto-ocultables. #}
+<script>
+(function () {
+  var board = document.querySelector('.tt-kanban');
+  if (!board) return;
+  var BOTTOM_GAP = 22;
+
+  function sizeBoard() {
+    var top = board.getBoundingClientRect().top;
+    var h = window.innerHeight - top - BOTTOM_GAP;
+    board.style.height = Math.max(260, h) + 'px';
+  }
+
+  function updateFade(scroll) {
+    var body = scroll.querySelector('.body');
+    if (!body) return;
+    var more = body.scrollHeight - body.clientHeight;
+    scroll.classList.toggle('show-top', body.scrollTop > 2);
+    scroll.classList.toggle('show-bottom', more > 2 && body.scrollTop < more - 2);
+  }
+
+  function refreshFades() {
+    Array.prototype.forEach.call(board.querySelectorAll('.col-scroll'), updateFade);
+  }
+
+  Array.prototype.forEach.call(board.querySelectorAll('.col-scroll .body'), function (body) {
+    body.addEventListener('scroll', function () { updateFade(body.parentNode); }, { passive: true });
+  });
+
+  function recalc() { sizeBoard(); refreshFades(); }
+  recalc();
+  // segundo paso tras layout/fuentes
+  requestAnimationFrame(recalc);
+  window.addEventListener('resize', recalc);
+})();
+</script>
+{% else %}
+<div class="px-4 pt-3 pb-4">
+  <div class="tt-card p-0 overflow-hidden">
+   <div class="tt-table-wrap">
+    <table class="table table-hover align-middle mb-0" id="proc-table" style="font-size:.85rem">
+      <thead><tr style="background:var(--tt-mist)">
+        <th class="tt-kicker">Folio</th>
+        <th class="tt-kicker">Alumno</th>
+        <th class="tt-kicker">Carrera</th>
+        <th class="tt-kicker">Modalidad</th>
+        <th class="tt-kicker sortable" data-sort="progress" data-type="num">Progreso <i class="bi bi-arrow-down-up"></i></th>
+        <th class="tt-kicker sortable" data-sort="phase" data-type="num">Fase actual <i class="bi bi-arrow-down-up"></i></th>
+        <th class="tt-kicker sortable" data-sort="idle" data-type="num">Días en fase <i class="bi bi-arrow-down-up"></i></th>
+        <th class="tt-kicker">Estado</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{{ 'is-stuck' if r.idle_level=='crit' }}"
+            data-search="{{ (r.student ~ ' ' ~ r.control ~ ' ' ~ r.folio)|lower }}"
+            data-phase="{{ r.phase }}"
+            data-progress="{{ r.progress_pct }}" data-idle="{{ r.idle_days }}">
+          <td class="tt-mono">{{ r.folio }}</td>
+          <td>
+            <div class="fw-semibold">{{ r.student }}</div>
+            <div class="tt-mono" style="font-size:.7rem;color:var(--tt-mute)">{{ r.control }}</div>
+          </td>
+          <td style="color:var(--tt-slate)">{{ r.program }}</td>
+          <td style="color:var(--tt-slate)">{{ r.modality }}</td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <span class="tt-progress"><i style="width:{{ r.progress_pct }}%"></i></span>
+              <span style="font-size:.7rem;color:var(--tt-mute)">{{ r.progress_pct }}%</span>
+            </div>
+          </td>
+          <td><span class="tt-pill tt-pill--navy">{{ '%02d'|format(r.phase) }} · {{ r.phase_name }}</span></td>
+          <td><span class="tt-pill tt-pill--idle-{{ r.idle_level }}">{{ r.idle_days }} d</span></td>
+          <td><span class="tt-pill tt-pill--{{ 'success' if r.status=='completed' else ('neutral' if r.status in ('cancelled','on_hold') else 'amber') }}">{{ r.status }}</span></td>
+          <td class="text-end"><a href="/titulatec/admin/processes/{{ r.id }}" class="btn btn-sm tt-btn-soft">Abrir <i class="bi bi-arrow-right ms-1"></i></a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center py-4" style="color:var(--tt-mute)">Sin procesos.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+   </div>
+  </div>
+  <div id="proc-count" class="mt-2" style="font-size:.72rem;color:var(--tt-mute)"></div>
+</div>
+
+{# JS inline (se ejecuta en carga completa y en swap morph del menú admin). IIFE
+   sin estado, idempotente: busca/ordena/filtra sobre el DOM ya renderizado. #}
+<script>
+(function () {
+  var table = document.getElementById('proc-table');
+  if (!table) return;
+  var tbody = table.tBodies[0];
+  var rows = Array.prototype.slice.call(tbody.rows).filter(function (r) { return r.dataset.search !== undefined; });
+  var search = document.getElementById('proc-search');
+  var counter = document.getElementById('proc-count');
+  var funnel = document.getElementById('proc-funnel');
+  var total = rows.length;
+  var phaseFilter = null;
+
+  function applyFilters() {
+    var q = (search && search.value || '').trim().toLowerCase();
+    var shown = 0;
+    rows.forEach(function (r) {
+      var okText = !q || (r.dataset.search || '').indexOf(q) !== -1;
+      var okPhase = phaseFilter === null || r.dataset.phase === phaseFilter;
+      var on = okText && okPhase;
+      r.style.display = on ? '' : 'none';
+      if (on) shown++;
+    });
+    if (counter) counter.textContent = (shown === total && !q && phaseFilter === null)
+      ? total + ' proceso(s)'
+      : shown + ' de ' + total + ' proceso(s)';
+  }
+
+  // === Buscar ===
+  if (search) search.addEventListener('input', applyFilters);
+
+  // === Ordenar ===
+  var sortState = { key: null, dir: 1 };
+  Array.prototype.forEach.call(table.querySelectorAll('th.sortable'), function (th) {
+    th.addEventListener('click', function () {
+      var key = th.dataset.sort;
+      sortState.dir = (sortState.key === key) ? -sortState.dir : -1; // primer click: desc
+      sortState.key = key;
+      var attr = 'data-' + key;
+      var sorted = rows.slice().sort(function (a, b) {
+        var av = parseFloat(a.getAttribute(attr)) || 0;
+        var bv = parseFloat(b.getAttribute(attr)) || 0;
+        return (av - bv) * sortState.dir;
+      });
+      sorted.forEach(function (r) { tbody.appendChild(r); });
+      table.querySelectorAll('th.sortable').forEach(function (h) {
+        h.classList.toggle('is-sorted', h === th);
+        var ic = h.querySelector('.bi');
+        if (ic) ic.className = 'bi ' + (h === th ? (sortState.dir > 0 ? 'bi-sort-up' : 'bi-sort-down') : 'bi-arrow-down-up');
+      });
+    });
+  });
+
+  // === Funnel: filtrar por fase ===
+  if (funnel) {
+    Array.prototype.forEach.call(funnel.querySelectorAll('.seg'), function (seg) {
+      if (seg.classList.contains('is-empty')) return;
+      seg.addEventListener('click', function () {
+        var ph = seg.dataset.phase;
+        phaseFilter = (phaseFilter === ph) ? null : ph;
+        Array.prototype.forEach.call(funnel.querySelectorAll('.seg'), function (s) {
+          s.classList.toggle('is-sel', phaseFilter !== null && s === seg);
+          s.classList.toggle('is-dim', phaseFilter !== null && s !== seg);
+        });
+        applyFilters();
+      });
+    });
+  }
+
+  applyFilters();
+})();
+</script>
+{% endif %}
+{% endblock %}

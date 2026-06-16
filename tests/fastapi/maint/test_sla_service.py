@@ -40,9 +40,16 @@ def _fake_tech_assignment(user_id, unassigned_at=None):
 # ─────────────────────────────────────────────────────────────────────
 
 class TestNotifyOverdue:
+    @patch("itcj2.core.services.authz_service._get_users_with_roles_in_app",
+           return_value=[50, 60])
     @patch("itcj2.core.services.notification_service.NotificationService.create")
-    def test_notifies_active_techs_and_dispatchers(self, mock_create):
-        """Verifica dedup y que sla_alert_sent_at queda set."""
+    def test_notifies_active_techs_and_dispatchers(self, mock_create, mock_helper):
+        """Verifica dedup y que sla_alert_sent_at queda set.
+
+        H7: los dispatchers/admins se resuelven por ROL incluyendo herencia por
+        PUESTO (`_get_users_with_roles_in_app`), no por una query directa a
+        UserAppRole. Aquí lo mockeamos a {50, 60}.
+        """
         ticket = _fake_ticket(
             technicians=[
                 _fake_tech_assignment(10),
@@ -50,38 +57,7 @@ class TestNotifyOverdue:
                 _fake_tech_assignment(30, unassigned_at=datetime(2026, 1, 1)),  # inactivo
             ],
         )
-
-        # Mock de query() para App / Role / UserAppRole
         db = MagicMock()
-        app = MagicMock(id=1, key="maint")
-        dispatcher_role = MagicMock(id=100, name="dispatcher")
-        admin_role = MagicMock(id=200, name="admin")
-
-        # Cada filter_by responde con un objeto distinto
-        def _query_side_effect(model):
-            chain = MagicMock()
-            name = model.__name__
-            if name == "App":
-                chain.filter_by.return_value.first.return_value = app
-            elif name == "Role":
-                # Devolver el rol según el nombre buscado
-                def _filter_by(name=None, **kw):
-                    inner = MagicMock()
-                    if name == "dispatcher":
-                        inner.first.return_value = dispatcher_role
-                    elif name == "admin":
-                        inner.first.return_value = admin_role
-                    else:
-                        inner.first.return_value = None
-                    return inner
-                chain.filter_by.side_effect = _filter_by
-            elif name == "UserAppRole":
-                # Dispatcher 50, admin 60
-                rows = [MagicMock(user_id=50), MagicMock(user_id=60)]
-                chain.filter.return_value.all.return_value = rows
-            return chain
-
-        db.query.side_effect = _query_side_effect
 
         count = sla_service.notify_overdue(db, ticket)
         # Recipientes únicos: 10, 20, 50, 60
@@ -89,6 +65,7 @@ class TestNotifyOverdue:
         called_users = {c.kwargs["user_id"] for c in mock_create.call_args_list}
         assert called_users == {10, 20, 50, 60}
         assert ticket.sla_alert_sent_at is not None
+        mock_helper.assert_called_once()
 
     @patch("itcj2.core.services.notification_service.NotificationService.create")
     def test_no_recipients_still_marks_alert_sent(self, mock_create):

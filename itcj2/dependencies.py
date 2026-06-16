@@ -161,13 +161,19 @@ def require_app(app_key: str):
     return Depends(dependency)
 
 
-def require_perms(app_key: str, perms: list[str]):
+def require_perms(app_key: str, perms: list[str], *, allow_global_admin: bool = True):
     """Equivale a @api_app_required("helpdesk", perms=[...]) de Flask.
 
     Replica la lógica de ``_check_app_access_enhanced`` del decorador Flask:
     1. Admin global (JWT role == "admin") bypasses todo.
     2. Verifica ``has_any_assignment(uid, app_key, include_positions=True)``.
     3. Verifica ``get_user_permissions_for_app`` contra *perms* requeridos.
+
+    ``allow_global_admin=False`` desactiva el bypass del admin global del JWT (1):
+    el usuario debe tener el PERMISO real en la app. Se usa en acciones
+    operativas reservadas a roles reales (p.ej. resolver/enrutar/asignar en
+    maint) para que un admin global del sistema que NO es operador de la app
+    no las ejecute. Ver auditoría maint: "admin global del sistema ≠ operador".
 
     Uso::
 
@@ -186,7 +192,7 @@ def require_perms(app_key: str, perms: list[str]):
             raise HTTPException(status_code=401, detail="No autenticado")
 
         # Admin global por rol del JWT
-        if user.get("role") == "admin":
+        if allow_global_admin and user.get("role") == "admin":
             return user
 
         from itcj2.core.services.authz_service import (

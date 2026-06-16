@@ -492,10 +492,11 @@
     // UTILIDADES INTERNAS
     // ─────────────────────────────────────────────────────────────────────────
 
+    // H9: escapa también comillas (" y ') — createTextNode+innerHTML NO las escapaba,
+    // permitiendo romper atributos (title="...") e inyectar JS (XSS almacenado).
     function _escapeHtml(str) {
-        var d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(str)));
-        return d.innerHTML;
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(str).replace(/[&<>"']/g, function (ch) { return map[ch]; });
     }
 
     function _toArray(target) {

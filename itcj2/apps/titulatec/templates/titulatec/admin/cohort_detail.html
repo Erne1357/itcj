@@ -1,0 +1,37 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}{{ cohort.name }} · TitulaTec{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4">
+  <a href="/titulatec/admin/cohorts" class="btn btn-sm tt-btn-ghost mb-2"><i class="bi bi-arrow-left me-1"></i>Convocatorias</a>
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <h1 class="tt-display mb-0" style="font-size:1.5rem;font-weight:600">{{ cohort.name }}</h1>
+    <span class="tt-pill tt-pill--{{ 'success' if cohort.status=='open' else 'neutral' }}">{{ cohort.status }}</span>
+  </div>
+  <div class="d-flex flex-wrap gap-3 mt-1" style="font-size:.78rem;color:var(--tt-slate)">
+    <span><span class="tt-kicker">Período</span> <span class="tt-mono">{{ cohort.period_code }}</span></span>
+    {% if cohort.opens_at %}<span><span class="tt-kicker">Apertura</span> <span class="tt-mono">{{ cohort.opens_at[:10] }}</span></span>{% endif %}
+    {% if cohort.closes_at %}<span><span class="tt-kicker">Cierre</span> <span class="tt-mono">{{ cohort.closes_at[:10] }}</span></span>{% endif %}
+  </div>
+</div>
+
+{# Un solo contenedor: la barra de tabs + el cuerpo. La navegación entre tabs
+   swappea TODO #cohort-pane (estado activo + URL correctos, sin IDs duplicados). #}
+<div id="cohort-pane" class="px-4 pt-3 pb-4">
+  <div class="tt-tabs mb-3">
+    {% for key, lbl, icon in [('resumen','Resumen','bi-info-circle'),('alumnos','Alumnos','bi-people'),('dias','Días de cotejo','bi-calendar-check'),('importar','Importar','bi-upload')] %}
+    <a class="tt-tab {{ 'is-active' if tab==key else '' }}"
+       href="/titulatec/admin/cohorts/{{ cohort_id }}?tab={{ key }}"
+       hx-get="/titulatec/admin/cohorts/{{ cohort_id }}?tab={{ key }}"
+       hx-target="#cohort-pane" hx-select="#cohort-pane" hx-swap="outerHTML"
+       hx-push-url="true"><i class="bi {{ icon }} me-1"></i><span class="d-none d-sm-inline">{{ lbl }}</span></a>
+    {% endfor %}
+  </div>
+  <div id="cohort-tab-body" class="tt-anim-in">
+    {% if tab == 'resumen' %}{% include "titulatec/partials/cohort_summary.html" %}
+    {% elif tab == 'alumnos' %}{% include "titulatec/partials/cohort_students.html" %}
+    {% elif tab == 'dias' %}{% include "titulatec/partials/cohort_days_calendar.html" %}
+    {% elif tab == 'importar' %}{% include "titulatec/partials/cohort_import.html" %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

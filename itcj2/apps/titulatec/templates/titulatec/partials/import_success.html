@@ -1,0 +1,18 @@
+{# Resultado de la importación (HTMX). Contexto: summary, cohort_id #}
+<div class="tt-card tt-card--success">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <span class="d-flex align-items-center justify-content-center" style="width:40px;height:40px;border-radius:20px;background:var(--tt-success-soft);color:var(--tt-success)">
+      <i class="bi bi-check-lg" style="font-size:1.3rem"></i></span>
+    <div class="tt-display" style="font-size:1.3rem;font-weight:600">Importación completada</div>
+  </div>
+  <div class="row g-3 mt-1">
+    <div class="col-md-3"><div class="tt-kicker">Procesos creados</div><div class="tt-display" style="font-size:1.4rem;font-weight:600;color:var(--tt-success)">{{ summary.processes_created }}</div></div>
+    <div class="col-md-3"><div class="tt-kicker">Alumnos nuevos</div><div class="tt-display" style="font-size:1.4rem;font-weight:600">{{ summary.created_users }}</div></div>
+    <div class="col-md-3"><div class="tt-kicker">Alumnos existentes</div><div class="tt-display" style="font-size:1.4rem;font-weight:600">{{ summary.matched_users }}</div></div>
+    <div class="col-md-3"><div class="tt-kicker">Omitidos</div><div class="tt-display" style="font-size:1.4rem;font-weight:600;color:var(--tt-mute)">{{ summary.skipped }}</div></div>
+  </div>
+  <div class="mt-3 d-flex gap-2">
+    <a href="/titulatec/admin/cohorts/{{ cohort_id }}?tab=alumnos" class="btn tt-btn-ink">Ver alumnos</a>
+    <a href="/titulatec/admin/cohorts/{{ cohort_id }}?tab=importar" class="btn tt-btn-ghost">Importar otro CSV</a>
+  </div>
+</div>

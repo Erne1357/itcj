@@ -26,16 +26,24 @@ logger = logging.getLogger(__name__)
 async def assign_technicians(
     ticket_id: int,
     body: AssignTechnicianRequest,
-    user: dict = require_perms("maint", ["maint.assignments.api.assign"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.assign"], allow_global_admin=False),
     db: DbSession = None,
 ):
+    from itcj2.core.services.authz_service import user_roles_in_app
+
     user_id = int(user["sub"])
+    assigner_roles = user_roles_in_app(db, user_id, "maint")
+    # Acción operativa: el admin global del sistema NO asigna por bypass; el
+    # "admin" operativo se detecta por su rol REAL en maint (no por el JWT).
+    is_global_admin = "admin" in set(assigner_roles)
     result = assignment_service.assign_technicians(
         db=db,
         ticket_id=ticket_id,
         assigned_by_id=user_id,
         user_ids=body.user_ids,
         notes=body.notes,
+        assigner_roles=assigner_roles,
+        is_global_admin=is_global_admin,
     )
     ticket = ticket_service.get_ticket_by_id(db, ticket_id)
     try:
@@ -45,7 +53,18 @@ async def assign_technicians(
     except Exception as exc:
         db.rollback()
         logger.warning("notify_technician_assigned failed for ticket %s: %s", ticket.id, exc)
-    return {"assigned_count": len(result)}
+    # U10: email al técnico recién asignado (best-effort; no-op si la cuenta de
+    # correo de maint no está conectada).
+    try:
+        from itcj2.core.models.user import User
+        from itcj2.apps.maint.services.email_helper import MaintEmailHelper
+        for tech_id in body.user_ids:
+            technician = db.get(User, tech_id)
+            if technician:
+                MaintEmailHelper.send_assigned(db, ticket, technician)
+    except Exception as exc:
+        logger.warning("send_assigned failed for ticket %s: %s", ticket.id, exc)
+    return {"success": True, "assigned_count": len(result)}
 
 
 # ==================== REMOVER TÉCNICO ====================
@@ -53,16 +72,24 @@ async def assign_technicians(
 async def unassign_technician(
     ticket_id: int,
     body: UnassignTechnicianRequest,
-    user: dict = require_perms("maint", ["maint.assignments.api.unassign"]),
+    user: dict = require_perms("maint", ["maint.assignments.api.unassign"], allow_global_admin=False),
     db: DbSession = None,
 ):
+    from itcj2.core.services.authz_service import user_roles_in_app
+
     user_id = int(user["sub"])
+    unassigner_roles = user_roles_in_app(db, user_id, "maint")
+    # Acción operativa: admin global del sistema NO opera por bypass; "admin"
+    # operativo = rol REAL en maint.
+    is_global_admin = "admin" in set(unassigner_roles)
     assignment_service.unassign_technician(
         db=db,
         ticket_id=ticket_id,
         unassigned_by_id=user_id,
         user_id=body.user_id,
         reason=body.reason,
+        unassigner_roles=unassigner_roles,
+        is_global_admin=is_global_admin,
     )
     try:
         from itcj2.sockets.maint import broadcast_ticket_unassigned

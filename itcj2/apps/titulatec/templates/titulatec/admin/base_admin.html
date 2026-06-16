@@ -1,0 +1,103 @@
+{# ===========================================================================
+   base_admin.html — shell de escritorio para TitulaTec (sidebar + main).
+   Define el menú UNA sola vez; el estado activo se deriva de `current_route`.
+   Las páginas admin extienden esto y solo rellenan {% block admin_main %}.
+
+   Bloques disponibles:
+     - admin_main      → contenido de <main> (obligatorio)
+     - admin_scripts   → JS extra de la página (el toast de error HTMX ya está incluido)
+     - head_extra      → heredado de base.html
+   =========================================================================== #}
+{% extends "titulatec/base.html" %}
+
+{% set _p = current_route or '' %}
+{% set _is_inbox = _p in ('/titulatec/admin', '/titulatec/admin/') %}
+{% set _is_proc  = '/titulatec/admin/processes' in _p %}
+{% set _is_coh   = '/titulatec/admin/cohorts' in _p %}
+{% set _is_appt  = '/titulatec/admin/appointments' in _p %}
+{% set _is_cer   = '/titulatec/admin/ceremonies' in _p %}
+{% set _section = 'Bandeja' if _is_inbox else 'Procesos' if _is_proc else 'Convocatorias' if _is_coh else 'Citas de cotejo' if _is_appt else 'Actos protocolarios' if _is_cer else 'TitulaTec · Admin' %}
+
+{% block content %}
+<div class="tt-admin" id="ttAdmin">
+  <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
+  {# Navegación "estilo wire:navigate": cada item swappea SOLO #tt-admin-content
+     (morph), nunca el sidebar ni el <body> → el menú queda quieto, sin parpadeo,
+     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive). #}
+  <aside class="side" id="ttSide" hx-ext="morph">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+      <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center justify-content-center tt-display"
+             style="width:28px;height:28px;background:var(--tt-accent);border-radius:7px;color:#1F1300;font-weight:700;font-size:1rem">T</div>
+        <div class="tt-display" style="font-size:.95rem;font-weight:600">TitulaTec · Admin</div>
+      </div>
+      <button type="button" class="tt-admin-close" id="ttAdminClose" aria-label="Cerrar menú"><i class="bi bi-x-lg"></i></button>
+    </div>
+    {% for it in admin_nav|default([]) %}
+    <a href="{{ it.url }}"
+       hx-get="{{ it.url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
+       hx-swap="morph:innerHTML" hx-push-url="true"
+       class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
+    {% endfor %}
+    {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
+       desocultado solo en ≥lg (d-lg-block); el JS lo re-oculta si estamos en iframe. #}
+    <div class="mt-auto d-none d-lg-block" id="ttBackItcj">
+      <a href="/itcj/dashboard"><i class="bi bi-box-arrow-left"></i> Volver a ITCJ</a>
+    </div>
+  </aside>
+  <main class="main">
+    {# Topbar móvil: hamburguesa para abrir el drawer del sidebar (<992px). #}
+    <header class="tt-admin-topbar">
+      <button type="button" class="tt-burger" id="ttAdminBurger" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
+      <div class="tt-display" style="font-size:1rem;font-weight:600">{{ _section }}</div>
+    </header>
+    <div class="tt-anim-in" id="tt-admin-content">{% block admin_main %}{% endblock %}</div>
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
+  document.body.addEventListener('htmx:responseError', function (e) {
+    var msg = (e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error'))
+              || 'No se pudo completar la acción.';
+    if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
+  });
+
+  // En iframe (shell embebido) no mostramos "Volver a ITCJ" ni siquiera en desktop:
+  // quitamos d-lg-block para que el d-none lo mantenga oculto en todos los tamaños.
+  if (window.self !== window.top) {
+    document.getElementById('ttBackItcj')?.classList.remove('d-lg-block');
+  }
+
+  // Activo del menú: el sidebar no entra al swap, así que lo actualizamos por JS
+  // según la URL actual tras cada navegación HTMX (estilo wire:navigate).
+  function ttSetActive() {
+    var path = (location.pathname || '').replace(/\/$/, '');
+    document.querySelectorAll('#ttSide a[hx-get]').forEach(function (a) {
+      var url = (a.getAttribute('hx-get') || '').replace(/\/$/, '');
+      var on = url && url !== '#' &&
+        (url === path || (url !== '/titulatec/admin' && path.indexOf(url) === 0));
+      a.classList.toggle('active', !!on);
+    });
+  }
+  document.body.addEventListener('htmx:afterSettle', ttSetActive);
+  document.addEventListener('DOMContentLoaded', ttSetActive);
+
+  // Drawer del sidebar admin en móvil/tablet (<992px).
+  (function () {
+    var admin = document.getElementById('ttAdmin');
+    if (!admin) return;
+    function open()  { admin.classList.add('side-open'); document.body.classList.add('tt-admin-locked'); }
+    function close() { admin.classList.remove('side-open'); document.body.classList.remove('tt-admin-locked'); }
+    document.getElementById('ttAdminBurger')?.addEventListener('click', open);
+    document.getElementById('ttAdminClose')?.addEventListener('click', close);
+    document.getElementById('ttAdminOverlay')?.addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    // Al navegar por un item del menú, cierra el drawer.
+    admin.querySelectorAll('.side a').forEach(function (a) { a.addEventListener('click', close); });
+  })();
+</script>
+{% block admin_scripts %}{% endblock %}
+{% endblock %}

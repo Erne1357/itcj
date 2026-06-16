@@ -1,6 +1,6 @@
 """Página de bienvenida de la app de Mantenimiento."""
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.maint.pages.nav import render_maint
@@ -24,6 +24,20 @@ async def home_landing(
         roles = set(user_roles_in_app(_db, user_id, "maint"))
     finally:
         _db.close()
+
+    is_admin = ("admin" in roles) or (user.get("role") == "admin")
+
+    # El dispatcher va directo a la Bandeja de entrada (su pantalla principal).
+    if "dispatcher" in roles and not is_admin:
+        return RedirectResponse(url="/maint/triage", status_code=302)
+
+    # El coordinador general va al tablero de asignación (su cola "mine").
+    if "maint_general_coordinator" in roles and not is_admin:
+        return RedirectResponse(url="/maint/asignacion", status_code=302)
+
+    # El coordinador de área también va al tablero de asignación.
+    if "maint_area_coordinator" in roles and not is_admin:
+        return RedirectResponse(url="/maint/asignacion", status_code=302)
 
     # Determinar el CTA principal según rol
     if roles & {"admin", "dispatcher"}:

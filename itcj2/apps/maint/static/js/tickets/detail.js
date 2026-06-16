@@ -10,6 +10,8 @@
     var ctx = window.TICKET_CTX || {};
     var _ticket = null;
     var _activeTab = 'info';
+    var _returnModal = null;
+    var _returnTargets = null; // cache de coordinadores generales
 
     var STATUS_LABEL = {
         PENDING: 'Pendiente', ASSIGNED: 'Asignado', IN_PROGRESS: 'En Progreso',
@@ -28,11 +30,27 @@
     };
     var PRIORITY_LABEL = { BAJA: 'Baja', MEDIA: 'Media', ALTA: 'Alta', URGENTE: 'Urgente' };
 
+    // Formatea minutos a "Xd Yh Zmin" (omite unidades en cero)
+    function _fmtDuration(mins) {
+        if (mins === null || mins === undefined || mins === '') return '—';
+        var m = parseInt(mins, 10);
+        if (isNaN(m) || m < 1) return '—';
+        var days = Math.floor(m / 1440);
+        var hours = Math.floor((m % 1440) / 60);
+        var rem = m % 60;
+        var parts = [];
+        if (days) parts.push(days + 'd');
+        if (hours) parts.push(hours + 'h');
+        if (rem || !parts.length) parts.push(rem + ' min');
+        return parts.join(' ');
+    }
+
     // ── Init ──────────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function () {
         _bindTabs();
         _loadTicket();
+        _initReturnModal();
     });
 
     function _loadTicket() {
@@ -122,8 +140,10 @@
                 '<i class="bi bi-play-circle me-1"></i>Iniciar Progreso</button>');
         }
 
-        // Resolver
-        if ((t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS') && ctx.canResolve && (isActiveTech || ctx.isDispatcher)) {
+        // Resolver — D-F: solo dispatcher resuelve directo desde ASSIGNED;
+        // técnicos/coordinadores deben iniciar progreso (IN_PROGRESS) primero.
+        var canResolveNow = t.status === 'IN_PROGRESS' || (t.status === 'ASSIGNED' && ctx.isDispatcher);
+        if (canResolveNow && ctx.canResolve && (isActiveTech || ctx.isDispatcher)) {
             btns.push('<button class="btn btn-sm btn-success" id="resolveBtn">' +
                 '<i class="bi bi-check-circle me-1"></i>Resolver</button>');
         }
@@ -142,6 +162,16 @@
                 '<i class="bi bi-x-circle me-1"></i>Cancelar</button>');
         }
 
+        // Devolver al coordinador general (solo coord. de área, ticket de su propia cola, abierto)
+        var isMyTicket = t.coordinator && String(t.coordinator.id) === String(ctx.currentUserId);
+        if (ctx.isAreaCoordinator && isMyTicket && t.is_open) {
+            btns.push('<button class="btn btn-sm btn-outline-warning" id="returnToGeneralBtn">' +
+                '<i class="bi bi-arrow-return-left me-1"></i>' +
+                '<span class="d-none d-sm-inline">Devolver al coordinador general</span>' +
+                '<span class="d-inline d-sm-none">Devolver</span>' +
+                '</button>');
+        }
+
         container.innerHTML = btns.join('');
 
         var startBtn = document.getElementById('startBtn');
@@ -155,6 +185,9 @@
 
         var cancelBtn = document.getElementById('cancelBtn');
         if (cancelBtn) cancelBtn.addEventListener('click', function () { _openCancelModal(); });
+
+        var returnBtn = document.getElementById('returnToGeneralBtn');
+        if (returnBtn) returnBtn.addEventListener('click', function () { _openReturnModal(); });
     }
 
     // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -267,6 +300,10 @@
                     '<div class="col-md-6"><div class="mn-detail-label">Creado por</div>' +
                         '<div class="mn-detail-value">' + _esc(t.created_by ? t.created_by.name : '—') + '</div>' +
                         '<small class="text-muted">' + (t.created_at ? new Date(t.created_at).toLocaleString('es-MX') : '') + '</small>' + '</div>' +
+                    '<div class="col-md-6"><div class="mn-detail-label"><i class="bi bi-person-badge me-1"></i>Coordinador responsable</div>' +
+                        '<div class="mn-detail-value">' +
+                            (t.coordinator ? _esc(t.coordinator.name || ('ID ' + t.coordinator.id)) : '<span class="text-muted fst-italic">Sin asignar</span>') +
+                        '</div></div>' +
                     '<div class="col-12" id="ticketAttachmentsSection">' +
                         '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
                         '<div class="text-muted small mt-1"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Cargando...</div>' +
@@ -396,7 +433,8 @@
 
     function _buildCommentsTab(t) {
         var comments = t.comments || [];
-        var canInternal = ctx.isDispatcher || ctx.isTechMaint;
+        // M9: los coordinadores (asignadores) también comentan internamente.
+        var canInternal = ctx.isDispatcher || ctx.isTechMaint || ctx.isAssigner;
 
         var html = '<div class="card border-0 shadow-sm"><div class="card-body">';
 
@@ -530,7 +568,7 @@
                 '<div class="col-12"><h6 class="' + outcomeClass + ' fw-bold"><i class="bi bi-check-circle me-1"></i>' + outcomeLabel + '</h6></div>' +
                 '<div class="col-md-3"><div class="mn-detail-label">Tipo</div><div>' + _esc(t.maintenance_type || '—') + '</div></div>' +
                 '<div class="col-md-3"><div class="mn-detail-label">Origen</div><div>' + _esc(t.service_origin || '—') + '</div></div>' +
-                '<div class="col-md-3"><div class="mn-detail-label">Tiempo invertido</div><div>' + (t.time_invested_minutes ? t.time_invested_minutes + ' min' : '—') + '</div></div>' +
+                '<div class="col-md-3"><div class="mn-detail-label">Tiempo invertido</div><div>' + _fmtDuration(t.time_invested_minutes) + '</div></div>' +
                 '<div class="col-md-3"><div class="mn-detail-label">Resuelto por</div><div>' + _esc(t.resolved_by ? t.resolved_by.name : '—') + '</div></div>' +
                 '<div class="col-12"><div class="mn-detail-label">Notas de resolución</div>' +
                     '<div style="white-space:pre-line;">' + _esc(t.resolution_notes || '—') + '</div></div>' +
@@ -555,7 +593,7 @@
                     '</div>';
             }
         } else {
-            var canAct = (t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS') && ctx.canResolve;
+            var canAct = (t.status === 'IN_PROGRESS' || (t.status === 'ASSIGNED' && ctx.isDispatcher)) && ctx.canResolve;
             html += '<div class="text-muted text-center py-4">' +
                 '<i class="bi bi-hourglass-split fs-2 d-block mb-2"></i>' +
                 (canAct ? 'Usa el botón <strong>Resolver</strong> para registrar la resolución.' : 'El ticket aún no ha sido resuelto.') +
@@ -693,6 +731,12 @@
         var modal = new bootstrap.Modal(document.getElementById('cancelModal'));
         modal.show();
         document.getElementById('confirmCancelBtn').onclick = function () {
+            // U5: deshabilitar el botón + spinner para evitar doble POST.
+            var btn = this;
+            if (btn.disabled) return;
+            var original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Cancelando…';
             var reason = (document.getElementById('cancelReason').value || '').trim();
             MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/cancel', {
                 method: 'POST',
@@ -703,8 +747,113 @@
                     MaintUtils.toast('Ticket cancelado', 'info');
                     setTimeout(function () { window.location.href = '/maint/tickets'; }, 1000);
                 })
-                .catch(function (err) { MaintUtils.toast(err.message, 'error'); });
+                .catch(function (err) {
+                    // Re-habilitar solo en error (en éxito se navega fuera).
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                    MaintUtils.toast(err.message, 'error');
+                });
         };
+    }
+
+    // ── Devolver al coordinador general (coord. de área) ─────────────────────
+
+    function _initReturnModal() {
+        var el = document.getElementById('returnToGeneralModal');
+        if (!el) return;
+        _returnModal = new bootstrap.Modal(el);
+        el.addEventListener('hidden.bs.modal', function () {
+            document.getElementById('return-general-select').value = '';
+            document.getElementById('btn-confirm-return-general').disabled = true;
+        });
+        document.getElementById('return-general-select').addEventListener('change', function () {
+            document.getElementById('btn-confirm-return-general').disabled = !this.value;
+        });
+        document.getElementById('btn-confirm-return-general').addEventListener('click', _handleReturn);
+    }
+
+    function _openReturnModal() {
+        if (!_returnModal) return;
+
+        // Resetear estado
+        var sel = document.getElementById('return-general-select');
+        sel.innerHTML = '<option value="">Selecciona un coordinador general...</option>';
+        sel.classList.add('d-none');
+        document.getElementById('btn-confirm-return-general').disabled = true;
+        document.getElementById('return-targets-error').classList.add('d-none');
+        document.getElementById('return-targets-loading').classList.remove('d-none');
+
+        _returnModal.show();
+
+        if (_returnTargets !== null) {
+            _populateReturnSelect(_returnTargets);
+        } else {
+            _loadReturnTargets();
+        }
+    }
+
+    function _loadReturnTargets() {
+        MaintUtils.api.fetch(API_BASE + '/tickets/route-targets')
+            .then(function (data) {
+                _returnTargets = (data.data || []).filter(function (c) { return c.is_general; });
+                _populateReturnSelect(_returnTargets);
+            })
+            .catch(function (err) {
+                document.getElementById('return-targets-loading').classList.add('d-none');
+                var errEl = document.getElementById('return-targets-error');
+                errEl.textContent = 'No se pudo cargar la lista: ' + _esc(err.message || 'Error desconocido');
+                errEl.classList.remove('d-none');
+            });
+    }
+
+    function _populateReturnSelect(targets) {
+        document.getElementById('return-targets-loading').classList.add('d-none');
+        var sel = document.getElementById('return-general-select');
+
+        if (!targets || !targets.length) {
+            var errEl = document.getElementById('return-targets-error');
+            errEl.textContent = 'No hay coordinadores generales disponibles.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+
+        sel.innerHTML = '<option value="">Selecciona un coordinador general...</option>';
+        targets.forEach(function (c) {
+            var opt = document.createElement('option');
+            opt.value = c.user_id;
+            opt.textContent = c.name || ('Usuario #' + c.user_id);
+            sel.appendChild(opt);
+        });
+        sel.classList.remove('d-none');
+    }
+
+    function _handleReturn() {
+        var coordId = document.getElementById('return-general-select').value;
+        if (!coordId || !ctx.ticketId) return;
+
+        var btn = document.getElementById('btn-confirm-return-general');
+        MaintUtils.loading.show(btn, 'Devolviendo...');
+
+        MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/route', {
+            method: 'POST',
+            body: JSON.stringify({ coordinator_id: parseInt(coordId, 10) }),
+        })
+        .then(function (data) {
+            MaintUtils.loading.hide(btn);
+            _returnModal.hide();
+            // Invalidar cache
+            _returnTargets = null;
+            var coordName = (data.data && data.data.coordinator && data.data.coordinator.name) || '';
+            var msg = 'Ticket devuelto correctamente';
+            if (coordName) msg += ' a ' + _esc(coordName);
+            MaintUtils.toast(msg, 'success');
+            _reload();
+        })
+        .catch(function (err) {
+            MaintUtils.loading.hide(btn);
+            var msg = (err && err.message) ? err.message : 'Error al devolver el ticket';
+            MaintUtils.toast(msg, 'error', 0);
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -718,9 +867,9 @@
     }
 
     function _esc(s) {
-        var d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(s || '')));
-        return d.innerHTML;
+        // H9: escapa comillas además de &<> para ser seguro en atributos (title="...").
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(s || '').replace(/[&<>"']/g, function (ch) { return map[ch]; });
     }
 
     function _getInitials(name) {
@@ -865,9 +1014,9 @@
     }
 
     function _esc(s) {
-        var d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(s || '')));
-        return d.innerHTML;
+        // H9: escapa comillas además de &<> para ser seguro en atributos (title="...").
+        var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return String(s || '').replace(/[&<>"']/g, function (ch) { return map[ch]; });
     }
 
     // ── Registro de eventos ───────────────────────────────────────────────────
@@ -909,6 +1058,22 @@
         // Nuevo comentario
         socket.on('ticket_comment_added', function (payload) {
             if ((payload.ticket_id || payload.id) !== ctx.ticketId) return;
+            // H11: comentarios internos solo se muestran a staff (dispatcher/tech/
+            // admin/coordinador). El solicitante no debe enterarse por WS.
+            var canSeeInternal = ctx.isDispatcher || ctx.isTechMaint || ctx.isAdmin || ctx.isAssigner;
+            if (payload.is_internal && !canSeeInternal) return;
+            // Para internos el payload no trae preview; refrescar para traerlo de la
+            // API (que ya filtra visibilidad) si el tab está activo.
+            if (payload.is_internal && payload.content === undefined && payload.preview === undefined) {
+                var commentsTab = document.querySelector('#detailTabs .nav-link.active');
+                if (commentsTab && commentsTab.dataset && commentsTab.dataset.tab === 'comments') {
+                    if (typeof window._maintDetailReload === 'function') window._maintDetailReload();
+                } else {
+                    _bumpCommentBadge();
+                    _showCommentIndicator();
+                }
+                return;
+            }
             var activeTab = document.querySelector('#detailTabs .nav-link.active');
             if (activeTab && activeTab.dataset && activeTab.dataset.tab === 'comments') {
                 _appendComment(payload);

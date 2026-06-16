@@ -60,9 +60,17 @@
     height: 220px;
 }
 
+.chart-wrap-sm canvas {
+    max-height: 220px;
+}
+
 .chart-wrap-lg {
     position: relative;
     height: 380px;
+}
+
+.chart-wrap-lg canvas {
+    max-height: 380px;
 }
 
 /* ── Skeleton ────────────────────────────────────────────────────── */

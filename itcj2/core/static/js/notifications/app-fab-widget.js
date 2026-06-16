@@ -30,6 +30,14 @@ class AppNotificationFAB {
     }
 
     init() {
+        // Regla general: dentro del shell mobile del core (iframe), el FAB se autosuprime.
+        // El shell ya expone una superficie única de notificaciones (tab "Avisos" que lista
+        // todas las apps). Mostrar además el FAB se siente doble en móvil y abriría un 2º
+        // socket /notify. Standalone/desktop (sin shell) sí muestran el FAB por-app.
+        if (window.self !== window.top) {
+            this.suppressed = true;
+            return;
+        }
         this.injectHTML();
         this.attachEventListeners();
         this.loadUnreadCount();

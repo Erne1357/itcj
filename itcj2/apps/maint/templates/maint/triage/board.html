@@ -1,0 +1,152 @@
+{% extends "maint/base_maint.html" %}
+{% block title %}Bandeja de entrada{% endblock %}
+
+{% block page_vars %}
+<script>
+var TRIAGE_CTX = {
+    currentUserId:       {{ current_user.sub if current_user else 0 }},
+    userRoles:           {{ user_roles | tojson }},
+    isAdmin:             {{ is_admin | lower }},
+    isGeneralCoordinator: {{ is_general_coordinator | lower }},
+};
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="mt-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+            <h2 class="mb-0" style="color: var(--maint-primary-dark);">
+                <i class="fas fa-inbox me-2"></i>Bandeja de entrada
+            </h2>
+            <p class="text-muted small mb-0 mt-1">
+                Reparte los tickets nuevos al coordinador responsable.
+            </p>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-outline-secondary btn-sm" id="btn-refresh" title="Actualizar">
+                <i class="fas fa-sync-alt"></i>
+                <span class="d-none d-sm-inline ms-1">Actualizar</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Sección: Por enrutar -->
+    <div id="section-unrouted">
+        <h5 class="fw-semibold mb-2" style="color: var(--maint-primary-dark);">
+            <i class="fas fa-circle-notch me-1 text-warning"></i>Por enrutar
+        </h5>
+        <p class="text-muted small mb-2" id="unrouted-count-label">Cargando...</p>
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:9rem;">Folio</th>
+                                <th>Título</th>
+                                <th class="d-none d-md-table-cell" style="width:8rem;">Estado</th>
+                                <th class="d-none d-lg-table-cell" style="width:7rem;">Prioridad</th>
+                                <th class="d-none d-md-table-cell" style="width:7rem;">Categoría</th>
+                                <th class="d-none d-md-table-cell" style="width:9rem;">Creado</th>
+                                <th style="width:8rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="unrouted-tbody">
+                            <tr>
+                                <td colspan="7" class="text-center py-5 text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Cargando tickets...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sección: Mi cola (tickets enrutados donde el dispatcher figura como coordinador) -->
+    <div id="section-mine" class="d-none">
+        <h5 class="fw-semibold mb-2" style="color: var(--maint-primary-dark);">
+            <i class="fas fa-inbox me-1 text-primary"></i>Enrutados a mí
+            <small class="text-muted fw-normal ms-1" style="font-size:0.8rem;">Tickets con coordinador sin configurar</small>
+        </h5>
+        <p class="text-muted small mb-2" id="mine-count-label"></p>
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:9rem;">Folio</th>
+                                <th>Título</th>
+                                <th class="d-none d-md-table-cell" style="width:8rem;">Estado</th>
+                                <th class="d-none d-lg-table-cell" style="width:7rem;">Prioridad</th>
+                                <th class="d-none d-md-table-cell" style="width:7rem;">Categoría</th>
+                                <th class="d-none d-md-table-cell" style="width:9rem;">Creado</th>
+                                <th style="width:13rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="mine-tbody">
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">Cargando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Enrutar ticket -->
+<div class="modal fade" id="route-modal" tabindex="-1" aria-labelledby="route-modal-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-0">
+                <div>
+                    <h5 class="modal-title fw-semibold" id="route-modal-label">
+                        <i class="fas fa-share-square me-2 text-primary"></i>Enrutar Ticket
+                    </h5>
+                    <p class="text-muted small mb-0" id="route-modal-ticket-info"></p>
+                </div>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-medium" for="route-coordinator-select">
+                    Coordinador destino <span class="text-danger">*</span>
+                </label>
+                <div id="route-targets-loading" class="text-muted small mb-2">
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                    Cargando destinos...
+                </div>
+                <select class="form-select form-select-sm d-none" id="route-coordinator-select">
+                    <option value="">Selecciona un coordinador...</option>
+                </select>
+                <div id="route-targets-error" class="d-none text-danger small mt-1"></div>
+
+                <!-- Info del coordinador seleccionado -->
+                <div id="route-coord-info" class="mt-2 d-none">
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle me-1"></i>
+                        <span id="route-coord-detail"></span>
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-confirm-route" disabled>
+                    <i class="fas fa-share-square me-1"></i>Enrutar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/maint/js/triage/board.js?v={{ sv('js/triage/board.js') }}"></script>
+{% endblock %}
