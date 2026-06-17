@@ -30,7 +30,7 @@
     var PRIORITY_LABEL = { BAJA: 'Baja', MEDIA: 'Media', ALTA: 'Alta', URGENTE: 'Urgente' };
 
     // ── Estado ────────────────────────────────────────────────────────────────
-    // scope: 'dept' | 'assigned' | 'mine' | 'unrated' | ''
+    // scope: 'all' | 'area' | 'dept' | 'assigned' | 'mine' | 'unrated' | ''
     var _state = {
         scope: '',
         status: '', category_id: '', priority: '', search: '',
@@ -42,6 +42,8 @@
     var _isTechMaint = false;
     var _isDeptHead  = false;
     var _isAssigner  = false;
+    var _isFullAccess = false;   // admin (jefe) / dispatcher (secretaria) / coord general → "Todos"
+    var _isAreaCoord  = false;   // coordinador de área → "Mi área" (solo su(s) área(s))
 
     // ── Init ──────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function () {
@@ -57,9 +59,15 @@
     // ── Detección de rol ──────────────────────────────────────────────────────
     function _detectRoles() {
         var ctx = window.MAINT_CTX || {};
+        // Acceso total ("Todos"): jefe (admin) / secretaria (dispatcher) / coord general.
+        _isFullAccess = !!ctx.isAdmin || !!ctx.isDispatcher || !!ctx.isGeneralCoord;
+        // Coordinador de área: ve solo su(s) área(s) ("Mi área"), salvo que además
+        // tenga acceso total por otro rol.
+        _isAreaCoord = !!ctx.isAreaCoord && !_isFullAccess;
         _isTechMaint = !!ctx.isTechMaint && !ctx.isAdmin && !ctx.isDispatcher;
         _isAssigner  = !!ctx.isAssigner  && !ctx.isAdmin && !ctx.isDispatcher;
-        _isDeptHead  = !!ctx.isDeptHead  && !ctx.isAdmin && !ctx.isDispatcher && !ctx.isTechMaint;
+        _isDeptHead  = !!ctx.isDeptHead  && !ctx.isAdmin && !ctx.isDispatcher && !ctx.isTechMaint
+                       && !ctx.isGeneralCoord && !ctx.isAreaCoord;
     }
 
     // ── Configurar visibilidad de chips de scope ──────────────────────────────
@@ -67,19 +75,28 @@
     // "Asignados a mí" → técnicos Y coordinadores (pueden auto-asignarse, H1)
     // "Mis solicitudes" y "Por calificar" → todos
     function _configureScopeChips() {
+        var chipAll      = document.getElementById('chip-all');
+        var chipArea     = document.getElementById('chip-area');
         var chipDept     = document.getElementById('chip-dept');
         var chipAssigned = document.getElementById('chip-assigned');
 
-        if (chipDept) {
-            if (!_isDeptHead) chipDept.classList.add('d-none');
-        }
+        // "Todos" → solo acceso total (jefe/secretaria maint + coord general).
+        if (chipAll && !_isFullAccess) chipAll.classList.add('d-none');
+        // "Mi área" → solo coordinador de área.
+        if (chipArea && !_isAreaCoord) chipArea.classList.add('d-none');
+        // "Mi departamento" → solo jefe/secretaria de otro depto.
+        if (chipDept && !_isDeptHead) chipDept.classList.add('d-none');
         if (chipAssigned) {
             // Técnicos y coordinadores pueden ser técnicos activos de un ticket.
             if (!(_isTechMaint || _isAssigner)) chipAssigned.classList.add('d-none');
         }
 
         // Default de scope según rol (se puede sobreescribir por URL params):
-        if (_isTechMaint) {
+        if (_isFullAccess) {
+            _state.scope = 'all';
+        } else if (_isAreaCoord) {
+            _state.scope = 'area';
+        } else if (_isTechMaint) {
             _state.scope = 'assigned';
         } else if (_isDeptHead) {
             _state.scope = 'dept';
@@ -122,7 +139,8 @@
         } else if (_state.scope === 'unrated') {
             _state.unrated = '1';
         }
-        // scope === 'dept' → sin params extra (el backend lo aplica por rol)
+        // scope === 'all' | 'area' | 'dept' → sin params extra; el backend aplica el
+        // scope real por rol (full-access ve todo; área/depto quedan acotados).
 
         _activateScopeChip(_state.scope);
     }
@@ -133,6 +151,8 @@
             b.classList.remove('active');
         });
         var map = {
+            all:      'chip-all',
+            area:     'chip-area',
             dept:     'chip-dept',
             assigned: 'chip-assigned',
             mine:     'chip-mine',
@@ -238,7 +258,11 @@
 
         document.getElementById('clearFilters').addEventListener('click', function () {
             // Restaurar scope al default del rol
-            if (_isTechMaint) {
+            if (_isFullAccess) {
+                _state.scope = 'all';
+            } else if (_isAreaCoord) {
+                _state.scope = 'area';
+            } else if (_isTechMaint) {
                 _state.scope = 'assigned';
             } else if (_isDeptHead) {
                 _state.scope = 'dept';

@@ -24,7 +24,15 @@
     <div class="card-body py-3">
         <!-- Chips de vista (scope): el orden y el default los maneja list.js según rol -->
         <div class="d-flex flex-wrap gap-2 mb-2" id="scopeFilters">
-            <!-- "Mi departamento" visible solo para jefe/secretaria/admin — ocultado por JS si no aplica -->
+            <!-- "Todos" visible solo para acceso total (jefe/secretaria maint + coord general) — ocultado por JS si no aplica -->
+            <button class="btn mn-status-filter" data-scope="all" id="chip-all">
+                <i class="bi bi-grid-3x3-gap me-1"></i>Todos
+            </button>
+            <!-- "Mi área" visible solo para coordinador de área — ocultado por JS si no aplica -->
+            <button class="btn mn-status-filter" data-scope="area" id="chip-area">
+                <i class="bi bi-diagram-3 me-1"></i>Mi área
+            </button>
+            <!-- "Mi departamento" visible solo para jefe/secretaria de OTRO depto — ocultado por JS si no aplica -->
             <button class="btn mn-status-filter" data-scope="dept" id="chip-dept">
                 <i class="bi bi-building me-1"></i>Mi departamento
             </button>
@@ -104,6 +112,8 @@ var MAINT_CTX = {
     isTechMaint:  {{ ('tech_maint' in user_roles) | lower }},
     isDeptHead:   {{ ('department_head' in user_roles or 'secretary' in user_roles) | lower }},
     isAssigner:   {{ ('maint_general_coordinator' in user_roles or 'maint_area_coordinator' in user_roles) | lower }},
+    isGeneralCoord: {{ ('maint_general_coordinator' in user_roles) | lower }},
+    isAreaCoord:    {{ ('maint_area_coordinator' in user_roles) | lower }},
 };
 </script>
 {% endblock %}

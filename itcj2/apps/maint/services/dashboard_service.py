@@ -19,9 +19,10 @@ from itcj2.apps.maint.utils.timezone_utils import now_local
 logger = logging.getLogger(__name__)
 
 # tech_maint YA NO es FULL_ACCESS (D-G/H3): ve solo asignados/propios/de su área.
-# Coordinadores sí (read.all + operan tableros), igual que ticket_service.list_tickets.
-FULL_ACCESS_ROLES = frozenset({'admin', 'dispatcher',
-                               'maint_area_coordinator', 'maint_general_coordinator'})
+# maint_area_coordinator TAMPOCO: ve solo SU(s) área(s) + ruteados/asignados/propios.
+# Solo admin, dispatcher y coordinador GENERAL tienen read.all. Igual que
+# ticket_service.list_tickets.
+FULL_ACCESS_ROLES = frozenset({'admin', 'dispatcher', 'maint_general_coordinator'})
 DEPT_ACCESS_ROLES = frozenset({'department_head', 'secretary'})
 OPEN_STATUSES = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
 ALL_STATUSES = ('PENDING', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED', 'CANCELED')
@@ -54,6 +55,10 @@ def _apply_visibility(query, user_id: int, user_roles: list, db: Session):
 
     if FULL_ACCESS_ROLES & roles:
         return query  # Sin restricción
+
+    if 'maint_area_coordinator' in roles:
+        # El coordinador de área ve SU(s) área(s) + ruteados a él + asignados + propios.
+        return query.filter(_area_coord_visibility_cond(db, user_id))
 
     if 'tech_maint' in roles:
         # D-G/H3: técnico ve ASIGNADOS a él, PROPIOS, o de categorías de sus áreas.
@@ -91,6 +96,33 @@ def _tech_maint_visibility_cond(db: Session, user_id: int):
         MaintTicket.id.in_(assigned_subq),
     ]
     area_codes = _get_tech_maint_area_codes(db, user_id)
+    if area_codes:
+        cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
+        conds.append(MaintTicket.category_id.in_(cat_subq))
+    return or_(*conds)
+
+
+def _area_coord_visibility_cond(db: Session, user_id: int):
+    """Condición SQL de visibilidad de un maint_area_coordinator: categorías de sus
+    áreas de coordinación ∨ ruteados a él (coordinator_id) ∨ asignado activo ∨ propios.
+    Espejo de ticket_service.list_tickets.
+    """
+    from sqlalchemy import or_
+    from itcj2.apps.maint.models.ticket import MaintTicket
+    from itcj2.apps.maint.models import MaintTicketTechnician
+    from itcj2.apps.maint.models.category import MaintCategory
+    from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+
+    assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
+        MaintTicketTechnician.user_id == user_id,
+        MaintTicketTechnician.unassigned_at.is_(None),
+    )
+    conds = [
+        MaintTicket.requester_id == user_id,
+        MaintTicket.coordinator_id == user_id,
+        MaintTicket.id.in_(assigned_subq),
+    ]
+    area_codes = CoordinatorService.get_coordinator_areas(db, user_id)
     if area_codes:
         cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
         conds.append(MaintTicket.category_id.in_(cat_subq))

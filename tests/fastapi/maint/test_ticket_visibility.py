@@ -30,9 +30,10 @@ def _chainable_query():
     return q
 
 
-def _ticket(requester_id=1, category_code='TRANSPORT', technicians=None):
+def _ticket(requester_id=1, category_code='TRANSPORT', technicians=None, coordinator_id=None):
     t = MagicMock()
     t.requester_id = requester_id
+    t.coordinator_id = coordinator_id
     t.category = MagicMock(code=category_code)
     t.technicians = technicians or []
     return t
@@ -197,6 +198,38 @@ class TestListTicketsScope:
         mock_areas.assert_not_called()
         assert db.query.return_value.filter.called
 
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.get_coordinator_areas")
+    @patch("itcj2.apps.maint.services.ticket_service.paginate")
+    def test_general_coord_sin_restriccion(self, mock_paginate, mock_coord_areas):
+        """Coordinador GENERAL → full access (read.all), no consulta áreas."""
+        mock_paginate.return_value = MagicMock(
+            items=[], total=0, pages=0, has_next=False, has_prev=False,
+        )
+        db = MagicMock()
+        db.query.return_value = _chainable_query()
+
+        ticket_service.list_tickets(
+            db=db, user_id=1, user_roles=['maint_general_coordinator'],
+        )
+        mock_coord_areas.assert_not_called()
+
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.get_coordinator_areas")
+    @patch("itcj2.apps.maint.services.ticket_service.paginate")
+    def test_area_coord_consulta_sus_areas(self, mock_paginate, mock_coord_areas):
+        """Coordinador de ÁREA → NO es full access; scopea por sus áreas."""
+        mock_paginate.return_value = MagicMock(
+            items=[], total=0, pages=0, has_next=False, has_prev=False,
+        )
+        mock_coord_areas.return_value = ['ELECTRICAL']
+        db = MagicMock()
+        db.query.return_value = _chainable_query()
+
+        ticket_service.list_tickets(
+            db=db, user_id=42, user_roles=['maint_area_coordinator'],
+        )
+        mock_coord_areas.assert_called_once_with(db, 42)
+        assert db.query.return_value.filter.called
+
 
 # ─────────────────────────────────────────────────────────────────────
 # can_user_view_ticket
@@ -299,6 +332,40 @@ class TestCanUserViewTicket:
         ticket = _ticket(requester_id=99, category_code='AC')
         with self._patch_roles(['staff']):
             assert ticket_service.can_user_view_ticket(db, ticket, user_id=1) is False
+
+    def test_general_coord_ve_todo(self):
+        db = MagicMock()
+        ticket = _ticket(requester_id=99, category_code='AC')
+        with self._patch_roles(['maint_general_coordinator']):
+            assert ticket_service.can_user_view_ticket(db, ticket, user_id=1) is True
+
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.get_coordinator_areas")
+    def test_area_coord_categoria_de_su_area_ve(self, mock_coord_areas):
+        db = MagicMock()
+        ticket = _ticket(requester_id=99, category_code='ELECTRICAL')
+        mock_coord_areas.return_value = ['ELECTRICAL', 'TRANSPORT']
+        with self._patch_roles(['maint_area_coordinator']):
+            assert ticket_service.can_user_view_ticket(db, ticket, user_id=7) is True
+
+    @patch("itcj2.apps.maint.services.coordinator_service.CoordinatorService.get_coordinator_areas")
+    def test_area_coord_categoria_distinta_no_ve(self, mock_coord_areas):
+        db = MagicMock()
+        ticket = _ticket(requester_id=99, category_code='AC', technicians=[_active_tech(2)])
+        mock_coord_areas.return_value = ['ELECTRICAL']
+        with self._patch_roles(['maint_area_coordinator']):
+            assert ticket_service.can_user_view_ticket(db, ticket, user_id=7) is False
+
+    def test_area_coord_ruteado_a_el_ve(self):
+        """Ticket ruteado al coordinador de área (coordinator_id) → visible aunque
+        la categoría no sea de su área (debe poder devolverlo/operarlo)."""
+        db = MagicMock()
+        ticket = _ticket(requester_id=99, category_code='AC', coordinator_id=7)
+        with self._patch_roles(['maint_area_coordinator']):
+            with patch(
+                "itcj2.apps.maint.services.coordinator_service.CoordinatorService.get_coordinator_areas",
+                return_value=['ELECTRICAL'],
+            ):
+                assert ticket_service.can_user_view_ticket(db, ticket, user_id=7) is True
 
 
 # ─────────────────────────────────────────────────────────────────────

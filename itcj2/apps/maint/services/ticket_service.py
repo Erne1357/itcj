@@ -209,15 +209,35 @@ def list_tickets(
     """
     query = db.query(MaintTicket)
 
-    # Acceso total: admin, dispatcher y coordinadores (read.all + operan tableros).
-    # tech_maint YA NO: ve solo asignados / propios / de su área (D-G/H3); antes
-    # estaba en FULL_ACCESS y veía TODOS los tickets del campus.
-    FULL_ACCESS_ROLES = {'admin', 'dispatcher',
-                         'maint_area_coordinator', 'maint_general_coordinator'}
+    # Acceso total: admin, dispatcher y coordinador GENERAL (read.all + operan tableros).
+    # tech_maint NO: ve solo asignados / propios / de su área (D-G/H3).
+    # maint_area_coordinator NO: ve solo SU(s) área(s) (categorías) + ruteados a él
+    # + asignados + propios. Antes estaba en FULL_ACCESS y veía TODO el campus.
+    FULL_ACCESS_ROLES = {'admin', 'dispatcher', 'maint_general_coordinator'}
     DEPT_ACCESS_ROLES = {'department_head', 'secretary'}
 
     if FULL_ACCESS_ROLES & set(user_roles):
         pass  # Sin restricción
+    elif 'maint_area_coordinator' in set(user_roles):
+        # El coordinador de área ve: tickets de las CATEGORÍAS de sus áreas de
+        # coordinación ∨ ruteados a él (coordinator_id) ∨ asignado activo ∨ propios.
+        from itcj2.apps.maint.models import MaintTicketTechnician
+        from itcj2.apps.maint.models.category import MaintCategory
+        from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+        area_codes = CoordinatorService.get_coordinator_areas(db, user_id)
+        assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
+            MaintTicketTechnician.user_id == user_id,
+            MaintTicketTechnician.unassigned_at.is_(None),
+        )
+        conds = [
+            MaintTicket.requester_id == user_id,
+            MaintTicket.coordinator_id == user_id,
+            MaintTicket.id.in_(assigned_subq),
+        ]
+        if area_codes:
+            cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
+            conds.append(MaintTicket.category_id.in_(cat_subq))
+        query = query.filter(or_(*conds))
     elif 'tech_maint' in set(user_roles):
         # D-G/H3: el técnico ve tickets ASIGNADOS a él, PROPIOS, o de categorías
         # de sus ÁREAS de especialidad (maint_technician_areas).
@@ -704,9 +724,9 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
 
     roles = set(user_roles_in_app(db, user_id, 'maint'))
 
-    # Acceso total: admin, dispatcher, coordinadores (read.all). tech_maint NO (D-G/H3).
-    if roles & {'admin', 'dispatcher',
-                'maint_area_coordinator', 'maint_general_coordinator'}:
+    # Acceso total: admin, dispatcher, coordinador GENERAL (read.all). tech_maint y
+    # maint_area_coordinator NO: tienen scope acotado (área/asignados/propios).
+    if roles & {'admin', 'dispatcher', 'maint_general_coordinator'}:
         return True
 
     # Propio
@@ -716,6 +736,15 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
     # Técnico asignado activo
     if any(t.user_id == user_id and t.unassigned_at is None for t in ticket.technicians):
         return True
+
+    # Coordinador de área: ruteado a él (coordinator_id) ∨ categoría de su(s) área(s).
+    if 'maint_area_coordinator' in roles:
+        if ticket.coordinator_id == user_id:
+            return True
+        from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+        area_codes = CoordinatorService.get_coordinator_areas(db, user_id)
+        if ticket.category and ticket.category.code in area_codes:
+            return True
 
     # tech_maint: ve tickets de categorías de sus áreas de especialidad (D-G/H3).
     if 'tech_maint' in roles:
