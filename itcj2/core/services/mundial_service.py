@@ -1,12 +1,14 @@
 """Servicio del tema Mundial 2026: fixture, zona horaria CJ, partidos del día.
 
-Parte 1 (este task): carga del fixture, helpers de tz y cálculo de 'hoy'.
-La parte 2 (cache Redis, merge de marcadores, scope, cron) se agrega en Task 3.
+Parte 1: carga del fixture, helpers de tz y cálculo de 'hoy'.
+Parte 2: cache Redis, merge de marcadores, scope, cron sync.
 """
 from __future__ import annotations
 
 import json
 import os
+
+from itcj2.core.utils.redis_conn import get_redis
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -104,3 +106,167 @@ def compute_today(fixtures: list[dict], now: datetime | None = None) -> dict:
         next_match = _decorate(future[0][1], tz, now_utc)
 
     return {"date": today_str, "tz": MUNDIAL_TZ, "matches": today_matches, "next_match": next_match}
+
+
+# ── Parte 2: cache Redis, merge de marcadores, scope, cron sync ──────────────
+
+THEME_NAME = "Mundial 2026"
+TASK_NAME = "itcj2.tasks.mundial_tasks.refresh_mundial_matches"
+PERIODIC_TASK_NAME = "Refresco diario de partidos del Mundial"
+
+_KEY_TODAY = "mundial:today"
+_KEY_FIXTURES = "mundial:fixtures:all"
+_KEY_RESULTS = "mundial:results"
+_TODAY_TTL = 26 * 3600  # ~26h
+
+# Proveedor de API (apagado por default)
+_PROVIDER = os.getenv("MUNDIAL_API_PROVIDER", "none").lower()
+_API_KEY = os.getenv("MUNDIAL_API_KEY", "")
+_API_URL = os.getenv("MUNDIAL_API_URL", "")
+
+
+def _fetch_api_scores(date_str: str) -> dict | None:
+    """Devuelve {match_id: {status, score}} desde la API si está habilitada, si no None.
+
+    Apagado por default (_PROVIDER='none'). Cualquier error -> None (degradar).
+    """
+    if _PROVIDER == "none" or not _API_KEY:
+        return None
+    try:
+        import httpx
+        # Implementación específica por proveedor. Esqueleto football-data.org:
+        if _PROVIDER == "footballdata":
+            url = _API_URL or "https://api.football-data.org/v4/competitions/WC/matches"
+            resp = httpx.get(url, params={"dateFrom": date_str, "dateTo": date_str},
+                             headers={"X-Auth-Token": _API_KEY}, timeout=8.0)
+            resp.raise_for_status()
+            out: dict = {}
+            for m in resp.json().get("matches", []):
+                # El mapeo id-API -> id-fixture depende del proveedor; aquí por equipos+fecha.
+                # Se deja como punto de extensión: requiere tabla de mapeo o match por nombres.
+                pass
+            return out or None
+        return None
+    except Exception:
+        return None
+
+
+def merge_scores(today: dict, api_data: dict | None) -> dict:
+    """Aplica marcadores de la API (por id) sobre los partidos de today."""
+    if not api_data:
+        return today
+    for m in today.get("matches", []):
+        upd = api_data.get(m.get("id"))
+        if upd:
+            m["status"] = upd.get("status", m.get("status"))
+            m["score"] = upd.get("score", m.get("score"))
+    return today
+
+
+def persist_results(today: dict) -> None:
+    """Guarda partidos finished con score en el hash mundial:results (persistente)."""
+    try:
+        r = get_redis()
+        for m in today.get("matches", []):
+            if m.get("status") == "finished" and m.get("score"):
+                r.hset(_KEY_RESULTS, m["id"], json.dumps({
+                    "status": "finished", "score": m["score"],
+                }))
+    except Exception:
+        pass
+
+
+def get_today_cached(force: bool = False) -> dict:
+    """Lee mundial:today de Redis; en miss/force recalcula, mergea API y cachea."""
+    r = None
+    try:
+        r = get_redis()
+        if not force:
+            cached = r.get(_KEY_TODAY)
+            if cached:
+                return json.loads(cached)
+    except Exception:
+        r = None
+
+    fixtures = load_fixtures()
+    today = compute_today(fixtures)
+    today = merge_scores(today, _fetch_api_scores(today["date"]))
+    persist_results(today)
+
+    try:
+        if r is not None:
+            r.setex(_KEY_TODAY, _TODAY_TTL, json.dumps(today))
+            r.setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(fixtures))
+    except Exception:
+        pass
+    return today
+
+
+def _load_results() -> dict:
+    try:
+        raw = get_redis().hgetall(_KEY_RESULTS) or {}
+        return {k: json.loads(v) for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+def get_matches(scope: str = "today") -> dict:
+    """Partidos por scope: today | past | upcoming | all (con marcadores cacheados)."""
+    if scope == "today":
+        return get_today_cached()
+
+    tz = _tz()
+    ref = now_cj()
+    today_str = ref.strftime("%Y-%m-%d")
+    results = _load_results()
+    fixtures = load_fixtures()
+
+    out = []
+    for m in fixtures:
+        dm = _decorate(m, tz)
+        res = results.get(m["id"])
+        if res:
+            dm["status"] = res.get("status", dm["status"])
+            dm["score"] = res.get("score", dm.get("score"))
+        local_date = _parse_utc(m["kickoff_utc"]).astimezone(tz).strftime("%Y-%m-%d")
+        if scope == "past" and local_date < today_str:
+            out.append(dm)
+        elif scope == "upcoming" and local_date > today_str:
+            out.append(dm)
+        elif scope == "all":
+            out.append(dm)
+
+    reverse = scope == "past"
+    out.sort(key=lambda x: x["kickoff_utc"], reverse=reverse)
+    return {"scope": scope, "date": today_str, "tz": MUNDIAL_TZ, "matches": out, "next_match": None}
+
+
+def is_theme_active(db) -> bool:
+    """True si el tema 'Mundial 2026' está activo."""
+    try:
+        from itcj2.core.services import themes_service
+        theme = themes_service.get_theme_by_name(db, THEME_NAME)
+        return bool(theme and theme.is_active())
+    except Exception:
+        return False
+
+
+def sync_periodic_task(db) -> bool:
+    """Pone core_periodic_tasks.is_active = (tema Mundial activo). Devuelve el estado aplicado."""
+    from sqlalchemy import text
+    active = is_theme_active(db)
+    db.execute(
+        text("UPDATE core_periodic_tasks SET is_active = :a, updated_at = NOW() WHERE task_name = :t"),
+        {"a": active, "t": TASK_NAME},
+    )
+    db.commit()
+    return active
+
+
+def clear_cache() -> None:
+    """Borra las keys de partidos (usado cuando el tema se desactiva)."""
+    try:
+        r = get_redis()
+        r.delete(_KEY_TODAY, _KEY_FIXTURES)
+    except Exception:
+        pass
