@@ -95,3 +95,29 @@ def test_sync_periodic_task_sets_active_from_theme():
     assert applied is True
     db.execute.assert_called()  # actualizó core_periodic_tasks
     db.commit.assert_called()
+
+
+def test_refresh_task_skips_when_theme_inactive():
+    import itcj2.tasks.mundial_tasks as mt
+    with patch("itcj2.tasks.mundial_tasks.SessionLocal") as mock_sl, \
+         patch("itcj2.core.services.mundial_service.is_theme_active", return_value=False), \
+         patch("itcj2.core.services.mundial_service.clear_cache") as mock_clear, \
+         patch("itcj2.core.services.mundial_service.sync_periodic_task"), \
+         patch("itcj2.core.services.mundial_service.get_today_cached") as mock_fetch:
+        mock_sl.return_value.__enter__.return_value = MagicMock()
+        result = mt._do_refresh()
+    assert result.get("skipped") == "theme_inactive"
+    mock_clear.assert_called_once()
+    mock_fetch.assert_not_called()
+
+
+def test_refresh_task_fetches_when_theme_active():
+    import itcj2.tasks.mundial_tasks as mt
+    with patch("itcj2.tasks.mundial_tasks.SessionLocal") as mock_sl, \
+         patch("itcj2.core.services.mundial_service.is_theme_active", return_value=True), \
+         patch("itcj2.core.services.mundial_service.get_today_cached",
+               return_value={"date": "2026-06-18", "matches": [{"id": "A"}]}) as mock_fetch:
+        mock_sl.return_value.__enter__.return_value = MagicMock()
+        result = mt._do_refresh()
+    assert result["matches_count"] == 1
+    mock_fetch.assert_called_once_with(force=True)
