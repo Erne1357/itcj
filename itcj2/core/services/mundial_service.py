@@ -64,12 +64,13 @@ def _derive_status(kick_utc: datetime, now_utc: datetime) -> str:
     return "finished"
 
 
-def _decorate(match: dict, tz) -> dict:
+def _decorate(match: dict, tz, now_utc=None) -> dict:
     """Agrega kickoff_local/label/status a una copia del partido."""
     from datetime import timezone
     kick_utc = _parse_utc(match["kickoff_utc"])
     local = kick_utc.astimezone(tz)
-    now_utc = datetime.now(timezone.utc)
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
     out = dict(match)
     out["kickoff_local"] = local.strftime("%H:%M")
     out["kickoff_label"] = local.strftime("%d/%m %H:%M")
@@ -84,12 +85,15 @@ def compute_today(fixtures: list[dict], now: datetime | None = None) -> dict:
     ref = now.astimezone(tz) if now else now_cj()
     today_str = ref.strftime("%Y-%m-%d")
 
+    from datetime import timezone
+    now_utc = ref.astimezone(timezone.utc)
+
     today_matches = []
     future = []
     for m in fixtures:
         local = _parse_utc(m["kickoff_utc"]).astimezone(tz)
         if local.strftime("%Y-%m-%d") == today_str:
-            today_matches.append(_decorate(m, tz))
+            today_matches.append(_decorate(m, tz, now_utc))
         elif local > ref:
             future.append((local, m))
 
@@ -97,6 +101,6 @@ def compute_today(fixtures: list[dict], now: datetime | None = None) -> dict:
     next_match = None
     if future:
         future.sort(key=lambda x: x[0])
-        next_match = _decorate(future[0][1], tz)
+        next_match = _decorate(future[0][1], tz, now_utc)
 
     return {"date": today_str, "tz": MUNDIAL_TZ, "matches": today_matches, "next_match": next_match}

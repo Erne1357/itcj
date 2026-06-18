@@ -20,8 +20,8 @@ def test_compute_today_filters_by_cj_date_and_formats_local():
          "group": "B", "home": {"code": "CAN", "name": "Canada", "flag": "x"},
          "away": {"code": "TBD", "name": "Por definir", "flag": "y"}, "venue": "v"},
     ]
-    # 2026-06-18 12:00 en CJ (MDT, UTC-6) => mismo día que el primer partido (19:00Z = 13:00 CJ)
-    now = datetime(2026, 6, 18, 12, 0, tzinfo=ZoneInfo("America/Ojinaga"))
+    # 2026-06-18 12:00 en Cd. Juárez (MDT, UTC-6) == 18:00Z; el partido A (19:00Z) es hoy y futuro
+    now = datetime(2026, 6, 18, 12, 0, tzinfo=ZoneInfo("America/Ciudad_Juarez"))
     result = mundial_service.compute_today(fixtures, now=now)
 
     assert result["date"] == "2026-06-18"
@@ -29,6 +29,6 @@ def test_compute_today_filters_by_cj_date_and_formats_local():
     m = result["matches"][0]
     assert m["id"] == "A"
     assert m["kickoff_local"] == "13:00"
-    assert m["status"] in ("scheduled", "live", "finished")
+    assert m["status"] == "scheduled"
     # next_match apunta al de mañana
     assert result["next_match"]["id"] == "B"
