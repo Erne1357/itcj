@@ -151,6 +151,11 @@ def _fetch_api_scores(date_str: str) -> dict | None:
         return None
 
 
+def get_provider_name() -> str:
+    """Nombre del proveedor de marcadores configurado ('none' si está apagado)."""
+    return _PROVIDER
+
+
 def merge_scores(today: dict, api_data: dict | None) -> dict:
     """Aplica marcadores de la API (por id) sobre los partidos de today (sin mutar el input)."""
     if not api_data:

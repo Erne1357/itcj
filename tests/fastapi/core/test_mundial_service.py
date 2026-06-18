@@ -116,8 +116,10 @@ def test_refresh_task_fetches_when_theme_active():
     with patch("itcj2.tasks.mundial_tasks.SessionLocal") as mock_sl, \
          patch("itcj2.core.services.mundial_service.is_theme_active", return_value=True), \
          patch("itcj2.core.services.mundial_service.get_today_cached",
-               return_value={"date": "2026-06-18", "matches": [{"id": "A"}]}) as mock_fetch:
+               return_value={"date": "2026-06-18", "matches": [{"id": "A"}]}) as mock_fetch, \
+         patch("itcj2.core.services.mundial_service.sync_periodic_task") as mock_sync:
         mock_sl.return_value.__enter__.return_value = MagicMock()
         result = mt._do_refresh()
     assert result["matches_count"] == 1
     mock_fetch.assert_called_once_with(force=True)
+    mock_sync.assert_not_called()

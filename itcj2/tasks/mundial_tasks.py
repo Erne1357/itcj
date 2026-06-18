@@ -33,13 +33,14 @@ def _do_refresh() -> dict:
             logger.info("[mundial] tema inactivo — cache limpiado y cron apagado")
             return {"skipped": "theme_inactive"}
 
+    # get_today_cached usa solo Redis; no necesita la sesión DB de arriba.
     today = mundial_service.get_today_cached(force=True)
     count = len(today.get("matches", []))
     logger.info("[mundial] cache refrescado — %d partidos hoy (%s)", count, today.get("date"))
     return {
         "date": today.get("date"),
         "matches_count": count,
-        "provider": mundial_service._PROVIDER,
+        "provider": mundial_service.get_provider_name(),
     }
 
 
