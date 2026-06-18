@@ -17,8 +17,9 @@ def test_get_active_theme_returns_theme_and_passes_db():
         result = _get_active_theme()
 
     assert result == {"id": 1, "name": "Mundial 2026"}
-    # Se llamó con una sesión real (no None)
-    assert mock_get.call_args.args[0] is not None
+    # Se llamó con la sesión producida por el context manager de SessionLocal
+    mock_sl.assert_called_once()
+    assert mock_get.call_args.args[0] is mock_sl.return_value.__enter__.return_value
     # Se escribió el cache
     assert fake_redis.set.called or fake_redis.setex.called
 
