@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import json
 import os
-
-from itcj2.core.utils.redis_conn import get_redis
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from itcj2.core.utils.redis_conn import get_redis
 
 try:
     from zoneinfo import ZoneInfo
@@ -152,15 +152,16 @@ def _fetch_api_scores(date_str: str) -> dict | None:
 
 
 def merge_scores(today: dict, api_data: dict | None) -> dict:
-    """Aplica marcadores de la API (por id) sobre los partidos de today."""
+    """Aplica marcadores de la API (por id) sobre los partidos de today (sin mutar el input)."""
     if not api_data:
         return today
+    new_matches = []
     for m in today.get("matches", []):
         upd = api_data.get(m.get("id"))
         if upd:
-            m["status"] = upd.get("status", m.get("status"))
-            m["score"] = upd.get("score", m.get("score"))
-    return today
+            m = {**m, "status": upd.get("status", m.get("status")), "score": upd.get("score", m.get("score"))}
+        new_matches.append(m)
+    return {**today, "matches": new_matches}
 
 
 def persist_results(today: dict) -> None:

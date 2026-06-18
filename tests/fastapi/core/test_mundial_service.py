@@ -53,7 +53,7 @@ def test_get_today_cached_fetch_on_miss_writes_cache():
          patch("itcj2.core.services.mundial_service._fetch_api_scores", return_value=None):
         result = mundial_service.get_today_cached()
     assert "matches" in result
-    assert fake_redis.setex.called  # escribió hoy + fixtures
+    assert fake_redis.setex.call_count == 2  # mundial:today + mundial:fixtures:all
 
 
 def test_merge_scores_applies_by_id():
