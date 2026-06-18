@@ -123,3 +123,32 @@ def test_refresh_task_fetches_when_theme_active():
     assert result["matches_count"] == 1
     mock_fetch.assert_called_once_with(force=True)
     mock_sync.assert_not_called()
+
+
+def test_mundial_task_in_celery_include():
+    from itcj2.celery_app import celery_app
+    assert "itcj2.tasks.mundial_tasks" in (celery_app.conf.include or [])
+
+
+def test_toggle_mundial_theme_syncs_cron():
+    from itcj2.core.services import themes_service, mundial_service
+    db = MagicMock()
+    fake_theme = MagicMock()
+    fake_theme.name = mundial_service.THEME_NAME
+    db.get.return_value = fake_theme
+    with patch("itcj2.core.services.mundial_service.sync_periodic_task") as mock_sync, \
+         patch("itcj2.core.services.themes_service.invalidate_active_theme_cache"):
+        themes_service.toggle_theme_enabled(db, 1, False)
+    mock_sync.assert_called_once_with(db)
+
+
+def test_toggle_other_theme_does_not_sync_cron():
+    from itcj2.core.services import themes_service
+    db = MagicMock()
+    fake_theme = MagicMock()
+    fake_theme.name = "Navidad"
+    db.get.return_value = fake_theme
+    with patch("itcj2.core.services.mundial_service.sync_periodic_task") as mock_sync, \
+         patch("itcj2.core.services.themes_service.invalidate_active_theme_cache"):
+        themes_service.toggle_theme_enabled(db, 1, False)
+    mock_sync.assert_not_called()

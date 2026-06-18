@@ -164,7 +164,7 @@
       if (!matches.length) {
         const nm = data.next_match;
         body.innerHTML = '<div class="mundial-empty">Sin partidos hoy.' +
-          (nm ? '<br>Próximo: ' + escapeHtml(nm.home.name) + ' vs ' + escapeHtml(nm.away.name) +
+          (nm ? '<br>Próximo: ' + escapeHtml(nm.home?.name) + ' vs ' + escapeHtml(nm.away?.name) +
             ' — ' + escapeHtml(nm.kickoff_label) : '') + '</div>';
         return;
       }
@@ -175,7 +175,7 @@
     }
 
     matchRow(m) {
-      const isMex = (m.home.code === 'MEX' || m.away.code === 'MEX');
+      const isMex = (m.home?.code === 'MEX' || m.away?.code === 'MEX');
       const mid = m.score
         ? '<span class="mundial-score">' + escapeHtml(m.score.home) + ' - ' + escapeHtml(m.score.away) + '</span>'
         : (m.status === 'finished'
@@ -183,9 +183,9 @@
             : '<span class="mundial-time">' + escapeHtml(m.kickoff_local) + '</span>');
       const live = m.status === 'live' ? '<div class="mundial-live">🔴 EN VIVO</div>' : '';
       return '<div class="mundial-match' + (isMex ? ' mex' : '') + '">' +
-        '<span class="mundial-team">' + escapeHtml(m.home.flag) + ' ' + escapeHtml(m.home.name) + '</span>' +
+        '<span class="mundial-team">' + escapeHtml(m.home?.flag) + ' ' + escapeHtml(m.home?.name) + '</span>' +
         mid +
-        '<span class="mundial-team away">' + escapeHtml(m.away.name) + ' ' + escapeHtml(m.away.flag) + '</span>' +
+        '<span class="mundial-team away">' + escapeHtml(m.away?.name) + ' ' + escapeHtml(m.away?.flag) + '</span>' +
         '</div>' + live;
     }
 

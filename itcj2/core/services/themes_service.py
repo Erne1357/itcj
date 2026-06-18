@@ -18,6 +18,16 @@ def invalidate_active_theme_cache() -> None:
         pass
 
 
+def _sync_mundial_cron(db: Session, theme_name: str | None) -> None:
+    """Si el tema afectado es el del Mundial, sincroniza el cron con su estado activo."""
+    try:
+        from itcj2.core.services import mundial_service
+        if theme_name == mundial_service.THEME_NAME:
+            mundial_service.sync_periodic_task(db)
+    except Exception:
+        pass
+
+
 def get_active_theme(db: Session) -> Optional[Theme]:
     """Obtiene la temática activa con mayor prioridad."""
     manual = (
@@ -79,6 +89,7 @@ def create_theme(db: Session, data: dict, created_by_id: Optional[int] = None) -
     db.add(theme)
     db.commit()
     invalidate_active_theme_cache()
+    _sync_mundial_cron(db, theme.name)
     return theme
 
 
@@ -102,6 +113,7 @@ def update_theme(db: Session, theme_id: int, **kwargs) -> Theme:
 
     db.commit()
     invalidate_active_theme_cache()
+    _sync_mundial_cron(db, theme.name)
     return theme
 
 
@@ -112,6 +124,7 @@ def toggle_theme_manual(db: Session, theme_id: int, active: bool) -> Theme:
     theme.is_manually_active = active
     db.commit()
     invalidate_active_theme_cache()
+    _sync_mundial_cron(db, theme.name)
     return theme
 
 
@@ -122,6 +135,7 @@ def toggle_theme_enabled(db: Session, theme_id: int, enabled: bool) -> Theme:
     theme.is_enabled = enabled
     db.commit()
     invalidate_active_theme_cache()
+    _sync_mundial_cron(db, theme.name)
     return theme
 
 
@@ -129,9 +143,11 @@ def delete_theme(db: Session, theme_id: int) -> bool:
     theme = db.get(Theme, theme_id)
     if not theme:
         raise ValueError('Temática no encontrada')
+    name = theme.name
     db.delete(theme)
     db.commit()
     invalidate_active_theme_cache()
+    _sync_mundial_cron(db, name)
     return True
 
 

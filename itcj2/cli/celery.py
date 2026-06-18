@@ -41,6 +41,12 @@ def sync_tasks():
     except ImportError:
         pass  # Aún no implementado en fase 1
 
+    try:
+        from itcj2.tasks import mundial_tasks
+        task_modules.append(mundial_tasks)
+    except ImportError:
+        pass
+
     all_definitions = []
     for module in task_modules:
         defs = getattr(module, "TASK_DEFINITIONS", [])
