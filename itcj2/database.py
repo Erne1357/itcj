@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Generator
 
 from sqlalchemy import create_engine
@@ -30,9 +31,63 @@ def get_db() -> Generator[Session, None, None]:
         @router.get("/")
         def endpoint(db: Session = Depends(get_db)):
             ...
+
+    Importante: hacemos rollback explícito antes de close() para garantizar
+    que pgbouncer (transaction mode) libere la conexión del servidor. Sin
+    esto, bajo cancelación de request (cliente desconecta, timeout, etc.)
+    el reset_on_return del pool puede no ejecutarse y la conexión queda
+    pinned "idle in transaction" hasta que postgres la mate. Si el endpoint
+    ya hizo commit/rollback, este rollback final es no-op.
     """
     db = SessionLocal()
     try:
         yield db
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+@contextmanager
+def session_scope() -> Generator[Session, None, None]:
+    """Context manager para usar fuera de dependencias FastAPI (CLI, middleware,
+    handlers de pages que necesitan SessionLocal directo, tareas Celery, etc.).
+
+    Mismas garantías que get_db(): rollback explícito antes de close() para
+    liberar la conexión en pgbouncer transaction mode sin importar el camino
+    de salida (success, exception, cancelación).
+
+    Uso:
+        from itcj2.database import session_scope
+        with session_scope() as db:
+            data = db.query(Model).all()
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
