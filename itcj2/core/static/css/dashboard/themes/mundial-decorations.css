@@ -1,0 +1,77 @@
+/* ============================================
+   TEMA MUNDIAL 2026 — decoraciones + widget + modal
+   ============================================ */
+:root {
+  --mundial-primary: #0B6E4F;
+  --mundial-secondary: #1A7A3D;
+  --mundial-accent: #FFD23F;
+}
+
+/* Banderines superiores */
+.mundial-bunting { position: fixed; top: 0; left: 0; width: 100%; height: 34px;
+  display: flex; pointer-events: none; z-index: 9998; }
+.mundial-flag { flex: 1; height: 26px; clip-path: polygon(0 0, 100% 0, 50% 100%);
+  animation: mundial-sway 3s ease-in-out infinite; transform-origin: top center; }
+.mundial-flag:nth-child(3n)   { background: var(--mundial-primary); }
+.mundial-flag:nth-child(3n+1) { background: var(--mundial-accent); }
+.mundial-flag:nth-child(3n+2) { background: #fff; }
+@keyframes mundial-sway { 0%,100% { transform: rotate(-2deg);} 50% { transform: rotate(2deg);} }
+
+/* Balón que rueda */
+.mundial-ball { position: fixed; bottom: 60px; left: -60px; width: 40px; height: 40px;
+  font-size: 40px; line-height: 40px; z-index: 9997; pointer-events: none;
+  animation: mundial-roll 8s linear forwards; }
+@keyframes mundial-roll {
+  from { left: -60px; transform: rotate(0deg); }
+  to   { left: 105vw; transform: rotate(1440deg); }
+}
+
+/* Confeti */
+.mundial-confetti { position: fixed; top: -10px; width: 8px; height: 14px;
+  z-index: 9996; pointer-events: none; opacity: 0.9; animation: mundial-fall linear forwards; }
+@keyframes mundial-fall { to { transform: translateY(105vh) rotate(540deg); opacity: 0.2; } }
+
+/* Reflectores */
+.mundial-lights::before, .mundial-lights::after {
+  content: ""; position: fixed; top: -40px; width: 240px; height: 240px;
+  background: radial-gradient(circle, rgba(255,210,63,0.18), transparent 70%);
+  pointer-events: none; z-index: 1; animation: mundial-shimmer 4s ease-in-out infinite alternate; }
+.mundial-lights::before { left: 8%; }
+.mundial-lights::after  { right: 8%; animation-delay: 2s; }
+@keyframes mundial-shimmer { from { opacity: 0.3; } to { opacity: 0.7; } }
+
+/* Widget flotante */
+#mundial-widget { position: fixed; top: 80px; right: 24px; width: 320px; max-width: 92vw;
+  background: #fff; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+  z-index: 10000; overflow: hidden; font-size: 14px; }
+#mundial-widget.hidden { display: none; }
+.mundial-widget-header { background: linear-gradient(135deg, var(--mundial-primary), var(--mundial-secondary));
+  color: #fff; padding: 10px 14px; cursor: move; display: flex; align-items: center; justify-content: space-between; }
+.mundial-widget-header strong { font-weight: 700; }
+.mundial-widget-actions button { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 16px; }
+.mundial-widget-body { max-height: 50vh; overflow-y: auto; }
+.mundial-match { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+.mundial-match.mex { background: rgba(11,110,79,0.07); }
+.mundial-team { flex: 1; display: flex; align-items: center; gap: 6px; }
+.mundial-team.away { justify-content: flex-end; text-align: right; }
+.mundial-score { font-weight: 700; min-width: 44px; text-align: center; }
+.mundial-time { font-size: 12px; color: #666; min-width: 44px; text-align: center; }
+.mundial-live { color: #e10600; font-weight: 700; font-size: 11px; }
+.mundial-empty { padding: 18px 14px; color: #777; text-align: center; }
+.mundial-widget-footer { padding: 8px 14px; border-top: 1px solid #eee; text-align: center; }
+
+/* Botón tray */
+#mundial-tray-btn { position: relative; }
+#mundial-tray-badge { position: absolute; top: -2px; right: -2px; background: #e10600; color: #fff;
+  border-radius: 10px; font-size: 9px; padding: 1px 5px; }
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .mundial-flag, .mundial-ball, .mundial-confetti, .mundial-lights::before, .mundial-lights::after { animation: none !important; }
+}
+
+/* Móvil: widget como tarjeta inferior */
+@media (max-width: 576px) {
+  #mundial-widget { top: auto; bottom: 12px; right: 8px; left: 8px; width: auto; }
+  .mundial-widget-header { cursor: default; }
+}
