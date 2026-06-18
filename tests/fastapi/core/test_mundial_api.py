@@ -41,7 +41,10 @@ class TestMundialMatches:
             svc.get_matches.side_effect = RuntimeError("boom")
             resp = app_client.get("/api/core/v2/mundial/matches", headers=auth_headers)
         assert resp.status_code == 200
-        assert resp.json()["data"]["matches"] == []
+        data = resp.json()["data"]
+        assert data["matches"] == []
+        assert data["next_match"] is None
+        assert data["scope"] == "today"
 
     def test_unauthenticated(self, app_client):
         resp = app_client.get("/api/core/v2/mundial/matches")

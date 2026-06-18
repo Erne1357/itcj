@@ -5,11 +5,10 @@ from typing import Literal
 from fastapi import APIRouter, Query
 
 from itcj2.dependencies import CurrentUser, DbSession
+from itcj2.core.services import mundial_service
 
 router = APIRouter(tags=["core-mundial"])
 logger = logging.getLogger("itcj2.mundial")
-
-from itcj2.core.services import mundial_service
 
 
 @router.get("/matches")
