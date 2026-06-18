@@ -116,15 +116,14 @@ def app_client():
             resp = app_client.get("/health")
             assert resp.status_code == 200
     """
-    # Mockear _init_flask_db para que no intente conectar a PostgreSQL
-    with patch("itcj2.main._init_flask_db"):
-        # Patchear el SECRET usado en middleware para que coincida con tests
-        with patch("itcj2.middleware._JWT_SECRET", TEST_SECRET):
-            from itcj2.main import create_app
+    # Patchear el SECRET usado en middleware para que coincida con tests.
+    # (create_app() ya no hace init de Flask-SQLAlchemy; no hay nada que mockear ahí.)
+    with patch("itcj2.middleware._JWT_SECRET", TEST_SECRET):
+        from itcj2.main import create_app
 
-            app = create_app()
-            with TestClient(app) as client:
-                yield client
+        app = create_app()
+        with TestClient(app) as client:
+            yield client
 
 
 @pytest.fixture()
