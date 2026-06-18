@@ -9,6 +9,15 @@ from sqlalchemy.orm import Session
 from itcj2.core.models.theme import Theme
 
 
+def invalidate_active_theme_cache() -> None:
+    """Borra el cache del tema activo (llamar tras crear/editar/activar/desactivar)."""
+    try:
+        from itcj2.core.utils.redis_conn import get_redis
+        get_redis().delete("core:active_theme")
+    except Exception:
+        pass
+
+
 def get_active_theme(db: Session) -> Optional[Theme]:
     """Obtiene la temática activa con mayor prioridad."""
     manual = (
@@ -69,6 +78,7 @@ def create_theme(db: Session, data: dict, created_by_id: Optional[int] = None) -
     )
     db.add(theme)
     db.commit()
+    invalidate_active_theme_cache()
     return theme
 
 
@@ -91,6 +101,7 @@ def update_theme(db: Session, theme_id: int, **kwargs) -> Theme:
             setattr(theme, key, value)
 
     db.commit()
+    invalidate_active_theme_cache()
     return theme
 
 
@@ -100,6 +111,7 @@ def toggle_theme_manual(db: Session, theme_id: int, active: bool) -> Theme:
         raise ValueError('Temática no encontrada')
     theme.is_manually_active = active
     db.commit()
+    invalidate_active_theme_cache()
     return theme
 
 
@@ -109,6 +121,7 @@ def toggle_theme_enabled(db: Session, theme_id: int, enabled: bool) -> Theme:
         raise ValueError('Temática no encontrada')
     theme.is_enabled = enabled
     db.commit()
+    invalidate_active_theme_cache()
     return theme
 
 
@@ -118,6 +131,7 @@ def delete_theme(db: Session, theme_id: int) -> bool:
         raise ValueError('Temática no encontrada')
     db.delete(theme)
     db.commit()
+    invalidate_active_theme_cache()
     return True
 
 
