@@ -58,8 +58,6 @@
 .mundial-time { font-size: 12px; color: #666; min-width: 44px; text-align: center; }
 .mundial-live { color: #e10600; font-weight: 700; font-size: 11px; }
 .mundial-empty { padding: 18px 14px; color: #777; text-align: center; }
-.mundial-widget-footer { padding: 8px 14px; border-top: 1px solid #eee; text-align: center; }
-
 /* Botón tray */
 #mundial-tray-btn { position: relative; }
 #mundial-tray-badge { position: absolute; top: -2px; right: -2px; background: #e10600; color: #fff;

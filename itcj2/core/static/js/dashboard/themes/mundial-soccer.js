@@ -116,12 +116,14 @@
         const r = el.getBoundingClientRect(); ox = r.left; oy = r.top;
         el.style.right = 'auto'; document.body.style.userSelect = 'none';
       });
-      window.addEventListener('mousemove', (e) => {
+      this._onDragMove = (e) => {
         if (!dragging) return;
         el.style.left = (ox + e.clientX - sx) + 'px';
         el.style.top = (oy + e.clientY - sy) + 'px';
-      });
-      window.addEventListener('mouseup', () => { dragging = false; document.body.style.userSelect = ''; });
+      };
+      this._onDragUp = () => { dragging = false; document.body.style.userSelect = ''; };
+      window.addEventListener('mousemove', this._onDragMove);
+      window.addEventListener('mouseup', this._onDragUp);
     }
 
     toggleWidget(show) {
@@ -146,7 +148,7 @@
 
     // ---------- Carga de partidos ----------
     loadMatches(scope) {
-      fetch(API + '?scope=' + scope, { credentials: 'same-origin' })
+      fetch(API + '?scope=' + encodeURIComponent(scope), { credentials: 'same-origin' })
         .then((r) => r.json())
         .then((j) => this.renderToday((j && j.data) || { matches: [] }))
         .catch(() => this.renderToday({ matches: [] }));
@@ -231,7 +233,7 @@
       // Agrupar por día (kickoff_label "dd/mm HH:MM" -> "dd/mm")
       const groups = {};
       matches.forEach((m) => {
-        const day = (m.kickoff_label || '').split(' ')[0] || m.kickoff_utc.slice(0, 10);
+        const day = (m.kickoff_label || '').split(' ')[0] || (m.kickoff_utc || '').slice(0, 10) || '?';
         (groups[day] = groups[day] || []).push(m);
       });
       body.innerHTML = Object.keys(groups).map((day) =>
@@ -243,6 +245,8 @@
     cleanup() {
       this.timers.forEach(clearInterval);
       if (this.pollTimer) clearInterval(this.pollTimer);
+      if (this._onDragMove) window.removeEventListener('mousemove', this._onDragMove);
+      if (this._onDragUp) window.removeEventListener('mouseup', this._onDragUp);
     }
   }
 
