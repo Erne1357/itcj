@@ -13,7 +13,7 @@ from sqlalchemy import text
 # so that service modules that import core models (e.g. themes_service) can be
 # imported later without hitting the itcj2.models ↔ itcj2.core.models circular
 # import chain.  This is a lightweight import: no DB connection is created.
-import itcj2.models.base  # noqa: F401
+import itcj2.models  # noqa: F401  # registra modelos antes de importar themes_service (evita import circular)
 
 # Raíz del proyecto: itcj2/cli/ → itcj2/ → project_root/
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -355,7 +355,7 @@ def new_theme_mundial_command():
     finally:
         db.close()
 
-    today = mundial_service.get_today_cached(force=True)
+    today = mundial_service.get_today_cached(force=True) or {}
 
     click.echo("\n🎉 Tema Mundial 2026 listo!")
     click.echo(f"   ✓ Tema activo (manual)")
