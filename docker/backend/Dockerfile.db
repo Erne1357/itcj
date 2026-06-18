@@ -5,5 +5,5 @@ ENV TZ = "America/Ciudad_Juarez"
 #COPY ../../database/DDL/0*.sql /docker-entrypoint-initdb.d/
 #COPY ../../database/DML/0*.sql /docker-entrypoint-initdb.d/
 #COPY ../../database/DML/1*.sql /docker-entrypoint-initdb.d/
-COPY ../../database/itcj_backup_2026-05-27.sql /docker-entrypoint-initdb.d/itcj_backup.sql
+COPY ../../database/backup_itcj_2026-06-18.sql /docker-entrypoint-initdb.d/itcj_backup.sql
 COPY ../../database/init-itcj.sh /docker-entrypoint-initdb.d/init-itcj.sh

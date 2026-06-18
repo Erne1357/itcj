@@ -3,124 +3,116 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>ITCJ - Inicio de sesión</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="{{url_for('static', filename='core/css/auth.css') }}?v={{ sv('core', 'css/auth.css') }}" rel="stylesheet">
     <link rel="shortcut icon" href="{{url_for('static', filename='core/icon/favicon.ico') }}?v={{ sv('core', 'icon/favicon.ico') }}" type="image/x-icon">
 </head>
 
-<body class="bg-body" style="min-height:100dvh;">
-    <div class="login-bg"></div>
-    <main class="container d-flex align-items-center justify-content-center" style="min-height:100dvh;">
-        <div class="card border-0 login-card">
-            <div class="card-body p-4 p-md-5">
-                <h1 class="mb-4 text-center fw-bold brand text-danger">ITCJ</h1>
+<body>
+    <!-- Fondo decorado -->
+    <div class="login-bg" aria-hidden="true">
+        <span class="bg-orb bg-orb-1"></span>
+        <span class="bg-orb bg-orb-2"></span>
+        <img class="bg-hare" src="{{url_for('static', filename='core/images/liebre.png') }}?v={{ sv('core', 'images/liebre.png') }}" alt="">
+    </div>
 
-                <form id="loginForm" class="needs-validation" novalidate>
-                    <div class="form-floating mb-3">
-                        <input type="text" class="form-control" id="control_number" placeholder="Usuario"
-                             required>
-                        <label for="control_number">Usuario</label>
-                        <div class="invalid-feedback">Ingresa tu usuario</div>
+    <main class="login-main">
+        <div class="login-card">
+
+            <!-- Panel de marca -->
+            <aside class="brand-side">
+                <span class="sheen" aria-hidden="true"></span>
+                <span class="orb orb-1" aria-hidden="true"></span>
+                <span class="orb orb-2" aria-hidden="true"></span>
+                <img class="hare-mark" src="{{url_for('static', filename='core/images/liebre.png') }}?v={{ sv('core', 'images/liebre.png') }}" alt="" aria-hidden="true">
+
+                <div class="brand-lockup">
+                    <img class="tecnm-logo" src="{{url_for('static', filename='core/images/LOGO_TECNM_BLANCO.png') }}?v={{ sv('core', 'images/LOGO_TECNM_BLANCO.png') }}" alt="Tecnológico Nacional de México">
+                    <span class="lockup-divider" aria-hidden="true"></span>
+                    <div>
+                        <div class="name">ITCJ</div>
+                        <div class="sub">Plataforma Digital</div>
+                    </div>
+                </div>
+
+                <div class="brand-hero">
+                    <span class="glow" aria-hidden="true"></span>
+                    <h2>Bienvenido <br>de nuevo.</h2>
+                    <p>Un solo inicio de sesión para todas las aplicaciones del Instituto Tecnológico de Cd. Juárez.</p>
+                </div>
+
+                <div class="brand-foot">
+                    <span>Acceso para estudiantes y personal</span>
+                </div>
+            </aside>
+
+            <!-- Formulario -->
+            <section class="form-side">
+                <h1>Inicia sesión</h1>
+                <p class="lead">Accede con tu número de control o usuario institucional.</p>
+
+                <form id="loginForm" class="login-form needs-validation" novalidate>
+                    <div id="alertBox" class="alert d-none" role="alert"></div>
+
+                    <div class="field">
+                        <label for="control_number">Número de control o usuario</label>
+                        <div class="input-wrap">
+                            <span class="lead-ic" aria-hidden="true">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            </span>
+                            <input type="text" class="form-control" id="control_number" placeholder="23111140" autocomplete="username" required>
+                        </div>
+                        <div class="invalid-feedback">Ingresa tu usuario.</div>
                     </div>
 
-                    <div class="form-floating mb-3">
-                        <input type="password" class="form-control" id="nip" placeholder="Contraseña" required>
-                        <label for="nip">Contraseña</label>
+                    <div class="field">
+                        <label for="nip">Contraseña / NIP</label>
+                        <div class="input-wrap has-eye">
+                            <span class="lead-ic" aria-hidden="true">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            </span>
+                            <input type="password" class="form-control" id="nip" placeholder="••••••••" autocomplete="current-password" required>
+                            <button type="button" class="toggle-pw" aria-label="Mostrar contraseña">
+                                <span class="icon-on" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span>
+                                <span class="icon-off" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-1.67 2.68"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3.5 7 10 7a9.1 9.1 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><line x1="2" y1="2" x2="22" y2="22"/></svg></span>
+                            </button>
+                        </div>
                         <div class="invalid-feedback">Ingresa tu contraseña.</div>
                     </div>
 
-                    <div id="alertBox" class="alert alert-danger mt-3 d-none" role="alert"></div>
+                    <button class="btn-login" id="btnLogin" type="submit">Iniciar sesión</button>
 
-                    <div class="d-grid">
-                        <button class="btn btn-danger btn-lg bgBlueTec" id="btnLogin" type="submit">
-                            Iniciar sesión
-                        </button>
-                    </div>
-
-                    <div class="text-center" style="margin-top: 1.5rem;">
-                        
-                        <!--a href="#" class="text-muted" style="font-size: 1rem;" data-bs-toggle="modal"
-                            data-bs-target="#infoModal">
-                            <i class="bi bi-info-circle"></i>
-                            <span>Información AgendaTec</span>
-                        </a-->
-
-                    </div>
+                    <div class="help-link"><a href="#">¿Necesitas ayuda para entrar?</a></div>
                 </form>
-            </div>
+            </section>
+
         </div>
     </main>
-
-    <!-- Modal de información -->
-    <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg"> <!-- cambia a modal-md si lo prefieres -->
-            <div class="modal-content border-0 rounded-4">
-                <div class="modal-header border-0">
-                    <h5 class="modal-title fw-bold" id="infoModalLabel">¿Cómo funciona AgendaTec?</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                </div>
-
-                <div class="modal-body pt-0">
-                    <div class="mb-4">
-                        <h6 class="fw-semibold mb-2 colorBlueTec">Tipos de solicitud</h6>
-                        <ul class="mb-0">
-                            <li><strong>Baja</strong>: se <u>crea únicamente una solicitud</u> en el sistema para que el
-                                coordinador la procese. <strong>NO</strong> se agenda cita.</li>
-                            <li><strong>Alta</strong> o <strong>Alta y Baja</strong>: se <u>agenda una cita</u> con el
-                                coordinador para revisar el caso (disponibilidad de grupo, cambios, profesor, etc.).
-                            </li>
-                        </ul>
-                    </div>
-
-                    <div class="mb-4">
-                        <h6 class="fw-semibold mb-2 colorBlueTec">Usuario y Contraseña</h6>
-                        <p class="mb-2"><strong>Estudiantes:</strong> Debes iniciar sesión con el mismo <strong>número de control</strong> y
-                            <strong>NIP</strong> que utilizas en:</p>
-                        <ul class="mb-2">
-                            <li><a href="http://sii.cdjuarez.tecnm.mx" _blank><em>sii.cdjuarez.tecnm.mx</em></a></li>
-                            <li><a href="http://siisae.cdjuarez.tecnm.mx" _blank><em>siisae.cdjuarez.tecnm.mx</em></a></li>
-                        </ul>
-                        <p class="mb-2">
-                            <strong>Importante:</strong> el número de control es normalmente de <u>8 dígitos</u>
-                            (ej. 23111140). Si eres de posgrado o traslado, tu número de control puede
-                            iniciar con una letra y tener 9 o 10 caracteres (ej. M21111182).
-                            Si tu correo institucional inicia con una letra como "L"
-                            (<code>L{número_de_control}@cdjuarez.tecnm.mx</code>),
-                            <u>esa "L" no forma parte</u> de tu número de control.
-                        </p>
-                        <p class="mb-0">
-                            <strong>Personal:</strong> Utiliza tu <strong>nombre de usuario</strong> y la <strong>contraseña</strong> asignada por el administrador.
-                        </p>
-                    </div>
-
-                    <div class="alert alert-light border shadow-sm small mb-0" role="alert"
-                        style="border-radius: .75rem;">
-                        <div class="d-flex">
-                            <div class="me-2">ℹ️</div>
-                            <div>
-                                <strong>Consejo:</strong> verifica que tu solicitud sea la correcta.
-                                Solo puedes tener <u>una solicitud activa</u> a la vez; si la cancelas, podrás crear
-                                otra.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="modal-footer border-0 pt-0">
-                    <button type="button" class="btn btn-danger px-4" data-bs-dismiss="modal">Cerrar</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
     <script src="{{url_for('static', filename='core/js/auth.js') }}?v={{ sv('core', 'js/auth.js') }}" defer></script>
     <!-- iframe_bridge para detectar cuando login se carga en un iframe (sesión expirada en móvil) -->
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
+
+    <!-- Mostrar/ocultar contraseña (no requiere modificar auth.js) -->
+    <script>
+        document.querySelectorAll('.toggle-pw').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var input = btn.closest('.input-wrap').querySelector('input');
+                var show = input.type === 'password';
+                input.type = show ? 'text' : 'password';
+                btn.classList.toggle('is-visible', show);
+                btn.setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+            });
+        });
+    </script>
 </body>
 
 </html>

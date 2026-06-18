@@ -8,6 +8,7 @@ class WindowsDesktop {
       { id: 'agendatec', name: 'AgendaTec', icon: 'calendar' },
       { id: 'helpdesk', name: 'Help-Desk', icon: 'ticket', customImage: true },
       { id: 'maint', name: 'Mantenimiento', icon: 'wrench', customImage: true },
+      { id: 'app_prueba', name: 'Calidad (Prueba)', icon: 'clipboard-check', customImage: true },
       { id: 'titulatec', name: 'TitulaTec', icon: 'graduation-cap', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
       //{ id: 'compras', name: 'Compras', icon: 'shopping-cart' },
@@ -341,6 +342,16 @@ class WindowsDesktop {
         url: "/maint/",
         iframeSrc: "/maint/",
         icon: "wrench",
+      },
+      // App legacy Flask "app_prueba" (Calidad). Corre en su propio contenedor
+      // y puerto (localhost:8090), NO en itcj2. Se embebe por iframe; la cookie
+      // itcj_token se comparte en localhost (independiente del puerto) => SSO.
+      // URL local de prueba; al portarla a FastAPI cambiar a ruta interna "/app_prueba/".
+      app_prueba: {
+        name: "Calidad (Prueba)",
+        url: "http://localhost:8090/app_prueba/dashboard",
+        iframeSrc: "http://localhost:8090/app_prueba/dashboard",
+        icon: "clipboard-check",
       },
       titulatec: {
         name: "TitulaTec",

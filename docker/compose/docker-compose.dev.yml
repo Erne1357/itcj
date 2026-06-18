@@ -21,7 +21,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../../database/init-itcj.sh:/docker-entrypoint-initdb.d/init-itcj.sh:ro
-      - ../../database/itcj_backup_2026-05-27.sql:/docker-entrypoint-initdb.d/itcj_backup.sql:ro
+      - ../../database/backup_itcj_2026-06-18.sql:/docker-entrypoint-initdb.d/itcj_backup.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
