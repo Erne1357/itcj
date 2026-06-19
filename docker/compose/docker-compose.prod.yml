@@ -7,6 +7,11 @@ services:
   redis:
     restart: always
     image: redis:7
+    # 0.7 límites + cap de memoria seguro (noeviction: no descartar broker/holds).
+    # AOF/volumen persistente = tarea 1.7.
+    command: ["redis-server", "--maxmemory", "768mb", "--maxmemory-policy", "noeviction"]
+    mem_limit: 1g
+    cpus: 1.0
     ulimits:
       nofile:
         soft: 65536
@@ -28,6 +33,8 @@ services:
       context: ../..
       dockerfile: docker/backend/Dockerfile.db
     env_file: ../../.env.prod
+    mem_limit: 4g
+    cpus: 2.0
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -46,6 +53,8 @@ services:
       context: ../backend/pgbouncer
       dockerfile: Dockerfile
     restart: always
+    mem_limit: 256m
+    cpus: 1.0
     env_file: ../../.env.prod
     environment:
       - TZ=America/Ciudad_Juarez
@@ -71,6 +80,8 @@ services:
   # ============================================
   backend-blue:
     restart: always
+    mem_limit: 4g
+    cpus: 4.0
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -112,6 +123,8 @@ services:
   # ============================================
   backend-green:
     restart: always
+    mem_limit: 4g
+    cpus: 4.0
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -153,6 +166,8 @@ services:
   # ============================================
   celery-worker:
     restart: always
+    mem_limit: 2g
+    cpus: 2.0
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -183,6 +198,8 @@ services:
   # ============================================
   celery-beat:
     restart: always
+    mem_limit: 512m
+    cpus: 0.5
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -209,6 +226,8 @@ services:
   nginx:
     restart: always
     image: nginx:alpine
+    mem_limit: 192m
+    cpus: 1.0
     environment:
       TZ: America/Ciudad_Juarez
     volumes:
