@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     JWT_EXPIRES_HOURS: int = 12
     JWT_REFRESH_THRESHOLD_SECONDS: int = 2 * 3600  # 2 horas
 
+    # Authz cache (F1.1) — TTL en segundos del caché read-through de permisos
+    # efectivos por (usuario, app) en Redis. Red de seguridad si se omite una
+    # invalidación; bajar para refrescar más rápido a costa de más misses.
+    AUTHZ_CACHE_TTL: int = 300
+
     # Cookies
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"

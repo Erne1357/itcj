@@ -15,6 +15,25 @@ from itcj2.core.models.user import User
 
 logger = logging.getLogger(__name__)
 
+
+def _bust_user(user_id: int) -> None:
+    """Invalida el caché de authz del usuario en todas las apps (F1.1)."""
+    try:
+        from itcj2.core.services.authz_cache import invalidate_user
+        invalidate_user(user_id)
+    except Exception:
+        pass
+
+
+def _bust_all() -> None:
+    """Invalida TODO el caché de authz (cambios de puesto role/position-wide)."""
+    try:
+        from itcj2.core.services.authz_cache import invalidate_all
+        invalidate_all()
+    except Exception:
+        pass
+
+
 # ---------------------------
 # CRUD de Puestos
 # ---------------------------
@@ -82,6 +101,9 @@ def update_position(db: Session, position_id: int, **kwargs) -> Position:
             setattr(position, key, value)
 
     db.commit()
+    # Cambiar is_active de un puesto afecta el acceso de sus usuarios.
+    if 'is_active' in kwargs:
+        _bust_all()
     return position
 
 def deactivate_position(db: Session, position_id: int) -> bool:
@@ -101,6 +123,7 @@ def deactivate_position(db: Session, position_id: int) -> bool:
     })
 
     db.commit()
+    _bust_all()  # afecta a todos los usuarios del puesto
     return True
 
 def delete_position(db: Session, position_id: int) -> bool:
@@ -111,6 +134,7 @@ def delete_position(db: Session, position_id: int) -> bool:
 
     db.delete(position)
     db.commit()
+    _bust_all()  # afecta a todos los usuarios del puesto
     return True
 
 def get_position_by_id(db: Session, position_id: int) -> Optional[Position]:
@@ -163,6 +187,7 @@ def assign_user_to_position(
 
     db.add(assignment)
     db.commit()
+    _bust_user(user_id)
     return assignment
 
 def remove_user_from_position(db: Session, user_id: int, position_id: int, end_date: date = None) -> bool:
@@ -182,6 +207,7 @@ def remove_user_from_position(db: Session, user_id: int, position_id: int, end_d
     assignment.is_active = False
     assignment.end_date = end_date
     db.commit()
+    _bust_user(user_id)
     return True
 
 def transfer_position(
@@ -282,6 +308,7 @@ def assign_role_to_position(db: Session, position_id: int, app_key: str, role_na
 
     db.add(assignment)
     db.commit()
+    _bust_all()  # todos los usuarios del puesto ganan el rol
     return True
 
 def remove_role_from_position(db: Session, position_id: int, app_key: str, role_name: str) -> bool:
@@ -301,6 +328,8 @@ def remove_role_from_position(db: Session, position_id: int, app_key: str, role_
     ).delete()
 
     db.commit()
+    if deleted:
+        _bust_all()  # todos los usuarios del puesto pierden el rol
     return deleted > 0
 
 def assign_permission_to_position(
@@ -328,6 +357,7 @@ def assign_permission_to_position(
     if existing:
         existing.allow = allow
         db.commit()
+        _bust_all()  # todos los usuarios del puesto cambian permiso
         return True
 
     assignment = PositionAppPerm(
@@ -339,6 +369,7 @@ def assign_permission_to_position(
 
     db.add(assignment)
     db.commit()
+    _bust_all()  # todos los usuarios del puesto ganan el permiso
     return True
 
 def get_position_effective_permissions(db: Session, user_id: int, app_key: str) -> Set[str]:
