@@ -11,10 +11,10 @@ jobs:
   # Gate de calidad (1.4). El deploy depende de este job (needs: test).
   # - compileall: BLOQUEANTE — ataja el riesgo #1 (un syntax error / import roto
   #   llegando a prod en cada push a main).
-  # - ruff y pytest: INFORMATIVOS (continue-on-error) por ahora. La suite tiene
-  #   deuda pre-existente (tests con el path legacy "itcj." pre-migración FastAPI).
-  #   Cuando se limpie esa deuda, quitar continue-on-error de pytest para volverlo
-  #   bloqueante de verdad.
+  # - pytest: BLOQUEANTE — la deuda legacy ("itcj." pre-migración) ya se limpió;
+  #   la suite completa (891 tests) pasa. Si tarda mucho, optimizar con
+  #   pytest-xdist (-n auto) más adelante.
+  # - ruff: informativo (continue-on-error) — aún hay estilo por limpiar.
   # ---------------------------------------------------------------------------
   test:
     name: Quality gate (compile + lint + tests)
@@ -54,8 +54,7 @@ jobs:
         continue-on-error: true
         run: ruff check itcj2
 
-      - name: Tests (informativo hasta limpiar deuda legacy)
-        continue-on-error: true
+      - name: Tests (BLOQUEANTE — suite completa)
         env:
           DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
           MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
