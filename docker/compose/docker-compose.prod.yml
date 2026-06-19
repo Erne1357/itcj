@@ -8,10 +8,13 @@ services:
     restart: always
     image: redis:7
     # 0.7 límites + cap de memoria seguro (noeviction: no descartar broker/holds).
-    # AOF/volumen persistente = tarea 1.7.
-    command: ["redis-server", "--maxmemory", "768mb", "--maxmemory-policy", "noeviction"]
+    # 1.7 AOF + volumen persistente: un restart a media apertura NO evapora
+    # holds / room state Socket.IO / jobs Celery encolados.
+    command: ["redis-server", "--maxmemory", "768mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
     mem_limit: 1g
     cpus: 1.0
+    volumes:
+      - redisdata:/data
     ulimits:
       nofile:
         soft: 65536
@@ -35,6 +38,27 @@ services:
     env_file: ../../.env.prod
     mem_limit: 4g
     cpus: 2.0
+    # 1.9 tuning: stock (shared_buffers=128MB) desperdicia la RAM del host.
+    # max_connections se deja en 100 (pgbouncer fronts). Presupuestado para
+    # host compartido con SIIAP (su propio Postgres).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_parallel_workers_per_gather=2
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -101,7 +125,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/ready"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -144,7 +168,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/ready"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -253,3 +277,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

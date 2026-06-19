@@ -128,10 +128,32 @@ def create_app() -> FastAPI:
     from .routers import register_routers
     register_routers(app)
 
-    # Health check
+    # Liveness — barato, solo confirma que el proceso responde.
     @app.get("/health", tags=["system"])
     async def health():
         return {"ok": True, "server": "fastapi", "version": "2.0.0"}
+
+    # Readiness — confirma que PUEDE servir: DB (via pgbouncer) + Redis.
+    # El healthcheck de Docker y el gate de promoción de deploy.sh apuntan aquí,
+    # para que blue/green NO promueva un backend que booteó pero no conecta.
+    @app.get("/ready", tags=["system"])
+    def ready():
+        from sqlalchemy import text
+        errors = {}
+        try:
+            from itcj2.database import engine
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception as e:  # pragma: no cover
+            errors["db"] = str(e)
+        try:
+            from itcj2.core.utils.redis_conn import get_redis
+            get_redis().ping()
+        except Exception as e:  # pragma: no cover
+            errors["redis"] = str(e)
+        if errors:
+            return JSONResponse(status_code=503, content={"ready": False, "errors": errors})
+        return {"ready": True}
 
     # Error handlers
     _register_error_handlers(app)
