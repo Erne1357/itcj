@@ -710,9 +710,18 @@
     updateSubmitDisabled();
   });
 
+  let _firstSlotsLoad = true;
   async function loadSlots() {
     if (!state.program_id || !state.day) return;
     slotGrid.innerHTML = Skeleton.cards(2);
+
+    // 1.2 anti-herd: jitter SOLO en la primera carga. Al abrir las citas,
+    // miles de alumnos cargan la página en el mismo segundo; esparcir el primer
+    // fetch de slots 0-900ms aplana el pico contra el backend de un solo worker.
+    if (_firstSlotsLoad) {
+      _firstSlotsLoad = false;
+      await new Promise((res) => setTimeout(res, Math.floor(Math.random() * 900)));
+    }
 
     try {
       const r = await fetch(
