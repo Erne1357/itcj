@@ -25,11 +25,25 @@
 
     init() {
       if (!this.reduced) this.buildDecorations();
+      this.buildFab();
       this.buildWidget();
       this.buildTrayButton();
       this.buildModal();
       this.loadMatches('today');
       window.addEventListener('beforeunload', () => this.cleanup());
+    }
+
+    // FAB (mobile / sin system-tray): abajo-izquierda con el balón, abre el widget.
+    buildFab() {
+      const fab = document.createElement('button');
+      fab.id = 'mundial-fab';
+      fab.type = 'button';
+      fab.title = 'Partidos del Mundial';
+      fab.innerHTML = '⚽<span class="mundial-fab-badge" id="mundial-fab-badge" style="display:none">0</span>';
+      fab.addEventListener('click', () => this.toggleWidget());
+      document.body.appendChild(fab);
+      this.fab = fab;
+      this.fabBadge = fab.querySelector('#mundial-fab-badge');
     }
 
     // ---------- Decoraciones ----------
@@ -171,12 +185,14 @@
       const open = show == null ? this.widget.classList.contains('hidden') : show;
       this.widget.classList.toggle('hidden', !open);
       localStorage.setItem('mundialWidgetOpen', open ? '1' : '0');
+      // En mobile el FAB y la tarjeta comparten esquina: oculta el FAB mientras está abierto.
+      if (this.fab && this.isMobile) this.fab.style.display = open ? 'none' : '';
     }
 
-    // ---------- Botón en system-tray ----------
+    // ---------- Botón en system-tray (escritorio) ----------
     buildTrayButton() {
       const tray = document.querySelector('.system-tray');
-      if (!tray) return;
+      if (!tray) { if (this.fab) this.fab.classList.add('show'); return; }  // sin tray -> usa el FAB
       const btn = document.createElement('button');
       btn.id = 'mundial-tray-btn';
       btn.className = 'system-icon';
@@ -198,10 +214,13 @@
     renderToday(data) {
       const body = this.widget.querySelector('#mundial-widget-body');
       const matches = data.matches || [];
-      if (this.trayBadge) {
-        this.trayBadge.textContent = matches.length;
-        this.trayBadge.style.display = matches.length ? '' : 'none';
-      }
+      const setBadge = (el) => {
+        if (!el) return;
+        el.textContent = matches.length;
+        el.style.display = matches.length ? '' : 'none';
+      };
+      setBadge(this.trayBadge);
+      setBadge(this.fabBadge);
       if (!matches.length) {
         const nm = data.next_match;
         body.innerHTML = '<div class="mundial-empty">Sin partidos hoy.' +
@@ -398,6 +417,7 @@
       if (this._onDragUp) window.removeEventListener('mouseup', this._onDragUp);
       if (this.garland) this.garland.remove();
       if (this.mexicoFlag) this.mexicoFlag.remove();
+      if (this.fab) this.fab.remove();
       document.body.classList.remove('mundial-lights');
       document.querySelectorAll('.mundial-float-flag, .mundial-ball, .mundial-confetti')
         .forEach((el) => el.remove());
