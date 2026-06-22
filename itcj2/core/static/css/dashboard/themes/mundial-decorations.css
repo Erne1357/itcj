@@ -153,9 +153,13 @@ body.mundial-modal-open .modal-backdrop { z-index: 99990 !important; }
 .mundial-legend-note { color: #999; font-style: italic; margin-left: auto; }
 
 /* Vista Bracket */
-.mundial-bracket { display: flex; gap: 14px; padding: 12px; overflow-x: auto; }
-.mundial-bk-col { min-width: 156px; display: flex; flex-direction: column; gap: 10px; justify-content: space-around; }
-.mundial-bk-h { font-weight: 700; color: var(--mundial-primary); text-align: center; font-size: 13px; }
+.mundial-bracket { display: flex; gap: 14px; padding: 12px; overflow-x: auto; align-items: stretch; }
+.mundial-bk-col { min-width: 156px; display: flex; flex-direction: column; }
+/* El header va fijo arriba; las tarjetas reparten con space-around sobre la MISMA altura en
+   cada columna -> cada ronda queda centrada entre sus dos feeders. */
+.mundial-bk-cards { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-around; }
+.mundial-bk-match { min-height: 46px; box-sizing: border-box; }
+.mundial-bk-h { flex: 0 0 auto; font-weight: 700; color: var(--mundial-primary); text-align: center; font-size: 13px; margin-bottom: 6px; }
 .mundial-bk-match { border: 1px solid #e3e3e3; border-radius: 8px; padding: 6px 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .mundial-bk-match.mex { border-color: var(--mundial-primary); background: rgba(0,104,71,.06); }
 .mundial-bk-team { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }

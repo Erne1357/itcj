@@ -428,17 +428,23 @@
         body.innerHTML = '<div class="mundial-empty">El bracket aparece cuando inicie la fase de eliminación.</div>';
         return;
       }
+      // Altura común del contenedor = ronda más grande × slot; así cada columna reparte
+      // parejo con space-around y cada partido queda centrado entre sus dos feeders.
+      const maxCount = Math.max(1, ...STAGES.map(([k]) => (byStage[k] || []).length));
+      const minH = maxCount * 66; // px por "slot" de partido
+
       const cols = STAGES.map(([key, label]) => {
         const ms = (byStage[key] || []).slice().sort((a, b) =>
           (a.kickoff_utc || '').localeCompare(b.kickoff_utc || ''));
         const cards = ms.map((m) => this.bracketCard(m)).join('') || '<div class="mundial-bk-empty">—</div>';
-        return '<div class="mundial-bk-col"><div class="mundial-bk-h">' + escapeHtml(label) + '</div>' + cards + '</div>';
+        return '<div class="mundial-bk-col"><div class="mundial-bk-h">' + escapeHtml(label) + '</div>' +
+          '<div class="mundial-bk-cards">' + cards + '</div></div>';
       }).join('');
       const third = (byStage['third'] || [])[0];
       const thirdHtml = third
         ? '<div class="mundial-bk-third"><div class="mundial-bk-h">3er lugar</div>' + this.bracketCard(third) + '</div>'
         : '';
-      body.innerHTML = '<div class="mundial-bracket">' + cols + '</div>' + thirdHtml;
+      body.innerHTML = '<div class="mundial-bracket" style="min-height:' + minH + 'px">' + cols + '</div>' + thirdHtml;
     }
 
     bracketCard(m) {
