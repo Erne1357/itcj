@@ -118,6 +118,11 @@
 .mundial-tabs .nav-link { color: var(--mundial-primary); font-weight: 600; }
 .mundial-tabs .nav-link.active { color: #000; }
 .mundial-day { margin: 14px 14px 4px; font-weight: 700; color: var(--mundial-primary); }
+.mundial-loadmore-wrap { text-align: center; padding: 10px 8px 4px; }
+.mundial-loadmore { background: var(--mundial-primary); color: #fff; border: none; border-radius: 20px;
+  padding: 7px 18px; font-size: 13px; font-weight: 600; cursor: pointer; transition: filter .15s ease; }
+.mundial-loadmore:hover { filter: brightness(1.12); }
+.mundial-loadmore:active { transform: scale(.97); }
 
 /* Vista Grupos */
 .mundial-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; padding: 12px; }

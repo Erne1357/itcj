@@ -292,6 +292,7 @@
       const modal = bootstrap.Modal.getOrCreateInstance(this.modalEl);
       this._allMatches = null;   // refrescar datos en cada apertura (marcadores cambian)
       this._standings = null;
+      this._pastShown = null;    // reinicia el "cargar más"
       this.modalEl.querySelectorAll('#mundial-tabs .nav-link')
         .forEach((b, i) => b.classList.toggle('active', i === 0));
       modal.show();
@@ -330,15 +331,35 @@
 
     renderList(body, matches) {
       if (!matches.length) { body.innerHTML = '<div class="mundial-empty">Sin partidos.</div>'; return; }
+      const all = matches.slice().sort((a, b) => (a.kickoff_utc || '').localeCompare(b.kickoff_utc || ''));
+      const past = all.filter((m) => m.status === 'finished');
+      const rest = all.filter((m) => m.status !== 'finished');   // hoy + en vivo + próximos
+      if (this._pastShown == null) this._pastShown = 12;          // historial inicial
+      const shownPast = past.slice(Math.max(0, past.length - this._pastShown));
+      const hasMore = shownPast.length < past.length;
+      const visible = shownPast.concat(rest);                    // cronológico ascendente
+
       const groups = {};
-      matches.forEach((m) => {
+      visible.forEach((m) => {
         const day = (m.kickoff_label || '').split(' ')[0] || (m.kickoff_utc || '').slice(0, 10) || '?';
         (groups[day] = groups[day] || []).push(m);
       });
-      body.innerHTML = Object.keys(groups).map((day) =>
+      const loadMore = hasMore
+        ? '<div class="mundial-loadmore-wrap"><button class="mundial-loadmore" id="mundial-loadmore" type="button">' +
+          '⬆️ Cargar partidos anteriores (' + (past.length - shownPast.length) + ')</button></div>'
+        : '';
+      body.innerHTML = loadMore + Object.keys(groups).map((day) =>
         '<h6 class="mundial-day">' + escapeHtml(day) + '</h6>' +
         groups[day].map((m) => this.matchRow(m)).join('')
       ).join('');
+
+      const btn = body.querySelector('#mundial-loadmore');
+      if (btn) btn.addEventListener('click', () => {
+        const scrollY = body.scrollTop;
+        this._pastShown += 12;
+        this.renderList(body, matches);
+        body.scrollTop = scrollY;   // mantén la posición tras cargar más arriba
+      });
     }
 
     renderGroups(body, standings) {
