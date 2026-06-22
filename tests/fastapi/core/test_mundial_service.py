@@ -50,19 +50,31 @@ def test_get_today_cached_fetch_on_miss_writes_cache():
     fake_redis = MagicMock()
     fake_redis.get.return_value = None  # miss
     with patch("itcj2.core.services.mundial_service.get_redis", return_value=fake_redis), \
-         patch("itcj2.core.services.mundial_service._fetch_api_scores", return_value=None):
+         patch("itcj2.core.services.mundial_service._fetch_api_all", return_value=None):
         result = mundial_service.get_today_cached()
     assert "matches" in result
     assert fake_redis.setex.call_count == 2  # mundial:today + mundial:fixtures:all
 
 
-def test_merge_scores_applies_by_id():
+def test_api_match_to_fixture_maps_teams_and_score():
     from itcj2.core.services import mundial_service
-    today = {"date": "x", "matches": [{"id": "A", "status": "scheduled", "score": None}], "next_match": None}
-    api = {"A": {"status": "finished", "score": {"home": 2, "away": 1}}}
-    merged = mundial_service.merge_scores(today, api)
-    assert merged["matches"][0]["status"] == "finished"
-    assert merged["matches"][0]["score"] == {"home": 2, "away": 1}
+    am = {
+        "id": 12345,
+        "utcDate": "2026-06-22T19:00:00Z",
+        "stage": "GROUP_STAGE",
+        "group": "GROUP_A",
+        "status": "FINISHED",
+        "homeTeam": {"name": "Mexico", "shortName": "Mexico", "tla": "MEX"},
+        "awayTeam": {"name": "Brazil", "shortName": "Brazil", "tla": "BRA"},
+        "score": {"fullTime": {"home": 2, "away": 1}},
+    }
+    fx = mundial_service._api_match_to_fixture(am)
+    assert fx["id"] == "FD-12345"
+    assert fx["home"]["code"] == "MEX" and fx["home"]["flag"] == "🇲🇽"
+    assert fx["away"]["code"] == "BRA"
+    assert fx["stage"] == "group" and fx["group"] == "A"
+    assert fx["status"] == "finished"
+    assert fx["score"] == {"home": 2, "away": 1}
 
 
 def test_get_matches_past_scope():

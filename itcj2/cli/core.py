@@ -376,6 +376,16 @@ def mundial_refresh_command(hard: bool):
     if hard:
         click.echo("   🧹 Reset total (today + fixtures + results + active_theme)")
 
+    # Diagnóstico de la API (por qué salen o no los marcadores)
+    diag = mundial_service.api_diagnostic()
+    click.echo(f"   🔎 API: provider={diag['provider']} enabled={diag['enabled']} "
+               f"ok={diag['ok']} status={diag.get('status_code')} "
+               f"total={diag['count']} hoy={diag['today_count']}")
+    if diag.get("error"):
+        click.echo(f"   ⚠️  API error: {diag['error']}")
+    for s in diag.get("sample", []):
+        click.echo(f"        · {s}")
+
     today = mundial_service.get_today_cached(force=True) or {}
     matches = today.get("matches", [])
     with_score = sum(1 for m in matches if m.get("score"))

@@ -76,7 +76,8 @@ def _decorate(match: dict, tz, now_utc=None) -> dict:
     out = dict(match)
     out["kickoff_local"] = local.strftime("%H:%M")
     out["kickoff_label"] = local.strftime("%d/%m %H:%M")
-    out["status"] = _derive_status(kick_utc, now_utc)
+    # Si el partido ya trae status (p.ej. de la API), respétalo; si no, derívalo por hora.
+    out["status"] = match.get("status") or _derive_status(kick_utc, now_utc)
     out.setdefault("score", None)
     return out
 
@@ -140,99 +141,139 @@ def _map_fd_status(s: str | None) -> str:
     return "scheduled"
 
 
-def _fetch_api_scores(today_matches: list) -> dict | None:
-    """Devuelve {fixture_id: {status, score}} desde la API, o None si está apagada/falla.
+# Mapa TLA (football-data) -> bandera emoji. Default 🏳️ si no está.
+_TLA_FLAG = {
+    "MEX": "🇲🇽", "USA": "🇺🇸", "CAN": "🇨🇦", "BRA": "🇧🇷", "ARG": "🇦🇷",
+    "FRA": "🇫🇷", "GER": "🇩🇪", "ESP": "🇪🇸", "POR": "🇵🇹", "ENG": "🏴",
+    "NED": "🇳🇱", "BEL": "🇧🇪", "ITA": "🇮🇹", "CRO": "🇭🇷", "URU": "🇺🇾",
+    "COL": "🇨🇴", "JPN": "🇯🇵", "KOR": "🇰🇷", "AUS": "🇦🇺", "MAR": "🇲🇦",
+    "SEN": "🇸🇳", "GHA": "🇬🇭", "NGA": "🇳🇬", "CMR": "🇨🇲", "EGY": "🇪🇬",
+    "SUI": "🇨🇭", "DEN": "🇩🇰", "POL": "🇵🇱", "SRB": "🇷🇸", "ECU": "🇪🇨",
+    "CRC": "🇨🇷", "QAT": "🇶🇦", "KSA": "🇸🇦", "IRN": "🇮🇷", "TUN": "🇹🇳",
+    "WAL": "🏴", "SCO": "🏴", "AUT": "🇦🇹", "CZE": "🇨🇿", "TUR": "🇹🇷",
+    "UKR": "🇺🇦", "NOR": "🇳🇴", "SWE": "🇸🇪", "PER": "🇵🇪", "CHI": "🇨🇱",
+    "PAR": "🇵🇾", "VEN": "🇻🇪", "BOL": "🇧🇴", "PAN": "🇵🇦", "HON": "🇭🇳",
+    "JAM": "🇯🇲", "ALG": "🇩🇿", "CIV": "🇨🇮", "RSA": "🇿🇦", "NZL": "🇳🇿",
+}
 
-    Apagado por default (provider='none'). Mapea los partidos de la API a los del
-    fixture por el par de equipos: football-data da el `tla` (p.ej. MEX) que casa con
-    el `code` del fixture. Orienta el marcador según quién es local. Cualquier error
-    -> None (degradar a solo-horario, nunca rompe el dashboard).
+
+def _tla_flag(tla: str | None) -> str:
+    return _TLA_FLAG.get((tla or "").upper(), "🏳️")
+
+
+def _map_stage(s: str | None) -> str:
+    return {
+        "GROUP_STAGE": "group", "LAST_16": "round16", "ROUND_OF_16": "round16",
+        "QUARTER_FINALS": "quarter", "SEMI_FINALS": "semi",
+        "THIRD_PLACE": "third", "FINAL": "final",
+    }.get((s or "").upper(), (s or "group").lower())
+
+
+def _clean_group(g: str | None) -> str | None:
+    g = (g or "").upper().replace("GROUP_", "").replace("GROUP ", "").strip()
+    return g or None
+
+
+def _api_endpoint(api_url: str) -> str:
+    return api_url or "https://api.football-data.org/v4/competitions/WC/matches"
+
+
+def _api_match_to_fixture(am: dict) -> dict | None:
+    """Convierte un partido de football-data al shape de nuestro fixture."""
+    ku = am.get("utcDate")
+    if not ku:
+        return None
+    home = am.get("homeTeam") or {}
+    away = am.get("awayTeam") or {}
+    ft = (am.get("score") or {}).get("fullTime") or {}
+    hg, ag = ft.get("home"), ft.get("away")
+    return {
+        "id": "FD-" + str(am.get("id")),
+        "kickoff_utc": ku,
+        "stage": _map_stage(am.get("stage")),
+        "group": _clean_group(am.get("group")),
+        "home": {"code": (home.get("tla") or "").upper(),
+                 "name": home.get("shortName") or home.get("name") or "?",
+                 "flag": _tla_flag(home.get("tla"))},
+        "away": {"code": (away.get("tla") or "").upper(),
+                 "name": away.get("shortName") or away.get("name") or "?",
+                 "flag": _tla_flag(away.get("tla"))},
+        "venue": am.get("venue") or "",
+        "status": _map_fd_status(am.get("status")),
+        "score": {"home": hg, "away": ag} if (hg is not None and ag is not None) else None,
+    }
+
+
+def _fetch_api_all() -> list | None:
+    """Calendario completo del Mundial desde la API (equipos reales + marcadores),
+    en el shape de nuestro fixture. None si la API está apagada o falla.
+
+    Cuando la API está activa ES la fuente de verdad: resuelve el problema de los
+    rivales 'TBD' del fixture estático (que impedía casar marcadores). El JSON
+    estático queda solo como respaldo offline. Cualquier error -> None (degradar).
     """
     provider, api_key, api_url = _provider_cfg()
-    if provider == "none" or not api_key or not today_matches:
-        return None
-    if provider != "footballdata":
+    if provider != "footballdata" or not api_key:
         return None
     try:
         import httpx
-
-        # Rango de fechas UTC que cubre los partidos de hoy CJ (±1 día por zona horaria)
-        dates = []
-        for m in today_matches:
-            try:
-                dates.append(_parse_utc(m["kickoff_utc"]).date())
-            except Exception:
-                pass
-        if not dates:
-            return None
-        d_from = (min(dates) - timedelta(days=1)).isoformat()
-        d_to = (max(dates) + timedelta(days=1)).isoformat()
-
-        url = api_url or "https://api.football-data.org/v4/competitions/WC/matches"
-        resp = httpx.get(
-            url,
-            params={"dateFrom": d_from, "dateTo": d_to},
-            headers={"X-Auth-Token": api_key},
-            timeout=10.0,
-        )
+        resp = httpx.get(_api_endpoint(api_url), headers={"X-Auth-Token": api_key}, timeout=12.0)
         resp.raise_for_status()
-
-        # Indexar los partidos de la API por par de TLAs (sin orden)
-        api_by_pair: dict = {}
+        out = []
         for am in resp.json().get("matches", []):
-            home = am.get("homeTeam") or {}
-            away = am.get("awayTeam") or {}
-            h_tla = (home.get("tla") or "").upper()
-            a_tla = (away.get("tla") or "").upper()
-            if not h_tla or not a_tla:
-                continue
-            ft = (am.get("score") or {}).get("fullTime") or {}
-            api_by_pair[frozenset((h_tla, a_tla))] = {
-                "status": _map_fd_status(am.get("status")),
-                "home_tla": h_tla,
-                "home_goals": ft.get("home"),
-                "away_goals": ft.get("away"),
-            }
-
-        # Mapear a cada fixture por code, orientando el marcador al local/visitante correcto
-        out: dict = {}
-        for m in today_matches:
-            h_code = ((m.get("home") or {}).get("code") or "").upper()
-            a_code = ((m.get("away") or {}).get("code") or "").upper()
-            if not h_code or not a_code or "TBD" in (h_code, a_code):
-                continue
-            info = api_by_pair.get(frozenset((h_code, a_code)))
-            if not info:
-                continue
-            hg, ag = info["home_goals"], info["away_goals"]
-            score = None
-            if hg is not None and ag is not None:
-                if info["home_tla"] == h_code:
-                    score = {"home": hg, "away": ag}
-                else:  # la API tiene los equipos invertidos respecto al fixture
-                    score = {"home": ag, "away": hg}
-            out[m["id"]] = {"status": info["status"], "score": score}
+            fx = _api_match_to_fixture(am)
+            if fx:
+                out.append(fx)
         return out or None
     except Exception:
         return None
 
 
+def api_diagnostic() -> dict:
+    """Diagnóstico de la API de marcadores: por qué salen (o no) los partidos."""
+    provider, api_key, api_url = _provider_cfg()
+    info = {"provider": provider, "enabled": provider != "none" and bool(api_key),
+            "ok": False, "status_code": None, "error": None,
+            "count": 0, "today_count": 0, "sample": []}
+    if not info["enabled"]:
+        info["error"] = "provider='none' o sin API key (revisa MUNDIAL_API_PROVIDER / MUNDIAL_API_KEY en el entorno del contenedor)"
+        return info
+    if provider != "footballdata":
+        info["error"] = f"provider '{provider}' no soportado (usa 'footballdata')"
+        return info
+    try:
+        import httpx
+        resp = httpx.get(_api_endpoint(api_url), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        info["status_code"] = resp.status_code
+        resp.raise_for_status()
+        matches = resp.json().get("matches", [])
+        info["count"] = len(matches)
+        info["ok"] = True
+        tz = _tz()
+        today_str = now_cj().strftime("%Y-%m-%d")
+        for am in matches:
+            ku = am.get("utcDate")
+            if not ku:
+                continue
+            try:
+                if _parse_utc(ku).astimezone(tz).strftime("%Y-%m-%d") == today_str:
+                    info["today_count"] += 1
+            except Exception:
+                pass
+        for am in matches[:8]:
+            h = (am.get("homeTeam") or {}).get("tla") or "?"
+            a = (am.get("awayTeam") or {}).get("tla") or "?"
+            d = (am.get("utcDate") or "")[:10]
+            info["sample"].append(f"{h} vs {a} {d} [{am.get('status')}]")
+        return info
+    except Exception as e:
+        info["error"] = str(e)
+        return info
+
+
 def get_provider_name() -> str:
     """Nombre del proveedor de marcadores configurado ('none' si está apagado)."""
     return _provider_cfg()[0]
-
-
-def merge_scores(today: dict, api_data: dict | None) -> dict:
-    """Aplica marcadores de la API (por id) sobre los partidos de today (sin mutar el input)."""
-    if not api_data:
-        return today
-    new_matches = []
-    for m in today.get("matches", []):
-        upd = api_data.get(m.get("id"))
-        if upd:
-            m = {**m, "status": upd.get("status", m.get("status")), "score": upd.get("score", m.get("score"))}
-        new_matches.append(m)
-    return {**today, "matches": new_matches}
 
 
 def persist_results(today: dict) -> None:
@@ -249,7 +290,11 @@ def persist_results(today: dict) -> None:
 
 
 def get_today_cached(force: bool = False) -> dict:
-    """Lee mundial:today de Redis; en miss/force recalcula, mergea API y cachea."""
+    """Lee mundial:today de Redis; en miss/force recalcula y cachea.
+
+    Fuente de los partidos: la API (calendario real + marcadores) si está activa;
+    si no, el fixture estático de respaldo.
+    """
     r = None
     try:
         r = get_redis()
@@ -260,9 +305,9 @@ def get_today_cached(force: bool = False) -> dict:
     except Exception:
         r = None
 
-    fixtures = load_fixtures()
+    api_all = _fetch_api_all()
+    fixtures = api_all if api_all is not None else load_fixtures()
     today = compute_today(fixtures)
-    today = merge_scores(today, _fetch_api_scores(today["matches"]))
     persist_results(today)
 
     try:
@@ -282,6 +327,18 @@ def _load_results() -> dict:
         return {}
 
 
+def _get_fixtures_cached() -> list:
+    """Calendario cacheado (mundial:fixtures:all) — API si estaba activa al cachear;
+    si no hay cache, recurre al fixture estático."""
+    try:
+        raw = get_redis().get(_KEY_FIXTURES)
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return load_fixtures()
+
+
 def get_matches(scope: str = "today") -> dict:
     """Partidos por scope: today | past | upcoming | all (con marcadores cacheados)."""
     if scope == "today":
@@ -291,7 +348,7 @@ def get_matches(scope: str = "today") -> dict:
     ref = now_cj()
     today_str = ref.strftime("%Y-%m-%d")
     results = _load_results()
-    fixtures = load_fixtures()
+    fixtures = _get_fixtures_cached()
 
     out = []
     for m in fixtures:
