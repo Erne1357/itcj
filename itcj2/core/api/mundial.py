@@ -26,3 +26,15 @@ def get_matches(
     except Exception as exc:
         logger.warning("mundial/matches degradado: %s", exc)
         return {"success": True, "data": {"scope": scope, "matches": [], "next_match": None}}
+
+
+@router.get("/standings")
+def get_standings(user: CurrentUser, db: DbSession):
+    """Tablas de la fase de grupos del Mundial. Vacío si el tema no está activo. Nunca 5xx."""
+    try:
+        if not mundial_service.is_theme_active(db):
+            return {"success": True, "data": {"standings": []}}
+        return {"success": True, "data": {"standings": mundial_service.get_standings()}}
+    except Exception as exc:
+        logger.warning("mundial/standings degradado: %s", exc)
+        return {"success": True, "data": {"standings": []}}

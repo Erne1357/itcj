@@ -118,6 +118,7 @@ PERIODIC_TASK_NAME = "Refresco diario de partidos del Mundial"
 _KEY_TODAY = "mundial:today"
 _KEY_FIXTURES = "mundial:fixtures:all"
 _KEY_RESULTS = "mundial:results"
+_KEY_STANDINGS = "mundial:standings"
 _TODAY_TTL = 26 * 3600  # ~26h
 
 # Proveedor de API de marcadores (apagado por default). Se lee por-llamada (no al
@@ -163,7 +164,8 @@ def _tla_flag(tla: str | None) -> str:
 
 def _map_stage(s: str | None) -> str:
     return {
-        "GROUP_STAGE": "group", "LAST_16": "round16", "ROUND_OF_16": "round16",
+        "GROUP_STAGE": "group", "LAST_32": "round32",
+        "LAST_16": "round16", "ROUND_OF_16": "round16",
         "QUARTER_FINALS": "quarter", "SEMI_FINALS": "semi",
         "THIRD_PLACE": "third", "FINAL": "final",
     }.get((s or "").upper(), (s or "group").lower())
@@ -174,8 +176,25 @@ def _clean_group(g: str | None) -> str | None:
     return g or None
 
 
-def _api_endpoint(api_url: str) -> str:
-    return api_url or "https://api.football-data.org/v4/competitions/WC/matches"
+def _competition() -> str:
+    """Código de competición football-data (default 'WC'). Se deriva de
+    MUNDIAL_API_COMPETITION o de la URL configurada; nunca de filtros de fecha."""
+    comp = os.getenv("MUNDIAL_API_COMPETITION", "").strip()
+    if comp:
+        return comp
+    _, _, api_url = _provider_cfg()
+    if "/competitions/" in api_url:
+        return api_url.split("/competitions/")[-1].split("/")[0] or "WC"
+    return "WC"
+
+
+def _matches_endpoint() -> str:
+    # Sin parámetros de fecha: trae el calendario COMPLETO (los 104 partidos).
+    return f"https://api.football-data.org/v4/competitions/{_competition()}/matches"
+
+
+def _standings_endpoint() -> str:
+    return f"https://api.football-data.org/v4/competitions/{_competition()}/standings"
 
 
 def _api_match_to_fixture(am: dict) -> dict | None:
@@ -217,13 +236,53 @@ def _fetch_api_all() -> list | None:
         return None
     try:
         import httpx
-        resp = httpx.get(_api_endpoint(api_url), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        resp = httpx.get(_matches_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
         resp.raise_for_status()
         out = []
         for am in resp.json().get("matches", []):
             fx = _api_match_to_fixture(am)
             if fx:
                 out.append(fx)
+        return out or None
+    except Exception:
+        return None
+
+
+def _fetch_api_standings() -> list | None:
+    """Tablas de la fase de grupos desde la API. Lista de {group, table:[...]} o None."""
+    provider, api_key, _ = _provider_cfg()
+    if provider != "footballdata" or not api_key:
+        return None
+    try:
+        import httpx
+        resp = httpx.get(_standings_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        resp.raise_for_status()
+        out = []
+        for s in resp.json().get("standings", []):
+            # Solo la tabla total por grupo (ignora desgloses HOME/AWAY si los hubiera)
+            if s.get("type") and s.get("type") != "TOTAL":
+                continue
+            rows = []
+            for row in s.get("table", []):
+                team = row.get("team") or {}
+                rows.append({
+                    "position": row.get("position"),
+                    "team": {
+                        "name": team.get("shortName") or team.get("name") or "?",
+                        "code": (team.get("tla") or "").upper(),
+                        "flag": _tla_flag(team.get("tla")),
+                    },
+                    "played": row.get("playedGames"),
+                    "won": row.get("won"),
+                    "draw": row.get("draw"),
+                    "lost": row.get("lost"),
+                    "gf": row.get("goalsFor"),
+                    "ga": row.get("goalsAgainst"),
+                    "gd": row.get("goalDifference"),
+                    "points": row.get("points"),
+                })
+            if rows:
+                out.append({"group": _clean_group(s.get("group")), "table": rows})
         return out or None
     except Exception:
         return None
@@ -243,7 +302,7 @@ def api_diagnostic() -> dict:
         return info
     try:
         import httpx
-        resp = httpx.get(_api_endpoint(api_url), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        resp = httpx.get(_matches_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
         info["status_code"] = resp.status_code
         resp.raise_for_status()
         matches = resp.json().get("matches", [])
@@ -309,14 +368,36 @@ def get_today_cached(force: bool = False) -> dict:
     fixtures = api_all if api_all is not None else load_fixtures()
     today = compute_today(fixtures)
     persist_results(today)
+    # Este es el punto de refresco periódico: aprovecha para refrescar standings.
+    standings = _fetch_api_standings()
 
     try:
         if r is not None:
             r.setex(_KEY_TODAY, _TODAY_TTL, json.dumps(today))
             r.setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(fixtures))
+            if standings is not None:
+                r.setex(_KEY_STANDINGS, _TODAY_TTL, json.dumps(standings))
     except Exception:
         pass
     return today
+
+
+def get_standings() -> list:
+    """Tablas de la fase de grupos (cache mundial:standings, con fetch-on-miss)."""
+    try:
+        raw = get_redis().get(_KEY_STANDINGS)
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    st = _fetch_api_standings()
+    if st is not None:
+        try:
+            get_redis().setex(_KEY_STANDINGS, _TODAY_TTL, json.dumps(st))
+        except Exception:
+            pass
+        return st
+    return []
 
 
 def _load_results() -> dict:
@@ -328,14 +409,25 @@ def _load_results() -> dict:
 
 
 def _get_fixtures_cached() -> list:
-    """Calendario cacheado (mundial:fixtures:all) — API si estaba activa al cachear;
-    si no hay cache, recurre al fixture estático."""
+    """Calendario para los scopes past/upcoming/all y el bracket.
+
+    Orden: cache Redis (mundial:fixtures:all) → fetch-on-miss a la API (calendario
+    completo, lo cachea) → fixture estático de respaldo. Así Lista/Bracket traen los
+    104 partidos aunque el cron aún no haya calentado el cache.
+    """
     try:
         raw = get_redis().get(_KEY_FIXTURES)
         if raw:
             return json.loads(raw)
     except Exception:
         pass
+    api_all = _fetch_api_all()
+    if api_all is not None:
+        try:
+            get_redis().setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(api_all))
+        except Exception:
+            pass
+        return api_all
     return load_fixtures()
 
 
@@ -400,7 +492,7 @@ def clear_cache(hard: bool = False) -> None:
     """
     try:
         r = get_redis()
-        keys = [_KEY_TODAY, _KEY_FIXTURES]
+        keys = [_KEY_TODAY, _KEY_FIXTURES, _KEY_STANDINGS]
         if hard:
             keys += [_KEY_RESULTS, "core:active_theme"]
         r.delete(*keys)

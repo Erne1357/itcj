@@ -235,52 +235,160 @@
       if (anyLive) this.pollTimer = setInterval(() => this.loadMatches('today'), 60000);
     }
 
-    // ---------- Modal de resultados ----------
+    // ---------- Modal con 3 vistas: Partidos / Grupos / Bracket ----------
     buildModal() {
       const m = document.createElement('div');
       m.className = 'modal fade';
       m.id = 'mundial-results-modal';
       m.tabIndex = -1;
       m.innerHTML =
-        '<div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">' +
+        '<div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-md-down">' +
           '<div class="modal-content">' +
             '<div class="modal-header" style="background:var(--mundial-primary);color:#fff">' +
-              '<h5 class="modal-title">📅 Resultados anteriores</h5>' +
+              '<h5 class="modal-title">🏆 Mundial 2026</h5>' +
               '<button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>' +
             '</div>' +
+            '<ul class="nav nav-tabs mundial-tabs px-2 pt-2" id="mundial-tabs">' +
+              '<li class="nav-item"><button class="nav-link active" data-tab="list">Partidos</button></li>' +
+              '<li class="nav-item"><button class="nav-link" data-tab="groups">Grupos</button></li>' +
+              '<li class="nav-item"><button class="nav-link" data-tab="bracket">Bracket</button></li>' +
+            '</ul>' +
             '<div class="modal-body" id="mundial-modal-body"><div class="mundial-empty">Cargando...</div></div>' +
           '</div>' +
         '</div>';
       document.body.appendChild(m);
       this.modalEl = m;
+      this._allMatches = null;
+      this._standings = null;
+      m.querySelectorAll('#mundial-tabs .nav-link').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          m.querySelectorAll('#mundial-tabs .nav-link').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          this.loadTab(btn.getAttribute('data-tab'));
+        });
+      });
     }
 
     openModal() {
       const modal = bootstrap.Modal.getOrCreateInstance(this.modalEl);
-      const body = this.modalEl.querySelector('#mundial-modal-body');
-      body.innerHTML = '<div class="mundial-empty">Cargando...</div>';
+      this._allMatches = null;   // refrescar datos en cada apertura (marcadores cambian)
+      this._standings = null;
+      this.modalEl.querySelectorAll('#mundial-tabs .nav-link')
+        .forEach((b, i) => b.classList.toggle('active', i === 0));
       modal.show();
-      fetch(API + '?scope=past', { credentials: 'same-origin' })
-        .then((r) => r.json())
-        .then((j) => this.renderPast(body, ((j && j.data) || {}).matches || []))
-        .catch(() => { body.innerHTML = '<div class="mundial-empty">No se pudieron cargar los resultados.</div>'; });
+      this.loadTab('list');
     }
 
-    renderPast(body, matches) {
-      if (!matches.length) {
-        body.innerHTML = '<div class="mundial-empty">Aún no hay partidos jugados.</div>';
-        return;
+    _body() { return this.modalEl.querySelector('#mundial-modal-body'); }
+
+    loadTab(tab) {
+      const body = this._body();
+      body.innerHTML = '<div class="mundial-empty">Cargando...</div>';
+      if (tab === 'groups') {
+        this._fetchStandings()
+          .then((st) => this.renderGroups(body, st))
+          .catch(() => { body.innerHTML = '<div class="mundial-empty">No se pudieron cargar los grupos.</div>'; });
+      } else {
+        this._fetchAll()
+          .then((ms) => { tab === 'bracket' ? this.renderBracket(body, ms) : this.renderList(body, ms); })
+          .catch(() => { body.innerHTML = '<div class="mundial-empty">No se pudieron cargar los partidos.</div>'; });
       }
-      // Agrupar por día (kickoff_label "dd/mm HH:MM" -> "dd/mm")
+    }
+
+    _fetchAll() {
+      if (this._allMatches) return Promise.resolve(this._allMatches);
+      return fetch(API + '?scope=all', { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((j) => { this._allMatches = ((j && j.data) || {}).matches || []; return this._allMatches; });
+    }
+
+    _fetchStandings() {
+      if (this._standings) return Promise.resolve(this._standings);
+      return fetch('/api/core/v2/mundial/standings', { credentials: 'same-origin' })
+        .then((r) => r.json())
+        .then((j) => { this._standings = ((j && j.data) || {}).standings || []; return this._standings; });
+    }
+
+    renderList(body, matches) {
+      if (!matches.length) { body.innerHTML = '<div class="mundial-empty">Sin partidos.</div>'; return; }
       const groups = {};
       matches.forEach((m) => {
         const day = (m.kickoff_label || '').split(' ')[0] || (m.kickoff_utc || '').slice(0, 10) || '?';
         (groups[day] = groups[day] || []).push(m);
       });
       body.innerHTML = Object.keys(groups).map((day) =>
-        '<h6 class="mt-3">' + escapeHtml(day) + '</h6>' +
+        '<h6 class="mundial-day">' + escapeHtml(day) + '</h6>' +
         groups[day].map((m) => this.matchRow(m)).join('')
       ).join('');
+    }
+
+    renderGroups(body, standings) {
+      if (!standings.length) {
+        body.innerHTML = '<div class="mundial-empty">Tablas de grupos no disponibles todavía.</div>';
+        return;
+      }
+      body.innerHTML = '<div class="mundial-groups">' + standings.map((g) => {
+        const rows = (g.table || []).map((row) => {
+          const t = row.team || {};
+          const mex = t.code === 'MEX' ? ' class="mex"' : '';
+          return '<tr' + mex + '>' +
+            '<td>' + escapeHtml(row.position) + '</td>' +
+            '<td class="t">' + escapeHtml(t.flag) + ' ' + escapeHtml(t.name) + '</td>' +
+            '<td>' + escapeHtml(row.played) + '</td>' +
+            '<td>' + escapeHtml(row.won) + '</td>' +
+            '<td>' + escapeHtml(row.draw) + '</td>' +
+            '<td>' + escapeHtml(row.lost) + '</td>' +
+            '<td>' + escapeHtml(row.gd) + '</td>' +
+            '<td class="pts">' + escapeHtml(row.points) + '</td>' +
+          '</tr>';
+        }).join('');
+        return '<div class="mundial-group">' +
+          '<div class="mundial-group-h">Grupo ' + escapeHtml(g.group) + '</div>' +
+          '<table class="mundial-table"><thead><tr>' +
+            '<th>#</th><th class="t">Equipo</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>DG</th><th>Pts</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+
+    renderBracket(body, matches) {
+      const STAGES = [
+        ['round32', 'Dieciseisavos'], ['round16', 'Octavos'], ['quarter', 'Cuartos'],
+        ['semi', 'Semifinales'], ['final', 'Final'],
+      ];
+      const byStage = {};
+      matches.forEach((m) => { (byStage[m.stage] = byStage[m.stage] || []).push(m); });
+      const hasKnockout = STAGES.some(([k]) => (byStage[k] || []).length);
+      if (!hasKnockout) {
+        body.innerHTML = '<div class="mundial-empty">El bracket aparece cuando inicie la fase de eliminación.</div>';
+        return;
+      }
+      const cols = STAGES.map(([key, label]) => {
+        const ms = (byStage[key] || []).slice().sort((a, b) =>
+          (a.kickoff_utc || '').localeCompare(b.kickoff_utc || ''));
+        const cards = ms.map((m) => this.bracketCard(m)).join('') || '<div class="mundial-bk-empty">—</div>';
+        return '<div class="mundial-bk-col"><div class="mundial-bk-h">' + escapeHtml(label) + '</div>' + cards + '</div>';
+      }).join('');
+      const third = (byStage['third'] || [])[0];
+      const thirdHtml = third
+        ? '<div class="mundial-bk-third"><div class="mundial-bk-h">3er lugar</div>' + this.bracketCard(third) + '</div>'
+        : '';
+      body.innerHTML = '<div class="mundial-bracket">' + cols + '</div>' + thirdHtml;
+    }
+
+    bracketCard(m) {
+      const isMex = (m.home?.code === 'MEX' || m.away?.code === 'MEX');
+      const sc = m.score;
+      const line = (team, goals) =>
+        '<div class="mundial-bk-team">' +
+          '<span>' + escapeHtml(team?.flag) + ' ' + escapeHtml(team?.code || team?.name || '—') + '</span>' +
+          '<b>' + (goals == null ? '' : escapeHtml(goals)) + '</b>' +
+        '</div>';
+      const tag = m.status === 'live'
+        ? '<span class="mundial-bk-live">🔴 EN VIVO</span>'
+        : (m.status === 'finished' ? '' : '<span class="mundial-bk-time">' + escapeHtml(m.kickoff_label) + '</span>');
+      return '<div class="mundial-bk-match' + (isMex ? ' mex' : '') + '">' +
+        line(m.home, sc ? sc.home : null) + line(m.away, sc ? sc.away : null) + tag + '</div>';
     }
 
     cleanup() {

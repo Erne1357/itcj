@@ -96,6 +96,34 @@
 #mundial-tray-badge { position: absolute; top: -2px; right: -2px; background: #e10600; color: #fff;
   border-radius: 10px; font-size: 9px; padding: 1px 5px; }
 
+/* Modal 3 vistas: tabs */
+.mundial-tabs .nav-link { color: var(--mundial-primary); font-weight: 600; }
+.mundial-tabs .nav-link.active { color: #000; }
+.mundial-day { margin: 14px 14px 4px; font-weight: 700; color: var(--mundial-primary); }
+
+/* Vista Grupos */
+.mundial-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; padding: 12px; }
+.mundial-group { border: 1px solid #eee; border-radius: 10px; overflow: hidden; }
+.mundial-group-h { background: var(--mundial-primary); color: #fff; font-weight: 700; padding: 6px 10px; }
+.mundial-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mundial-table th, .mundial-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid #f1f1f1; }
+.mundial-table th.t, .mundial-table td.t { text-align: left; white-space: nowrap; }
+.mundial-table td.pts, .mundial-table th:last-child { font-weight: 700; }
+.mundial-table tr.mex { background: rgba(0,104,71,.10); font-weight: 600; }
+
+/* Vista Bracket */
+.mundial-bracket { display: flex; gap: 14px; padding: 12px; overflow-x: auto; }
+.mundial-bk-col { min-width: 156px; display: flex; flex-direction: column; gap: 10px; justify-content: space-around; }
+.mundial-bk-h { font-weight: 700; color: var(--mundial-primary); text-align: center; font-size: 13px; }
+.mundial-bk-match { border: 1px solid #e3e3e3; border-radius: 8px; padding: 6px 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.mundial-bk-match.mex { border-color: var(--mundial-primary); background: rgba(0,104,71,.06); }
+.mundial-bk-team { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
+.mundial-bk-team b { min-width: 16px; text-align: right; }
+.mundial-bk-time { font-size: 11px; color: #888; }
+.mundial-bk-live { font-size: 11px; color: #e10600; font-weight: 700; }
+.mundial-bk-empty { color: #bbb; text-align: center; padding: 8px; }
+.mundial-bk-third { padding: 0 12px 12px; max-width: 220px; }
+
 /* prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   .mundial-gflag, .mundial-float-flag, .mundial-mexico, .mundial-ball, .mundial-confetti,

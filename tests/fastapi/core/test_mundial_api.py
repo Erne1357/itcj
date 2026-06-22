@@ -49,3 +49,36 @@ class TestMundialMatches:
     def test_unauthenticated(self, app_client):
         resp = app_client.get("/api/core/v2/mundial/matches")
         assert resp.status_code == 401
+
+
+class TestMundialStandings:
+    def test_standings_ok(self, app_client, auth_headers):
+        fake = [{"group": "A", "table": [{"position": 1, "team": {"name": "Mexico", "code": "MEX", "flag": "x"}, "points": 6}]}]
+        with patch("itcj2.core.api.mundial.mundial_service") as svc:
+            svc.is_theme_active.return_value = True
+            svc.get_standings.return_value = fake
+            resp = app_client.get("/api/core/v2/mundial/standings", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["standings"][0]["group"] == "A"
+        svc.get_standings.assert_called_once_with()
+
+    def test_standings_empty_when_theme_inactive(self, app_client, auth_headers):
+        with patch("itcj2.core.api.mundial.mundial_service") as svc:
+            svc.is_theme_active.return_value = False
+            resp = app_client.get("/api/core/v2/mundial/standings", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["data"]["standings"] == []
+        svc.get_standings.assert_not_called()
+
+    def test_standings_never_500(self, app_client, auth_headers):
+        with patch("itcj2.core.api.mundial.mundial_service") as svc:
+            svc.is_theme_active.return_value = True
+            svc.get_standings.side_effect = RuntimeError("boom")
+            resp = app_client.get("/api/core/v2/mundial/standings", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["data"]["standings"] == []
+
+    def test_standings_unauthenticated(self, app_client):
+        resp = app_client.get("/api/core/v2/mundial/standings")
+        assert resp.status_code == 401
