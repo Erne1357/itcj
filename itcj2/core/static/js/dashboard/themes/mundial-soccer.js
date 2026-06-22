@@ -34,28 +34,69 @@
 
     // ---------- Decoraciones ----------
     buildDecorations() {
-      if (this.deco.bunting?.enabled) this.buildBunting();
-      if (this.deco.lights?.enabled) document.body.classList.add('mundial-lights');
-      if (this.deco.ball?.enabled && !this.isMobile) {
-        this.spawnBall();
-        this.timers.push(setInterval(() => this.spawnBall(), this.deco.ball.interval || 150000));
+      const d = this.deco;
+      if (d.flags?.enabled || d.bunting?.enabled) this.buildFlagGarland();
+      if (d.mexico_flag?.enabled) this.buildMexicoFlag();
+      if (d.lights?.enabled) document.body.classList.add('mundial-lights');
+      if (d.floating_flags?.enabled) {
+        this.spawnFloatingFlag();
+        this.timers.push(setInterval(() => this.spawnFloatingFlag(), this.isMobile ? 3500 : 2200));
       }
-      if (this.deco.confetti?.enabled) {
-        this.timers.push(setInterval(() => this.burstConfetti(this.isMobile ? 10 : 24), 60000));
+      if (d.ball?.enabled && !this.isMobile) {
+        this.spawnBall();
+        this.timers.push(setInterval(() => this.spawnBall(), d.ball.interval || 120000));
+      }
+      if (d.confetti?.enabled) {
+        this.timers.push(setInterval(() => this.burstConfetti(this.isMobile ? 12 : 26), 60000));
       }
     }
 
-    buildBunting() {
+    // Gradientes de banderas (CSS) para la guirnalda; México va resaltado cada 3.
+    buildFlagGarland() {
+      const MEX = 'linear-gradient(90deg,#006847 0 33.33%,#fff 33.33% 66.66%,#ce1126 66.66%)';
+      const OTHERS = [
+        'linear-gradient(180deg,#009b3a 62%,#fedf00 62%)',                 // Brasil
+        'linear-gradient(180deg,#75aadb 33%,#fff 33% 66%,#75aadb 66%)',    // Argentina
+        'linear-gradient(90deg,#0055A4 33%,#fff 33% 66%,#EF4135 66%)',     // Francia
+        'linear-gradient(180deg,#000 33%,#D00 33% 66%,#FFCE00 66%)',       // Alemania
+        'linear-gradient(180deg,#AA151B 25%,#F1BF00 25% 75%,#AA151B 75%)', // España
+        'linear-gradient(180deg,#C8102E 50%,#fff 50%)',                    // genérica
+      ];
       const wrap = document.createElement('div');
-      wrap.className = 'mundial-bunting';
-      const n = this.isMobile ? 14 : 28;
+      wrap.className = 'mundial-garland';
+      const n = this.isMobile ? 16 : 30;
       for (let i = 0; i < n; i++) {
         const f = document.createElement('div');
-        f.className = 'mundial-flag';
-        f.style.animationDelay = (i * 0.1) + 's';
+        const isMex = (i % 3 === 0);
+        f.className = 'mundial-gflag' + (isMex ? ' mex' : '');
+        f.style.background = isMex ? MEX : OTHERS[i % OTHERS.length];
+        f.style.animationDelay = (i * 0.08) + 's';
         wrap.appendChild(f);
       }
       document.body.appendChild(wrap);
+      this.garland = wrap;
+    }
+
+    buildMexicoFlag() {
+      const flag = document.createElement('div');
+      flag.className = 'mundial-mexico';
+      flag.innerHTML = '<span class="mundial-mexico-label">MÉXICO</span>';
+      document.body.appendChild(flag);
+      this.mexicoFlag = flag;
+    }
+
+    spawnFloatingFlag() {
+      // Mayoría México (🇲🇽 repetido), más otras selecciones.
+      const FLAGS = ['🇲🇽', '🇲🇽', '🇲🇽', '🇧🇷', '🇦🇷', '🇫🇷', '🇩🇪', '🇪🇸', '🇵🇹', '🇺🇸', '🇨🇦', '🇯🇵'];
+      const el = document.createElement('div');
+      el.className = 'mundial-float-flag';
+      el.textContent = FLAGS[Math.floor(Math.random() * FLAGS.length)];
+      el.style.left = (Math.random() * 96) + 'vw';
+      el.style.fontSize = (24 + Math.random() * 18) + 'px';
+      const dur = 7 + Math.random() * 5;
+      el.style.animationDuration = dur + 's';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), dur * 1000 + 300);
     }
 
     spawnBall() {
@@ -63,11 +104,11 @@
       b.className = 'mundial-ball';
       b.textContent = '⚽';
       document.body.appendChild(b);
-      setTimeout(() => b.remove(), 8200);
+      setTimeout(() => b.remove(), 7200);
     }
 
     burstConfetti(count) {
-      const colors = ['#0B6E4F', '#FFD23F', '#ffffff', '#1A7A3D'];
+      const colors = ['#006847', '#ffffff', '#ce1126', '#FFD23F']; // verde, blanco, rojo (México) + dorado
       for (let i = 0; i < count; i++) {
         const c = document.createElement('div');
         c.className = 'mundial-confetti';
@@ -247,6 +288,11 @@
       if (this.pollTimer) clearInterval(this.pollTimer);
       if (this._onDragMove) window.removeEventListener('mousemove', this._onDragMove);
       if (this._onDragUp) window.removeEventListener('mouseup', this._onDragUp);
+      if (this.garland) this.garland.remove();
+      if (this.mexicoFlag) this.mexicoFlag.remove();
+      document.body.classList.remove('mundial-lights');
+      document.querySelectorAll('.mundial-float-flag, .mundial-ball, .mundial-confetti')
+        .forEach((el) => el.remove());
     }
   }
 

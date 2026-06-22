@@ -7,29 +7,62 @@
   --mundial-accent: #FFD23F;
 }
 
-/* Banderines superiores */
-.mundial-bunting { position: fixed; top: 0; left: 0; width: 100%; height: 34px;
-  display: flex; pointer-events: none; z-index: 9998; }
-.mundial-flag { flex: 1; height: 26px; clip-path: polygon(0 0, 100% 0, 50% 100%);
-  animation: mundial-sway 3s ease-in-out infinite; transform-origin: top center; }
-.mundial-flag:nth-child(3n)   { background: var(--mundial-primary); }
-.mundial-flag:nth-child(3n+1) { background: var(--mundial-accent); }
-.mundial-flag:nth-child(3n+2) { background: #fff; }
-@keyframes mundial-sway { 0%,100% { transform: rotate(-2deg);} 50% { transform: rotate(2deg);} }
-
-/* Balón que rueda */
-.mundial-ball { position: fixed; bottom: 60px; left: -60px; width: 40px; height: 40px;
-  font-size: 40px; line-height: 40px; z-index: 9997; pointer-events: none;
-  animation: mundial-roll 8s linear forwards; }
-@keyframes mundial-roll {
-  from { left: -60px; transform: rotate(0deg); }
-  to   { left: 105vw; transform: rotate(1440deg); }
+/* Guirnalda de banderas ondeando (arriba). El color de cada bandera lo pone el JS. */
+.mundial-garland { position: fixed; top: 0; left: 0; width: 100%; height: 48px;
+  display: flex; gap: 3px; padding: 0 4px; pointer-events: none; z-index: 9998; }
+.mundial-gflag { flex: 1 1 0; height: 40px; border-radius: 0 0 4px 4px;
+  box-shadow: 0 3px 6px rgba(0,0,0,.25); transform-origin: top center;
+  animation: mundial-wave 2.4s ease-in-out infinite; }
+.mundial-gflag.mex { height: 44px; box-shadow: 0 4px 10px rgba(206,17,38,.35); }
+@keyframes mundial-wave {
+  0%,100% { transform: perspective(220px) rotateY(-16deg) translateY(0); }
+  50%     { transform: perspective(220px) rotateY(16deg) translateY(4px); }
 }
 
-/* Confeti */
-.mundial-confetti { position: fixed; top: -10px; width: 8px; height: 14px;
-  z-index: 9996; pointer-events: none; opacity: 0.9; animation: mundial-fall linear forwards; }
-@keyframes mundial-fall { to { transform: translateY(105vh) rotate(540deg); opacity: 0.2; } }
+/* Banderas (emoji) flotando hacia arriba, mayoría México */
+.mundial-float-flag { position: fixed; bottom: -60px; font-size: 32px; line-height: 1;
+  z-index: 9996; pointer-events: none; will-change: transform;
+  animation: mundial-rise linear forwards; }
+@keyframes mundial-rise {
+  0%   { transform: translateY(0) rotate(-10deg); opacity: 0; }
+  12%  { opacity: .95; }
+  88%  { opacity: .95; }
+  100% { transform: translateY(-112vh) rotate(10deg); opacity: 0; }
+}
+
+/* Bandera grande de México ondeando (esquina inferior izquierda) */
+.mundial-mexico { position: fixed; left: 18px; bottom: 72px; width: 140px; height: 92px;
+  z-index: 9995; pointer-events: none; border-radius: 4px; overflow: hidden;
+  box-shadow: 0 8px 22px rgba(0,0,0,.32); transform-origin: left center;
+  background: linear-gradient(90deg, #006847 0 33.33%, #ffffff 33.33% 66.66%, #ce1126 66.66% 100%);
+  animation: mundial-flagwave 3.2s ease-in-out infinite; }
+.mundial-mexico::after { content: "🦅"; position: absolute; inset: 0 0 14px 0;
+  display: flex; align-items: center; justify-content: center; font-size: 34px; opacity: .9; }
+.mundial-mexico-label { position: absolute; bottom: 5px; left: 0; right: 0; text-align: center;
+  font: 800 11px/1 system-ui, sans-serif; letter-spacing: 1px; color: #006847;
+  text-shadow: 0 1px 0 rgba(255,255,255,.7); }
+@keyframes mundial-flagwave {
+  0%,100% { transform: skewY(0deg) scaleX(1); }
+  25%     { transform: skewY(-2.4deg) scaleX(.985); }
+  50%     { transform: skewY(0deg) scaleX(1); }
+  75%     { transform: skewY(2.4deg) scaleX(.985); }
+}
+
+/* Balón rebotando (más grande, con sombra) */
+.mundial-ball { position: fixed; bottom: 40px; left: -80px; width: 62px; height: 62px;
+  font-size: 62px; line-height: 62px; z-index: 9997; pointer-events: none;
+  filter: drop-shadow(0 8px 6px rgba(0,0,0,.3));
+  animation: mundial-roll 7s linear forwards, mundial-bounce 1.05s ease-in-out infinite; }
+@keyframes mundial-roll {
+  from { left: -80px; transform: rotate(0deg); }
+  to   { left: 107vw; transform: rotate(1980deg); }
+}
+@keyframes mundial-bounce { 0%,100% { margin-bottom: 0; } 50% { margin-bottom: 95px; } }
+
+/* Confeti (colores de México) */
+.mundial-confetti { position: fixed; top: -12px; width: 9px; height: 16px; border-radius: 1px;
+  z-index: 9996; pointer-events: none; opacity: 0.95; animation: mundial-fall linear forwards; }
+@keyframes mundial-fall { to { transform: translateY(108vh) rotate(720deg); opacity: 0.2; } }
 
 /* Reflectores */
 .mundial-lights::before, .mundial-lights::after {
@@ -65,11 +98,17 @@
 
 /* prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
-  .mundial-flag, .mundial-ball, .mundial-confetti, .mundial-lights::before, .mundial-lights::after { animation: none !important; }
+  .mundial-gflag, .mundial-float-flag, .mundial-mexico, .mundial-ball, .mundial-confetti,
+  .mundial-lights::before, .mundial-lights::after { animation: none !important; }
 }
 
-/* Móvil: widget como tarjeta inferior */
+/* Móvil: widget como tarjeta inferior + decoraciones más chicas */
 @media (max-width: 576px) {
   #mundial-widget { top: auto; bottom: 12px; right: 8px; left: 8px; width: auto; }
   .mundial-widget-header { cursor: default; }
+  .mundial-garland { height: 36px; }
+  .mundial-gflag { height: 30px; }
+  .mundial-gflag.mex { height: 33px; }
+  .mundial-mexico { width: 96px; height: 62px; left: 8px; bottom: 84px; }
+  .mundial-mexico::after { font-size: 24px; }
 }

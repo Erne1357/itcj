@@ -364,6 +364,34 @@ def new_theme_mundial_command():
     click.echo(f"   ✓ Proveedor de marcadores: {mundial_service.get_provider_name()}")
 
 
+@click.command("mundial-refresh")
+@click.option("--hard", is_flag=True, default=False,
+              help="Además borra el historial de resultados (mundial:results) y el cache del tema activo.")
+def mundial_refresh_command(hard: bool):
+    """Borra el cache de partidos del Mundial en Redis y vuelve a consultar (force)."""
+    from itcj2.core.services import mundial_service
+
+    click.echo("⚽ Refrescando cache de partidos del Mundial...")
+    mundial_service.clear_cache(hard=hard)
+    if hard:
+        click.echo("   🧹 Reset total (today + fixtures + results + active_theme)")
+
+    today = mundial_service.get_today_cached(force=True) or {}
+    matches = today.get("matches", [])
+    with_score = sum(1 for m in matches if m.get("score"))
+
+    click.echo(f"   ✓ Proveedor: {mundial_service.get_provider_name()}")
+    click.echo(f"   ✓ Partidos hoy ({today.get('date')}): {len(matches)} | con marcador: {with_score}")
+    for m in matches:
+        home = (m.get("home") or {}).get("name", "?")
+        away = (m.get("away") or {}).get("name", "?")
+        sc = m.get("score")
+        detail = f"{sc['home']}-{sc['away']}" if sc else (m.get("status") or "?")
+        click.echo(f"      - {home} vs {away}: {detail}")
+
+    click.echo("\n🎉 Cache refrescado.")
+
+
 @click.group("core")
 def core_cli():
     """Comandos CLI del módulo core."""
@@ -376,3 +404,4 @@ core_cli.add_command(execute_single_sql_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
 core_cli.add_command(new_theme_mundial_command)
+core_cli.add_command(mundial_refresh_command)
