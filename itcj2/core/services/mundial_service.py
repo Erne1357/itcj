@@ -6,11 +6,14 @@ Parte 2: cache Redis, merge de marcadores, scope, cron sync.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from itcj2.core.utils.redis_conn import get_redis
+
+logger = logging.getLogger(__name__)
 
 try:
     from zoneinfo import ZoneInfo
@@ -306,7 +309,8 @@ def _fetch_api_all() -> list | None:
             if fx:
                 out.append(fx)
         return out or None
-    except Exception:
+    except Exception as e:
+        logger.warning("[mundial] fallo al traer partidos de la API (se conserva lo cacheado): %s", e)
         return None
 
 
@@ -346,7 +350,8 @@ def _fetch_api_standings() -> list | None:
             if rows:
                 out.append({"group": _clean_group(s.get("group")), "table": rows})
         return out or None
-    except Exception:
+    except Exception as e:
+        logger.warning("[mundial] fallo al traer standings de la API: %s", e)
         return None
 
 
@@ -410,49 +415,52 @@ def persist_results(today: dict) -> None:
         pass
 
 
+def _localize_today(today: dict) -> dict:
+    """Traduce nombres (matches + next_match) in-place y devuelve el dict."""
+    _localize_match_names(today.get("matches"))
+    if today.get("next_match"):
+        _localize_match_names([today["next_match"]])
+    return today
+
+
 def get_today_cached(force: bool = False) -> dict:
     """Lee mundial:today de Redis; en miss/force recalcula y cachea.
 
-    Fuente de los partidos: la API (calendario real + marcadores) si está activa;
-    si no, el fixture estático de respaldo.
+    Resiliencia: si la API falla/limita (429, timeout), NO sobreescribe el cache con
+    datos vacíos — conserva el último 'today' bueno para que el widget no parpadee a 0.
     """
     r = None
+    cached_raw = None
     try:
         r = get_redis()
-        if not force:
-            cached = r.get(_KEY_TODAY)
-            if cached:
-                today = json.loads(cached)
-                _localize_match_names(today.get("matches"))
-                if today.get("next_match"):
-                    _localize_match_names([today["next_match"]])
-                return today
+        cached_raw = r.get(_KEY_TODAY)
+        if not force and cached_raw:
+            return _localize_today(json.loads(cached_raw))
     except Exception:
         r = None
 
     api_all = _fetch_api_all()
-    if api_all is not None:
-        fixtures = api_all
-    else:
-        # API caída/apagada: conserva el último calendario bueno; NO degrades a estático en cache.
-        fixtures = _get_fixtures_cached()
-    today = compute_today(fixtures)
-    persist_results(today)
-    # Punto de refresco periódico: aprovecha para refrescar standings (solo si la API responde).
-    standings = _fetch_api_standings() if api_all is not None else None
 
+    if api_all is None:
+        # API caída/limitada: conserva lo último bueno (no degrades a 0/estático).
+        if cached_raw:
+            return _localize_today(json.loads(cached_raw))
+        # Sin cache previo: respaldo calculado, sin escribir (no contaminar el cache).
+        return _localize_today(compute_today(_get_fixtures_cached()))
+
+    # API OK -> calendario real + marcadores
+    today = compute_today(api_all)
+    persist_results(today)
+    standings = _fetch_api_standings()
     try:
         if r is not None:
             r.setex(_KEY_TODAY, _TODAY_TTL, json.dumps(today))
-            # Solo escribe el calendario si vino de la API (nunca cachees el estático: degradaría
-            # scope=all/bracket a los 6 partidos placeholder durante 26h).
-            if api_all is not None:
-                r.setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(fixtures))
+            r.setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(api_all))
             if standings is not None:
                 r.setex(_KEY_STANDINGS, _TODAY_TTL, json.dumps(standings))
     except Exception:
         pass
-    return today
+    return _localize_today(today)
 
 
 def _localize_standings(standings) -> None:
