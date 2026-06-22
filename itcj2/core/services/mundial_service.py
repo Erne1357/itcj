@@ -368,16 +368,23 @@ def get_today_cached(force: bool = False) -> dict:
         r = None
 
     api_all = _fetch_api_all()
-    fixtures = api_all if api_all is not None else load_fixtures()
+    if api_all is not None:
+        fixtures = api_all
+    else:
+        # API caída/apagada: conserva el último calendario bueno; NO degrades a estático en cache.
+        fixtures = _get_fixtures_cached()
     today = compute_today(fixtures)
     persist_results(today)
-    # Este es el punto de refresco periódico: aprovecha para refrescar standings.
-    standings = _fetch_api_standings()
+    # Punto de refresco periódico: aprovecha para refrescar standings (solo si la API responde).
+    standings = _fetch_api_standings() if api_all is not None else None
 
     try:
         if r is not None:
             r.setex(_KEY_TODAY, _TODAY_TTL, json.dumps(today))
-            r.setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(fixtures))
+            # Solo escribe el calendario si vino de la API (nunca cachees el estático: degradaría
+            # scope=all/bracket a los 6 partidos placeholder durante 26h).
+            if api_all is not None:
+                r.setex(_KEY_FIXTURES, _TODAY_TTL, json.dumps(fixtures))
             if standings is not None:
                 r.setex(_KEY_STANDINGS, _TODAY_TTL, json.dumps(standings))
     except Exception:
@@ -411,19 +418,30 @@ def _load_results() -> dict:
         return {}
 
 
+def _looks_like_api(fixtures: list) -> bool:
+    """True si el calendario cacheado viene de la API (ids 'FD-...'), no del estático."""
+    return bool(fixtures) and str((fixtures[0] or {}).get("id", "")).startswith("FD-")
+
+
 def _get_fixtures_cached() -> list:
     """Calendario para los scopes past/upcoming/all y el bracket.
 
-    Orden: cache Redis (mundial:fixtures:all) → fetch-on-miss a la API (calendario
-    completo, lo cachea) → fixture estático de respaldo. Así Lista/Bracket traen los
-    104 partidos aunque el cron aún no haya calentado el cache.
+    Orden: cache Redis (mundial:fixtures:all, si viene de la API) → fetch a la API
+    (calendario completo, lo cachea) → fixture estático de respaldo. Auto-reparable:
+    si el cache se ve estático (placeholder) y la API está activa, re-consulta para
+    no quedarse pegado en los 6 partidos placeholder.
     """
+    cached = None
     try:
         raw = get_redis().get(_KEY_FIXTURES)
         if raw:
-            return json.loads(raw)
+            cached = json.loads(raw)
     except Exception:
-        pass
+        cached = None
+
+    if _looks_like_api(cached):
+        return cached
+
     api_all = _fetch_api_all()
     if api_all is not None:
         try:
@@ -431,7 +449,7 @@ def _get_fixtures_cached() -> list:
         except Exception:
             pass
         return api_all
-    return load_fixtures()
+    return cached or load_fixtures()
 
 
 def get_matches(scope: str = "today") -> dict:

@@ -49,11 +49,30 @@ def test_get_today_cached_fetch_on_miss_writes_cache():
     from itcj2.core.services import mundial_service
     fake_redis = MagicMock()
     fake_redis.get.return_value = None  # miss
+    api_fixtures = [{"id": "FD-1", "kickoff_utc": "2026-06-18T19:00:00Z", "stage": "group", "group": "A",
+                     "home": {"code": "MEX", "name": "Mexico", "flag": "x"},
+                     "away": {"code": "BRA", "name": "Brazil", "flag": "y"}, "venue": "v"}]
     with patch("itcj2.core.services.mundial_service.get_redis", return_value=fake_redis), \
-         patch("itcj2.core.services.mundial_service._fetch_api_all", return_value=None):
+         patch("itcj2.core.services.mundial_service._fetch_api_all", return_value=api_fixtures), \
+         patch("itcj2.core.services.mundial_service._fetch_api_standings", return_value=None):
         result = mundial_service.get_today_cached()
     assert "matches" in result
-    assert fake_redis.setex.call_count == 2  # mundial:today + mundial:fixtures:all
+    # API ok -> escribe mundial:today + mundial:fixtures:all
+    assert fake_redis.setex.call_count == 2
+
+
+def test_get_today_cached_api_down_does_not_clobber_fixtures():
+    """Si la API falla, NO debe re-escribir mundial:fixtures:all (no degradar a estático)."""
+    from itcj2.core.services import mundial_service
+    fake_redis = MagicMock()
+    fake_redis.get.return_value = None  # miss en mundial:today y en fixtures
+    with patch("itcj2.core.services.mundial_service.get_redis", return_value=fake_redis), \
+         patch("itcj2.core.services.mundial_service._fetch_api_all", return_value=None), \
+         patch("itcj2.core.services.mundial_service.load_fixtures", return_value=[]):
+        mundial_service.get_today_cached()
+    # Solo mundial:today; nunca mundial:fixtures:all con datos estáticos
+    keys_written = [c.args[0] for c in fake_redis.setex.call_args_list]
+    assert "mundial:fixtures:all" not in keys_written
 
 
 def test_api_match_to_fixture_maps_teams_and_score():
