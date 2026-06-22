@@ -167,6 +167,9 @@
     makeDraggable(el, handle) {
       let sx, sy, ox, oy, dragging = false;
       handle.addEventListener('mousedown', (e) => {
+        // No iniciar arrastre si el click es sobre un botón del header (📅/⟳/✕):
+        // si no, el primer click reposiciona el widget en vez de accionar el botón.
+        if (e.target.closest('button')) return;
         dragging = true; sx = e.clientX; sy = e.clientY;
         const r = el.getBoundingClientRect(); ox = r.left; oy = r.top;
         el.style.right = 'auto'; document.body.style.userSelect = 'none';
@@ -279,6 +282,9 @@
       this.modalEl = m;
       this._allMatches = null;
       this._standings = null;
+      // Sube el backdrop de Bootstrap por encima del widget (z-index) solo mientras el modal está abierto.
+      m.addEventListener('shown.bs.modal', () => document.body.classList.add('mundial-modal-open'));
+      m.addEventListener('hidden.bs.modal', () => document.body.classList.remove('mundial-modal-open'));
       m.querySelectorAll('#mundial-tabs .nav-link').forEach((btn) => {
         btn.addEventListener('click', () => {
           m.querySelectorAll('#mundial-tabs .nav-link').forEach((b) => b.classList.remove('active'));
