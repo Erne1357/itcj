@@ -162,6 +162,65 @@ def _tla_flag(tla: str | None) -> str:
     return _TLA_FLAG.get((tla or "").upper(), "🏳️")
 
 
+# Mapa TLA (football-data) -> nombre de la selección en español.
+_TLA_NAME_ES = {
+    "MEX": "México", "USA": "Estados Unidos", "CAN": "Canadá", "BRA": "Brasil",
+    "ARG": "Argentina", "FRA": "Francia", "GER": "Alemania", "ESP": "España",
+    "POR": "Portugal", "ENG": "Inglaterra", "NED": "Países Bajos", "BEL": "Bélgica",
+    "ITA": "Italia", "CRO": "Croacia", "URU": "Uruguay", "COL": "Colombia",
+    "JPN": "Japón", "KOR": "Corea del Sur", "PRK": "Corea del Norte", "AUS": "Australia",
+    "MAR": "Marruecos", "SEN": "Senegal", "GHA": "Ghana", "NGA": "Nigeria",
+    "CMR": "Camerún", "EGY": "Egipto", "SUI": "Suiza", "DEN": "Dinamarca",
+    "POL": "Polonia", "SRB": "Serbia", "ECU": "Ecuador", "CRC": "Costa Rica",
+    "QAT": "Catar", "KSA": "Arabia Saudita", "IRN": "Irán", "TUN": "Túnez",
+    "WAL": "Gales", "SCO": "Escocia", "AUT": "Austria", "CZE": "República Checa",
+    "TUR": "Turquía", "UKR": "Ucrania", "NOR": "Noruega", "SWE": "Suecia",
+    "PER": "Perú", "CHI": "Chile", "PAR": "Paraguay", "VEN": "Venezuela",
+    "BOL": "Bolivia", "PAN": "Panamá", "HON": "Honduras", "JAM": "Jamaica",
+    "ALG": "Argelia", "DZA": "Argelia", "CIV": "Costa de Marfil", "RSA": "Sudáfrica",
+    "NZL": "Nueva Zelanda", "IRQ": "Irak", "GRE": "Grecia", "ROU": "Rumania",
+    "HUN": "Hungría", "SVK": "Eslovaquia", "SVN": "Eslovenia", "FIN": "Finlandia",
+    "ISL": "Islandia", "IRL": "Irlanda", "NIR": "Irlanda del Norte", "ALB": "Albania",
+    "MKD": "Macedonia del Norte", "GEO": "Georgia", "ARM": "Armenia", "ISR": "Israel",
+    "JOR": "Jordania", "UAE": "Emiratos Árabes Unidos", "OMA": "Omán", "SYR": "Siria",
+    "LBN": "Líbano", "PLE": "Palestina", "UZB": "Uzbekistán", "KGZ": "Kirguistán",
+    "KAZ": "Kazajistán", "THA": "Tailandia", "VIE": "Vietnam", "IDN": "Indonesia",
+    "MAS": "Malasia", "PHI": "Filipinas", "IND": "India", "CHN": "China",
+    "HKG": "Hong Kong", "ANG": "Angola", "COD": "RD Congo", "CGO": "Congo",
+    "GAB": "Gabón", "GUI": "Guinea", "MLI": "Malí", "BFA": "Burkina Faso",
+    "TOG": "Togo", "BEN": "Benín", "NIG": "Níger", "ZAM": "Zambia",
+    "ZIM": "Zimbabue", "KEN": "Kenia", "UGA": "Uganda", "ETH": "Etiopía",
+    "SDN": "Sudán", "LBY": "Libia", "GAM": "Gambia", "CPV": "Cabo Verde",
+    "MTN": "Mauritania", "GEQ": "Guinea Ecuatorial", "MOZ": "Mozambique",
+    "MAD": "Madagascar", "NAM": "Namibia", "BOT": "Botsuana", "HAI": "Haití",
+    "TRI": "Trinidad y Tobago", "SLV": "El Salvador", "GUA": "Guatemala",
+    "CUB": "Cuba", "CUW": "Curazao", "SUR": "Surinam", "NCA": "Nicaragua",
+    "NCL": "Nueva Caledonia", "TAH": "Tahití", "FIJ": "Fiyi", "SOL": "Islas Salomón",
+    "VAN": "Vanuatu", "PNG": "Papúa Nueva Guinea",
+}
+
+
+def _team_name(team: dict) -> str:
+    """Nombre de la selección en español por TLA; si no está, cae al nombre de la API."""
+    tla = (team.get("tla") or "").upper()
+    return _TLA_NAME_ES.get(tla) or team.get("shortName") or team.get("name") or "?"
+
+
+def _localize_match_names(matches) -> None:
+    """Traduce in-place los nombres de equipos por código (idempotente).
+
+    Se aplica al SERVIR para que el cache viejo (con nombres en inglés) también
+    salga en español sin esperar el próximo refresco.
+    """
+    for m in matches or []:
+        for side in ("home", "away"):
+            t = m.get(side)
+            if t and t.get("code"):
+                es = _TLA_NAME_ES.get(t["code"])
+                if es:
+                    t["name"] = es
+
+
 def _map_stage(s: str | None) -> str:
     return {
         "GROUP_STAGE": "group", "LAST_32": "round32",
@@ -214,10 +273,10 @@ def _api_match_to_fixture(am: dict) -> dict | None:
         "stage": _map_stage(am.get("stage")),
         "group": _clean_group(am.get("group")),
         "home": {"code": (home.get("tla") or "").upper(),
-                 "name": home.get("shortName") or home.get("name") or "?",
+                 "name": _team_name(home),
                  "flag": _tla_flag(home.get("tla"))},
         "away": {"code": (away.get("tla") or "").upper(),
-                 "name": away.get("shortName") or away.get("name") or "?",
+                 "name": _team_name(away),
                  "flag": _tla_flag(away.get("tla"))},
         "venue": am.get("venue") or "",
         "status": _map_fd_status(am.get("status")),
@@ -271,7 +330,7 @@ def _fetch_api_standings() -> list | None:
                 rows.append({
                     "position": row.get("position"),
                     "team": {
-                        "name": team.get("shortName") or team.get("name") or "?",
+                        "name": _team_name(team),
                         "code": (team.get("tla") or "").upper(),
                         "flag": _tla_flag(team.get("tla")),
                     },
@@ -363,7 +422,11 @@ def get_today_cached(force: bool = False) -> dict:
         if not force:
             cached = r.get(_KEY_TODAY)
             if cached:
-                return json.loads(cached)
+                today = json.loads(cached)
+                _localize_match_names(today.get("matches"))
+                if today.get("next_match"):
+                    _localize_match_names([today["next_match"]])
+                return today
     except Exception:
         r = None
 
@@ -392,12 +455,25 @@ def get_today_cached(force: bool = False) -> dict:
     return today
 
 
+def _localize_standings(standings) -> None:
+    """Traduce in-place los nombres de equipos de las tablas (por código)."""
+    for g in standings or []:
+        for row in g.get("table", []):
+            t = row.get("team")
+            if t and t.get("code"):
+                es = _TLA_NAME_ES.get(t["code"])
+                if es:
+                    t["name"] = es
+
+
 def get_standings() -> list:
     """Tablas de la fase de grupos (cache mundial:standings, con fetch-on-miss)."""
     try:
         raw = get_redis().get(_KEY_STANDINGS)
         if raw:
-            return json.loads(raw)
+            st = json.loads(raw)
+            _localize_standings(st)
+            return st
     except Exception:
         pass
     st = _fetch_api_standings()
@@ -406,6 +482,7 @@ def get_standings() -> list:
             get_redis().setex(_KEY_STANDINGS, _TODAY_TTL, json.dumps(st))
         except Exception:
             pass
+        _localize_standings(st)
         return st
     return []
 
@@ -480,6 +557,7 @@ def get_matches(scope: str = "today") -> dict:
 
     reverse = scope == "past"
     out.sort(key=lambda x: x["kickoff_utc"], reverse=reverse)
+    _localize_match_names(out)
     return {"scope": scope, "date": today_str, "tz": MUNDIAL_TZ, "matches": out, "next_match": None}
 
 

@@ -90,7 +90,8 @@ def test_api_match_to_fixture_maps_teams_and_score():
     fx = mundial_service._api_match_to_fixture(am)
     assert fx["id"] == "FD-12345"
     assert fx["home"]["code"] == "MEX" and fx["home"]["flag"] == "🇲🇽"
-    assert fx["away"]["code"] == "BRA"
+    assert fx["home"]["name"] == "México"   # traducido al español por TLA
+    assert fx["away"]["code"] == "BRA" and fx["away"]["name"] == "Brasil"
     assert fx["stage"] == "group" and fx["group"] == "A"
     assert fx["status"] == "finished"
     assert fx["score"] == {"home": 2, "away": 1}
