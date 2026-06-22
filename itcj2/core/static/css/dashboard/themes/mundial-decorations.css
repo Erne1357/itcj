@@ -134,7 +134,23 @@ body.mundial-modal-open .modal-backdrop { z-index: 99990 !important; }
 .mundial-table th, .mundial-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid #f1f1f1; }
 .mundial-table th.t, .mundial-table td.t { text-align: left; white-space: nowrap; }
 .mundial-table td.pts, .mundial-table th:last-child { font-weight: 700; }
-.mundial-table tr.mex { background: rgba(0,104,71,.10); font-weight: 600; }
+/* Zonas de clasificación (color por posición/tabla actual) */
+.mundial-table tr.q { background: rgba(0, 104, 71, .12); }
+.mundial-table tr.q td:first-child { box-shadow: inset 3px 0 0 #006847; }
+.mundial-table tr.q3 { background: rgba(255, 193, 7, .16); }
+.mundial-table tr.q3 td:first-child { box-shadow: inset 3px 0 0 #e0a800; }
+.mundial-table tr.out td { color: #9a9a9a; }
+.mundial-table tr.mex { font-weight: 700; }
+.mundial-table tr.mex td.t { color: var(--mundial-secondary); }
+
+/* Leyenda de zonas */
+.mundial-legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px 14px 2px; font-size: 12px; color: #555; }
+.mundial-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.mundial-legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.mundial-legend i.z-q { background: rgba(0, 104, 71, .55); }
+.mundial-legend i.z-q3 { background: rgba(224, 168, 0, .7); }
+.mundial-legend i.z-out { background: #cfcfcf; }
+.mundial-legend-note { color: #999; font-style: italic; margin-left: auto; }
 
 /* Vista Bracket */
 .mundial-bracket { display: flex; gap: 14px; padding: 12px; overflow-x: auto; }
@@ -144,6 +160,10 @@ body.mundial-modal-open .modal-backdrop { z-index: 99990 !important; }
 .mundial-bk-match.mex { border-color: var(--mundial-primary); background: rgba(0,104,71,.06); }
 .mundial-bk-team { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
 .mundial-bk-team b { min-width: 16px; text-align: right; }
+.mundial-bk-team.w { color: #006847; font-weight: 800; }     /* ganador (avanza) */
+.mundial-bk-team.w b { color: #006847; }
+.mundial-bk-team.l { color: #b0b0b0; }                        /* eliminado */
+.mundial-bk-team.l b { color: #b0b0b0; }
 .mundial-bk-time { font-size: 11px; color: #888; }
 .mundial-bk-live { font-size: 11px; color: #e10600; font-weight: 700; }
 .mundial-bk-empty { color: #bbb; text-align: center; padding: 8px; }

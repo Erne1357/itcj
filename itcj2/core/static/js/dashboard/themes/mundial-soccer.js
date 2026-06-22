@@ -373,12 +373,29 @@
         body.innerHTML = '<div class="mundial-empty">Tablas de grupos no disponibles todavía.</div>';
         return;
       }
-      body.innerHTML = '<div class="mundial-groups">' + standings.map((g) => {
+      // Formato 2026: clasifican los 2 primeros de cada grupo + los 8 mejores terceros.
+      const thirds = standings.map((g) => (g.table || [])[2]).filter(Boolean).slice();
+      thirds.sort((a, b) => (b.points - a.points) || (b.gd - a.gd) || (b.gf - a.gf));
+      const bestThirds = new Set(thirds.slice(0, 8).map((r) => (r.team || {}).code));
+
+      const legend = '<div class="mundial-legend">' +
+        '<span><i class="z-q"></i> Clasifica</span>' +
+        '<span><i class="z-q3"></i> Mejor 3.º / repechaje</span>' +
+        '<span><i class="z-out"></i> Eliminado</span>' +
+        '<span class="mundial-legend-note">según la tabla actual</span>' +
+        '</div>';
+
+      const grid = '<div class="mundial-groups">' + standings.map((g) => {
         const rows = (g.table || []).map((row) => {
           const t = row.team || {};
-          const mex = t.code === 'MEX' ? ' class="mex"' : '';
-          return '<tr' + mex + '>' +
-            '<td>' + escapeHtml(row.position) + '</td>' +
+          const pos = row.position;
+          let zone;
+          if (pos === 1 || pos === 2) zone = 'q';
+          else if (pos === 3) zone = bestThirds.has(t.code) ? 'q' : 'q3';
+          else zone = 'out';
+          const cls = zone + (t.code === 'MEX' ? ' mex' : '');
+          return '<tr class="' + cls + '">' +
+            '<td>' + escapeHtml(pos) + '</td>' +
             '<td class="t">' + escapeHtml(t.flag) + ' ' + escapeHtml(t.name) + '</td>' +
             '<td>' + escapeHtml(row.played) + '</td>' +
             '<td>' + escapeHtml(row.won) + '</td>' +
@@ -395,6 +412,8 @@
           '</tr></thead><tbody>' + rows + '</tbody></table>' +
         '</div>';
       }).join('') + '</div>';
+
+      body.innerHTML = legend + grid;
     }
 
     renderBracket(body, matches) {
@@ -425,16 +444,29 @@
     bracketCard(m) {
       const isMex = (m.home?.code === 'MEX' || m.away?.code === 'MEX');
       const sc = m.score;
-      const line = (team, goals) =>
-        '<div class="mundial-bk-team">' +
+      // Ganador (el que avanza): usa winner de la API (respeta penales); si no, compara goles.
+      let winSide = '';
+      if (m.status === 'finished') {
+        if (m.winner === 'HOME_TEAM') winSide = 'home';
+        else if (m.winner === 'AWAY_TEAM') winSide = 'away';
+        else if (sc && sc.home != null && sc.away != null) {
+          if (sc.home > sc.away) winSide = 'home';
+          else if (sc.away > sc.home) winSide = 'away';
+        }
+      }
+      const line = (team, goals, side) => {
+        let cls = 'mundial-bk-team';
+        if (winSide) cls += side === winSide ? ' w' : ' l';
+        return '<div class="' + cls + '">' +
           '<span>' + escapeHtml(team?.flag) + ' ' + escapeHtml(team?.code || team?.name || '—') + '</span>' +
           '<b>' + (goals == null ? '' : escapeHtml(goals)) + '</b>' +
         '</div>';
+      };
       const tag = m.status === 'live'
         ? '<span class="mundial-bk-live">🔴 EN VIVO</span>'
         : (m.status === 'finished' ? '' : '<span class="mundial-bk-time">' + escapeHtml(m.kickoff_label) + '</span>');
       return '<div class="mundial-bk-match' + (isMex ? ' mex' : '') + '">' +
-        line(m.home, sc ? sc.home : null) + line(m.away, sc ? sc.away : null) + tag + '</div>';
+        line(m.home, sc ? sc.home : null, 'home') + line(m.away, sc ? sc.away : null, 'away') + tag + '</div>';
     }
 
     cleanup() {

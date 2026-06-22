@@ -204,8 +204,10 @@ def _api_match_to_fixture(am: dict) -> dict | None:
         return None
     home = am.get("homeTeam") or {}
     away = am.get("awayTeam") or {}
-    ft = (am.get("score") or {}).get("fullTime") or {}
+    score = am.get("score") or {}
+    ft = score.get("fullTime") or {}
     hg, ag = ft.get("home"), ft.get("away")
+    # winner: 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' | None (respeta penales en eliminatoria)
     return {
         "id": "FD-" + str(am.get("id")),
         "kickoff_utc": ku,
@@ -220,6 +222,7 @@ def _api_match_to_fixture(am: dict) -> dict | None:
         "venue": am.get("venue") or "",
         "status": _map_fd_status(am.get("status")),
         "score": {"home": hg, "away": ag} if (hg is not None and ag is not None) else None,
+        "winner": score.get("winner"),
     }
 
 
