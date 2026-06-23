@@ -11,11 +11,18 @@ from .config import get_settings
 # puedan resolverse correctamente.
 import itcj2.models  # noqa: F401
 
+# 2.2 Pool rebalanceado: la app NO debe demandar más conexiones de las que
+# pgbouncer puede entregar. pool_size 20 + max_overflow 20 = 40 máx, <= los
+# 50 backends reales de pgbouncer (default_pool_size 40 + reserve 10), todo
+# por debajo de Postgres max_connections=100. Antes pedía hasta 80 y 55 se
+# encolaban dentro de pgbouncer (falsa capacidad).
+# NOTA: al ir a múltiples workers (2.1), dividir pool_size entre el nº de
+# workers (p.ej. 4 workers → pool_size=10, max_overflow=0).
 engine = create_engine(
     get_settings().DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=30,
-    max_overflow=50,
+    pool_size=20,
+    max_overflow=20,
     pool_timeout=10,
     pool_recycle=1800,
     pool_use_lifo=True,
