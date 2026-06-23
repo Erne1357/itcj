@@ -192,6 +192,10 @@ services:
     restart: always
     mem_limit: 2g
     cpus: 2.0
+    # 2.5: worker principal — colas latency-sensitive (NO reports).
+    environment:
+      - CELERY_QUEUES=default,notifications
+      - CELERY_HOSTNAME=worker
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -201,6 +205,44 @@ services:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
       - ../../instance:/app/instance  # rw: workers leen/escriben archivos
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # CELERY WORKER — REPORTS (cola pesada aislada: LibreOffice/Excel)
+  # 2.5: un export lento ya NO bloquea notificaciones (worker separado).
+  # ============================================
+  celery-worker-reports:
+    restart: always
+    mem_limit: 2g
+    cpus: 1.5
+    environment:
+      - CELERY_QUEUES=reports
+      - CELERY_WORKER_CONCURRENCY=2
+      - CELERY_SKIP_SYNC=1
+      - CELERY_HOSTNAME=reports
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env.prod
+    volumes:
+      - ../../itcj2:/app/itcj2:ro
+      - ../../static-manifest.json:/app/static-manifest.json:ro
+      - ../../docker/backend/celery:/app/docker/backend/celery:ro
+      - ../../instance:/app/instance  # rw: genera/escribe exports
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
     depends_on:
       pgbouncer:

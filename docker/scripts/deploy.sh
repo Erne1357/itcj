@@ -322,8 +322,8 @@ docker image prune -f
 # --force-recreate es crítico: sin él Docker omite el restart si la config del compose
 # no cambió, y el proceso Python sigue con módulos viejos cacheados en memoria.
 echo ">>> Actualizando Celery worker y beat..."
-docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate celery-worker celery-beat
-echo ">>> Celery worker y beat actualizados."
+docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate celery-worker celery-worker-reports celery-beat
+echo ">>> Celery workers (principal + reports) y beat actualizados."
 
 # -- 12. Notificar cambios de estaticos via WebSocket (Pilar 3) --
 if [ -n "$OLD_MANIFEST" ]; then
