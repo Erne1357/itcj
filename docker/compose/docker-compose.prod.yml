@@ -38,6 +38,10 @@ services:
     env_file: ../../.env.prod
     mem_limit: 4g
     cpus: 2.0
+    # /dev/shm por default en contenedores = 64MB; las queries paralelas
+    # (max_parallel_workers_per_gather) usan DSM ahí y pueden dar
+    # "could not resize shared memory segment". 1g da holgura.
+    shm_size: 1g
     # 1.9 tuning: stock (shared_buffers=128MB) desperdicia la RAM del host.
     # max_connections se deja en 100 (pgbouncer fronts). Presupuestado para
     # host compartido con SIIAP (su propio Postgres).
