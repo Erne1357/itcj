@@ -9,6 +9,7 @@ _DML_FILES = [
     "00_insert_app.sql",
     "01_insert_permissions.sql",
     "02_insert_role_permission.sql",
+    "03_grant_directory_access.sql",
 ]
 
 
@@ -17,9 +18,10 @@ def init_directory_command():
     """Carga los DML de la app directory en orden (idempotente).
 
     Ejecuta en secuencia:
-      00_insert_app.sql          — registra la core_app
-      01_insert_permissions.sql  — inserta los 3 permisos
+      00_insert_app.sql             — registra la core_app (mobile_enabled=true)
+      01_insert_permissions.sql     — inserta los permisos
       02_insert_role_permission.sql — asigna permisos a roles
+      03_grant_directory_access.sql — espeja acceso desde itcj (staff ve la app en móvil)
     """
     dml_dir = PROJECT_ROOT / "database" / "DML" / "directory"
     click.echo(f"Inicializando app directory (DML: {dml_dir})\n")
@@ -45,7 +47,7 @@ def init_directory_command():
             )
             raise click.Abort()
 
-    click.echo(click.style(f"\nOK: {ok}/3 archivos ejecutados — app directory lista.", fg="green"))
+    click.echo(click.style(f"\nOK: {ok}/{len(_DML_FILES)} archivos ejecutados — app directory lista.", fg="green"))
 
 
 @click.group("directory")
