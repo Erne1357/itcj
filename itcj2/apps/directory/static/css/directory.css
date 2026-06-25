@@ -36,5 +36,5 @@
 .dir-actions{ display:flex; gap:.25rem; justify-content:flex-end; }
 .dir-actions .btn{ color:var(--dir-mute); } .dir-actions .btn:hover{ color:var(--dir-ink); }
 @media (hover:hover){ .dir-actions{ opacity:0; transition:opacity .12s ease; } .dir-row:hover .dir-actions,.dir-actions:focus-within{ opacity:1; } }
-@media (max-width:575.98px){ .dir-head{ display:none; } .dir-table,.dir-table--manage{ --dir-cols:4.25rem 1fr; } .dir-row{ row-gap:.15rem; padding:.6rem .75rem; } .dir-ext{ grid-row:1 / span 3; align-self:start; } .dir-title,.dir-holder,.dir-notes,.dir-actions{ grid-column:2; } .dir-actions{ justify-content:flex-end; opacity:1; } }
+@media (max-width:575.98px){ .dir-head{ display:none; } .dir-dept{ position:static; top:auto; } .dir-table,.dir-table--manage{ --dir-cols:4.25rem 1fr; } .dir-row{ row-gap:.15rem; padding:.6rem .75rem; } .dir-ext{ grid-row:1 / span 3; align-self:start; } .dir-title,.dir-holder,.dir-notes,.dir-actions{ grid-column:2; } .dir-actions{ justify-content:flex-end; opacity:1; } }
 @media (prefers-reduced-motion:reduce){ .dir-row{ transition:none; } }
