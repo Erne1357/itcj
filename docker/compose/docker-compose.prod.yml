@@ -310,6 +310,7 @@ services:
       - ../../itcj2/apps/vistetec/static:/www/static/vistetec:ro
       - ../../itcj2/apps/maint/static:/www/static/maint:ro
       - ../../itcj2/apps/titulatec/static:/www/static/titulatec:ro
+      - ../../itcj2/apps/directory/static:/www/static/directory:ro
     depends_on:
       - redis
       - postgres
