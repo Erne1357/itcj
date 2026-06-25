@@ -1,6 +1,10 @@
-{% if not groups %}
-  <div class="text-muted text-center py-5"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Sin resultados</div>
-{% endif %}
-{% for group in groups %}
-  {% include "directory/partials/dir_group.html" %}
-{% endfor %}
+<div class="dir-table{% if can_manage %} dir-table--manage{% endif %}" role="table" aria-label="Directorio">
+  {% if not groups %}
+    <div class="dir-empty text-muted text-center py-5"><i class="bi bi-inbox fs-2 d-block mb-2"></i>Sin resultados</div>
+  {% else %}
+    <div class="dir-head" role="row" aria-hidden="true">
+      <span class="dir-h-ext">Ext.</span><span>Puesto / Etiqueta</span><span>Persona</span><span>Notas</span>{% if can_manage %}<span class="dir-h-act">Acciones</span>{% endif %}
+    </div>
+    {% for group in groups %}{% include "directory/partials/dir_group.html" %}{% endfor %}
+  {% endif %}
+</div>
