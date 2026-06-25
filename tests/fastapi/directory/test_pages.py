@@ -86,3 +86,25 @@ def test_create_entry_forbidden_without_perm(mock_perms, mock_assign, app_client
         assert "403" in resp.text
     finally:
         app_client.app.dependency_overrides.pop(get_db, None)
+
+
+@patch("itcj2.apps.directory.pages.directory.directory_service.list_directory", return_value=[])
+def test_list_partial_empty_dept_ok(mock_list, app_client):
+    _override_db(app_client)
+    try:
+        resp = app_client.get("/directory/list?q=ana&filter_dept=&source=all", headers=_hdr())
+        assert resp.status_code == 200
+    finally:
+        app_client.app.dependency_overrides.pop(get_db, None)
+
+
+@patch("itcj2.apps.directory.pages.directory.directory_service.list_directory", return_value=[])
+def test_list_partial_valid_dept_coerced(mock_list, app_client):
+    _override_db(app_client)
+    try:
+        resp = app_client.get("/directory/list?q=&filter_dept=3&source=position", headers=_hdr())
+        assert resp.status_code == 200
+        _, kwargs = mock_list.call_args
+        assert kwargs.get("department_id") == 3
+    finally:
+        app_client.app.dependency_overrides.pop(get_db, None)

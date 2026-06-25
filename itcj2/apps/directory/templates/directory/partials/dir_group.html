@@ -26,7 +26,8 @@
                       title="Editar"><i class="bi bi-pencil"></i></button>
               <button class="btn btn-sm btn-link text-danger p-0"
                       hx-delete="/directory/entries/{{ row.entry_id }}"
-                      hx-target="#dir-list" hx-swap="innerHTML"
+                      hx-target="#dir-list" hx-swap="morph:innerHTML"
+                      hx-include="#dir-filters"
                       hx-confirm="¿Eliminar la extensión «{{ row.title }}»?"
                       title="Eliminar"><i class="bi bi-trash"></i></button>
             {% else %}

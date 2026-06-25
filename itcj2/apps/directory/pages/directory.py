@@ -29,6 +29,7 @@ def _can_manage(db: Session, user: dict) -> bool:
     try:
         perms = get_user_permissions_for_app(db, int(user["sub"]), "directory")
     except Exception:
+        logger.exception("error computing can_manage for user %s", user.get("sub"))
         return False
     return "directory.entries.api.manage" in perms
 
@@ -62,14 +63,15 @@ async def index(request: Request, user: dict = Depends(require_page_login), db: 
 async def list_partial(
     request: Request,
     q: str = "",
-    department_id: int | None = None,
+    filter_dept: str | None = None,
     source: str = "all",
     user: dict = Depends(require_page_login),
     db: Session = Depends(get_db),
 ):
     if _is_student(user):
         return RedirectResponse("/itcj/m/", status_code=302)
-    return _render_list(request, db, user, q=(q or None), department_id=department_id, source=source)
+    dep = int(filter_dept) if filter_dept else None
+    return _render_list(request, db, user, q=(q or None), department_id=dep, source=source)
 
 
 # ── Edición (gate require_perms manage; admin bypasea) ────────────────────────
@@ -82,6 +84,9 @@ async def create_entry(
     position_id: int | None = Form(None),
     holder_name: str | None = Form(None),
     notes: str | None = Form(None),
+    q: str = Form(""),
+    filter_dept: str | None = Form(None),
+    source: str = Form("all"),
     user: dict = _MANAGE,
     db: Session = Depends(get_db),
 ):
@@ -92,10 +97,10 @@ async def create_entry(
             by_user_id=int(user["sub"]),
         )
     except ValueError as exc:
-        resp = _render_list(request, db, user)
+        resp = _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
         resp.headers["X-Dir-Error"] = str(exc)
         return resp
-    return _render_list(request, db, user)
+    return _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
 
 
 @router.patch("/entries/{entry_id}")
@@ -107,6 +112,10 @@ async def update_entry(
     position_id: int | None = Form(None),
     holder_name: str | None = Form(None),
     notes: str | None = Form(None),
+    department_id: int | None = Form(None),
+    q: str = Form(""),
+    filter_dept: str | None = Form(None),
+    source: str = Form("all"),
     user: dict = _MANAGE,
     db: Session = Depends(get_db),
 ):
@@ -114,23 +123,32 @@ async def update_entry(
         directory_service.update_entry(
             db, entry_id, label=label, extension=extension,
             position_id=position_id, holder_name=holder_name, notes=notes,
+            department_id=department_id,
         )
     except ValueError as exc:
-        resp = _render_list(request, db, user)
+        resp = _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
         resp.headers["X-Dir-Error"] = str(exc)
         return resp
-    return _render_list(request, db, user)
+    return _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
 
 
 @router.delete("/entries/{entry_id}")
-async def delete_entry(entry_id: int, request: Request, user: dict = _MANAGE, db: Session = Depends(get_db)):
+async def delete_entry(
+    entry_id: int,
+    request: Request,
+    q: str = Form(""),
+    filter_dept: str | None = Form(None),
+    source: str = Form("all"),
+    user: dict = _MANAGE,
+    db: Session = Depends(get_db),
+):
     try:
         directory_service.delete_entry(db, entry_id)
     except ValueError as exc:
-        resp = _render_list(request, db, user)
+        resp = _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
         resp.headers["X-Dir-Error"] = str(exc)
         return resp
-    return _render_list(request, db, user)
+    return _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
 
 
 @router.patch("/positions/{position_id}/extension")
@@ -139,13 +157,16 @@ async def patch_position_extension(
     request: Request,
     extension: str | None = Form(None),
     notes: str | None = Form(None),
+    q: str = Form(""),
+    filter_dept: str | None = Form(None),
+    source: str = Form("all"),
     user: dict = _MANAGE,
     db: Session = Depends(get_db),
 ):
     try:
         directory_service.set_position_extension(db, position_id, extension, notes, int(user["sub"]))
     except ValueError as exc:
-        resp = _render_list(request, db, user)
+        resp = _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)
         resp.headers["X-Dir-Error"] = str(exc)
         return resp
-    return _render_list(request, db, user)
+    return _render_list(request, db, user, q=(q or None), department_id=(int(filter_dept) if filter_dept else None), source=source)

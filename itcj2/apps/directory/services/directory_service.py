@@ -125,7 +125,7 @@ def create_entry(db: Session, *, department_id, label, extension, position_id=No
     return entry
 
 
-def update_entry(db: Session, entry_id, *, label=None, extension=None, position_id=None, holder_name=None, notes=None):
+def update_entry(db: Session, entry_id, *, label=None, extension=None, position_id=None, holder_name=None, notes=None, department_id=None):
     from itcj2.apps.directory.models import DirectoryEntry
     entry = db.get(DirectoryEntry, entry_id)
     if not entry:
@@ -138,7 +138,10 @@ def update_entry(db: Session, entry_id, *, label=None, extension=None, position_
         entry.holder_name = holder_name.strip() or None
     if notes is not None:
         entry.notes = notes.strip() or None
-    entry.position_id = position_id
+    if position_id is not None:
+        entry.position_id = position_id
+    if department_id is not None:
+        entry.department_id = department_id
     db.commit()
     db.refresh(entry)
     return entry
