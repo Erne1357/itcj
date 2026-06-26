@@ -11,7 +11,7 @@ class WindowsDesktop {
       { id: 'app_prueba', name: 'Calidad (Prueba)', icon: 'clipboard-check', customImage: true },
       { id: 'titulatec', name: 'TitulaTec', icon: 'graduation-cap', customImage: true },
       { id: 'vistetec', name: 'VisteTec', icon: 'shirt', customImage: true },
-      { id: 'directory', name: 'Directorio', icon: 'book' },
+      { id: 'directory', name: 'Extensiones', icon: 'book' },
       //{ id: 'compras', name: 'Compras', icon: 'shopping-cart' },
 
       // anclados:
