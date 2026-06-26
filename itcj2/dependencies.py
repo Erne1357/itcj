@@ -69,17 +69,14 @@ def require_page_roles(app_key: str, roles: list[str]):
         if not user:
             raise PageLoginRequired()
 
-        from itcj2.core.services.authz_service import (
-            has_any_assignment,
-            user_roles_in_app,
-        )
+        from itcj2.core.services.authz_cache import cached_roles, cached_has_assignment
 
         uid = int(user["sub"])
-        if not _roles_set & set(user_roles_in_app(db, uid, app_key)):
+        if not _roles_set & cached_roles(db, uid, app_key):
             # Tiene acceso a la app pero no el rol de esta página →
             # botón al inicio de la app. Sin acceso → panel core.
             raise PageForbidden(
-                has_app_access=has_any_assignment(db, uid, app_key)
+                has_app_access=cached_has_assignment(db, uid, app_key)
             )
 
         return user
@@ -106,20 +103,16 @@ def require_page_app(app_key: str, perms: list[str] | None = None):
         if not user:
             raise PageLoginRequired()
 
-        from itcj2.core.services.authz_service import (
-            get_user_permissions_for_app,
-            has_any_assignment,
-        )
+        from itcj2.core.services.authz_cache import cached_has_assignment, cached_perms
 
         uid = int(user["sub"])
 
-        if not has_any_assignment(db, uid, app_key):
+        if not cached_has_assignment(db, uid, app_key):
             # Sin acceso a la app → panel core (no hay inicio de app).
             raise PageForbidden(has_app_access=False)
 
         if _perms_set:
-            user_perms = get_user_permissions_for_app(db, uid, app_key)
-            if not (_perms_set & user_perms):
+            if not (_perms_set & cached_perms(db, uid, app_key)):
                 # Tiene la app pero le falta el permiso de esta página →
                 # botón al inicio de la app.
                 raise PageForbidden(has_app_access=True)
@@ -148,10 +141,10 @@ def require_app(app_key: str):
         if not user:
             raise HTTPException(status_code=401, detail="No autenticado")
 
-        from itcj2.core.services.authz_service import has_any_assignment
+        from itcj2.core.services.authz_cache import cached_has_assignment
 
         user_id = int(user["sub"])
-        if not has_any_assignment(db, user_id, app_key):
+        if not cached_has_assignment(db, user_id, app_key):
             raise HTTPException(
                 status_code=403,
                 detail=f"Sin acceso a la aplicación: {app_key}",
@@ -195,23 +188,17 @@ def require_perms(app_key: str, perms: list[str], *, allow_global_admin: bool = 
         if allow_global_admin and user.get("role") == "admin":
             return user
 
-        from itcj2.core.services.authz_service import (
-            has_any_assignment,
-            get_user_permissions_for_app,
-        )
+        from itcj2.core.services.authz_cache import cached_has_assignment, cached_perms
 
         uid = int(user["sub"])
 
-        if not has_any_assignment(db, uid, app_key, include_positions=True):
+        if not cached_has_assignment(db, uid, app_key):
             raise HTTPException(
                 status_code=403,
                 detail=f"Sin acceso a la aplicación: {app_key}",
             )
 
-        user_perm_set = get_user_permissions_for_app(
-            db, uid, app_key, include_positions=True
-        )
-        if not (_perms_set & user_perm_set):
+        if not (_perms_set & cached_perms(db, uid, app_key)):
             raise HTTPException(
                 status_code=403,
                 detail=f"Requiere permiso: {', '.join(perms)}",
@@ -237,10 +224,10 @@ def require_roles(app_key: str, roles: list[str]):
         if not user:
             raise HTTPException(status_code=401, detail="No autenticado")
 
-        from itcj2.core.services.authz_service import user_roles_in_app
+        from itcj2.core.services.authz_cache import cached_roles
 
         user_id = int(user["sub"])
-        user_roles = set(user_roles_in_app(db, user_id, app_key))
+        user_roles = cached_roles(db, user_id, app_key)
 
         if not user_roles.intersection(roles):
             raise HTTPException(

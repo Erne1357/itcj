@@ -24,6 +24,7 @@ def create_celery_app() -> Celery:
         include=[
             "itcj2.tasks.helpdesk_tasks",
             "itcj2.tasks.notification_tasks",
+            "itcj2.tasks.mundial_tasks",
         ],
     )
 

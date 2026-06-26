@@ -23,16 +23,15 @@ var BOARD_CTX = {
                 <i class="fas fa-people-arrows me-2"></i>Tablero de Asignación
             </h2>
             <p class="text-muted small mb-0 mt-1">
-                Asigna técnicos a los tickets pendientes o en progreso.
+                Asigna técnicos a los tickets pendientes. Al asignar, el ticket sale del tablero.
             </p>
         </div>
         <div class="d-flex gap-2 align-items-center flex-wrap">
-            <!-- Filtro de estado -->
-            <select class="form-select form-select-sm" id="statusFilter" style="width:auto;">
+            <!-- Filtro de estado: el tablero solo lista tickets POR ASIGNAR
+                 (PENDING); una vez asignados salen del tablero. Se mantiene el
+                 elemento (oculto) por compatibilidad con board.js. -->
+            <select class="form-select form-select-sm d-none" id="statusFilter" style="width:auto;">
                 <option value="">Todos los estados</option>
-                <option value="PENDING">Pendiente</option>
-                <option value="ASSIGNED">Asignado</option>
-                <option value="IN_PROGRESS">En progreso</option>
             </select>
             <!-- Filtro de área (solo si es coordinador de área) -->
             <select class="form-select form-select-sm d-none" id="areaFilter" style="width:auto;">

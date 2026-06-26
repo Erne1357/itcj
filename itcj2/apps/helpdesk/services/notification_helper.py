@@ -596,6 +596,47 @@ class HelpdeskNotificationHelper:
             logger.error(f"Error enviando notificación TICKET_CANCELED: {e}", exc_info=True)
 
     @staticmethod
+    def notify_ticket_canceled_by_comp_center(db: Session, ticket):
+        """
+        Notifica al SOLICITANTE cuando Centro de Cómputo cancela su ticket.
+        Se invoca además de notify_ticket_canceled (que notifica al técnico asignado).
+        """
+        try:
+            fallback_title = f'Tu ticket #{ticket.ticket_number} fue cancelado'
+            fallback_body = 'Centro de Cómputo canceló tu ticket'
+
+            context = _build_context(
+                ticket=ticket,
+                requester=ticket.requester,
+            )
+            title, body = _render_notification(
+                db, 'ticket_canceled_by_comp_center', context, fallback_title, fallback_body
+            )
+
+            NotificationService.create(
+                db=db,
+                user_id=ticket.requester_id,
+                app_name='helpdesk',
+                type='TICKET_CANCELED',
+                title=title,
+                body=body,
+                data={
+                    'ticket_id': ticket.id,
+                    'url': f'/help-desk/user/tickets/{ticket.id}',
+                    'canceled_by': 'comp_center',
+                },
+                ticket_id=ticket.id,
+            )
+
+            logger.info(
+                f"Notificación TICKET_CANCELED_BY_COMP_CENTER enviada al solicitante {ticket.requester_id} "
+                f"para ticket #{ticket.ticket_number}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error enviando notificación TICKET_CANCELED_BY_COMP_CENTER: {e}", exc_info=True)
+
+    @staticmethod
     def notify_comment_added(db: Session, ticket, comment, author):
         """
         Notifica a los stakeholders relevantes cuando se agrega un comentario.

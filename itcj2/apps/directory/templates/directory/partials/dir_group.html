@@ -1,0 +1,35 @@
+<section class="dir-group dir-anim-in" id="dir-group-{{ group.department_id }}" role="rowgroup">
+  <h2 class="dir-dept">{{ group.department }} <span class="dir-dept-count">{{ group.rows|length }}</span></h2>
+  {% for row in group.rows %}
+  <div class="dir-row" role="row">
+    <span class="dir-ext" role="cell">{% if row.extension %}<span class="dir-ext-chip">{{ row.extension }}</span>{% else %}<span class="dir-ext-empty">—</span>{% endif %}</span>
+    <span class="dir-title" role="cell" title="{{ row.title }}">{{ row.title }}{% if row.source == 'entry' %}<span class="badge bg-secondary-subtle text-secondary ms-1">extra</span>{% endif %}</span>
+    <span class="dir-holder" role="cell" title="{{ row.holder }}">{{ row.holder or '—' }}</span>
+    <span class="dir-notes text-muted small" role="cell" title="{{ row.notes }}">{{ row.notes or '' }}</span>
+    {% if can_manage %}
+    <span class="dir-actions" role="cell">
+      {% if row.source == 'entry' %}
+        <button class="btn btn-sm btn-link p-0 me-2" data-dir-action="edit-entry"
+                data-dir-id="{{ row.entry_id }}" data-dir-dept="{{ row.department_id }}"
+                data-dir-label="{{ row.title }}" data-dir-ext="{{ row.extension }}"
+                data-dir-holder="{{ row.holder }}" data-dir-notes="{{ row.notes }}"
+                data-bs-toggle="modal" data-bs-target="#dirEntryModal"
+                title="Editar"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-sm btn-link text-danger p-0"
+                hx-delete="/directory/entries/{{ row.entry_id }}"
+                hx-target="#dir-list" hx-swap="morph:innerHTML"
+                hx-include="#dir-filters"
+                hx-confirm="¿Eliminar la extensión «{{ row.title }}»?"
+                title="Eliminar"><i class="bi bi-trash"></i></button>
+      {% else %}
+        <button class="btn btn-sm btn-link p-0" data-dir-action="edit-position"
+                data-dir-pos="{{ row.position_id }}" data-dir-title="{{ row.title }}"
+                data-dir-ext="{{ row.extension }}" data-dir-notes="{{ row.notes }}"
+                data-bs-toggle="modal" data-bs-target="#dirPosModal"
+                title="Editar extensión del puesto"><i class="bi bi-pencil"></i></button>
+      {% endif %}
+    </span>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>

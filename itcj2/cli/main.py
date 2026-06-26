@@ -13,6 +13,7 @@ Comandos disponibles:
     vistetec init-vistetec
     warehouse init-warehouse, warehouse-helpdesk, warehouse-maint
     maint init-maint
+    directory init-directory
     celery sync-tasks, celery run <task-slug>, celery status
 """
 import click
@@ -24,6 +25,7 @@ from itcj2.cli.vistetec import vistetec_cli
 from itcj2.cli.warehouse import warehouse_cli
 from itcj2.cli.maint import maint_cli
 from itcj2.cli.titulatec import titulatec_cli
+from itcj2.cli.directory import directory_cli
 from itcj2.cli.celery import celery_cli
 
 
@@ -50,6 +52,7 @@ cli.add_command(vistetec_cli)
 cli.add_command(warehouse_cli)
 cli.add_command(maint_cli)
 cli.add_command(titulatec_cli)
+cli.add_command(directory_cli)
 cli.add_command(celery_cli)
 
 

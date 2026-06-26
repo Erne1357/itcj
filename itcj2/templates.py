@@ -19,7 +19,10 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+import json
+
 from .config import get_settings, load_static_manifest
+from itcj2.core.utils.redis_conn import get_redis
 
 logger = logging.getLogger("itcj2.templates")
 
@@ -357,17 +360,42 @@ def _make_nav_for(user: dict | None) -> Callable[[str | None], list[dict]]:
 # ---------------------------------------------------------------------------
 
 
-def _get_active_theme() -> dict | None:
-    """Obtiene el tema visual activo del sistema (equivalente al context processor de Flask)."""
-    try:
-        from itcj2.core.services import themes_service  # type: ignore[import]
+_ACTIVE_THEME_CACHE_KEY = "core:active_theme"
+_ACTIVE_THEME_TTL = 300  # 5 min
 
-        theme = themes_service.get_active_theme()
-        if theme:
-            return theme.to_dict(include_full=True)
+
+def _get_active_theme() -> dict | None:
+    """Tema visual activo, cacheado en Redis para no pegar a la BD en cada render."""
+    # 1) Intentar cache
+    r = None
+    try:
+        r = get_redis()
+        cached = r.get(_ACTIVE_THEME_CACHE_KEY)
+        if cached is not None:
+            return json.loads(cached) if cached else None
+    except Exception:
+        r = None
+
+    # 2) Calcular desde la BD con sesión propia
+    data: dict | None = None
+    try:
+        from itcj2.database import SessionLocal
+        from itcj2.core.services import themes_service
+        with SessionLocal() as db:
+            theme = themes_service.get_active_theme(db)
+            if theme:
+                data = theme.to_dict(include_full=True)
+    except Exception:
+        data = None
+
+    # 3) Guardar en cache (incluye el "no hay tema" como "" para no recalcular)
+    try:
+        if r is not None:
+            r.setex(_ACTIVE_THEME_CACHE_KEY, _ACTIVE_THEME_TTL, json.dumps(data) if data else "")
     except Exception:
         pass
-    return None
+
+    return data
 
 
 # ---------------------------------------------------------------------------

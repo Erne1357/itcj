@@ -31,7 +31,7 @@ class TestHealthCheck:
 # POST /api/core/v2/auth/login
 # ───────────────────────────────────────────────────────────────────
 class TestLogin:
-    @patch("itcj.core.services.auth_service.authenticate")
+    @patch("itcj2.core.services.auth_service.authenticate")
     def test_login_student_success(self, mock_auth, app_client):
         """Login exitoso con número de control (8 dígitos)."""
         mock_auth.return_value = FAKE_STUDENT
@@ -49,7 +49,7 @@ class TestLogin:
         # Debe setear la cookie itcj_token
         assert "itcj_token" in resp.cookies
 
-    @patch("itcj.core.services.auth_service.authenticate_by_username")
+    @patch("itcj2.core.services.auth_service.authenticate_by_username")
     def test_login_staff_success(self, mock_auth, app_client):
         """Login exitoso con username (staff)."""
         mock_auth.return_value = FAKE_STAFF
@@ -64,7 +64,7 @@ class TestLogin:
         assert data["user"]["id"] == 200
         assert "itcj_token" in resp.cookies
 
-    @patch("itcj.core.services.auth_service.authenticate")
+    @patch("itcj2.core.services.auth_service.authenticate")
     def test_login_invalid_credentials(self, mock_auth, app_client):
         """Login con credenciales incorrectas."""
         mock_auth.return_value = None
@@ -75,7 +75,7 @@ class TestLogin:
         )
 
         assert resp.status_code == 401
-        assert resp.json()["detail"] == "invalid_credentials"
+        assert resp.json()["error"] == "invalid_credentials"
 
     def test_login_empty_control_number(self, app_client):
         """Login con control_number vacío."""

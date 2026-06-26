@@ -42,6 +42,13 @@ echo ">>> Actualizando codigo desde GitHub..."
 git fetch origin
 git reset --hard origin/main
 
+# -- 2.0 Tag de imagen inmutable por commit (2.3) --
+# La imagen lleva el codigo horneado (itcj2/asgi.py/migrations), no bind-mount.
+# IMAGE_TAG = sha corto; el compose la referencia via ${IMAGE_TAG}. Habilita
+# rollback a una imagen previa sin rebuild (ver rollback.sh, 2.4).
+export IMAGE_TAG="$(git rev-parse --short HEAD)"
+echo ">>> Imagen objetivo: itcj2-backend:$IMAGE_TAG"
+
 # -- 2.1 Generar manifiesto de estaticos (Pilar 2) --
 echo ">>> Generando manifiesto de archivos estaticos..."
 # Asegurar que el archivo existe (Docker falla si intenta montar un archivo inexistente)
@@ -104,7 +111,25 @@ done
 # Esto inserta permisos y definiciones de tareas en la DB. Solo se necesita una vez.
 # -----------------------------------------------------------------------------------------
 
-# -- 4. Ejecutar migraciones ANTES de levantar el nuevo backend --
+# -- 4.0 Backup de la BD ANTES de migrar (Pilar 1.5) --
+# Una migración destructiva sin respaldo fresco es irreversible. Hacemos un
+# pg_dump comprimido a un directorio FUERA del bind-mount de los contenedores.
+echo ">>> Backup de la BD antes de migrar..."
+BACKUP_DIR="/home/cuaderno/backups"
+mkdir -p "$BACKUP_DIR"
+if docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump -U postgres -Fc itcj \
+        > "$BACKUP_DIR/itcj_predeploy_$(date +%F_%H%M%S).dump" 2>/dev/null; then
+    echo "    Backup creado en $BACKUP_DIR."
+    # Conservar solo los últimos 10 backups pre-deploy.
+    ls -1t "$BACKUP_DIR"/itcj_predeploy_*.dump 2>/dev/null | tail -n +11 | xargs -r rm -f
+else
+    echo "    WARN: no se pudo crear el backup pre-migración (¿postgres arriba?)."
+    echo "    Abortando deploy: no migramos sin respaldo fresco."
+    rm -f "$BACKUP_DIR"/itcj_predeploy_*.dump.tmp 2>/dev/null || true
+    exit 1
+fi
+
+# -- 4. Ejecutar migraciones (paso único y explícito; el entrypoint ya NO migra) --
 echo ">>> Ejecutando migraciones de base de datos..."
 # Si hay un backend activo, ejecutar migraciones en él
 if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
@@ -202,7 +227,7 @@ CONTAINER_ID=$(docker compose -f "$COMPOSE_FILE" --profile "$NEW" ps -q "backend
 for i in $(seq 1 $REACH_RETRIES); do
     if [ -n "$CONTAINER_ID" ]; then
         BACKEND_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_ID" 2>/dev/null | head -1)
-        if [ -n "$BACKEND_IP" ] && curl -sf --max-time 3 "http://$BACKEND_IP:8001/health" > /dev/null 2>&1; then
+        if [ -n "$BACKEND_IP" ] && curl -sf --max-time 3 "http://$BACKEND_IP:8001/ready" > /dev/null 2>&1; then
             REACH_OK=true
             echo "    backend-$NEW es alcanzable (IP: $BACKEND_IP)."
             break
@@ -298,14 +323,30 @@ fi
 
 # -- 11. Guardar estado y limpiar --
 echo "$NEW" > "$STATE_FILE"
+
+# -- 11.0 Guardar imagen buena para rollback (2.4) --
+# .last-good-image = imagen recien promovida; .prev-good-image = la anterior
+# (destino del rollback). rollback.sh lee .prev-good-image.
+LAST_IMG_FILE="docker/.last-good-image"
+PREV_IMG_FILE="docker/.prev-good-image"
+if [ -f "$LAST_IMG_FILE" ]; then
+    cp "$LAST_IMG_FILE" "$PREV_IMG_FILE"
+fi
+echo "$IMAGE_TAG" > "$LAST_IMG_FILE"
+
+# Retencion: conservar solo las 5 imagenes itcj2-backend mas nuevas. Las en uso
+# no se pueden borrar (rmi falla -> se quedan), por eso el '|| true'.
+docker images itcj2-backend --format '{{.Tag}}' | grep -v '^latest$' | tail -n +6 \
+    | xargs -r -I{} docker rmi "itcj2-backend:{}" 2>/dev/null || true
+
 docker image prune -f
 
 # -- 11.1 Reconstruir y reiniciar Celery worker/beat (código actualizado) --
 # --force-recreate es crítico: sin él Docker omite el restart si la config del compose
 # no cambió, y el proceso Python sigue con módulos viejos cacheados en memoria.
 echo ">>> Actualizando Celery worker y beat..."
-docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate celery-worker celery-beat
-echo ">>> Celery worker y beat actualizados."
+docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate celery-worker celery-worker-reports celery-beat
+echo ">>> Celery workers (principal + reports) y beat actualizados."
 
 # -- 12. Notificar cambios de estaticos via WebSocket (Pilar 3) --
 if [ -n "$OLD_MANIFEST" ]; then

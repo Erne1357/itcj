@@ -1,0 +1,196 @@
+/* ============================================
+   TEMA MUNDIAL 2026 — decoraciones + widget + modal
+   ============================================ */
+:root {
+  --mundial-primary: #0B6E4F;
+  --mundial-secondary: #1A7A3D;
+  --mundial-accent: #FFD23F;
+}
+
+/* Guirnalda de banderas ondeando (arriba). El color de cada bandera lo pone el JS. */
+.mundial-garland { position: fixed; top: 0; left: 0; width: 100%; height: 48px;
+  display: flex; gap: 3px; padding: 0 4px; pointer-events: none; z-index: 9998; }
+.mundial-gflag { flex: 1 1 0; height: 40px; border-radius: 0 0 4px 4px;
+  box-shadow: 0 3px 6px rgba(0,0,0,.25); transform-origin: top center;
+  animation: mundial-wave 2.4s ease-in-out infinite; }
+.mundial-gflag.mex { height: 44px; box-shadow: 0 4px 10px rgba(206,17,38,.35); }
+@keyframes mundial-wave {
+  0%,100% { transform: perspective(220px) rotateY(-16deg) translateY(0); }
+  50%     { transform: perspective(220px) rotateY(16deg) translateY(4px); }
+}
+
+/* Banderas (emoji) flotando hacia arriba, mayoría México */
+.mundial-float-flag { position: fixed; bottom: -60px; font-size: 32px; line-height: 1;
+  z-index: 9996; pointer-events: none; will-change: transform;
+  animation: mundial-rise linear forwards; }
+@keyframes mundial-rise {
+  0%   { transform: translateY(0) rotate(-10deg); opacity: 0; }
+  12%  { opacity: .95; }
+  88%  { opacity: .95; }
+  100% { transform: translateY(-112vh) rotate(10deg); opacity: 0; }
+}
+
+/* Bandera grande de México ondeando (esquina inferior izquierda) */
+.mundial-mexico { position: fixed; left: 18px; bottom: 72px; width: 140px; height: 92px;
+  z-index: 9995; pointer-events: none; border-radius: 4px; overflow: hidden;
+  box-shadow: 0 8px 22px rgba(0,0,0,.32); transform-origin: left center;
+  background: linear-gradient(90deg, #006847 0 33.33%, #ffffff 33.33% 66.66%, #ce1126 66.66% 100%);
+  animation: mundial-flagwave 3.2s ease-in-out infinite; }
+.mundial-mexico::after { content: "🦅"; position: absolute; inset: 0 0 14px 0;
+  display: flex; align-items: center; justify-content: center; font-size: 34px; opacity: .9; }
+.mundial-mexico-label { position: absolute; bottom: 5px; left: 0; right: 0; text-align: center;
+  font: 800 11px/1 system-ui, sans-serif; letter-spacing: 1px; color: #006847;
+  text-shadow: 0 1px 0 rgba(255,255,255,.7); }
+@keyframes mundial-flagwave {
+  0%,100% { transform: skewY(0deg) scaleX(1); }
+  25%     { transform: skewY(-2.4deg) scaleX(.985); }
+  50%     { transform: skewY(0deg) scaleX(1); }
+  75%     { transform: skewY(2.4deg) scaleX(.985); }
+}
+
+/* Balón rebotando (más grande, con sombra) */
+.mundial-ball { position: fixed; bottom: 40px; left: -80px; width: 62px; height: 62px;
+  font-size: 62px; line-height: 62px; z-index: 9997; pointer-events: none;
+  filter: drop-shadow(0 8px 6px rgba(0,0,0,.3));
+  animation: mundial-roll 7s linear forwards, mundial-bounce 1.05s ease-in-out infinite; }
+@keyframes mundial-roll {
+  from { left: -80px; transform: rotate(0deg); }
+  to   { left: 107vw; transform: rotate(1980deg); }
+}
+@keyframes mundial-bounce { 0%,100% { margin-bottom: 0; } 50% { margin-bottom: 95px; } }
+
+/* Confeti (colores de México) */
+.mundial-confetti { position: fixed; top: -12px; width: 9px; height: 16px; border-radius: 1px;
+  z-index: 9996; pointer-events: none; opacity: 0.95; animation: mundial-fall linear forwards; }
+@keyframes mundial-fall { to { transform: translateY(108vh) rotate(720deg); opacity: 0.2; } }
+
+/* Reflectores */
+.mundial-lights::before, .mundial-lights::after {
+  content: ""; position: fixed; top: -40px; width: 240px; height: 240px;
+  background: radial-gradient(circle, rgba(255,210,63,0.18), transparent 70%);
+  pointer-events: none; z-index: 1; animation: mundial-shimmer 4s ease-in-out infinite alternate; }
+.mundial-lights::before { left: 8%; }
+.mundial-lights::after  { right: 8%; animation-delay: 2s; }
+@keyframes mundial-shimmer { from { opacity: 0.3; } to { opacity: 0.7; } }
+
+/* Widget flotante */
+#mundial-widget { position: fixed; top: 80px; right: 24px; width: 320px; max-width: 92vw;
+  background: #fff; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+  z-index: 10000; overflow: hidden; font-size: 14px; }
+#mundial-widget.hidden { display: none; }
+.mundial-widget-header { background: linear-gradient(135deg, var(--mundial-primary), var(--mundial-secondary));
+  color: #fff; padding: 10px 14px; cursor: move; display: flex; align-items: center; justify-content: space-between; }
+.mundial-widget-header strong { font-weight: 700; }
+.mundial-widget-actions { display: flex; align-items: center; gap: 8px; }
+.mundial-widget-actions button { background: transparent; border: none; color: #fff; cursor: pointer;
+  font-size: 16px; width: 30px; height: 30px; padding: 0; line-height: 1; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; transition: background .15s ease; }
+.mundial-widget-actions button:hover { background: rgba(255, 255, 255, .25); }
+.mundial-widget-actions button:active { background: rgba(255, 255, 255, .45); }
+.mundial-widget-body { max-height: 50vh; overflow-y: auto; }
+.mundial-match { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+.mundial-match.mex { background: rgba(11,110,79,0.07); }
+.mundial-team { flex: 1; display: flex; align-items: center; gap: 6px; }
+.mundial-team.away { justify-content: flex-end; text-align: right; }
+.mundial-score { font-weight: 700; min-width: 44px; text-align: center; }
+.mundial-time { font-size: 12px; color: #666; min-width: 44px; text-align: center; }
+.mundial-live { color: #e10600; font-weight: 700; font-size: 11px; }
+.mundial-empty { padding: 18px 14px; color: #777; text-align: center; }
+/* Botón tray (escritorio) */
+#mundial-tray-btn { position: relative; }
+#mundial-tray-badge { position: absolute; top: -2px; right: -2px; background: #e10600; color: #fff;
+  border-radius: 10px; font-size: 9px; padding: 1px 5px; }
+
+/* FAB (mobile / cuando no hay system-tray): abajo-izquierda, encima del bottom-nav */
+#mundial-fab { position: fixed; left: 16px;
+  bottom: calc(var(--mobile-bottom-nav-height, 64px) + var(--mobile-safe-bottom, 0px) + 16px);
+  width: 56px; height: 56px; border-radius: 50%; border: none;
+  background: linear-gradient(135deg, var(--mundial-primary), var(--mundial-secondary));
+  color: #fff; font-size: 28px; line-height: 1; cursor: pointer; z-index: 10001;
+  display: none; align-items: center; justify-content: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .32); transition: transform .12s ease; }
+#mundial-fab.show { display: flex; }
+#mundial-fab:active { transform: scale(.92); }
+.mundial-fab-badge { position: absolute; top: -2px; right: -2px; background: #e10600; color: #fff;
+  border-radius: 10px; font-size: 10px; padding: 1px 5px; line-height: 1.3; }
+
+/* Modal 3 vistas — sube el z-index por encima del widget (10000) y del escritorio */
+#mundial-results-modal { z-index: 100000; }
+body.mundial-modal-open .modal-backdrop { z-index: 99990 !important; }
+.mundial-tabs .nav-link { color: var(--mundial-primary); font-weight: 600; }
+.mundial-tabs .nav-link.active { color: #000; }
+.mundial-day { margin: 14px 14px 4px; font-weight: 700; color: var(--mundial-primary); }
+.mundial-loadmore-wrap { text-align: center; padding: 10px 8px 4px; }
+.mundial-loadmore { background: var(--mundial-primary); color: #fff; border: none; border-radius: 20px;
+  padding: 7px 18px; font-size: 13px; font-weight: 600; cursor: pointer; transition: filter .15s ease; }
+.mundial-loadmore:hover { filter: brightness(1.12); }
+.mundial-loadmore:active { transform: scale(.97); }
+
+/* Vista Grupos */
+.mundial-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; padding: 12px; }
+.mundial-group { border: 1px solid #eee; border-radius: 10px; overflow: hidden; }
+.mundial-group-h { background: var(--mundial-primary); color: #fff; font-weight: 700; padding: 6px 10px; }
+.mundial-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mundial-table th, .mundial-table td { padding: 5px 6px; text-align: center; border-bottom: 1px solid #f1f1f1; }
+.mundial-table th.t, .mundial-table td.t { text-align: left; white-space: nowrap; }
+.mundial-table td.pts, .mundial-table th:last-child { font-weight: 700; }
+/* Zonas de clasificación (color por posición/tabla actual) */
+.mundial-table tr.q { background: rgba(0, 104, 71, .12); }
+.mundial-table tr.q td:first-child { box-shadow: inset 3px 0 0 #006847; }
+.mundial-table tr.q3 { background: rgba(255, 193, 7, .16); }
+.mundial-table tr.q3 td:first-child { box-shadow: inset 3px 0 0 #e0a800; }
+.mundial-table tr.out td { color: #9a9a9a; }
+.mundial-table tr.mex { font-weight: 700; }
+.mundial-table tr.mex td.t { color: var(--mundial-secondary); }
+
+/* Leyenda de zonas */
+.mundial-legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px 14px 2px; font-size: 12px; color: #555; }
+.mundial-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.mundial-legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.mundial-legend i.z-q { background: rgba(0, 104, 71, .55); }
+.mundial-legend i.z-q3 { background: rgba(224, 168, 0, .7); }
+.mundial-legend i.z-out { background: #cfcfcf; }
+.mundial-legend-note { color: #999; font-style: italic; margin-left: auto; }
+
+/* Vista Bracket */
+.mundial-bracket { display: flex; gap: 14px; padding: 12px; overflow-x: auto; align-items: stretch; }
+.mundial-bk-col { min-width: 156px; display: flex; flex-direction: column; }
+/* El header va fijo arriba; las tarjetas reparten con space-around sobre la MISMA altura en
+   cada columna -> cada ronda queda centrada entre sus dos feeders. */
+.mundial-bk-cards { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-around; }
+.mundial-bk-match { min-height: 46px; box-sizing: border-box; }
+.mundial-bk-h { flex: 0 0 auto; font-weight: 700; color: var(--mundial-primary); text-align: center; font-size: 13px; margin-bottom: 6px; }
+.mundial-bk-match { border: 1px solid #e3e3e3; border-radius: 8px; padding: 6px 8px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.mundial-bk-match.mex { border-color: var(--mundial-primary); background: rgba(0,104,71,.06); }
+.mundial-bk-team { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
+.mundial-bk-team b { min-width: 16px; text-align: right; }
+.mundial-bk-team.w { color: #006847; font-weight: 800; }     /* ganador (avanza) */
+.mundial-bk-team.w b { color: #006847; }
+.mundial-bk-team.l { color: #b0b0b0; }                        /* eliminado */
+.mundial-bk-team.l b { color: #b0b0b0; }
+.mundial-bk-time { font-size: 11px; color: #888; }
+.mundial-bk-live { font-size: 11px; color: #e10600; font-weight: 700; }
+.mundial-bk-empty { color: #bbb; text-align: center; padding: 8px; }
+.mundial-bk-third { padding: 0 12px 12px; max-width: 220px; }
+
+/* prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .mundial-gflag, .mundial-float-flag, .mundial-mexico, .mundial-ball, .mundial-confetti,
+  .mundial-lights::before, .mundial-lights::after { animation: none !important; }
+}
+
+/* Móvil: widget como tarjeta inferior (encima del bottom-nav), FAB visible,
+   decoraciones más chicas y bandera grande oculta (chocaría con el FAB) */
+@media (max-width: 576px) {
+  #mundial-widget { top: auto; right: 8px; left: 8px; width: auto;
+    bottom: calc(var(--mobile-bottom-nav-height, 64px) + var(--mobile-safe-bottom, 0px) + 12px); }
+  .mundial-widget-header { cursor: default; }
+  .mundial-widget-actions { gap: 6px; }
+  .mundial-widget-actions button { width: 36px; height: 36px; font-size: 18px; } /* tap targets cómodos */
+  .mundial-garland { height: 36px; }
+  .mundial-gflag { height: 30px; }
+  .mundial-gflag.mex { height: 33px; }
+  .mundial-mexico { display: none; }
+  #mundial-fab { display: flex; }
+  /* Modal: tablas de grupos a una columna ya por auto-fill; bracket con scroll horizontal */
+}

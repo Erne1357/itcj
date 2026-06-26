@@ -109,7 +109,7 @@ async def settings(
             from itcj2.core.services import themes_service
 
             themes_count = _db.query(Theme).filter_by(is_enabled=True).count()
-            active = themes_service.get_active_theme()
+            active = themes_service.get_active_theme(_db)
             if active:
                 active_theme_name = active.name
         except Exception:

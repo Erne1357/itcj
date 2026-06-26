@@ -1,0 +1,110 @@
+{# Panel de la fase seleccionada (solo esto se intercambia al cambiar de tab).
+   Contexto: _detail_ctx(...). El header + stepper NO se recargan. #}
+{% from "titulatec/_macros.html" import estado_pill, appt_pill %}
+{% set BASE = '/titulatec/admin/processes/' ~ process.id %}
+{% set sel = selected_phase %}
+<div class="tt-card tt-anim-in">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+    <div>
+      <span class="tt-kicker">Fase {{ '%02d'|format(sel) }}</span>
+      <div style="font-size:1.05rem;font-weight:600">{{ selected_name }}</div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      {{ estado_pill(selected_status) }}
+      {% if process.status=='active' and sel==current_phase %}
+      <button class="btn btn-sm tt-btn-ghost" type="button" style="color:var(--tt-danger);border-color:rgba(220,38,38,.3)"
+              onclick="ttPhaseModal('reject', {{ sel }})"><i class="bi bi-x-lg me-1"></i>Rechazar</button>
+      <button class="btn btn-sm tt-btn-ink" type="button"
+              onclick="ttPhaseModal('approve', {{ sel }})"><i class="bi bi-check-lg me-1"></i>Aprobar fase</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% for ph in phases if ph.number==sel and ph.status=='rejected' and ph.rejection_reason %}
+  <div class="p-2 mb-2" style="background:var(--tt-danger-soft);border-radius:8px;font-size:.82rem;color:#991B1B">
+    <i class="bi bi-exclamation-triangle me-1"></i>{{ ph.rejection_reason }}
+  </div>
+  {% endfor %}
+
+  {# ---- Contenido específico por fase ---- #}
+  {% if sel == 1 %}
+    {% set viewable = viewer_docs | selectattr('has_file') | list %}
+    {% if viewable %}
+      {% set docs = viewer_docs %}{% set review = false %}{% set process_id = process.id %}
+      {% include "titulatec/partials/documents/_doc_viewer.html" %}
+    {% else %}
+      <p class="mb-0" style="font-size:.85rem;color:var(--tt-mute)">El alumno aún no sube documentos.</p>
+    {% endif %}
+    <div class="mt-2 d-flex flex-wrap gap-2">
+      {% for d in initial_docs %}
+      <span class="tt-pill tt-pill--{{ 'success' if d.doc and d.doc.review_status=='approved' else ('danger' if d.doc and d.doc.review_status=='rejected' else 'amber' if d.doc else 'neutral') }}">{{ d.name }}: {{ d.doc.review_status if d.doc else 'falta' }}</span>
+      {% endfor %}
+      <a class="btn btn-sm tt-btn-soft" href="/titulatec/admin/documents?selected={{ process.id }}"><i class="bi bi-pencil-square me-1"></i>Revisar en bandeja</a>
+    </div>
+
+  {% elif sel == 2 %}
+    {% if appt %}
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2" style="font-size:.88rem">
+      {{ appt_pill(appt.status) }}
+      <span><i class="bi bi-calendar-event me-1" style="color:var(--tt-mute)"></i>{{ appt.scheduled_label }}</span>
+      <span><i class="bi bi-geo-alt me-1" style="color:var(--tt-mute)"></i>{{ appt.location or 'Sin lugar' }}</span>
+    </div>
+    {% else %}
+    <p style="font-size:.85rem;color:var(--tt-mute)">Sin cita agendada.</p>
+    {% endif %}
+    <a class="btn btn-sm tt-btn-soft" href="/titulatec/admin/appointments?selected={{ process.id }}"><i class="bi bi-calendar-check me-1"></i>Gestionar cita</a>
+
+  {% elif sel == 3 and formato_b %}
+    <div class="row g-2" style="font-size:.82rem">
+      <div class="col-md-6"><span style="color:var(--tt-mute)">Nombre:</span> {{ formato_b.datos.first_name }} {{ formato_b.datos.last_name }}</div>
+      <div class="col-md-3"><span style="color:var(--tt-mute)">Edad:</span> {{ formato_b.datos.age }}</div>
+      <div class="col-md-3"><span style="color:var(--tt-mute)">Celular:</span> {{ formato_b.datos.mobile_phone }}</div>
+      <div class="col-md-6"><span style="color:var(--tt-mute)">Plan:</span> {{ formato_b.datos.study_plan }}</div>
+      <div class="col-md-6"><span style="color:var(--tt-mute)">Ingreso:</span> {{ formato_b.datos.admission_date }}</div>
+      <div class="col-12"><span style="color:var(--tt-mute)">Proyecto:</span> {{ formato_b.datos.project_name }}</div>
+    </div>
+    {% if formato_b.status == 'submitted' %}
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-sm tt-btn-ink" hx-post="{{ BASE }}/format-b/review" hx-vals='{"action":"approve"}'
+              hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-check-lg me-1"></i>Aprobar Formato B</button>
+      <button class="btn btn-sm tt-btn-ghost" hx-post="{{ BASE }}/format-b/review" hx-vals='{"action":"reject"}'
+              hx-target="#process-detail" hx-swap="innerHTML"><i class="bi bi-x-lg me-1"></i>Rechazar</button>
+    </div>
+    {% endif %}
+
+  {% elif sel in (4, 5) and synodals %}
+    <div class="d-flex flex-column gap-2">
+      {% for s in synodals %}
+      <div class="d-flex align-items-center gap-2" style="font-size:.85rem">
+        <span class="tt-pill tt-pill--navy">{{ s.role }}</span>
+        <span class="flex-grow-1 fw-semibold">{{ s.name }}</span>
+        {% if s.vote == 'approved' %}<span class="tt-pill tt-pill--success">Aprobó</span>
+        {% elif s.vote == 'changes_requested' %}<span class="tt-pill tt-pill--amber">Pide cambios</span>
+        {% else %}<span class="tt-pill tt-pill--neutral">Sin voto</span>{% endif %}
+      </div>
+      {% if s.vote_note %}<div style="font-size:.78rem;color:var(--tt-mute);margin-left:4px">{{ s.vote_note }}</div>{% endif %}
+      {% endfor %}
+    </div>
+
+  {% else %}
+    <p style="font-size:.85rem;color:var(--tt-slate)">Sin datos adicionales para esta fase. La actividad se ve abajo.</p>
+  {% endif %}
+
+  {# ---- Línea de tiempo de la fase ---- #}
+  {% set pev = events | selectattr('phase', 'equalto', sel) | list %}
+  {% if pev %}
+  <div class="tt-timeline mt-3">
+    <div class="tt-kicker mb-2">Actividad de la fase</div>
+    {% for e in pev %}
+    <div class="ev">
+      <span class="ev-dot ev-{{ e.tone }}"><i class="bi bi-{{ e.icon }}"></i></span>
+      <div class="ev-body">
+        <div class="ev-label">{{ e.label }}</div>
+        <div class="ev-meta">{{ e.when }}{% if e.actor %} · {{ e.actor }}{% endif %}</div>
+        {% if e.note %}<div class="ev-note">{{ e.note }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

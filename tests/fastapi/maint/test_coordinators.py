@@ -757,6 +757,36 @@ class TestAssignmentBoard:
         assert len(body["data"]) == 1
         assert body["data"][0]["ticket_number"] == "MANT-2026-000001"
 
+    @patch("itcj2.apps.maint.services.ticket_service.list_tickets")
+    @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
+    @patch("itcj2.core.services.authz_service.has_any_assignment")
+    @patch("itcj2.core.services.authz_service.user_roles_in_app")
+    def test_board_solo_pide_pending(
+        self, mock_roles, mock_has_assign, mock_get_perms, mock_list, app_and_db
+    ):
+        """El tablero es la cola POR ASIGNAR: solo consulta tickets PENDING.
+
+        Una vez asignados (ASSIGNED) o en progreso, salen del tablero. El parámetro
+        `status` se ignora — aunque el cliente pida ASSIGNED, el board fuerza PENDING.
+        """
+        _, client, mock_db = app_and_db
+
+        mock_roles.return_value = {"maint_general_coordinator"}
+        mock_has_assign.return_value = True
+        mock_get_perms.return_value = {"maint.assignments.page.list"}
+        mock_list.return_value = {
+            "tickets": [], "total": 0, "pages": 0,
+            "current_page": 1, "per_page": 50, "has_next": False, "has_prev": False,
+        }
+
+        r = client.get(
+            "/api/maint/v2/tickets/board?status=ASSIGNED",
+            headers=_plain_headers(user_id=1),
+        )
+        assert r.status_code == 200, r.text
+        # Ignora el status del cliente y fuerza PENDING.
+        assert mock_list.call_args.kwargs["status"] == "PENDING"
+
     def test_board_no_auth_returns_401(self, app_and_db):
         _, client, _ = app_and_db
         r = client.get("/api/maint/v2/tickets/board")

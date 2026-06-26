@@ -7,10 +7,69 @@ on:
   workflow_dispatch:  # Permite ejecutar manualmente
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Gate de calidad (1.4). El deploy depende de este job (needs: test).
+  # - compileall: BLOQUEANTE — ataja el riesgo #1 (un syntax error / import roto
+  #   llegando a prod en cada push a main).
+  # - pytest: BLOQUEANTE — la deuda legacy ("itcj." pre-migración) ya se limpió;
+  #   la suite completa (891 tests) pasa. Si tarda mucho, optimizar con
+  #   pytest-xdist (-n auto) más adelante.
+  # - ruff: informativo (continue-on-error) — aún hay estilo por limpiar.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Quality gate (compile + lint + tests)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: itcj_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Compile (BLOQUEANTE — ataja syntax/import roto)
+        run: python -m compileall -q itcj2 asgi.py
+
+      - name: Lint (ruff, informativo)
+        continue-on-error: true
+        run: ruff check itcj2
+
+      - name: Tests (BLOQUEANTE — suite completa)
+        env:
+          DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+          MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+          REDIS_URL: redis://localhost:6379/0
+        run: pytest tests/fastapi -q
+
+  # ---------------------------------------------------------------------------
+  # Deploy — solo si el gate pasó (needs: test) y, si se configura el Environment
+  # "production" con required reviewers, tras aprobación humana (ver RUNBOOK 1.4).
+  # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to Server (Zero-Downtime)
+    needs: test
     runs-on: ubuntu-latest
-
+    environment: production
     steps:
       - name: Deploy via SSH (Blue-Green)
         uses: appleboy/ssh-action@v1.0.3

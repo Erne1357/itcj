@@ -45,3 +45,7 @@ core_router.include_router(mobile_router, prefix="/mobile")
 # Tasks: gestión de tareas Celery (catálogo, schedules, historial)
 from .api.tasks import router as tasks_router
 core_router.include_router(tasks_router, prefix="/tasks")
+
+# Mundial 2026: partidos (tema visual)
+from .api.mundial import router as mundial_router
+core_router.include_router(mundial_router, prefix="/mundial")

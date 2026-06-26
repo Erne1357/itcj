@@ -1,0 +1,11 @@
+{
+  "tournament": "FIFA World Cup 2026",
+  "matches": [
+    {"id": "WC2026-001", "kickoff_utc": "2026-06-11T19:00:00Z", "stage": "group", "group": "A", "home": {"code": "MEX", "name": "Mexico", "flag": "🇲🇽"}, "away": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "venue": "Estadio Azteca, CDMX"},
+    {"id": "WC2026-002", "kickoff_utc": "2026-06-12T00:00:00Z", "stage": "group", "group": "B", "home": {"code": "CAN", "name": "Canada", "flag": "🇨🇦"}, "away": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "venue": "BMO Field, Toronto"},
+    {"id": "WC2026-003", "kickoff_utc": "2026-06-12T19:00:00Z", "stage": "group", "group": "D", "home": {"code": "USA", "name": "USA", "flag": "🇺🇸"}, "away": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "venue": "SoFi Stadium, Los Angeles"},
+    {"id": "WC2026-018", "kickoff_utc": "2026-06-18T19:00:00Z", "stage": "group", "group": "A", "home": {"code": "MEX", "name": "Mexico", "flag": "🇲🇽"}, "away": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "venue": "Estadio Akron, Guadalajara"},
+    {"id": "WC2026-019", "kickoff_utc": "2026-06-18T22:00:00Z", "stage": "group", "group": "C", "home": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "away": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "venue": "Estadio BBVA, Monterrey"},
+    {"id": "WC2026-035", "kickoff_utc": "2026-06-24T19:00:00Z", "stage": "group", "group": "A", "home": {"code": "MEX", "name": "Mexico", "flag": "🇲🇽"}, "away": {"code": "TBD", "name": "Por definir", "flag": "🏳️"}, "venue": "Estadio Azteca, CDMX"}
+  ]
+}

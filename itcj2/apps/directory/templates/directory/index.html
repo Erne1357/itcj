@@ -1,0 +1,113 @@
+{% extends "directory/base_directory.html" %}
+{% block title %}Directorio de Extensiones · ITCJ{% endblock %}
+{% block body %}
+<div class="dir-wrap container-fluid py-3" id="dir-shell" hx-ext="morph">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <h1 class="h4 mb-0"><i class="bi bi-telephone-fill me-2"></i>Directorio de Extensiones</h1>
+    {% if can_manage %}
+    <button class="btn btn-primary btn-sm" data-dir-action="new-entry"
+            data-bs-toggle="modal" data-bs-target="#dirEntryModal">
+      <i class="bi bi-plus-lg"></i> <span class="d-none d-sm-inline">Agregar extensión</span>
+    </button>
+    {% endif %}
+  </div>
+
+  <form class="row g-2 mb-3" id="dir-filters" onsubmit="return false;">
+    <div class="col-12 col-md">
+      <input type="search" class="form-control" name="q" placeholder="Buscar persona, puesto, extensión…"
+             hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="#dir-filters"
+             hx-indicator="#dir-skel">
+    </div>
+    <div class="col-6 col-md-auto">
+      <select class="form-select" name="filter_dept"
+              hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
+              hx-include="#dir-filters" hx-indicator="#dir-skel">
+        <option value="">Todos los departamentos</option>
+        {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-md-auto">
+      <select class="form-select" name="source"
+              hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
+              hx-include="#dir-filters" hx-indicator="#dir-skel">
+        <option value="all">Todas</option>
+        <option value="position">De puesto</option>
+        <option value="entry">Extras</option>
+      </select>
+    </div>
+  </form>
+
+  <div id="dir-skel" class="dir-skel htmx-indicator mb-3" aria-hidden="true">
+    <div class="dir-skel-line"></div><div class="dir-skel-line"></div><div class="dir-skel-line"></div>
+  </div>
+
+  <div id="dir-list">
+    {% include "directory/partials/dir_list.html" %}
+  </div>
+</div>
+
+{% if can_manage %}
+<!-- Modal: crear/editar extensión extra -->
+<div class="modal fade" id="dirEntryModal" tabindex="-1" aria-hidden="true">
+ <div class="modal-dialog"><div class="modal-content">
+  <form id="dirEntryForm" hx-target="#dir-list" hx-swap="morph:innerHTML" hx-include="#dir-filters">
+   <div class="modal-header"><h5 class="modal-title" id="dirEntryTitle">Agregar extensión</h5>
+     <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+   <div class="modal-body">
+     <div class="mb-2"><label class="form-label">Departamento</label>
+       <select class="form-select" name="department_id" required>
+         <option value="">Selecciona…</option>
+         {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+       </select></div>
+     <div class="mb-2"><label class="form-label">Etiqueta / Puesto</label>
+       <input class="form-control" name="label" maxlength="120" required></div>
+     <div class="mb-2"><label class="form-label">Responsable (opcional)</label>
+       <input class="form-control" name="holder_name" maxlength="120"></div>
+     <div class="mb-2"><label class="form-label">Extensión</label>
+       <input class="form-control" name="extension" maxlength="10" required></div>
+     <div class="mb-2"><label class="form-label">Notas (opcional)</label>
+       <input class="form-control" name="notes" maxlength="200"></div>
+   </div>
+   <div class="modal-footer">
+     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+     <button type="submit" class="btn btn-primary">Guardar</button>
+   </div>
+  </form>
+ </div></div>
+</div>
+
+<!-- Modal: editar extensión de un puesto -->
+<div class="modal fade" id="dirPosModal" tabindex="-1" aria-hidden="true">
+ <div class="modal-dialog"><div class="modal-content">
+  <form id="dirPosForm" hx-target="#dir-list" hx-swap="morph:innerHTML" hx-include="#dir-filters">
+   <div class="modal-header"><h5 class="modal-title" id="dirPosTitle">Extensión</h5>
+     <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+   <div class="modal-body">
+     <div class="mb-2"><label class="form-label">Extensión</label>
+       <input class="form-control" name="extension" maxlength="10"></div>
+     <div class="mb-2"><label class="form-label">Notas (opcional)</label>
+       <input class="form-control" name="notes" maxlength="200"></div>
+   </div>
+   <div class="modal-footer">
+     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+     <button type="submit" class="btn btn-primary">Guardar</button>
+   </div>
+  </form>
+ </div></div>
+</div>
+
+<!-- Modal de confirmación (reemplaza confirm() nativo) -->
+<div class="modal fade" id="dirConfirmModal" tabindex="-1" aria-hidden="true">
+ <div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" data-dir-confirm-title>Confirmar</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body" data-dir-confirm-body></div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-dir-confirm-cancel>Cancelar</button>
+    <button type="button" class="btn btn-danger" data-dir-confirm-ok>Confirmar</button>
+  </div>
+ </div></div>
+</div>
+{% endif %}
+{% endblock %}

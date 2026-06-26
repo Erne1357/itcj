@@ -9,6 +9,12 @@ from pathlib import Path
 import click
 from sqlalchemy import text
 
+# Bootstraps the SQLAlchemy declarative Base (and itcj2.core.models package)
+# so that service modules that import core models (e.g. themes_service) can be
+# imported later without hitting the itcj2.models ↔ itcj2.core.models circular
+# import chain.  This is a lightweight import: no DB connection is created.
+import itcj2.models  # noqa: F401  # registra modelos antes de importar themes_service (evita import circular)
+
 # Raíz del proyecto: itcj2/cli/ → itcj2/ → project_root/
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
@@ -320,6 +326,82 @@ def init_tasks_command():
         raise
 
 
+@click.command("new-theme-mundial")
+def new_theme_mundial_command():
+    """Crea el tema Mundial 2026 (activo), registra la tarea diaria y calienta el cache."""
+    click.echo("⚽ Creando tema Mundial 2026...")
+
+    # Todo el DML nuevo del Mundial vive en esta carpeta (01_theme.sql, 02_task.sql).
+    # Se ejecutan en orden alfabético; no se toca ningún DML existente.
+    mundial_dir = PROJECT_ROOT / "database" / "DML" / "core" / "themes" / "mundial"
+    sql_files = sorted(mundial_dir.glob("*.sql"))
+
+    if not sql_files:
+        click.echo(f"❌ No se encontraron archivos SQL en: {mundial_dir}")
+        raise SystemExit(1)
+
+    for sql in sql_files:
+        click.echo(f"📄 Ejecutando: {sql.name}")
+        execute_sql_file(str(sql))
+
+    # Invalidar cache del tema activo + activar cron + calentar cache de partidos
+    from itcj2.core.services import themes_service, mundial_service
+
+    themes_service.invalidate_active_theme_cache()
+
+    db = _get_session()
+    try:
+        cron_active = mundial_service.sync_periodic_task(db)
+    finally:
+        db.close()
+
+    today = mundial_service.get_today_cached(force=True) or {}
+
+    click.echo("\n🎉 Tema Mundial 2026 listo!")
+    click.echo(f"   ✓ Tema activo (manual)")
+    click.echo(f"   ✓ Cron de refresco: {'activo' if cron_active else 'inactivo'}")
+    click.echo(f"   ✓ Partidos hoy ({today.get('date')}): {len(today.get('matches', []))}")
+    click.echo(f"   ✓ Proveedor de marcadores: {mundial_service.get_provider_name()}")
+
+
+@click.command("mundial-refresh")
+@click.option("--hard", is_flag=True, default=False,
+              help="Además borra el historial de resultados (mundial:results) y el cache del tema activo.")
+def mundial_refresh_command(hard: bool):
+    """Borra el cache de partidos del Mundial en Redis y vuelve a consultar (force)."""
+    from itcj2.core.services import mundial_service
+
+    click.echo("⚽ Refrescando cache de partidos del Mundial...")
+    mundial_service.clear_cache(hard=hard)
+    if hard:
+        click.echo("   🧹 Reset total (today + fixtures + results + active_theme)")
+
+    # Diagnóstico de la API (por qué salen o no los marcadores)
+    diag = mundial_service.api_diagnostic()
+    click.echo(f"   🔎 API: provider={diag['provider']} enabled={diag['enabled']} "
+               f"ok={diag['ok']} status={diag.get('status_code')} "
+               f"total={diag['count']} hoy={diag['today_count']}")
+    if diag.get("error"):
+        click.echo(f"   ⚠️  API error: {diag['error']}")
+    for s in diag.get("sample", []):
+        click.echo(f"        · {s}")
+
+    today = mundial_service.get_today_cached(force=True) or {}
+    matches = today.get("matches", [])
+    with_score = sum(1 for m in matches if m.get("score"))
+
+    click.echo(f"   ✓ Proveedor: {mundial_service.get_provider_name()}")
+    click.echo(f"   ✓ Partidos hoy ({today.get('date')}): {len(matches)} | con marcador: {with_score}")
+    for m in matches:
+        home = (m.get("home") or {}).get("name", "?")
+        away = (m.get("away") or {}).get("name", "?")
+        sc = m.get("score")
+        detail = f"{sc['home']}-{sc['away']}" if sc else (m.get("status") or "?")
+        click.echo(f"      - {home} vs {away}: {detail}")
+
+    click.echo("\n🎉 Cache refrescado.")
+
+
 @click.group("core")
 def core_cli():
     """Comandos CLI del módulo core."""
@@ -331,3 +413,5 @@ core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
+core_cli.add_command(new_theme_mundial_command)
+core_cli.add_command(mundial_refresh_command)

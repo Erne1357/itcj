@@ -42,6 +42,7 @@ volumes/
 database/DDL/*.sql
 database/DML/*.sql
 database/seeds/
+database/ 
 !database/DDL/README.md
 !database/DML/README.md
 

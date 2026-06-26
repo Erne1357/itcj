@@ -102,6 +102,11 @@
                 <i class="fas fa-chart-bar me-1 me-md-2"></i><span class="d-none d-sm-inline">Estadísticas</span><span class="d-sm-none">Stats</span>
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link px-2 px-md-3" id="passwords-tab" data-bs-toggle="tab" data-bs-target="#passwords" type="button">
+                <i class="fas fa-key me-1 me-md-2"></i><span class="d-none d-sm-inline">Contraseñas</span><span class="d-sm-none">Claves</span>
+            </button>
+        </li>
     </ul>
 </div>
 
@@ -258,7 +263,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-md-6 mb-4">
                 <div class="card border-0 shadow-sm">
                     <div class="card-header bg-white border-bottom">
@@ -267,6 +272,50 @@
                     <div class="card-body" id="categoryStats">
                         <div class="text-center py-3">
                             <div class="spinner-border spinner-border-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Passwords Tab -->
+    <div class="tab-pane fade" id="passwords" role="tabpanel">
+        <div class="row g-3">
+            <!-- Card: Mi contraseña -->
+            <div class="col-lg-5">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom py-3">
+                        <h5 class="mb-0">
+                            <i class="fas fa-user-lock me-2 text-primary"></i>Mi Contraseña
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Restablece tu contraseña a la temporal del sistema (<code>tecno#2K</code>).
+                            Se cerrará tu sesión y deberás definir una nueva al iniciar sesión.
+                        </p>
+                        <button class="btn btn-warning" id="btnResetMyPassword">
+                            <i class="fas fa-redo-alt me-2"></i>Restablecer mi contraseña
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- Card: Secretarias -->
+            <div class="col-lg-7">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-users me-2 text-warning"></i>Secretarias del Departamento
+                        </h5>
+                        <button class="btn btn-sm btn-outline-secondary" id="btnRefreshSecretaries">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                    </div>
+                    <div class="card-body p-0" id="secretariesContainer">
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-muted"></div>
+                            <p class="text-muted mt-2 mb-0 small">Cargando...</p>
                         </div>
                     </div>
                 </div>

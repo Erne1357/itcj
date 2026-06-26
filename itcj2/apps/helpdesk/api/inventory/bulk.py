@@ -60,6 +60,7 @@ def bulk_create_items(
       category_id          (requerido)
       brand, model, specifications, acquisition_date, warranty_expiration,
       maintenance_frequency_days, notes, department_id  (comunes a todos)
+      campaign_id          (int, opcional) — campaña OPEN del departamento; se asigna a todos los items
       quantity             (int) — número de equipos, alternativa a 'items'
       items                (list[dict]) — overrides por posición (department_id, location_detail, etc.)
       supplier_serial_list (str) — seriales de proveedor separados por serial_separator

@@ -1,0 +1,79 @@
+{# ===========================================================================
+   _doc_viewer.html — visor de documentos reutilizable (PDF.js → canvas, inmune
+   al bloqueo del visor PDF del navegador). Lo usan la bandeja de Documentos y
+   la agenda de Citas (cotejo).
+
+   Variables esperadas:
+     docs         · list de {type_code, name, view_url, mime, status, note, has_file}
+     review       · bool — si True, renderiza el panel de dictamen (aprobar/rechazar)
+     process_id   · id del proceso (para el POST de dictamen)
+     status_filter· filtro de estado actual (solo si review)
+   El modal grande vive en {% block modals %} de la página (incluye _doc_modal.html).
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import estado_pill %}
+{% set viewable = docs | selectattr('has_file') | list %}
+<div id="tt-doc-review" data-process="{{ process_id }}">
+  <div class="tt-card mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      {% for d in viewable %}
+      <button type="button" class="btn btn-sm tt-docpick tt-btn-ghost"
+              data-type="{{ d.type_code }}" data-url="{{ d.view_url }}" data-name="{{ d.name|e }}"
+              data-mime="{{ d.mime }}" data-status="{{ d.status or '' }}" data-note="{{ d.note|e if d.note }}">
+        {{ d.name }} {% if d.status %}{{ estado_pill(d.status) }}{% endif %}
+      </button>
+      {% endfor %}
+      {% if viewable %}
+      <button type="button" id="tt-doc-expand" class="btn btn-sm tt-btn-soft ms-auto" title="Expandir">
+        <i class="bi bi-arrows-fullscreen"></i><span class="d-none d-sm-inline ms-1">Expandir</span>
+      </button>
+      {% endif %}
+    </div>
+
+    {% if viewable %}
+    <div id="tt-doc-stage" class="tt-doc-stage"></div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+      <a id="tt-doc-open" href="#" target="_blank" rel="noopener" class="btn btn-sm tt-btn-ghost">
+        <i class="bi bi-box-arrow-up-right me-1"></i>Abrir en pestaña</a>
+      <a id="tt-doc-download" href="#" class="btn btn-sm tt-btn-ghost">
+        <i class="bi bi-download me-1"></i>Descargar</a>
+    </div>
+    {% else %}
+    <p class="mb-0" style="font-size:.82rem;color:var(--tt-mute)">El alumno no ha subido documentos.</p>
+    {% endif %}
+  </div>
+
+  {% if review and viewable %}
+  {# Dictamen del documento ACTIVO (solo bandeja de Documentos) #}
+  <div class="tt-card">
+    <div class="d-flex align-items-center justify-content-between">
+      <span class="tt-kicker">Dictamen · <span id="tt-review-name"></span></span>
+      <span id="tt-review-status"></span>
+    </div>
+    <div id="tt-doc-note" class="mt-2" style="display:none">
+      <div class="tt-kicker tt-c-danger">Último motivo de rechazo</div>
+      <div id="tt-doc-note-text" class="p-2 mt-1" style="font-size:.82rem;background:var(--tt-danger-soft);border-radius:8px;color:#991B1B"></div>
+    </div>
+    <form id="tt-review-form" class="mt-2">
+      <input type="hidden" name="type_code" id="tt-review-type">
+      <input type="hidden" name="status" value="{{ status_filter or '' }}">
+      <label class="tt-label">Comentario <span style="color:var(--tt-mute);font-weight:400">(obligatorio si rechazas)</span></label>
+      <textarea name="note" id="tt-review-note" class="tt-field" rows="2" style="width:100%"
+                placeholder="Motivo del rechazo y la corrección esperada…"></textarea>
+      <div class="d-flex gap-2 mt-2">
+        <button type="button" id="tt-inline-approve" class="btn btn-sm tt-btn-ink"
+                hx-post="/titulatec/admin/documents/{{ process_id }}/document/review"
+                hx-vals='{"action":"approve"}' hx-include="#tt-review-form"
+                hx-target="#docs-body" hx-swap="innerHTML">
+          <i class="bi bi-check-lg me-1"></i>Aprobar</button>
+        <button type="button" id="tt-inline-reject" class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost"
+                hx-post="/titulatec/admin/documents/{{ process_id }}/document/review"
+                hx-vals='{"action":"reject"}' hx-include="#tt-review-form"
+                hx-target="#docs-body" hx-swap="innerHTML">
+          <i class="bi bi-x-lg me-1"></i>Rechazar</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{# El control del visor vive en js/partials/doc-viewer.js (cargado por base_admin,
+   se inicializa en htmx:afterSettle). #}

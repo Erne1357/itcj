@@ -21,13 +21,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencias Python (base Flask + extras FastAPI)
+# Dependencias Python (capa cacheada: solo se reconstruye si cambia requirements)
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt 
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Entrypoint
 COPY docker/backend/entrypoint-fastapi.sh /usr/local/bin/fastapi-entrypoint
 RUN chmod +x /usr/local/bin/fastapi-entrypoint
+
+# 2.3 — Código DENTRO de la imagen (artefacto inmutable, reproducible, rollbackeable).
+# Va al final para que un cambio de código NO invalide la capa de pip.
+# NO se hornea: instance/ database/ static-manifest.json (van por bind-mount).
+COPY itcj2 /app/itcj2
+COPY asgi.py /app/asgi.py
+COPY migrations /app/migrations
 
 EXPOSE 8001
 ENTRYPOINT ["/usr/local/bin/fastapi-entrypoint"]

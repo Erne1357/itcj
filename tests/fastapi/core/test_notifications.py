@@ -1,7 +1,7 @@
 """
 Tests para /api/core/v2/notifications (listado, marcar leídas, eliminar).
 """
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 from datetime import datetime
 
 import pytest
@@ -32,7 +32,7 @@ FAKE_NOTIFICATIONS_RESPONSE = {
 # GET /api/core/v2/notifications
 # ───────────────────────────────────────────────────────────────────
 class TestListNotifications:
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_list_all(self, mock_svc, app_client, auth_headers):
         """Listar todas las notificaciones del usuario."""
         mock_svc.get_notifications.return_value = FAKE_NOTIFICATIONS_RESPONSE
@@ -46,6 +46,7 @@ class TestListNotifications:
         assert data["items"][0]["type"] == "TICKET_ASSIGNED"
 
         mock_svc.get_notifications.assert_called_once_with(
+            ANY,
             user_id=200,
             app_name=None,
             unread_only=False,
@@ -54,7 +55,7 @@ class TestListNotifications:
             before_id=None,
         )
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_list_filtered_by_app(self, mock_svc, app_client, auth_headers):
         """Filtrar notificaciones por app."""
         mock_svc.get_notifications.return_value = FAKE_NOTIFICATIONS_RESPONSE
@@ -65,6 +66,7 @@ class TestListNotifications:
 
         assert resp.status_code == 200
         mock_svc.get_notifications.assert_called_once_with(
+            ANY,
             user_id=200,
             app_name="helpdesk",
             unread_only=False,
@@ -73,7 +75,7 @@ class TestListNotifications:
             before_id=None,
         )
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_list_unread_only(self, mock_svc, app_client, auth_headers):
         """Filtrar solo no leídas."""
         mock_svc.get_notifications.return_value = FAKE_NOTIFICATIONS_RESPONSE
@@ -84,6 +86,7 @@ class TestListNotifications:
 
         assert resp.status_code == 200
         mock_svc.get_notifications.assert_called_once_with(
+            ANY,
             user_id=200,
             app_name=None,
             unread_only=True,
@@ -92,7 +95,7 @@ class TestListNotifications:
             before_id=None,
         )
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_list_with_pagination(self, mock_svc, app_client, auth_headers):
         """Paginación con limit y offset."""
         mock_svc.get_notifications.return_value = {
@@ -108,6 +111,7 @@ class TestListNotifications:
 
         assert resp.status_code == 200
         mock_svc.get_notifications.assert_called_once_with(
+            ANY,
             user_id=200,
             app_name=None,
             unread_only=False,
@@ -116,7 +120,7 @@ class TestListNotifications:
             before_id=None,
         )
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_list_with_cursor(self, mock_svc, app_client, auth_headers):
         """Paginación basada en cursor (before_id)."""
         mock_svc.get_notifications.return_value = FAKE_NOTIFICATIONS_RESPONSE
@@ -127,6 +131,7 @@ class TestListNotifications:
 
         assert resp.status_code == 200
         mock_svc.get_notifications.assert_called_once_with(
+            ANY,
             user_id=200,
             app_name=None,
             unread_only=False,
@@ -151,7 +156,7 @@ class TestListNotifications:
 # GET /api/core/v2/notifications/unread-counts
 # ───────────────────────────────────────────────────────────────────
 class TestUnreadCounts:
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_unread_counts(self, mock_svc, app_client, auth_headers):
         """Obtener conteos de no leídas por app."""
         mock_svc.get_unread_counts_by_app.return_value = {
@@ -168,7 +173,7 @@ class TestUnreadCounts:
         assert data["counts"]["helpdesk"] == 3
         assert data["total"] == 4
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_unread_counts_empty(self, mock_svc, app_client, auth_headers):
         """Sin notificaciones no leídas."""
         mock_svc.get_unread_counts_by_app.return_value = {}
@@ -189,7 +194,7 @@ class TestUnreadCounts:
 # PATCH /api/core/v2/notifications/{id}/read
 # ───────────────────────────────────────────────────────────────────
 class TestMarkRead:
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_mark_read_success(self, mock_svc, app_client, auth_headers):
         """Marcar notificación como leída."""
         mock_svc.mark_read.return_value = True
@@ -200,9 +205,9 @@ class TestMarkRead:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        mock_svc.mark_read.assert_called_once_with(1, 200)
+        mock_svc.mark_read.assert_called_once_with(ANY, 1, 200)
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_mark_read_not_found(self, mock_svc, app_client, auth_headers):
         """Notificación no existe o no pertenece al usuario."""
         mock_svc.mark_read.return_value = False
@@ -222,7 +227,7 @@ class TestMarkRead:
 # PATCH /api/core/v2/notifications/mark-all-read
 # ───────────────────────────────────────────────────────────────────
 class TestMarkAllRead:
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_mark_all_read(self, mock_svc, app_client, auth_headers):
         """Marcar todas como leídas."""
         mock_svc.mark_all_read.return_value = 5
@@ -233,9 +238,9 @@ class TestMarkAllRead:
 
         assert resp.status_code == 200
         assert resp.json()["count"] == 5
-        mock_svc.mark_all_read.assert_called_once_with(200, None)
+        mock_svc.mark_all_read.assert_called_once_with(ANY, 200, None)
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_mark_all_read_filtered(self, mock_svc, app_client, auth_headers):
         """Marcar todas como leídas filtradas por app."""
         mock_svc.mark_all_read.return_value = 2
@@ -246,7 +251,7 @@ class TestMarkAllRead:
         )
 
         assert resp.status_code == 200
-        mock_svc.mark_all_read.assert_called_once_with(200, "helpdesk")
+        mock_svc.mark_all_read.assert_called_once_with(ANY, 200, "helpdesk")
 
     def test_unauthenticated(self, app_client):
         resp = app_client.patch("/api/core/v2/notifications/mark-all-read")
@@ -257,7 +262,7 @@ class TestMarkAllRead:
 # DELETE /api/core/v2/notifications/{id}
 # ───────────────────────────────────────────────────────────────────
 class TestDeleteNotification:
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_delete_success(self, mock_svc, app_client, auth_headers):
         """Eliminar notificación."""
         mock_svc.delete_notification.return_value = True
@@ -268,9 +273,9 @@ class TestDeleteNotification:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        mock_svc.delete_notification.assert_called_once_with(1, 200)
+        mock_svc.delete_notification.assert_called_once_with(ANY, 1, 200)
 
-    @patch("itcj.core.services.notification_service.NotificationService")
+    @patch("itcj2.core.services.notification_service.NotificationService")
     def test_delete_not_found(self, mock_svc, app_client, auth_headers):
         """Eliminar notificación que no existe."""
         mock_svc.delete_notification.return_value = False

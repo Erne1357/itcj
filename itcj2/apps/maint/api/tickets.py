@@ -164,11 +164,12 @@ async def assignment_board(
     db: DbSession = None,
 ):
     """
-    Tablero de asignación para coordinadores.
+    Tablero de asignación para coordinadores: cola de tickets POR ASIGNAR.
 
-    Devuelve tickets en estados PENDING / ASSIGNED / IN_PROGRESS con sus técnicos
-    activos asignados. Opcionalmente filtra por área (area_code) para mostrar solo
-    tickets de la categoría correspondiente al área del coordinador.
+    Solo devuelve tickets en estado PENDING (aún sin técnico). En cuanto se asigna
+    un técnico el ticket pasa a ASSIGNED y SALE del tablero; si luego se desasigna
+    al último técnico vuelve a PENDING y reaparece. Orden LIFO (más reciente
+    primero, vía list_tickets created_at DESC). Opcionalmente filtra por área.
 
     El endpoint se ubica en tickets_router (antes de /{ticket_id}) para evitar que
     FastAPI interprete "board" como un ticket_id entero.
@@ -184,11 +185,9 @@ async def assignment_board(
     user_roles = list(user_roles_in_app(db, user_id, "maint"))
     is_global_admin = "admin" in user_roles
 
-    board_statuses = ["PENDING", "ASSIGNED", "IN_PROGRESS"]
-    if status and status in board_statuses:
-        filter_statuses: list | str = status
-    else:
-        filter_statuses = board_statuses
+    # El tablero es la cola de "por asignar": solo PENDING. El parámetro `status`
+    # se ignora a propósito (los asignados/en progreso ya no pertenecen aquí).
+    filter_statuses: list | str = "PENDING"
 
     # Coordinadores (área y general) solo ven sus tickets (coordinator_id == ellos).
     # Admin ve todos.
@@ -310,18 +309,20 @@ async def triage_tickets(
             "coordinator": coord,
         }
 
-    # Tickets sin enrutar (coordinator_id IS NULL, status PENDING)
+    # Tickets sin enrutar (coordinator_id IS NULL, status PENDING).
+    # Una vez enrutados a un coordinador (coordinator_id != NULL) SALEN de la
+    # bandeja. Orden LIFO: el más reciente primero (created_at DESC).
     unrouted_query = (
         db.query(MaintTicket)
         .filter(
             MaintTicket.coordinator_id.is_(None),
             MaintTicket.status == "PENDING",
         )
-        .order_by(MaintTicket.created_at.asc())
+        .order_by(MaintTicket.created_at.desc())
     )
     unrouted = [_serialize_triage_ticket(t) for t in unrouted_query.all()]
 
-    # Tickets en la cola propia del coordinador
+    # Tickets en la cola propia del coordinador (LIFO).
     mine: list = []
     if not is_global_admin and "maint_general_coordinator" in user_roles:
         mine_query = (
@@ -330,7 +331,7 @@ async def triage_tickets(
                 MaintTicket.coordinator_id == user_id,
                 MaintTicket.status.in_(["PENDING", "ASSIGNED", "IN_PROGRESS"]),
             )
-            .order_by(MaintTicket.created_at.asc())
+            .order_by(MaintTicket.created_at.desc())
         )
         mine = [_serialize_triage_ticket(t) for t in mine_query.all()]
 

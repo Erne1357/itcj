@@ -17,6 +17,16 @@ from itcj2.core.models.position import Position, UserPosition, PositionAppRole, 
 
 logger = logging.getLogger(__name__)
 
+
+def _bust_user_app(user_id: int, app_key: str) -> None:
+    """Invalida el caché de authz del usuario en la app (F1.1). Best-effort."""
+    try:
+        from itcj2.core.services.authz_cache import invalidate_user_app
+        invalidate_user_app(user_id, app_key)
+    except Exception:  # nunca romper la mutación por el caché
+        pass
+
+
 # ---------------------------
 # Lookups básicos
 # ---------------------------
@@ -59,6 +69,7 @@ def grant_role(db: Session, user_id: int, app_key: str, role_name: str) -> bool:
     except IntegrityError:
         db.rollback()
         return False
+    _bust_user_app(user_id, app_key)
     return True
 
 def revoke_role(db: Session, user_id: int, app_key: str, role_name: str) -> bool:
@@ -73,6 +84,7 @@ def revoke_role(db: Session, user_id: int, app_key: str, role_name: str) -> bool
         return False
     q.delete()
     db.commit()
+    _bust_user_app(user_id, app_key)
     return True
 
 def grant_perm(db: Session, user_id: int, app_key: str, perm_code: str, *, allow: bool = True) -> bool:
@@ -90,6 +102,7 @@ def grant_perm(db: Session, user_id: int, app_key: str, perm_code: str, *, allow
         exists.allow = allow
         if changed:
             db.commit()
+            _bust_user_app(user_id, app_key)
         return changed
 
     db.add(UserAppPerm(user_id=user_id, app_id=app.id, perm_id=perm.id, allow=allow))
@@ -98,6 +111,7 @@ def grant_perm(db: Session, user_id: int, app_key: str, perm_code: str, *, allow
     except IntegrityError:
         db.rollback()
         return False
+    _bust_user_app(user_id, app_key)
     return True
 
 def revoke_perm(db: Session, user_id: int, app_key: str, perm_code: str) -> bool:
@@ -112,6 +126,7 @@ def revoke_perm(db: Session, user_id: int, app_key: str, perm_code: str) -> bool
         return False
     q.delete()
     db.commit()
+    _bust_user_app(user_id, app_key)
     return True
 
 # ---------------------------

@@ -7,7 +7,10 @@ REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
-SLOT_HOLD_SECONDS = int(os.getenv("SLOT_HOLD_SECONDS", "120"))
+# Default 45s (alineado con los docs de AgendaTec). Durante el thundering herd,
+# un hold abandonado bloquea un slot escaso solo ~45s en vez de 120s.
+# Override por entorno con SLOT_HOLD_SECONDS en .env.prod si se requiere otro valor.
+SLOT_HOLD_SECONDS = int(os.getenv("SLOT_HOLD_SECONDS", "45"))
 
 _redis = None
 

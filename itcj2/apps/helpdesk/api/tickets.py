@@ -460,6 +460,29 @@ def rate_ticket(
 
 
 # ==================== CANCELAR TICKET ====================
+
+def _get_user_dept_code(db, user_id: int):
+    """
+    Retorna el Department.code del puesto activo del usuario, o None si no tiene.
+    Patrón idéntico al de department_head._get_user_department_id pero devuelve el code.
+    """
+    from itcj2.core.models.position import UserPosition, Position
+    from itcj2.core.models.department import Department
+
+    row = (
+        db.query(Department.code)
+        .join(Position, Position.department_id == Department.id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            UserPosition.user_id == user_id,
+            UserPosition.is_active == True,
+            Position.is_active == True,
+        )
+        .first()
+    )
+    return row[0] if row else None
+
+
 @router.post("/{ticket_id}/cancel")
 async def cancel_ticket(
     ticket_id: int,
@@ -470,19 +493,24 @@ async def cancel_ticket(
     from itcj2.apps.helpdesk.services import ticket_service
 
     user_id = int(user["sub"])
+    user_dept_code = _get_user_dept_code(db, user_id)
 
     ticket = ticket_service.cancel_ticket(
         db,
         ticket_id=ticket_id,
         user_id=user_id,
         reason=body.reason,
+        user_dept_code=user_dept_code,
     )
 
-    logger.info(f"Ticket {ticket.ticket_number} cancelado por usuario {user_id}")
+    logger.info(f"Ticket {ticket.ticket_number} cancelado por usuario {user_id} (dept={user_dept_code})")
 
     from itcj2.apps.helpdesk.services.notification_helper import HelpdeskNotificationHelper
     try:
+        canceled_by_comp_center = (user_dept_code == 'comp_center' and ticket.requester_id != user_id)
         HelpdeskNotificationHelper.notify_ticket_canceled(db, ticket)
+        if canceled_by_comp_center:
+            HelpdeskNotificationHelper.notify_ticket_canceled_by_comp_center(db, ticket)
         db.commit()
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación de ticket cancelado: {notif_error}")

@@ -1502,20 +1502,48 @@ async function loadResolutionAttachments(ticketId) {
 function renderPhotoThumbnail(photo) {
     const container = document.getElementById('photoThumbnail');
 
-    // URL para descargar/ver la foto
-    const photoUrl = `/api/help-desk/v2/attachments/${photo.id}/download`;
+    // URL para descargar/ver el adjunto inicial
+    const fileUrl = `/api/help-desk/v2/attachments/${photo.id}/download`;
+    const isImage = photo.mime_type && photo.mime_type.startsWith('image/');
+    const uploaded = `<i class="fas fa-clock me-1"></i>Subida ${HelpdeskUtils.formatTimeAgo(photo.uploaded_at)}`;
 
-    container.innerHTML = `
-        <div class="photo-thumbnail" onclick="openPhotoModal('${photoUrl}')">
-            <img src="${photoUrl}" alt="Foto del problema" class="img-thumbnail">
-            <div class="photo-overlay">
-                <i class="fas fa-search-plus fa-2x"></i>
+    // Tickets de DESARROLLO pueden adjuntar documentos (PDF, Word, Excel, CSV)
+    // en lugar de imágenes; ajustamos el encabezado y el render según el tipo.
+    const title = document.getElementById('photoSectionTitle');
+    if (title) {
+        title.innerHTML = isImage
+            ? '<i class="fas fa-camera me-2 text-primary"></i>Foto de la solicitud'
+            : '<i class="fas fa-paperclip me-2 text-primary"></i>Archivo de la solicitud';
+    }
+
+    if (isImage) {
+        container.innerHTML = `
+            <div class="photo-thumbnail" onclick="openPhotoModal('${fileUrl}')">
+                <img src="${fileUrl}" alt="Foto del problema" class="img-thumbnail">
+                <div class="photo-overlay">
+                    <i class="fas fa-search-plus fa-2x"></i>
+                </div>
             </div>
-        </div>
-        <div class="mt-2">
-            <small class="text-muted">
-                <i class="fas fa-clock me-1"></i>Subida ${HelpdeskUtils.formatTimeAgo(photo.uploaded_at)}
-            </small>
+            <div class="mt-2">
+                <small class="text-muted">${uploaded}</small>
+            </div>
+        `;
+        return;
+    }
+
+    // Documento: mostrar tarjeta con icono + ver/descargar
+    const icon = getFileIcon(photo.original_filename);
+    const size = photo.file_size ? formatFileSize(photo.file_size) : '';
+    container.innerHTML = `
+        <div class="border rounded p-3 d-flex align-items-center gap-3">
+            <i class="${icon} fa-2x text-secondary"></i>
+            <div class="flex-grow-1" style="min-width:0;">
+                <div class="fw-semibold text-truncate" title="${photo.original_filename}">${photo.original_filename}</div>
+                <small class="text-muted">${size ? size + ' · ' : ''}${uploaded}</small>
+            </div>
+            <a href="${fileUrl}" download="${photo.original_filename}" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-download me-1"></i>Descargar
+            </a>
         </div>
     `;
 }

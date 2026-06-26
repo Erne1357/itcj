@@ -1,7 +1,7 @@
 """
 Tests para /api/core/v2/user (perfil, contraseña, actividad, notificaciones).
 """
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, ANY
 
 import pytest
 
@@ -12,8 +12,8 @@ from tests.conftest import FakeUser, TEST_SECRET
 # GET /api/core/v2/user/password-state
 # ───────────────────────────────────────────────────────────────────
 class TestPasswordState:
-    @patch("itcj.core.services.authz_service.user_roles_in_app", return_value={"admin"})
-    @patch("itcj.core.utils.security.verify_nip", return_value=True)
+    @patch("itcj2.core.services.authz_service.user_roles_in_app", return_value={"admin"})
+    @patch("itcj2.core.utils.security.verify_nip", return_value=True)
     def test_must_change_default_password(self, mock_verify, mock_roles, app_client, auth_headers):
         """Staff con contraseña por defecto → must_change=True."""
         fake_user = FakeUser(id=200, username="mmartinez", role_name="admin")
@@ -26,8 +26,8 @@ class TestPasswordState:
         assert resp.status_code == 200
         assert resp.json()["must_change"] is True
 
-    @patch("itcj.core.services.authz_service.user_roles_in_app", return_value={"admin"})
-    @patch("itcj.core.utils.security.verify_nip", return_value=False)
+    @patch("itcj2.core.services.authz_service.user_roles_in_app", return_value={"admin"})
+    @patch("itcj2.core.utils.security.verify_nip", return_value=False)
     def test_password_already_changed(self, mock_verify, mock_roles, app_client, auth_headers):
         """Staff con contraseña ya cambiada → must_change=False."""
         fake_user = FakeUser(id=200, username="mmartinez")
@@ -40,7 +40,7 @@ class TestPasswordState:
         assert resp.status_code == 200
         assert resp.json()["must_change"] is False
 
-    @patch("itcj.core.services.authz_service.user_roles_in_app", return_value={"student"})
+    @patch("itcj2.core.services.authz_service.user_roles_in_app", return_value={"student"})
     def test_student_never_must_change(self, mock_roles, app_client, student_headers):
         """Estudiantes nunca deben cambiar contraseña."""
         fake_user = FakeUser(id=100, control_number="20210001", role_name="student")
@@ -69,8 +69,8 @@ class TestPasswordState:
 # POST /api/core/v2/user/change-password
 # ───────────────────────────────────────────────────────────────────
 class TestChangePassword:
-    @patch("itcj.core.services.authz_service.user_roles_in_app", return_value={"admin"})
-    @patch("itcj.core.utils.security.hash_nip", return_value="new_hash")
+    @patch("itcj2.core.services.authz_service.user_roles_in_app", return_value={"admin"})
+    @patch("itcj2.core.utils.security.hash_nip", return_value="new_hash")
     def test_change_password_success(self, mock_hash, mock_roles, app_client, auth_headers):
         """Cambio de contraseña exitoso."""
         fake_user = FakeUser(id=200, username="mmartinez")
@@ -97,7 +97,7 @@ class TestChangePassword:
         )
         assert resp.status_code == 422
 
-    @patch("itcj.core.services.authz_service.user_roles_in_app", return_value={"admin"})
+    @patch("itcj2.core.services.authz_service.user_roles_in_app", return_value={"admin"})
     def test_change_password_default_rejected(self, mock_roles, app_client, auth_headers):
         """No se puede usar la contraseña por defecto."""
         fake_user = FakeUser(id=200, username="mmartinez")
@@ -111,7 +111,7 @@ class TestChangePassword:
 
         assert resp.status_code == 400
 
-    @patch("itcj.core.services.authz_service.user_roles_in_app", return_value={"student"})
+    @patch("itcj2.core.services.authz_service.user_roles_in_app", return_value={"student"})
     def test_student_cannot_change_password(self, mock_roles, app_client, student_headers):
         """Estudiantes no pueden cambiar contraseña."""
         fake_user = FakeUser(id=100, control_number="20210001", role_name="student")
@@ -137,7 +137,7 @@ class TestChangePassword:
 # GET /api/core/v2/user/me
 # ───────────────────────────────────────────────────────────────────
 class TestGetCurrentUser:
-    @patch("itcj.core.services.authz_service.user_roles_in_app")
+    @patch("itcj2.core.services.authz_service.user_roles_in_app")
     def test_get_user_info(self, mock_roles, app_client, auth_headers):
         """Obtener información del usuario actual."""
         mock_roles.return_value = {"admin"}
@@ -200,7 +200,7 @@ class TestGetCurrentUser:
 # GET /api/core/v2/user/me/profile
 # ───────────────────────────────────────────────────────────────────
 class TestGetFullProfile:
-    @patch("itcj.core.services.profile_service.get_user_profile_data")
+    @patch("itcj2.core.services.profile_service.get_user_profile_data")
     def test_full_profile(self, mock_profile, app_client, auth_headers):
         """Perfil completo retorna datos del servicio."""
         mock_profile.return_value = {
@@ -214,9 +214,9 @@ class TestGetFullProfile:
 
         assert resp.status_code == 200
         assert resp.json()["data"]["id"] == 200
-        mock_profile.assert_called_once_with(200)
+        mock_profile.assert_called_once_with(ANY, 200)
 
-    @patch("itcj.core.services.profile_service.get_user_profile_data", return_value=None)
+    @patch("itcj2.core.services.profile_service.get_user_profile_data", return_value=None)
     def test_profile_not_found(self, mock_profile, app_client, auth_headers):
         resp = app_client.get("/api/core/v2/user/me/profile", headers=auth_headers)
         assert resp.status_code == 404
@@ -226,7 +226,7 @@ class TestGetFullProfile:
 # GET /api/core/v2/user/me/activity
 # ───────────────────────────────────────────────────────────────────
 class TestGetActivity:
-    @patch("itcj.core.services.profile_service.get_user_activity")
+    @patch("itcj2.core.services.profile_service.get_user_activity")
     def test_activity(self, mock_activity, app_client, auth_headers):
         mock_activity.return_value = [{"action": "login", "ts": "2026-02-24"}]
 
@@ -234,9 +234,9 @@ class TestGetActivity:
 
         assert resp.status_code == 200
         assert len(resp.json()["data"]) == 1
-        mock_activity.assert_called_once_with(200, limit=10)
+        mock_activity.assert_called_once_with(ANY, 200, limit=10)
 
-    @patch("itcj.core.services.profile_service.get_user_activity")
+    @patch("itcj2.core.services.profile_service.get_user_activity")
     def test_activity_with_limit(self, mock_activity, app_client, auth_headers):
         mock_activity.return_value = []
 
@@ -245,7 +245,7 @@ class TestGetActivity:
         )
 
         assert resp.status_code == 200
-        mock_activity.assert_called_once_with(200, limit=5)
+        mock_activity.assert_called_once_with(ANY, 200, limit=5)
 
     def test_activity_limit_too_high(self, app_client, auth_headers):
         """Limit > 50 debe ser rechazado por Pydantic."""

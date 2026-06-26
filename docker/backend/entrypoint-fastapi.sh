@@ -25,9 +25,9 @@ except Exception as e:
     sys.exit(1)
 PYEOF
 
-# Correr migraciones con Alembic directo (sin Flask)
-echo "Ejecutando migraciones Alembic..."
-alembic -c migrations/alembic.ini upgrade head
+# NOTA (1.5): las migraciones YA NO corren aquí. Se ejecutan como un paso
+# explícito y único en deploy.sh (con pg_dump previo), para evitar que blue y
+# green compitan por migrar al bootear y que un reinicio simple mueva el esquema.
 
 echo "Iniciando FastAPI (Uvicorn)..."
 exec uvicorn asgi:app \

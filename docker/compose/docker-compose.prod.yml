@@ -7,6 +7,14 @@ services:
   redis:
     restart: always
     image: redis:7
+    # 0.7 límites + cap de memoria seguro (noeviction: no descartar broker/holds).
+    # 1.7 AOF + volumen persistente: un restart a media apertura NO evapora
+    # holds / room state Socket.IO / jobs Celery encolados.
+    command: ["redis-server", "--maxmemory", "768mb", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    mem_limit: 1g
+    cpus: 1.0
+    volumes:
+      - redisdata:/data
     ulimits:
       nofile:
         soft: 65536
@@ -28,6 +36,33 @@ services:
       context: ../..
       dockerfile: docker/backend/Dockerfile.db
     env_file: ../../.env.prod
+    mem_limit: 4g
+    cpus: 2.0
+    # /dev/shm por default en contenedores = 64MB; las queries paralelas
+    # (max_parallel_workers_per_gather) usan DSM ahí y pueden dar
+    # "could not resize shared memory segment". 1g da holgura.
+    shm_size: 1g
+    # 1.9 tuning: stock (shared_buffers=128MB) desperdicia la RAM del host.
+    # max_connections se deja en 100 (pgbouncer fronts). Presupuestado para
+    # host compartido con SIIAP (su propio Postgres).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_parallel_workers_per_gather=2
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -46,6 +81,8 @@ services:
       context: ../backend/pgbouncer
       dockerfile: Dockerfile
     restart: always
+    mem_limit: 256m
+    cpus: 1.0
     env_file: ../../.env.prod
     environment:
       - TZ=America/Ciudad_Juarez
@@ -71,6 +108,9 @@ services:
   # ============================================
   backend-blue:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
+    mem_limit: 4g
+    cpus: 4.0
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -78,10 +118,8 @@ services:
     environment:
       - INSTANCE_COLOR=blue
     volumes:
-      - ../../itcj2:/app/itcj2:ro
-      - ../../asgi.py:/app/asgi.py:ro
+      # 2.3: itcj2/asgi.py/migrations horneados en la imagen (inmutable).
       - ../../static-manifest.json:/app/static-manifest.json:ro
-      - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
     depends_on:
@@ -90,7 +128,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/ready"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -112,6 +150,9 @@ services:
   # ============================================
   backend-green:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
+    mem_limit: 4g
+    cpus: 4.0
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -119,10 +160,8 @@ services:
     environment:
       - INSTANCE_COLOR=green
     volumes:
-      - ../../itcj2:/app/itcj2:ro
-      - ../../asgi.py:/app/asgi.py:ro
+      # 2.3: itcj2/asgi.py/migrations horneados en la imagen (inmutable).
       - ../../static-manifest.json:/app/static-manifest.json:ro
-      - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
     depends_on:
@@ -131,7 +170,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/ready"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -153,15 +192,61 @@ services:
   # ============================================
   celery-worker:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
+    mem_limit: 2g
+    cpus: 2.0
+    # 2.5: worker principal — colas latency-sensitive (NO reports).
+    environment:
+      - CELERY_QUEUES=default,notifications
+      - CELERY_HOSTNAME=worker
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     volumes:
-      - ../../itcj2:/app/itcj2:ro
+      # 2.3: itcj2 horneado en la imagen.
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
       - ../../instance:/app/instance  # rw: workers leen/escriben archivos
+    entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # CELERY WORKER — REPORTS (cola pesada aislada: LibreOffice/Excel)
+  # 2.5: un export lento ya NO bloquea notificaciones (worker separado).
+  # ============================================
+  celery-worker-reports:
+    restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
+    mem_limit: 2g
+    cpus: 1.5
+    environment:
+      - CELERY_QUEUES=reports
+      - CELERY_WORKER_CONCURRENCY=2
+      - CELERY_SKIP_SYNC=1
+      - CELERY_HOSTNAME=reports
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env.prod
+    volumes:
+      # 2.3: itcj2 horneado en la imagen.
+      - ../../static-manifest.json:/app/static-manifest.json:ro
+      - ../../docker/backend/celery:/app/docker/backend/celery:ro
+      - ../../instance:/app/instance  # rw: genera/escribe exports
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-worker.sh"]
     depends_on:
       pgbouncer:
@@ -183,12 +268,15 @@ services:
   # ============================================
   celery-beat:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
+    mem_limit: 512m
+    cpus: 0.5
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     volumes:
-      - ../../itcj2:/app/itcj2:ro
+      # 2.3: itcj2 horneado en la imagen.
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-beat.sh"]
@@ -209,6 +297,8 @@ services:
   nginx:
     restart: always
     image: nginx:alpine
+    mem_limit: 192m
+    cpus: 1.0
     environment:
       TZ: America/Ciudad_Juarez
     volumes:
@@ -221,6 +311,7 @@ services:
       - ../../itcj2/apps/vistetec/static:/www/static/vistetec:ro
       - ../../itcj2/apps/maint/static:/www/static/maint:ro
       - ../../itcj2/apps/titulatec/static:/www/static/titulatec:ro
+      - ../../itcj2/apps/directory/static:/www/static/directory:ro
     depends_on:
       - redis
       - postgres
@@ -234,3 +325,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111383"
+    STATIC_VERSION: str = "1.0.1111402"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "my_jwt_secret"
     JWT_EXPIRES_HOURS: int = 12
     JWT_REFRESH_THRESHOLD_SECONDS: int = 2 * 3600  # 2 horas
+
+    # Authz cache (F1.1) — TTL en segundos del caché read-through de permisos
+    # efectivos por (usuario, app) en Redis. Red de seguridad si se omite una
+    # invalidación; bajar para refrescar más rápido a costa de más misses.
+    AUTHZ_CACHE_TTL: int = 300
 
     # Cookies
     COOKIE_SECURE: bool = False
