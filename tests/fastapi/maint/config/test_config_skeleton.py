@@ -245,7 +245,16 @@ class TestSeedConfigCli:
 
     def test_seed_config_with_real_config_dir_calls_execute_sql_at_least_once(self):
         """Con la carpeta real database/DML/maint/config/ (01_insert_permissions.sql),
-        execute_sql_file se invoca al menos una vez."""
+        execute_sql_file se invoca al menos una vez.
+
+        database/ está gitignored → en un clon limpio (CI) la carpeta no existe.
+        Este test valida la presencia/orden del DML REAL, así que se salta si la
+        carpeta no está (no aplica en CI; sí corre local donde los .sql existen).
+        """
+        import pytest
+        from itcj2.cli.maint import DML_MAINT
+        if not (Path(DML_MAINT) / "config").is_dir():
+            pytest.skip("database/DML/maint/config/ untracked — ausente en CI")
         with patch("itcj2.cli.core.execute_sql_file") as mock_exec:
             from itcj2.cli.maint import _seed_config_files
             count = _seed_config_files()
