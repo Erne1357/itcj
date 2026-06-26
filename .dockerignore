@@ -1,0 +1,40 @@
+# Contexto de build mínimo: NO hornear datos, secretos, ni basura.
+.git
+.gitignore
+.github
+.claude
+.vscode
+.idea
+
+# Entornos / deps locales
+venv/
+.venv/
+ENV/
+node_modules/
+
+# Datos y subidas (van por bind-mount en runtime, NUNCA en la imagen)
+instance/
+database/
+*.sql
+*.dump
+
+# Secretos
+.env
+.env.prod
+.env.*
+
+# Caches / artefactos
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+graphify-out/
+.playwright-mcp/
+
+# Docs / planes / tests (no necesarios en runtime)
+docs/
+tests/
+template/
+*.md
+PLAN_*.md

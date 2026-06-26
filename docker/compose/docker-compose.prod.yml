@@ -108,6 +108,7 @@ services:
   # ============================================
   backend-blue:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
     mem_limit: 4g
     cpus: 4.0
     build:
@@ -117,10 +118,8 @@ services:
     environment:
       - INSTANCE_COLOR=blue
     volumes:
-      - ../../itcj2:/app/itcj2:ro
-      - ../../asgi.py:/app/asgi.py:ro
+      # 2.3: itcj2/asgi.py/migrations horneados en la imagen (inmutable).
       - ../../static-manifest.json:/app/static-manifest.json:ro
-      - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
     depends_on:
@@ -151,6 +150,7 @@ services:
   # ============================================
   backend-green:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
     mem_limit: 4g
     cpus: 4.0
     build:
@@ -160,10 +160,8 @@ services:
     environment:
       - INSTANCE_COLOR=green
     volumes:
-      - ../../itcj2:/app/itcj2:ro
-      - ../../asgi.py:/app/asgi.py:ro
+      # 2.3: itcj2/asgi.py/migrations horneados en la imagen (inmutable).
       - ../../static-manifest.json:/app/static-manifest.json:ro
-      - ../../migrations:/app/migrations:ro
       - ../../database:/app/database:ro
       - ../../instance:/app/instance  # rw: sirve exports generados por Celery
     depends_on:
@@ -194,6 +192,7 @@ services:
   # ============================================
   celery-worker:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
     mem_limit: 2g
     cpus: 2.0
     # 2.5: worker principal — colas latency-sensitive (NO reports).
@@ -205,7 +204,7 @@ services:
       dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     volumes:
-      - ../../itcj2:/app/itcj2:ro
+      # 2.3: itcj2 horneado en la imagen.
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
       - ../../instance:/app/instance  # rw: workers leen/escriben archivos
@@ -231,6 +230,7 @@ services:
   # ============================================
   celery-worker-reports:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
     mem_limit: 2g
     cpus: 1.5
     environment:
@@ -243,7 +243,7 @@ services:
       dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     volumes:
-      - ../../itcj2:/app/itcj2:ro
+      # 2.3: itcj2 horneado en la imagen.
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
       - ../../instance:/app/instance  # rw: genera/escribe exports
@@ -268,6 +268,7 @@ services:
   # ============================================
   celery-beat:
     restart: always
+    image: itcj2-backend:${IMAGE_TAG:-latest}
     mem_limit: 512m
     cpus: 0.5
     build:
@@ -275,7 +276,7 @@ services:
       dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env.prod
     volumes:
-      - ../../itcj2:/app/itcj2:ro
+      # 2.3: itcj2 horneado en la imagen.
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../docker/backend/celery:/app/docker/backend/celery:ro
     entrypoint: ["/bin/sh", "/app/docker/backend/celery/entrypoint-beat.sh"]

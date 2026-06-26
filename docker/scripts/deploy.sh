@@ -42,6 +42,13 @@ echo ">>> Actualizando codigo desde GitHub..."
 git fetch origin
 git reset --hard origin/main
 
+# -- 2.0 Tag de imagen inmutable por commit (2.3) --
+# La imagen lleva el codigo horneado (itcj2/asgi.py/migrations), no bind-mount.
+# IMAGE_TAG = sha corto; el compose la referencia via ${IMAGE_TAG}. Habilita
+# rollback a una imagen previa sin rebuild (ver rollback.sh, 2.4).
+export IMAGE_TAG="$(git rev-parse --short HEAD)"
+echo ">>> Imagen objetivo: itcj2-backend:$IMAGE_TAG"
+
 # -- 2.1 Generar manifiesto de estaticos (Pilar 2) --
 echo ">>> Generando manifiesto de archivos estaticos..."
 # Asegurar que el archivo existe (Docker falla si intenta montar un archivo inexistente)
@@ -316,6 +323,22 @@ fi
 
 # -- 11. Guardar estado y limpiar --
 echo "$NEW" > "$STATE_FILE"
+
+# -- 11.0 Guardar imagen buena para rollback (2.4) --
+# .last-good-image = imagen recien promovida; .prev-good-image = la anterior
+# (destino del rollback). rollback.sh lee .prev-good-image.
+LAST_IMG_FILE="docker/.last-good-image"
+PREV_IMG_FILE="docker/.prev-good-image"
+if [ -f "$LAST_IMG_FILE" ]; then
+    cp "$LAST_IMG_FILE" "$PREV_IMG_FILE"
+fi
+echo "$IMAGE_TAG" > "$LAST_IMG_FILE"
+
+# Retencion: conservar solo las 5 imagenes itcj2-backend mas nuevas. Las en uso
+# no se pueden borrar (rmi falla -> se quedan), por eso el '|| true'.
+docker images itcj2-backend --format '{{.Tag}}' | grep -v '^latest$' | tail -n +6 \
+    | xargs -r -I{} docker rmi "itcj2-backend:{}" 2>/dev/null || true
+
 docker image prune -f
 
 # -- 11.1 Reconstruir y reiniciar Celery worker/beat (código actualizado) --
