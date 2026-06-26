@@ -3,11 +3,12 @@ Attachments API v2 — 5 endpoints.
 Fuente: itcj/apps/helpdesk/routes/api/attachments.py
 """
 import os
+import gzip
 import uuid
 import logging
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from itcj2.dependencies import DbSession, require_perms
 
 router = APIRouter(tags=["helpdesk-attachments"])
@@ -45,18 +46,25 @@ def upload_attachment(
     if attachment_type == "comment" and not comment_id:
         raise HTTPException(400, detail={"error": "missing_comment_id", "message": "comment_id es requerido para adjuntos de comentario"})
 
-    if attachment_type == "ticket":
-        allowed_ext = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(','))
-    else:
-        allowed_ext = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(',')) | set(s.HELPDESK_ALLOWED_DOC_EXTENSIONS.split(','))
-
-    is_valid, result = fvs.validate_and_get_file_info(file, allowed_extensions=allowed_ext)
-    if not is_valid:
-        raise HTTPException(400, detail={"error": "invalid_file", "message": result})
-
     filepath = None
     try:
         ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
+
+        IMG_EXT = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(','))
+        DOC_EXT = set(s.HELPDESK_ALLOWED_DOC_EXTENSIONS.split(','))
+
+        if attachment_type == "ticket":
+            # DESARROLLO permite imágenes + documentos; SOPORTE solo imágenes
+            if ticket.area == "DESARROLLO":
+                allowed_ext = IMG_EXT | DOC_EXT
+            else:
+                allowed_ext = IMG_EXT
+        else:
+            allowed_ext = IMG_EXT | DOC_EXT
+
+        is_valid, result = fvs.validate_and_get_file_info(file, allowed_extensions=allowed_ext)
+        if not is_valid:
+            raise HTTPException(400, detail={"error": "invalid_file", "message": result})
 
         if attachment_type == "resolution":
             existing_count = db.query(Attachment).filter_by(ticket_id=ticket_id, attachment_type="resolution").count()
@@ -117,9 +125,22 @@ def upload_attachment(
                 with open(filepath, "wb") as f:
                     f.write(file.file.read())
         else:
+            # Documentos: gzip transparente — se guarda comprimido solo si reduce
+            # tamaño (PDF/Office ya vienen comprimidos y se dejan tal cual). Se
+            # descomprime al vuelo en el endpoint de descarga. file_size queda como
+            # el tamaño lógico (descomprimido) para mostrar el real al usuario.
             file.file.seek(0)
-            with open(filepath, "wb") as f:
-                f.write(file.file.read())
+            raw_bytes = file.file.read()
+            gz_bytes = gzip.compress(raw_bytes, compresslevel=6)
+            if len(gz_bytes) < len(raw_bytes):
+                store_filename += ".gz"
+                filepath += ".gz"
+                with open(filepath, "wb") as f:
+                    f.write(gz_bytes)
+                logger.info(f"Adjunto comprimido gzip: {len(raw_bytes)} -> {len(gz_bytes)} bytes")
+            else:
+                with open(filepath, "wb") as f:
+                    f.write(raw_bytes)
 
         attachment = Attachment(
             ticket_id=ticket_id,
@@ -187,6 +208,23 @@ def download_attachment(
 
     if not os.path.exists(attachment.filepath):
         raise HTTPException(404, detail={"error": "file_not_found", "message": "El archivo no existe en el servidor"})
+
+    # Adjuntos comprimidos con gzip transparente: se descomprimen al vuelo y se
+    # sirven con el nombre y mime_type originales.
+    if attachment.filepath.endswith(".gz"):
+        def _decompressed_stream():
+            with gzip.open(attachment.filepath, "rb") as fh:
+                while True:
+                    chunk = fh.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        return StreamingResponse(
+            _decompressed_stream(),
+            media_type=attachment.mime_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{attachment.original_filename}"'},
+        )
 
     return FileResponse(
         attachment.filepath,

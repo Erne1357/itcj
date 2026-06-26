@@ -25,17 +25,28 @@ logger = logging.getLogger(__name__)
 
 # ==================== GUARDAR FOTO DEL TICKET ====================
 
-def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = None):
+def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = None, area: str = None):
     """
-    Guarda la foto de un ticket.
+    Guarda la foto/archivo inicial de un ticket.
+    En área DESARROLLO se permiten también documentos (PDF, Word, Excel, CSV).
+    En área SOPORTE solo se permiten imágenes.
     """
     from itcj2.apps.helpdesk.models.attachment import Attachment
     from itcj2.config import get_settings
 
     s = get_settings()
     upload_path = s.HELPDESK_UPLOAD_PATH
-    max_size = s.HELPDESK_MAX_FILE_SIZE
-    allowed_extensions = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(','))
+    img_extensions = set(s.HELPDESK_ALLOWED_EXTENSIONS.split(','))
+    doc_extensions = set(s.HELPDESK_ALLOWED_DOC_EXTENSIONS.split(','))
+
+    # DESARROLLO: imágenes + documentos (hasta 25MB)
+    # SOPORTE y default: solo imágenes (hasta 3MB)
+    if area == "DESARROLLO":
+        allowed_extensions = img_extensions | doc_extensions
+        max_size = s.HELPDESK_MAX_DOCUMENT_SIZE
+    else:
+        allowed_extensions = img_extensions
+        max_size = s.HELPDESK_MAX_FILE_SIZE
 
     os.makedirs(upload_path, exist_ok=True)
 
@@ -45,7 +56,7 @@ def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = No
 
     file_ext = original_filename.rsplit('.', 1)[1].lower()
     if file_ext not in allowed_extensions:
-        raise ValueError(f'Solo se permiten: {", ".join(allowed_extensions)}')
+        raise ValueError(f'Solo se permiten: {", ".join(sorted(allowed_extensions))}')
 
     raw = photo_file.file
     raw.seek(0, 2)
@@ -55,29 +66,62 @@ def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = No
     if file_size > max_size:
         raise ValueError(f'El archivo no debe exceder {max_size // (1024*1024)}MB')
 
-    filename = f"{ticket_id}.jpg"
+    is_image = file_ext in img_extensions
+
+    if is_image:
+        filename = f"{ticket_id}.jpg"
+        mime_type = 'image/jpeg'
+    else:
+        filename = f"{ticket_id}_doc.{file_ext}"
+        _doc_mime_map = {
+            'pdf': 'application/pdf',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls': 'application/vnd.ms-excel',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'csv': 'text/csv',
+        }
+        mime_type = _doc_mime_map.get(file_ext, 'application/octet-stream')
+
     filepath = os.path.join(upload_path, filename)
 
     try:
-        img = Image.open(raw)
+        if is_image:
+            img = Image.open(raw)
 
-        if img.mode in ('RGBA', 'LA', 'P'):
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'P':
-                img = img.convert('RGBA')
-            if img.mode in ('RGBA', 'LA'):
-                background.paste(img, mask=img.split()[-1])
-            img = background
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                if img.mode in ('RGBA', 'LA'):
+                    background.paste(img, mask=img.split()[-1])
+                img = background
 
-        max_size_dims = (1920, 1080)
-        if img.width > max_size_dims[0] or img.height > max_size_dims[1]:
-            img.thumbnail(max_size_dims, Image.Resampling.LANCZOS)
+            max_size_dims = (1920, 1080)
+            if img.width > max_size_dims[0] or img.height > max_size_dims[1]:
+                img.thumbnail(max_size_dims, Image.Resampling.LANCZOS)
 
-        img.save(filepath, format='JPEG', quality=85, optimize=True)
-
-        final_size = os.path.getsize(filepath)
-
-        logger.info(f"Foto guardada: {filepath} ({final_size} bytes)")
+            img.save(filepath, format='JPEG', quality=85, optimize=True)
+            final_size = os.path.getsize(filepath)
+            logger.info(f"Foto guardada: {filepath} ({final_size} bytes)")
+        else:
+            # gzip transparente: se guarda comprimido solo si reduce tamaño
+            # (PDF/Office ya vienen comprimidos). Se descomprime al descargar.
+            import gzip as _gzip
+            raw.seek(0)
+            raw_bytes = raw.read()
+            gz_bytes = _gzip.compress(raw_bytes, compresslevel=6)
+            if len(gz_bytes) < len(raw_bytes):
+                filename += '.gz'
+                filepath += '.gz'
+                with open(filepath, 'wb') as f:
+                    f.write(gz_bytes)
+                logger.info(f"Documento adjunto comprimido gzip: {len(raw_bytes)} -> {len(gz_bytes)} bytes ({filepath})")
+            else:
+                with open(filepath, 'wb') as f:
+                    f.write(raw_bytes)
+                logger.info(f"Documento adjunto guardado: {filepath} ({len(raw_bytes)} bytes)")
+            final_size = len(raw_bytes)
 
         attachment = Attachment(
             ticket_id=ticket_id,
@@ -85,14 +129,14 @@ def _save_ticket_photo(db: Session, ticket_id, photo_file, uploader_id: int = No
             filename=filename,
             original_filename=original_filename,
             filepath=filepath,
-            mime_type='image/jpeg',
+            mime_type=mime_type,
             file_size=final_size
         )
 
         db.add(attachment)
 
     except Exception as e:
-        logger.error(f"Error al procesar imagen: {e}")
+        logger.error(f"Error al procesar archivo del ticket: {e}")
         if os.path.exists(filepath):
             os.remove(filepath)
         raise
@@ -222,7 +266,7 @@ def create_ticket(
 
     if photo_file:
         try:
-            _save_ticket_photo(db, ticket.id, photo_file, uploader_id=requester_id)
+            _save_ticket_photo(db, ticket.id, photo_file, uploader_id=requester_id, area=area)
         except Exception as e:
             logger.error(f"Error al guardar foto del ticket {ticket.id}: {e}")
 
@@ -553,16 +597,33 @@ def rate_ticket(
 
 
 # ==================== CANCELAR TICKET ====================
-def cancel_ticket(db: Session, ticket_id: int, user_id: int, reason: str = None) -> Ticket:
+def cancel_ticket(
+    db: Session,
+    ticket_id: int,
+    user_id: int,
+    reason: str = None,
+    user_dept_code: str = None,
+) -> Ticket:
     """
-    Usuario cancela su ticket.
+    Cancela un ticket.
+
+    Puede cancelar:
+    - El solicitante original del ticket.
+    - Cualquier usuario cuyo departamento activo tenga code='comp_center',
+      siempre que el ticket no esté en estado terminal.
     """
     ticket = db.get(Ticket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail='Ticket no encontrado')
 
-    if ticket.requester_id != user_id:
-        raise HTTPException(status_code=403, detail='Solo el solicitante puede cancelar')
+    is_comp_center = (user_dept_code == 'comp_center')
+    is_requester = (ticket.requester_id == user_id)
+
+    if not (is_comp_center or is_requester):
+        raise HTTPException(
+            status_code=403,
+            detail='Solo el solicitante o Centro de Cómputo puede cancelar este ticket',
+        )
 
     if ticket.status in ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED', 'CANCELED']:
         raise HTTPException(status_code=400, detail='No se puede cancelar un ticket ya resuelto o cerrado')
@@ -573,18 +634,23 @@ def cancel_ticket(db: Session, ticket_id: int, user_id: int, reason: str = None)
     ticket.updated_at = now_local()
     ticket.updated_by_id = user_id
 
+    if is_comp_center and not is_requester:
+        notes = f'Cancelado por Centro de Cómputo: {reason}' if reason else 'Cancelado por Centro de Cómputo'
+    else:
+        notes = f'Ticket cancelado: {reason}' if reason else 'Ticket cancelado'
+
     status_log = StatusLog(
         ticket_id=ticket_id,
         from_status=old_status,
         to_status='CANCELED',
         changed_by_id=user_id,
-        notes=f'Ticket cancelado: {reason}' if reason else 'Ticket cancelado'
+        notes=notes,
     )
     db.add(status_log)
 
     try:
         db.commit()
-        logger.info(f"Ticket {ticket.ticket_number} cancelado por usuario {user_id}")
+        logger.info(f"Ticket {ticket.ticket_number} cancelado por usuario {user_id} (comp_center={is_comp_center})")
         return ticket
     except Exception as e:
         db.rollback()

@@ -173,6 +173,7 @@ class InventoryBulkService:
           category_id, brand, model, specifications, acquisition_date,
           warranty_expiration, maintenance_frequency_days, notes,
           department_id,          (departamento por defecto para todos)
+          campaign_id,            (campaña de inventario OPEN del dpto — opcional)
           quantity,               (número de equipos, alternativa a items)
           items,                  (overrides por posición: department_id, location_detail, etc.)
           supplier_serial_list,   (texto con seriales de proveedor)
@@ -235,6 +236,8 @@ class InventoryBulkService:
                     )
 
             default_department_id = data.get('department_id')
+            # campaign_id es opcional; se propaga a todos los items del lote
+            batch_campaign_id = data.get('campaign_id') or None
 
             for i, item_data in enumerate(items_overrides):
                 inventory_number = InventoryBulkService.get_next_inventory_number(db, data['category_id'])
@@ -260,6 +263,7 @@ class InventoryBulkService:
                     id_tecnm=t_id,
                     specifications=data.get('specifications'),
                     department_id=department_id,
+                    campaign_id=batch_campaign_id,
                     assigned_to_user_id=item_data.get('assigned_to_user_id'),
                     group_id=item_data.get('group_id'),
                     location_detail=item_data.get('location_detail'),

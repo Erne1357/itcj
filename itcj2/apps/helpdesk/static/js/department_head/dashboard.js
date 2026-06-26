@@ -36,6 +36,9 @@ async function initializeDashboard() {
         // Load stats tab lazy
         document.getElementById('stats-tab').addEventListener('shown.bs.tab', loadStatistics);
 
+        // Initialize passwords tab module
+        setupPasswordsTab();
+
     } catch (error) {
         console.error('Error initializing dashboard:', error);
         const errorMessage = error.message || 'Error desconocido';
@@ -555,4 +558,178 @@ function escHtml(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+// Alias for consistency with passwords module
+function escapeHtml(str) {
+    return escHtml(str);
+}
+
+
+// ==================== CONTRASEÑAS ====================
+
+async function loadSecretaries() {
+    const container = document.getElementById('secretariesContainer');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border spinner-border-sm text-muted"></div>
+            <p class="text-muted mt-2 mb-0 small">Cargando secretarias...</p>
+        </div>`;
+
+    try {
+        const resp = await fetch('/api/help-desk/v2/department-head/secretaries', {
+            credentials: 'include',
+        });
+        const data = await resp.json();
+
+        if (!resp.ok || !data.success) {
+            throw new Error(data.detail || data.message || 'Error al cargar secretarias');
+        }
+
+        renderSecretaries(data.data || []);
+    } catch (err) {
+        console.error('loadSecretaries error:', err);
+        container.innerHTML = `
+            <div class="text-center py-4 text-danger small">
+                <i class="fas fa-exclamation-triangle me-1"></i>Error al cargar secretarias
+            </div>`;
+    }
+}
+
+function renderSecretaries(secretaries) {
+    const container = document.getElementById('secretariesContainer');
+    if (!container) return;
+
+    if (secretaries.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-4 text-muted small">
+                <i class="fas fa-users me-1"></i>No hay secretarias registradas en tu departamento.
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = secretaries.map(s => `
+        <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">
+            <div>
+                <div class="fw-semibold small">${escapeHtml(s.full_name)}</div>
+                <div class="text-muted" style="font-size:0.78rem;">
+                    ${escapeHtml(s.username)}
+                    ${s.must_change_password
+                        ? '<span class="badge bg-warning text-dark ms-1" title="Debe cambiar su contraseña">Pendiente</span>'
+                        : ''}
+                </div>
+            </div>
+            <button class="btn btn-sm btn-outline-warning"
+                    onclick="resetSecretaryPassword(${s.id}, '${escapeHtml(s.full_name)}')"
+                    title="Resetear contraseña de ${escapeHtml(s.full_name)}">
+                <i class="fas fa-redo-alt me-1"></i><span class="d-none d-md-inline">Resetear</span>
+            </button>
+        </div>
+    `).join('');
+}
+
+async function resetSecretaryPassword(userId, fullName) {
+    const ok = await HelpdeskUtils.confirmDialog(
+        'Resetear contraseña',
+        `¿Resetear la contraseña de <strong>${escapeHtml(fullName)}</strong>?<br>
+         <small class="text-muted">Se asignará la contraseña temporal <code>tecno#2K</code> y el usuario deberá cambiarla al iniciar sesión.</small>`,
+        'Sí, resetear',
+        'Cancelar'
+    );
+    if (!ok) return;
+
+    try {
+        const resp = await fetch(`/api/help-desk/v2/department-head/secretaries/${userId}/reset-password`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await resp.json();
+
+        if (!resp.ok || !data.success) {
+            throw new Error(data.detail || data.message || 'Error al resetear');
+        }
+
+        HelpdeskUtils.showToast(
+            `Contraseña de ${escapeHtml(fullName)} reseteada. Contraseña temporal: tecno#2K`,
+            'success'
+        );
+        await loadSecretaries();
+    } catch (err) {
+        console.error('resetSecretaryPassword error:', err);
+        HelpdeskUtils.showToast(err.message || 'Error al resetear contraseña', 'danger');
+    }
+}
+window.resetSecretaryPassword = resetSecretaryPassword;
+
+function setupResetMyPassword() {
+    const btn = document.getElementById('btnResetMyPassword');
+    if (!btn) return;
+
+    const originalHtml = btn.innerHTML;
+
+    btn.addEventListener('click', async () => {
+        const ok = await HelpdeskUtils.confirmDialog(
+            'Restablecer mi contraseña',
+            `¿Restablecer tu contraseña a la temporal <code>tecno#2K</code>?<br>
+             <small class="text-muted">Se cerrará tu sesión. Inicia con <code>tecno#2K</code> y define una nueva.</small>`,
+            'Sí, restablecer',
+            'Cancelar'
+        );
+        if (!ok) return;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Restableciendo...';
+
+        try {
+            const resp = await fetch('/api/help-desk/v2/department-head/reset-my-password', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await resp.json();
+
+            if (!resp.ok || !data.success) {
+                throw new Error(data.detail || data.message || 'Error al restablecer');
+            }
+
+            HelpdeskUtils.showToast('Contraseña restablecida a tecno#2K. Cerrando sesión...', 'success');
+            setTimeout(async () => {
+                try {
+                    await fetch('/api/core/v2/auth/logout', { method: 'POST', credentials: 'include' });
+                } catch (e) { /* noop */ }
+                window.location.href = '/itcj/login';
+            }, 1500);
+        } catch (err) {
+            console.error('resetMyPassword error:', err);
+            HelpdeskUtils.showToast(err.message || 'Error al restablecer contraseña', 'danger');
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    });
+}
+
+function setupPasswordsTab() {
+    const tabEl = document.getElementById('passwords-tab');
+    if (!tabEl) return;
+
+    let loaded = false;
+    tabEl.addEventListener('shown.bs.tab', () => {
+        if (!loaded) {
+            loadSecretaries();
+            loaded = true;
+        }
+    });
+
+    const btnRefresh = document.getElementById('btnRefreshSecretaries');
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', () => {
+            loaded = true;
+            loadSecretaries();
+        });
+    }
+
+    setupResetMyPassword();
 }

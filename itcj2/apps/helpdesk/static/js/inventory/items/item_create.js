@@ -94,10 +94,16 @@ function setupBulkListeners() {
         destinationType.addEventListener('change', handleDestinationTypeChange);
     }
     
-    // Cambio de departamento en modo masivo
+    // Cambio de departamento en modo masivo (destino "departamento")
     const bulkDepartment = document.getElementById('bulk-department-id');
     if (bulkDepartment) {
         bulkDepartment.addEventListener('change', handleBulkDepartmentChange);
+    }
+
+    // Cambio de departamento en modo masivo (filtro para destino "grupo/salón")
+    const bulkGroupDepartment = document.getElementById('bulk-group-department-id');
+    if (bulkGroupDepartment) {
+        bulkGroupDepartment.addEventListener('change', handleBulkGroupDepartmentChange);
     }
     
     // Campo de cantidad
@@ -743,6 +749,59 @@ async function loadActiveCampaign(deptId) {
     }
 }
 
+// ==================== CAMPAÑA — MODO MASIVO ====================
+function hideBulkCampaignSection() {
+    const section = document.getElementById('bulk-campaign-section');
+    const select  = document.getElementById('bulk-campaign-id');
+    if (section) section.style.display = 'none';
+    if (select) select.innerHTML = '<option value="">— Sin campaña —</option>';
+}
+
+async function loadBulkActiveCampaign(deptId) {
+    const section = document.getElementById('bulk-campaign-section');
+    const select  = document.getElementById('bulk-campaign-id');
+    if (!section || !select) return;
+
+    select.innerHTML = '<option value="">— Sin campaña —</option>';
+
+    if (!deptId) {
+        section.style.display = 'none';
+        return;
+    }
+
+    try {
+        const res = await fetch(
+            `/api/help-desk/v2/inventory/campaigns?department_id=${deptId}&status=OPEN&per_page=100`,
+            { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }
+        );
+        if (!res.ok) { section.style.display = 'none'; return; }
+        const data = await res.json();
+        const campaigns = data.campaigns || data.data || [];
+
+        if (!campaigns.length) {
+            section.style.display = 'none';
+            return;
+        }
+
+        campaigns.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            const label = c.title ? `${c.folio} — ${c.title}` : c.folio;
+            opt.textContent = label;
+            select.appendChild(opt);
+        });
+
+        // Si hay exactamente una campaña, preseleccionarla
+        if (campaigns.length === 1) {
+            select.value = String(campaigns[0].id);
+        }
+
+        section.style.display = 'block';
+    } catch (_) {
+        section.style.display = 'none';
+    }
+}
+
 // ==================== PREDECESOR ====================
 let _selectedPredecessorData = null;
 
@@ -1211,16 +1270,23 @@ async function loadBulkDepartments() {
 }
 
 function populateBulkDepartments() {
-    const select = document.getElementById('bulk-department-id');
-    if (!select) return;
-    
-    select.innerHTML = '<option value="">Seleccionar departamento...</option>';
-    
-    allDepartments.forEach(dept => {
-        const option = document.createElement('option');
-        option.value = dept.id;
-        option.textContent = dept.name;
-        select.appendChild(option);
+    // Pobla ambos selects de departamento del modo masivo:
+    // #bulk-department-id  → destino "departamento"
+    // #bulk-group-department-id → filtro de grupos en destino "grupo/salón"
+    const selects = [
+        document.getElementById('bulk-department-id'),
+        document.getElementById('bulk-group-department-id'),
+    ];
+
+    selects.forEach(select => {
+        if (!select) return;
+        select.innerHTML = '<option value="">Seleccionar departamento...</option>';
+        allDepartments.forEach(dept => {
+            const option = document.createElement('option');
+            option.value = dept.id;
+            option.textContent = dept.name;
+            select.appendChild(option);
+        });
     });
 }
 
@@ -1470,30 +1536,50 @@ function handleDestinationTypeChange(e) {
     const type = e.target.value;
     const deptSection = document.getElementById('bulk-department-section');
     const groupSection = document.getElementById('bulk-group-section');
-    
+
     // Ocultar todas las secciones
     deptSection.style.display = 'none';
     groupSection.style.display = 'none';
-    
+
+    // Limpiar campaña si el destino cambia (evita que quede seleccionada una campaña de otro modo)
+    hideBulkCampaignSection();
+
     if (type === 'department') {
         deptSection.style.display = 'block';
+        // Si ya hay un departamento seleccionado, cargar sus campañas
+        const deptId = document.getElementById('bulk-department-id').value;
+        if (deptId) loadBulkActiveCampaign(deptId);
     } else if (type === 'group') {
         groupSection.style.display = 'block';
-        loadGroups(); // Cargar todos los grupos
+        // Los grupos se cargan cuando el usuario elige el departamento del grupo
+        allGroups = [];
+        populateBulkGroups();
     }
-    
+
     updateBulkPreview();
 }
 
 function handleBulkDepartmentChange(e) {
     const departmentId = e.target.value;
-    
-    // Si el destino es por grupo, recargar grupos del departamento seleccionado
+
+    // Cuando el destino es "departamento": cargar campañas OPEN del depto
     const destinationType = document.getElementById('bulk-destination-type').value;
-    if (destinationType === 'group' && departmentId) {
-        loadGroups(departmentId);
+    if (destinationType === 'department') {
+        loadBulkActiveCampaign(departmentId);
     }
-    
+
+    updateBulkPreview();
+}
+
+// Manejador para el select de departamento dentro de la sección "grupo/salón"
+function handleBulkGroupDepartmentChange(e) {
+    const departmentId = e.target.value;
+    if (departmentId) {
+        loadGroups(departmentId);
+    } else {
+        allGroups = [];
+        populateBulkGroups();
+    }
     updateBulkPreview();
 }
 
@@ -1597,6 +1683,10 @@ function collectBulkFormData() {
     const itcjRaw    = (form.querySelector('#bulk-itcj-serial-list') || {}).value || '';
     const tecnmRaw   = (form.querySelector('#bulk-id-tecnm-list') || {}).value || '';
 
+    // Campaña seleccionada en el modo masivo (solo aplica cuando destino = departamento)
+    const bulkCampaignSelect = form.querySelector('#bulk-campaign-id');
+    const bulkCampaignId = bulkCampaignSelect ? bulkCampaignSelect.value : '';
+
     const baseData = {
         category_id: parseInt(form.querySelector('#bulk-category-id').value),
         brand: form.querySelector('#bulk-brand').value.trim() || null,
@@ -1608,6 +1698,7 @@ function collectBulkFormData() {
         supplier_serial_list: supplierRaw.trim() || null,
         itcj_serial_list: itcjRaw.trim() || null,
         id_tecnm_list: tecnmRaw.trim() || null,
+        campaign_id: bulkCampaignId ? parseInt(bulkCampaignId) : null,
         quantity: quantity,
         items: []
     };

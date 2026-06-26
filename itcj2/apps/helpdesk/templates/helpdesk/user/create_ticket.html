@@ -407,15 +407,15 @@
                         <div class="mb-4">
                             <div class="form-check mb-2">
                                 <input class="form-check-input" type="checkbox" id="attach_photo_check">
-                                <label class="form-check-label" for="attach_photo_check">
-                                    <i class="fas fa-camera me-2"></i>Adjuntar foto de la solicitud (opcional)
+                                <label class="form-check-label" for="attach_photo_check" id="attach_photo_label">
+                                    <i class="fas fa-camera me-2"></i>Adjuntar archivo a la solicitud (opcional)
                                 </label>
                             </div>
 
                             <div id="photo_upload_section" style="display: none;">
                                 <input type="file" class="form-control" id="photo_file"
                                     accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
-                                <small class="form-text text-muted">
+                                <small class="form-text text-muted" id="photo_upload_hint">
                                     Máximo 3MB. Formatos: JPG, PNG, GIF, WEBP
                                     <br><i class="fas fa-paste me-1"></i>También puedes pegar con <kbd>Ctrl+V</kbd>
                                 </small>

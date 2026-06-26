@@ -316,6 +316,9 @@ const AreaSelection = {
         categorySection.style.display = 'block';
         document.getElementById('category_id').required = true;
 
+        // Actualizar input de adjunto según área
+        PhotoUpload.configureForArea(area);
+
         if (area === 'SOPORTE') {
             // Para SOPORTE: mostrar categorías Y equipos
             equipmentSection.style.display = 'block';
@@ -1552,6 +1555,31 @@ const Navigation = {
     }
 };
 
+// === CONFIGURACIÓN DE ADJUNTOS POR ÁREA ===
+const ATTACH_CONFIG = {
+    SOPORTE: {
+        accept: 'image/jpeg,image/jpg,image/png,image/gif,image/webp',
+        allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
+        allowedExts: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+        maxSize: 3 * 1024 * 1024,
+        hintHtml: 'Máximo 3MB. Formatos: JPG, PNG, GIF, WEBP<br><i class="fas fa-paste me-1"></i>También puedes pegar con <kbd>Ctrl+V</kbd>',
+        label: '<i class="fas fa-camera me-2"></i>Adjuntar foto de la solicitud (opcional)',
+    },
+    DESARROLLO: {
+        accept: 'image/jpeg,image/jpg,image/png,image/gif,image/webp,.pdf,.doc,.docx,.xls,.xlsx,.csv',
+        allowedTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+                       'application/pdf', 'application/msword',
+                       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                       'application/vnd.ms-excel',
+                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                       'text/csv', 'application/octet-stream'],
+        allowedExts: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv'],
+        maxSize: 25 * 1024 * 1024,
+        hintHtml: 'Imágenes o documentos (PDF, Word, Excel, CSV). Máx 25MB.<br><i class="fas fa-paste me-1"></i>También puedes pegar imágenes con <kbd>Ctrl+V</kbd>',
+        label: '<i class="fas fa-paperclip me-2"></i>Adjuntar archivo a la solicitud (opcional)',
+    },
+};
+
 const PhotoUpload = {
     selectedFile: null,
 
@@ -1597,21 +1625,52 @@ const PhotoUpload = {
         });
     },
 
+    /**
+     * Actualiza el input y textos según el área seleccionada.
+     * Llamado desde AreaSelection.configureUIForArea().
+     */
+    configureForArea(area) {
+        const cfg = ATTACH_CONFIG[area] || ATTACH_CONFIG.SOPORTE;
+        const fileInput = document.getElementById('photo_file');
+        const hint = document.getElementById('photo_upload_hint');
+        const label = document.getElementById('attach_photo_label');
+
+        if (fileInput) fileInput.accept = cfg.accept;
+        if (hint) hint.innerHTML = cfg.hintHtml;
+        if (label) label.innerHTML = cfg.label;
+
+        // Limpiar archivo seleccionado previo al cambiar área (reglas distintas)
+        this.clearFile();
+    },
+
+    _getConfig() {
+        return ATTACH_CONFIG[AppState.selectedArea] || ATTACH_CONFIG.SOPORTE;
+    },
+
     handleFileSelect(file) {
         if (!file) return;
 
-        // Validar tipo
-        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-        if (!allowedTypes.includes(file.type)) {
-            HelpdeskUtils.showToast('Solo se permiten imágenes (JPG, PNG, GIF, WEBP)', 'error');
+        const cfg = this._getConfig();
+
+        // Validar tipo MIME; para extensiones oscuras también aceptar por nombre
+        const ext = (file.name || '').split('.').pop().toLowerCase();
+        const mimeOk = cfg.allowedTypes.includes(file.type);
+        const extOk = cfg.allowedExts.includes(ext);
+
+        if (!mimeOk && !extOk) {
+            const area = AppState.selectedArea;
+            if (area === 'DESARROLLO') {
+                HelpdeskUtils.showToast('Formato no permitido. Use imágenes, PDF, Word, Excel o CSV.', 'error');
+            } else {
+                HelpdeskUtils.showToast('Solo se permiten imágenes (JPG, PNG, GIF, WEBP)', 'error');
+            }
             this.clearFile();
             return;
         }
 
-        // Validar tamaño (3MB)
-        const maxSize = 3 * 1024 * 1024;
-        if (file.size > maxSize) {
-            HelpdeskUtils.showToast('La imagen no debe exceder 3MB', 'error');
+        if (file.size > cfg.maxSize) {
+            const mb = cfg.maxSize / (1024 * 1024);
+            HelpdeskUtils.showToast(`El archivo no debe exceder ${mb}MB`, 'error');
             this.clearFile();
             return;
         }
@@ -1633,8 +1692,10 @@ const PhotoUpload = {
 
     clearFile() {
         this.selectedFile = null;
-        document.getElementById('photo_file').value = '';
-        document.getElementById('photo_preview').style.display = 'none';
+        const input = document.getElementById('photo_file');
+        if (input) input.value = '';
+        const preview = document.getElementById('photo_preview');
+        if (preview) preview.style.display = 'none';
     },
 
     formatFileSize(bytes) {

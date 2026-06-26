@@ -470,12 +470,23 @@
 
                         <div class="form-group">
                             <label>Ubicación Específica</label>
-                            <input 
-                                type="text" 
-                                class="form-control" 
-                                id="bulk-location-detail" 
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="bulk-location-detail"
                                 placeholder="Ej: Laboratorio de Sistemas"
                             >
+                        </div>
+
+                        <!-- Campaña de inventario del departamento (se carga dinámicamente) -->
+                        <div id="bulk-campaign-section" class="mb-3" style="display:none;">
+                            <label for="bulk-campaign-id">
+                                <i class="fas fa-folder-open mr-1 text-primary"></i>
+                                Campaña de inventario <small class="text-muted font-weight-normal">(opcional)</small>
+                            </label>
+                            <select id="bulk-campaign-id" class="form-control">
+                                <option value="">— Sin campaña —</option>
+                            </select>
                         </div>
                     </div>
 
