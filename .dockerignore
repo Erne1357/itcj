@@ -12,11 +12,15 @@ venv/
 ENV/
 node_modules/
 
-# Datos y subidas (van por bind-mount en runtime, NUNCA en la imagen)
+# Datos y subidas. instance/ nunca al contexto (va por bind-mount en runtime).
 instance/
-database/
-*.sql
-*.dump
+# database/: excluir casi todo, PERO el postgres (Dockerfile.db) necesita estos
+# 2 archivos en el contexto para el initdb seed. La imagen de la app NO copia
+# database/, así que no se hornea data ahí. NO usar '*.sql'/'*.dump' globales:
+# re-excluirían el backup que el postgres sí necesita.
+database/*
+!database/init-itcj.sh
+!database/backup_itcj_2026-06-18.sql
 
 # Secretos
 .env
