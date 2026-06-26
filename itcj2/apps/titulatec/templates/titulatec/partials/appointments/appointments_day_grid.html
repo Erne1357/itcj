@@ -1,0 +1,44 @@
+{# Rejilla horaria de un día (8–18, bloques de 1h). Citas agrupadas por hora.
+   schedulable=True → slots clickeables que rellenan la hora del form de agendar.
+   Variables: day, slots[{hour,label,appts[]}], others[], total, schedulable, process_id #}
+{% from "titulatec/_macros.html" import appt_pill %}
+<div class="tt-hourgrid">
+  {% for s in slots %}
+  <div class="hourrow {{ 'is-free' if not s.appts }}">
+    <div class="hour">{{ s.label }}</div>
+    <div class="slot">
+      {% for a in s.appts %}
+      <a class="appt" href="#"
+         hx-get="/titulatec/admin/appointments/body?selected={{ a.process_id }}"
+         hx-target="#appt-body" hx-swap="innerHTML" title="{{ a.student }} · {{ a.control }}">
+        <span class="t tt-mono">{{ a.time_label }}</span>
+        <span class="who text-truncate">{{ a.student }}</span>
+        {{ appt_pill(a.status) }}
+      </a>
+      {% endfor %}
+      {% if schedulable %}
+      <button type="button" class="freebtn" data-tt-slot="{{ s.label }}">
+        <i class="bi bi-plus-lg"></i> Agendar {{ s.label }}
+      </button>
+      {% elif not s.appts %}
+      <span class="freelabel">libre</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if others %}
+  <div class="hourrow">
+    <div class="hour">Otra</div>
+    <div class="slot">
+      {% for a in others %}
+      <a class="appt" href="#" hx-get="/titulatec/admin/appointments/body?selected={{ a.process_id }}"
+         hx-target="#appt-body" hx-swap="innerHTML">
+        <span class="t tt-mono">{{ a.time_label }}</span><span class="who text-truncate">{{ a.student }}</span>{{ appt_pill(a.status) }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{# La interacción de elegir hora la maneja js/admin/appointments.js (delegación). #}

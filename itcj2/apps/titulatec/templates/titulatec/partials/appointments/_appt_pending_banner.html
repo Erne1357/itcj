@@ -1,0 +1,29 @@
+{# Banner de "alumnos por agendar" — colapsable (default cerrado para no tapar la
+   pantalla). Compartido por calendar / day / body. Variables: pending, pending_count. #}
+{% if pending_count %}
+<div class="tt-appt-pending mb-3">
+  <button class="bar" type="button" data-bs-toggle="collapse" data-bs-target="#appt-pending-list"
+          aria-expanded="false" aria-controls="appt-pending-list">
+    <span class="tt-pill tt-pill--amber"><i class="bi bi-clock-history me-1"></i>{{ pending_count }}</span>
+    <span class="lbl">alumno{{ 's' if pending_count != 1 }} por agendar</span>
+    <span class="hint d-none d-sm-inline">— toca para ver y agendar</span>
+    <i class="bi bi-chevron-down chev ms-auto"></i>
+  </button>
+  <div class="collapse" id="appt-pending-list">
+    <div class="list">
+      {% for r in pending %}
+      <a href="#" class="item tt-hover-lift"
+         hx-get="/titulatec/admin/appointments/body?selected={{ r.process_id }}"
+         hx-target="#appt-body" hx-swap="innerHTML">
+        <div class="min-w-0">
+          <div class="name text-truncate">{{ r.student }}</div>
+          <div class="meta tt-mono text-truncate">{{ r.control }} · {{ r.program }}</div>
+          {% if r.reason and r.reason != 'Sin cita' %}<div class="meta tt-c-danger">{{ r.reason }}</div>{% endif %}
+        </div>
+        <span class="tt-pill tt-pill--amber"><i class="bi bi-calendar-plus me-1"></i>Agendar</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
