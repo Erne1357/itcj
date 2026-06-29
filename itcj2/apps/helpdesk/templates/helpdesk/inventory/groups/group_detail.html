@@ -320,9 +320,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const GROUP_ID = {{ group_id }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups/group_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/groups/group_detail.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-group-id="{{ group_id }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

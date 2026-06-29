@@ -3,229 +3,223 @@
  * Visualización y gestión de equipos dentro de un grupo
  */
 
-let currentGroup = null;
-let groupEquipment = [];
-let availableEquipment = [];
-let allCategories = [];
+(function () {
+    'use strict';
 
-document.addEventListener('DOMContentLoaded', function() {
-    loadCategories();
-    loadGroupDetail();
-    
-    // Event listeners
-    document.getElementById('equipment-search').addEventListener('input', debounce(filterGroupEquipment, 300));
-    document.getElementById('equipment-category-filter').addEventListener('change', filterGroupEquipment);
-    document.getElementById('equipment-status-filter').addEventListener('change', filterGroupEquipment);
-    
-    // Select all
-    const selectAllCheckbox = document.getElementById('select-all-equipment');
-    if (selectAllCheckbox) {
-        selectAllCheckbox.addEventListener('change', function(e) {
-            document.querySelectorAll('.equipment-item-checkbox').forEach(cb => {
-                cb.checked = e.target.checked;
-            });
-            updateRemoveButton();
-        });
+    // === MODULE STATE ===
+    let GROUP_ID = null;
+    let currentGroup = null;
+    let groupEquipment = [];
+    let availableEquipment = [];
+    let allCategories = [];
+
+    // === LISTENER TEARDOWN REFS ===
+    let _searchHandler = null;
+    let _categoryFilterHandler = null;
+    let _statusFilterHandler = null;
+    let _selectAllHandler = null;
+    let _selectAllAvailableHandler = null;
+    let _deleteRedirectHandle = null;
+    let _addEquipmentModal = null;
+
+    // === HELPERS ===
+    function debounce(func, wait) {
+        let timeout;
+        return function (...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
     }
 
-    // Select all available
-    document.getElementById('select-all-available').addEventListener('change', function(e) {
-        document.querySelectorAll('.available-equipment-checkbox').forEach(cb => {
-            cb.checked = e.target.checked;
-        });
-        updateSelectedCount();
-    });
-});
+    // ==================== CARGAR DATOS ====================
+    async function loadGroupDetail() {
+        showLoading();
 
-// ==================== CARGAR DATOS ====================
-async function loadGroupDetail() {
-    showLoading();
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
 
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            if (!response.ok) {
+                if (response.status === 404) {
+                    showError('Grupo no encontrado');
+                    _deleteRedirectHandle = setTimeout(() => window.location.href = '/help-desk/inventory/groups', 2000);
+                    return;
+                }
+                throw new Error('Error al cargar grupo');
             }
-        });
 
-        if (!response.ok) {
-            if (response.status === 404) {
-                showError('Grupo no encontrado');
-                setTimeout(() => window.location.href = '/help-desk/inventory/groups', 2000);
-                return;
-            }
-            throw new Error('Error al cargar grupo');
+            const result = await response.json();
+            currentGroup = result.data;
+
+            console.log('Grupo cargado:', result);
+
+            renderGroupHeader();
+            renderStatistics();
+            renderCapacities();
+            loadGroupEquipment();
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`No se pudo cargar el grupo: ${errorMessage}`);
+        }
+    }
+
+    async function loadCategories() {
+        try {
+            const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
+
+            if (!response.ok) throw new Error('Error al cargar categorías');
+
+            const result = await response.json();
+            allCategories = result.data;
+
+            // Llenar filtros
+            const filters = ['equipment-category-filter', 'available-category-filter'];
+            filters.forEach(filterId => {
+                const select = document.getElementById(filterId);
+                select.innerHTML = '<option value="">Todas las categorías</option>';
+                allCategories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.id;
+                    option.textContent = cat.name;
+                    select.appendChild(option);
+                });
+            });
+
+        } catch (error) {
+            console.error('Error cargando categorías:', error);
+        }
+    }
+
+    async function loadGroupEquipment() {
+        document.getElementById('equipment-loading').style.display = 'block';
+        document.getElementById('equipment-table-container').style.display = 'none';
+        document.getElementById('equipment-empty').style.display = 'none';
+
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/selection/by-group/${GROUP_ID}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
+
+            if (!response.ok) throw new Error('Error al cargar equipos');
+
+            const result = await response.json();
+            groupEquipment = result.items_by_category.flatMap(cat => cat.items);
+
+            renderGroupEquipment(groupEquipment);
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`No se pudieron cargar los equipos del grupo: ${errorMessage}`);
+        } finally {
+            document.getElementById('equipment-loading').style.display = 'none';
+        }
+    }
+
+    async function loadAvailableEquipment() {
+        if (!currentGroup) return;
+
+        document.getElementById('available-equipment-loading').style.display = 'block';
+        document.getElementById('available-equipment-container').style.display = 'none';
+        document.getElementById('available-equipment-empty').style.display = 'none';
+
+        try {
+            const params = new URLSearchParams({
+                department_id: currentGroup.department_id,
+                include_group_equipment: 'false'
+            });
+
+            const search = document.getElementById('available-search').value.trim();
+            if (search) params.append('search', search);
+
+            const categoryId = document.getElementById('available-category-filter').value;
+            if (categoryId) params.append('category_id', categoryId);
+
+            const response = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
+
+            if (!response.ok) throw new Error('Error al cargar equipos disponibles');
+
+            const result = await response.json();
+            availableEquipment = result.data.filter(item => !item.group_id);
+
+            renderAvailableEquipment(availableEquipment);
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`No se pudieron cargar los equipos disponibles: ${errorMessage}`);
+        } finally {
+            document.getElementById('available-equipment-loading').style.display = 'none';
+        }
+    }
+
+    // ==================== RENDERIZADO ====================
+    function renderGroupHeader() {
+        const typeInfo = getGroupTypeInfo(currentGroup.type);
+
+        document.getElementById('group-icon').className = typeInfo.icon + ' mr-2';
+        document.getElementById('group-name').textContent = currentGroup.name;
+        document.getElementById('group-description').textContent = currentGroup.description || '';
+        document.getElementById('group-type-badge').textContent = typeInfo.label;
+        document.getElementById('group-type-badge').className = `badge bg-${typeInfo.color} text-white mr-2`;
+        document.getElementById('group-department').textContent = currentGroup.department?.name || 'N/A';
+
+        // Ubicación
+        if (currentGroup.building || currentGroup.floor) {
+            let locationText = '';
+            if (currentGroup.building) locationText += `Edificio ${currentGroup.building}`;
+            if (currentGroup.floor) locationText += ` - Piso ${currentGroup.floor}`;
+            if (currentGroup.location_notes) locationText += ` (${currentGroup.location_notes})`;
+
+            document.getElementById('location-text').textContent = locationText;
+            document.getElementById('location-info').style.display = 'block';
         }
 
-        const result = await response.json();
-        currentGroup = result.data;
-
-        console.log('Grupo cargado:', result);
-
-        renderGroupHeader();
-        renderStatistics();
-        renderCapacities();
-        loadGroupEquipment();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudo cargar el grupo: ${errorMessage}`);
-    }
-}
-
-async function loadCategories() {
-    try {
-        const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) throw new Error('Error al cargar categorías');
-
-        const result = await response.json();
-        allCategories = result.data;
-
-        // Llenar filtros
-        const filters = ['equipment-category-filter', 'available-category-filter'];
-        filters.forEach(filterId => {
-            const select = document.getElementById(filterId);
-            select.innerHTML = '<option value="">Todas las categorías</option>';
-            allCategories.forEach(cat => {
-                const option = document.createElement('option');
-                option.value = cat.id;
-                option.textContent = cat.name;
-                select.appendChild(option);
-            });
-        });
-
-    } catch (error) {
-        console.error('Error cargando categorías:', error);
-    }
-}
-
-async function loadGroupEquipment() {
-    document.getElementById('equipment-loading').style.display = 'block';
-    document.getElementById('equipment-table-container').style.display = 'none';
-    document.getElementById('equipment-empty').style.display = 'none';
-
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/selection/by-group/${GROUP_ID}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) throw new Error('Error al cargar equipos');
-
-        const result = await response.json();
-        groupEquipment = result.items_by_category.flatMap(cat => cat.items);
-
-        renderGroupEquipment(groupEquipment);
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los equipos del grupo: ${errorMessage}`);
-    } finally {
-        document.getElementById('equipment-loading').style.display = 'none';
-    }
-}
-
-async function loadAvailableEquipment() {
-    if (!currentGroup) return;
-
-    document.getElementById('available-equipment-loading').style.display = 'block';
-    document.getElementById('available-equipment-container').style.display = 'none';
-    document.getElementById('available-equipment-empty').style.display = 'none';
-
-    try {
-        const params = new URLSearchParams({
-            department_id: currentGroup.department_id,
-            include_group_equipment: 'false'
-        });
-
-        const search = document.getElementById('available-search').value.trim();
-        if (search) params.append('search', search);
-
-        const categoryId = document.getElementById('available-category-filter').value;
-        if (categoryId) params.append('category_id', categoryId);
-
-        const response = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) throw new Error('Error al cargar equipos disponibles');
-
-        const result = await response.json();
-        availableEquipment = result.data.filter(item => !item.group_id);
-
-        renderAvailableEquipment(availableEquipment);
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los equipos disponibles: ${errorMessage}`);
-    } finally {
-        document.getElementById('available-equipment-loading').style.display = 'none';
-    }
-}
-
-// ==================== RENDERIZADO ====================
-function renderGroupHeader() {
-    const typeInfo = getGroupTypeInfo(currentGroup.type);
-
-    document.getElementById('group-icon').className = typeInfo.icon + ' mr-2';
-    document.getElementById('group-name').textContent = currentGroup.name;
-    document.getElementById('group-description').textContent = currentGroup.description || '';
-    document.getElementById('group-type-badge').textContent = typeInfo.label;
-    document.getElementById('group-type-badge').className = `badge bg-${typeInfo.color} text-white mr-2`;
-    document.getElementById('group-department').textContent = currentGroup.department?.name || 'N/A';
-
-    // Ubicación
-    if (currentGroup.building || currentGroup.floor) {
-        let locationText = '';
-        if (currentGroup.building) locationText += `Edificio ${currentGroup.building}`;
-        if (currentGroup.floor) locationText += ` - Piso ${currentGroup.floor}`;
-        if (currentGroup.location_notes) locationText += ` (${currentGroup.location_notes})`;
-
-        document.getElementById('location-text').textContent = locationText;
-        document.getElementById('location-info').style.display = 'block';
+        hideLoading();
     }
 
-    hideLoading();
-}
+    function renderStatistics() {
+        const capacities = currentGroup.capacities || [];
+        const totalCapacity = capacities.reduce((sum, cap) => sum + (cap.max_capacity || 0), 0);
+        const totalCurrent = capacities.reduce((sum, cap) => sum + (cap.current_count || 0), 0);
+        const occupancy = totalCapacity > 0 ? Math.round((totalCurrent / totalCapacity) * 100) : 0;
 
-function renderStatistics() {
-    const capacities = currentGroup.capacities || [];
-    const totalCapacity = capacities.reduce((sum, cap) => sum + (cap.max_capacity || 0), 0);
-    const totalCurrent = capacities.reduce((sum, cap) => sum + (cap.current_count || 0), 0);
-    const occupancy = totalCapacity > 0 ? Math.round((totalCurrent / totalCapacity) * 100) : 0;
-
-    document.getElementById('stat-total').textContent = totalCurrent;
-    document.getElementById('stat-capacity').textContent = totalCapacity;
-    document.getElementById('stat-occupancy').textContent = occupancy + '%';
-    document.getElementById('stat-categories').textContent = capacities.length;
-}
-
-function renderCapacities() {
-    const container = document.getElementById('capacities-list');
-    const capacities = currentGroup.capacities || [];
-
-    if (capacities.length === 0) {
-        container.innerHTML = '<p class="text-muted">No hay capacidades definidas para este grupo</p>';
-        return;
+        document.getElementById('stat-total').textContent = totalCurrent;
+        document.getElementById('stat-capacity').textContent = totalCapacity;
+        document.getElementById('stat-occupancy').textContent = occupancy + '%';
+        document.getElementById('stat-categories').textContent = capacities.length;
     }
 
-    container.innerHTML = capacities.map(cap => {
-        const category = allCategories.find(c => c.id === cap.category_id);
-        const percentage = cap.max_capacity > 0 ? Math.round((cap.current_count / cap.max_capacity) * 100) : 0;
-        const progressClass = percentage <= 50 ? 'success' : percentage <= 80 ? 'warning' : 'danger';
+    function renderCapacities() {
+        const container = document.getElementById('capacities-list');
+        const capacities = currentGroup.capacities || [];
 
-        return `
+        if (capacities.length === 0) {
+            container.innerHTML = '<p class="text-muted">No hay capacidades definidas para este grupo</p>';
+            return;
+        }
+
+        container.innerHTML = capacities.map(cap => {
+            const category = allCategories.find(c => c.id === cap.category_id);
+            const percentage = cap.max_capacity > 0 ? Math.round((cap.current_count / cap.max_capacity) * 100) : 0;
+            const progressClass = percentage <= 50 ? 'success' : percentage <= 80 ? 'warning' : 'danger';
+
+            return `
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <div>
@@ -239,8 +233,8 @@ function renderCapacities() {
                     </div>
                 </div>
                 <div class="progress capacity-progress">
-                    <div 
-                        class="progress-bar bg-${progressClass}" 
+                    <div
+                        class="progress-bar bg-${progressClass}"
                         style="width: ${percentage}%"
                         role="progressbar"
                     >
@@ -249,30 +243,30 @@ function renderCapacities() {
                 </div>
             </div>
         `;
-    }).join('');
-}
-
-function renderGroupEquipment(equipment) {
-    const tbody = document.querySelector('#equipment-table tbody');
-
-    if (equipment.length === 0) {
-        document.getElementById('equipment-empty').style.display = 'block';
-        return;
+        }).join('');
     }
 
-    document.getElementById('equipment-table-container').style.display = 'block';
+    function renderGroupEquipment(equipment) {
+        const tbody = document.querySelector('#equipment-table tbody');
 
-    tbody.innerHTML = equipment.map(item => {
-        const statusBadge = getStatusBadge(item.status);
-        const category = allCategories.find(c => c.id === item.category_id);
+        if (equipment.length === 0) {
+            document.getElementById('equipment-empty').style.display = 'block';
+            return;
+        }
 
-        return `
+        document.getElementById('equipment-table-container').style.display = 'block';
+
+        tbody.innerHTML = equipment.map(item => {
+            const statusBadge = getStatusBadge(item.status);
+            const category = allCategories.find(c => c.id === item.category_id);
+
+            return `
             <tr class="equipment-item">
                 ${document.getElementById('select-all-equipment') ? `
                     <td>
-                        <input 
-                            type="checkbox" 
-                            class="equipment-checkbox equipment-item-checkbox" 
+                        <input
+                            type="checkbox"
+                            class="equipment-checkbox equipment-item-checkbox"
                             data-item-id="${item.id}"
                             onchange="updateRemoveButton()"
                         >
@@ -301,14 +295,14 @@ function renderGroupEquipment(equipment) {
                 </td>
                 <td class="text-center">
                     <div class="btn-group btn-group-sm">
-                        <a href="/help-desk/inventory/items/${item.id}" 
+                        <a href="/help-desk/inventory/items/${item.id}"
                            class="btn btn-sm btn-outline-primary"
                            title="Ver detalle">
                             <i class="fas fa-eye"></i>
                         </a>
                         ${document.getElementById('select-all-equipment') ? `
-                            <button 
-                                class="btn btn-sm btn-outline-danger" 
+                            <button
+                                class="btn btn-sm btn-outline-danger"
                                 onclick="removeEquipmentFromGroup(${item.id})"
                                 title="Remover del grupo">
                                 <i class="fas fa-times"></i>
@@ -318,29 +312,29 @@ function renderGroupEquipment(equipment) {
                 </td>
             </tr>
         `;
-    }).join('');
-}
-
-function renderAvailableEquipment(equipment) {
-    const tbody = document.getElementById('available-equipment-tbody');
-
-    if (equipment.length === 0) {
-        document.getElementById('available-equipment-empty').style.display = 'block';
-        return;
+        }).join('');
     }
 
-    document.getElementById('available-equipment-container').style.display = 'block';
+    function renderAvailableEquipment(equipment) {
+        const tbody = document.getElementById('available-equipment-tbody');
 
-    tbody.innerHTML = equipment.map(item => {
-        const statusBadge = getStatusBadge(item.status);
-        const category = allCategories.find(c => c.id === item.category_id);
+        if (equipment.length === 0) {
+            document.getElementById('available-equipment-empty').style.display = 'block';
+            return;
+        }
 
-        return `
+        document.getElementById('available-equipment-container').style.display = 'block';
+
+        tbody.innerHTML = equipment.map(item => {
+            const statusBadge = getStatusBadge(item.status);
+            const category = allCategories.find(c => c.id === item.category_id);
+
+            return `
             <tr>
                 <td>
-                    <input 
-                        type="checkbox" 
-                        class="equipment-checkbox available-equipment-checkbox" 
+                    <input
+                        type="checkbox"
+                        class="equipment-checkbox available-equipment-checkbox"
                         data-item-id="${item.id}"
                         onchange="updateSelectedCount()"
                     >
@@ -360,231 +354,342 @@ function renderAvailableEquipment(equipment) {
                 </td>
             </tr>
         `;
-    }).join('');
-}
-
-// ==================== FILTROS ====================
-function filterGroupEquipment() {
-    const search = document.getElementById('equipment-search').value.toLowerCase();
-    const categoryId = document.getElementById('equipment-category-filter').value;
-    const status = document.getElementById('equipment-status-filter').value;
-
-    let filtered = [...groupEquipment];
-
-    if (search) {
-        filtered = filtered.filter(item =>
-            item.inventory_number.toLowerCase().includes(search) ||
-            (item.brand && item.brand.toLowerCase().includes(search)) ||
-            (item.model && item.model.toLowerCase().includes(search))
-        );
+        }).join('');
     }
 
-    if (categoryId) {
-        filtered = filtered.filter(item => item.category_id == categoryId);
-    }
+    // ==================== FILTROS ====================
+    function filterGroupEquipment() {
+        const search = document.getElementById('equipment-search').value.toLowerCase();
+        const categoryId = document.getElementById('equipment-category-filter').value;
+        const status = document.getElementById('equipment-status-filter').value;
 
-    if (status) {
-        filtered = filtered.filter(item => item.status === status);
-    }
+        let filtered = [...groupEquipment];
 
-    renderGroupEquipment(filtered);
-}
-
-// ==================== ACCIONES ====================
-function openAddEquipmentModal() {
-    loadAvailableEquipment();
-    $('#addEquipmentModal').modal('show');
-}
-
-async function addSelectedEquipment() {
-    const checkboxes = document.querySelectorAll('.available-equipment-checkbox:checked');
-    
-    if (checkboxes.length === 0) {
-        showError('Selecciona al menos un equipo');
-        return;
-    }
-
-    const itemIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.itemId));
-
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/bulk-assign`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ item_ids: itemIds })
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Error al agregar equipos');
+        if (search) {
+            filtered = filtered.filter(item =>
+                item.inventory_number.toLowerCase().includes(search) ||
+                (item.brand && item.brand.toLowerCase().includes(search)) ||
+                (item.model && item.model.toLowerCase().includes(search))
+            );
         }
 
-        $('#addEquipmentModal').modal('hide');
-        showSuccess(`${itemIds.length} equipo(s) agregado(s) al grupo`);
-        
-        // Recargar
-        loadGroupDetail();
+        if (categoryId) {
+            filtered = filtered.filter(item => item.category_id == categoryId);
+        }
 
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al agregar equipos: ${errorMessage}`);
+        if (status) {
+            filtered = filtered.filter(item => item.status === status);
+        }
+
+        renderGroupEquipment(filtered);
     }
-}
 
-async function removeEquipmentFromGroup(itemId) {
-    if (!await HelpdeskUtils.confirmDialog('Remover equipo', '¿Remover este equipo del grupo?')) return;
+    // ==================== ACCIONES ====================
+    function openAddEquipmentModal() {
+        loadAvailableEquipment();
+        $('#addEquipmentModal').modal('show');
+    }
 
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+    async function addSelectedEquipment() {
+        const checkboxes = document.querySelectorAll('.available-equipment-checkbox:checked');
+
+        if (checkboxes.length === 0) {
+            showError('Selecciona al menos un equipo');
+            return;
+        }
+
+        const itemIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.itemId));
+
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}/bulk-assign`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ item_ids: itemIds })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Error al agregar equipos');
             }
-        });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail?.error || error.error || 'Error al remover equipo');
+            $('#addEquipmentModal').modal('hide');
+            showSuccess(`${itemIds.length} equipo(s) agregado(s) al grupo`);
+
+            // Recargar
+            loadGroupDetail();
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al agregar equipos: ${errorMessage}`);
         }
-
-        showSuccess('Equipo removido del grupo');
-        loadGroupDetail();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al agregar equipos: ${errorMessage}`);
-    }
-}
-
-async function removeSelectedEquipment() {
-    const checkboxes = document.querySelectorAll('.equipment-item-checkbox:checked');
-    
-    if (checkboxes.length === 0) {
-        showError('Selecciona al menos un equipo');
-        return;
     }
 
-    if (!await HelpdeskUtils.confirmDialog('Remover equipos', `¿Remover ${checkboxes.length} equipo(s) del grupo?`)) return;
+    async function removeEquipmentFromGroup(itemId) {
+        if (!await HelpdeskUtils.confirmDialog('Remover equipo', '¿Remover este equipo del grupo?')) return;
 
-    const itemIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.itemId));
-
-    try {
-        // Remover uno por uno
-        for (const itemId of itemIds) {
-            await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('access_token')}`
                 }
             });
-        }
 
-        showSuccess(`${itemIds.length} equipo(s) removido(s) del grupo`);
-        loadGroupDetail();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al remover equipos: ${errorMessage}`);
-    }
-}
-
-function updateRemoveButton() {
-    const checked = document.querySelectorAll('.equipment-item-checkbox:checked').length;
-    const btn = document.getElementById('remove-selected-btn');
-    if (btn) {
-        btn.style.display = checked > 0 ? 'inline-block' : 'none';
-        btn.textContent = `Remover ${checked} Seleccionado(s)`;
-    }
-}
-
-function updateSelectedCount() {
-    const count = document.querySelectorAll('.available-equipment-checkbox:checked').length;
-    document.getElementById('selected-count').textContent = count;
-}
-
-function editGroup() {
-    window.location.href = `/help-desk/inventory/groups?edit=${GROUP_ID}`;
-}
-
-async function confirmDeleteGroup() {
-    if (!await HelpdeskUtils.confirmDialog('Eliminar grupo', '¿Eliminar este grupo? Los equipos NO serán eliminados, solo se removerán del grupo.')) return;
-
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail?.error || error.error || 'Error al remover equipo');
             }
-        });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Error al eliminar grupo');
+            showSuccess('Equipo removido del grupo');
+            loadGroupDetail();
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al agregar equipos: ${errorMessage}`);
+        }
+    }
+
+    async function removeSelectedEquipment() {
+        const checkboxes = document.querySelectorAll('.equipment-item-checkbox:checked');
+
+        if (checkboxes.length === 0) {
+            showError('Selecciona al menos un equipo');
+            return;
         }
 
-        showSuccess('Grupo eliminado');
-        setTimeout(() => window.location.href = '/help-desk/inventory/groups', 1500);
+        if (!await HelpdeskUtils.confirmDialog('Remover equipos', `¿Remover ${checkboxes.length} equipo(s) del grupo?`)) return;
 
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al agregar equipos: ${errorMessage}`);
+        const itemIds = Array.from(checkboxes).map(cb => parseInt(cb.dataset.itemId));
+
+        try {
+            // Remover uno por uno
+            for (const itemId of itemIds) {
+                await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                    }
+                });
+            }
+
+            showSuccess(`${itemIds.length} equipo(s) removido(s) del grupo`);
+            loadGroupDetail();
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al remover equipos: ${errorMessage}`);
+        }
     }
-}
 
-// ==================== HELPERS ====================
-function getGroupTypeInfo(type) {
-    const types = {
-        'CLASSROOM': { icon: 'fas fa-chalkboard-teacher', label: 'Salón', color: 'primary' },
-        'LABORATORY': { icon: 'fas fa-flask', label: 'Laboratorio', color: 'success' },
-        'OFFICE': { icon: 'fas fa-briefcase', label: 'Oficina', color: 'info' },
-        'MEETING_ROOM': { icon: 'fas fa-users', label: 'Sala de Reuniones', color: 'warning' },
-        'WORKSHOP': { icon: 'fas fa-tools', label: 'Taller', color: 'danger' },
-        'OTHER': { icon: 'fas fa-folder', label: 'Otro', color: 'secondary' }
-    };
-    return types[type] || types['OTHER'];
-}
+    function updateRemoveButton() {
+        const checked = document.querySelectorAll('.equipment-item-checkbox:checked').length;
+        const btn = document.getElementById('remove-selected-btn');
+        if (btn) {
+            btn.style.display = checked > 0 ? 'inline-block' : 'none';
+            btn.textContent = `Remover ${checked} Seleccionado(s)`;
+        }
+    }
 
-function getStatusBadge(status) {
-    const badges = {
-        'ACTIVE': { color: 'success', text: 'Activo' },
-        'MAINTENANCE': { color: 'warning', text: 'Mantenimiento' },
-        'DAMAGED': { color: 'danger', text: 'Dañado' },
-        'RETIRED': { color: 'secondary', text: 'Retirado' },
-        'LOST': { color: 'dark', text: 'Extraviado' },
-        'PENDING_ASSIGNMENT': { color: 'warning', text: 'Pendiente' }
-    };
-    return badges[status] || { color: 'secondary', text: status };
-}
+    function updateSelectedCount() {
+        const count = document.querySelectorAll('.available-equipment-checkbox:checked').length;
+        document.getElementById('selected-count').textContent = count;
+    }
 
-function showLoading() {
-    document.getElementById('loading-container').style.display = 'block';
-    document.getElementById('main-content').style.display = 'none';
-}
+    function editGroup() {
+        window.location.href = `/help-desk/inventory/groups?edit=${GROUP_ID}`;
+    }
 
-function hideLoading() {
-    document.getElementById('loading-container').style.display = 'none';
-    document.getElementById('main-content').style.display = 'block';
-}
+    async function confirmDeleteGroup() {
+        if (!await HelpdeskUtils.confirmDialog('Eliminar grupo', '¿Eliminar este grupo? Los equipos NO serán eliminados, solo se removerán del grupo.')) return;
 
-function showSuccess(message) {
-    showToast(message, 'success');
-}
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Content-Type': 'application/json'
+                }
+            });
 
-function showError(message) {
-    showToast(message, 'error');
-}
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Error al eliminar grupo');
+            }
 
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
+            showSuccess('Grupo eliminado');
+            _deleteRedirectHandle = setTimeout(() => window.location.href = '/help-desk/inventory/groups', 1500);
+
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al agregar equipos: ${errorMessage}`);
+        }
+    }
+
+    // ==================== HELPERS ====================
+    function getGroupTypeInfo(type) {
+        const types = {
+            'CLASSROOM': { icon: 'fas fa-chalkboard-teacher', label: 'Salón', color: 'primary' },
+            'LABORATORY': { icon: 'fas fa-flask', label: 'Laboratorio', color: 'success' },
+            'OFFICE': { icon: 'fas fa-briefcase', label: 'Oficina', color: 'info' },
+            'MEETING_ROOM': { icon: 'fas fa-users', label: 'Sala de Reuniones', color: 'warning' },
+            'WORKSHOP': { icon: 'fas fa-tools', label: 'Taller', color: 'danger' },
+            'OTHER': { icon: 'fas fa-folder', label: 'Otro', color: 'secondary' }
+        };
+        return types[type] || types['OTHER'];
+    }
+
+    function getStatusBadge(status) {
+        const badges = {
+            'ACTIVE': { color: 'success', text: 'Activo' },
+            'MAINTENANCE': { color: 'warning', text: 'Mantenimiento' },
+            'DAMAGED': { color: 'danger', text: 'Dañado' },
+            'RETIRED': { color: 'secondary', text: 'Retirado' },
+            'LOST': { color: 'dark', text: 'Extraviado' },
+            'PENDING_ASSIGNMENT': { color: 'warning', text: 'Pendiente' }
+        };
+        return badges[status] || { color: 'secondary', text: status };
+    }
+
+    function showLoading() {
+        document.getElementById('loading-container').style.display = 'block';
+        document.getElementById('main-content').style.display = 'none';
+    }
+
+    function hideLoading() {
+        document.getElementById('loading-container').style.display = 'none';
+        document.getElementById('main-content').style.display = 'block';
+    }
+
+    function showSuccess(message) {
+        showToast(message, 'success');
+    }
+
+    function showError(message) {
+        showToast(message, 'error');
+    }
+
+    // ==================== HTMX PAGE LIFECYCLE ====================
+    window.HelpdeskPage.page('inventory_groups_group_detail', {
+        init() {
+            const root = document.querySelector('[data-hd-page]');
+
+            // Read GROUP_ID from data-* attribute
+            GROUP_ID = parseInt(root.dataset.groupId, 10);
+
+            // Reset state
+            currentGroup = null;
+            groupEquipment = [];
+            availableEquipment = [];
+            allCategories = [];
+            _deleteRedirectHandle = null;
+
+            // Load data
+            loadCategories();
+            loadGroupDetail();
+
+            // Event listeners — stored for teardown
+            const searchEl = document.getElementById('equipment-search');
+            const categoryFilterEl = document.getElementById('equipment-category-filter');
+            const statusFilterEl = document.getElementById('equipment-status-filter');
+            const selectAllEl = document.getElementById('select-all-equipment');
+            const selectAllAvailableEl = document.getElementById('select-all-available');
+
+            _searchHandler = debounce(filterGroupEquipment, 300);
+            _categoryFilterHandler = filterGroupEquipment;
+            _statusFilterHandler = filterGroupEquipment;
+
+            searchEl.addEventListener('input', _searchHandler);
+            categoryFilterEl.addEventListener('change', _categoryFilterHandler);
+            statusFilterEl.addEventListener('change', _statusFilterHandler);
+
+            if (selectAllEl) {
+                _selectAllHandler = function (e) {
+                    document.querySelectorAll('.equipment-item-checkbox').forEach(cb => {
+                        cb.checked = e.target.checked;
+                    });
+                    updateRemoveButton();
+                };
+                selectAllEl.addEventListener('change', _selectAllHandler);
+            }
+
+            if (selectAllAvailableEl) {
+                _selectAllAvailableHandler = function (e) {
+                    document.querySelectorAll('.available-equipment-checkbox').forEach(cb => {
+                        cb.checked = e.target.checked;
+                    });
+                    updateSelectedCount();
+                };
+                selectAllAvailableEl.addEventListener('change', _selectAllAvailableHandler);
+            }
+
+            // Expose window functions used by inline onclick
+            window.editGroup = editGroup;
+            window.confirmDeleteGroup = confirmDeleteGroup;
+            window.openAddEquipmentModal = openAddEquipmentModal;
+            window.removeSelectedEquipment = removeSelectedEquipment;
+            window.addSelectedEquipment = addSelectedEquipment;
+            window.loadAvailableEquipment = loadAvailableEquipment;
+            window.removeEquipmentFromGroup = removeEquipmentFromGroup;
+            window.updateRemoveButton = updateRemoveButton;
+            window.updateSelectedCount = updateSelectedCount;
+
+            _addEquipmentModal = $('#addEquipmentModal');
+        },
+
+        destroy() {
+            // Cancel pending redirects
+            if (_deleteRedirectHandle !== null) {
+                clearTimeout(_deleteRedirectHandle);
+                _deleteRedirectHandle = null;
+            }
+
+            const searchEl = document.getElementById('equipment-search');
+            const categoryFilterEl = document.getElementById('equipment-category-filter');
+            const statusFilterEl = document.getElementById('equipment-status-filter');
+            const selectAllEl = document.getElementById('select-all-equipment');
+            const selectAllAvailableEl = document.getElementById('select-all-available');
+
+            if (searchEl && _searchHandler) searchEl.removeEventListener('input', _searchHandler);
+            if (categoryFilterEl && _categoryFilterHandler) categoryFilterEl.removeEventListener('change', _categoryFilterHandler);
+            if (statusFilterEl && _statusFilterHandler) statusFilterEl.removeEventListener('change', _statusFilterHandler);
+            if (selectAllEl && _selectAllHandler) selectAllEl.removeEventListener('change', _selectAllHandler);
+            if (selectAllAvailableEl && _selectAllAvailableHandler) selectAllAvailableEl.removeEventListener('change', _selectAllAvailableHandler);
+
+            if (_addEquipmentModal) {
+                try { _addEquipmentModal.modal('dispose'); } catch (_) {}
+                _addEquipmentModal = null;
+            }
+
+            // Clean up window functions
+            delete window.editGroup;
+            delete window.confirmDeleteGroup;
+            delete window.openAddEquipmentModal;
+            delete window.removeSelectedEquipment;
+            delete window.addSelectedEquipment;
+            delete window.loadAvailableEquipment;
+            delete window.removeEquipmentFromGroup;
+            delete window.updateRemoveButton;
+            delete window.updateSelectedCount;
+
+            // Reset state
+            GROUP_ID = null;
+            currentGroup = null;
+            groupEquipment = [];
+            availableEquipment = [];
+            allCategories = [];
+
+            _searchHandler = null;
+            _categoryFilterHandler = null;
+            _statusFilterHandler = null;
+            _selectAllHandler = null;
+            _selectAllAvailableHandler = null;
+        }
+    });
+})();

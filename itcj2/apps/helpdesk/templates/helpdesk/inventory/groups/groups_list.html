@@ -188,10 +188,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const departmentId = {% if department_id %}{{ department_id }}{% else %}null{% endif %};
-    const canViewAll = {{ 'true' if can_view_all else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/groups/groups_list.js') }}?v={{ sv('helpdesk', 'js/inventory/groups/groups_list.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-department-id="{{ department_id if department_id else '' }}" data-can-view-all="{{ 'true' if can_view_all else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}
