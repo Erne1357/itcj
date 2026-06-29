@@ -1,168 +1,209 @@
-// itcj/apps/helpdesk/static/js/admin/tickets_list.js
+// itcj2/apps/helpdesk/static/js/admin/tickets_list.js
+(function () {
+    'use strict';
 
-let currentPage = 1;
-const itemsPerPage = 20;
-let currentFilters = {};
-let totalTickets = 0;
-let pendingScrollRestore = 0;
-let summaryStats = {
-    total: 0,
-    pending: 0,
-    inProgress: 0,
-    resolved: 0
-};
+    // ---- estado de módulo ----
+    let currentPage = 1;
+    const itemsPerPage = 20;
+    let currentFilters = {};
+    let totalTickets = 0;
+    let pendingScrollRestore = 0;
+    let summaryStats = { total: 0, pending: 0, inProgress: 0, resolved: 0 };
 
-// ==================== INITIALIZATION ====================
-document.addEventListener('DOMContentLoaded', () => {
-    // Restore state if coming back from a ticket detail
-    if (document.referrer.includes('/help-desk/user/tickets/')) {
-        const saved = HelpdeskUtils.NavState.load('admin_tickets_list');
-        if (saved) {
-            document.getElementById('searchInput').value = saved.search || '';
-            document.getElementById('filterStatus').value = saved.status || '';
-            document.getElementById('filterArea').value = saved.area || '';
-            document.getElementById('filterPriority').value = saved.priority || '';
-            currentFilters = saved.filters || {};
-            currentPage = saved.page || 1;
-            pendingScrollRestore = saved.scrollY || 0;
+    // ---- handles para teardown (HTMX) ----
+    let socketPoll = null;          // setInterval que espera al socket
+    let socketPollTimeout = null;   // setTimeout de seguridad (5s)
+    let searchTimeout = null;       // debounce de búsqueda
+    let silentRefreshTimer = null;  // debounce de refresco por evento de socket
+
+    // ==================== RESET STATE ====================
+    function resetState() {
+        currentPage = 1;
+        currentFilters = {};
+        totalTickets = 0;
+        pendingScrollRestore = 0;
+        summaryStats = { total: 0, pending: 0, inProgress: 0, resolved: 0 };
+    }
+
+    // ==================== INIT / DESTROY (HelpdeskPage controller) ====================
+    function init() {
+        resetState();
+        // Restaurar estado si se vuelve desde el detalle de un ticket
+        if (document.referrer.includes('/help-desk/user/tickets/')) {
+            const saved = HelpdeskUtils.NavState.load('admin_tickets_list');
+            if (saved) {
+                document.getElementById('searchInput').value = saved.search || '';
+                document.getElementById('filterStatus').value = saved.status || '';
+                document.getElementById('filterArea').value = saved.area || '';
+                document.getElementById('filterPriority').value = saved.priority || '';
+                currentFilters = saved.filters || {};
+                currentPage = saved.page || 1;
+                pendingScrollRestore = saved.scrollY || 0;
+            }
+        }
+        loadSummaryStats();
+        loadTickets();
+        setupFilters();
+        setupWebSocketListeners();
+    }
+
+    function destroy() {
+        if (socketPoll) { clearInterval(socketPoll); socketPoll = null; }
+        if (socketPollTimeout) { clearTimeout(socketPollTimeout); socketPollTimeout = null; }
+        if (searchTimeout) { clearTimeout(searchTimeout); searchTimeout = null; }
+        if (silentRefreshTimer) { clearTimeout(silentRefreshTimer); silentRefreshTimer = null; }
+        const socket = window.__helpdeskSocket;
+        if (socket) {
+            socket.off('ticket_created');
+            socket.off('ticket_assigned');
+            socket.off('ticket_reassigned');
+            socket.off('ticket_status_changed');
+            socket.off('ticket_self_assigned');
+        }
+        // NOTE: No abandonamos el room admin (socket es singleton global).
+        // Sin handlers, los eventos del room se ignoran. Al re-entrar,
+        // init() vuelve a unir y re-enganchar (bindAdminSocketEvents hace
+        // socket.off antes de socket.on → idempotente).
+    }
+
+    // ==================== SILENT REFRESH (debounce via módulo timer) ====================
+    function silentRefresh() {
+        clearTimeout(silentRefreshTimer);
+        silentRefreshTimer = setTimeout(() => {
+            loadSummaryStats();
+            loadTickets();
+        }, 500);
+    }
+
+    // ==================== LOAD SUMMARY STATS ====================
+    async function loadSummaryStats() {
+        try {
+            // Cargar estadísticas de resumen (solo conteos, sin paginación)
+            const [totalResp, pendingResp, inProgressResp, resolvedResp] = await Promise.all([
+                HelpdeskUtils.api.getTickets({ per_page: 1, page: 1 }),
+                HelpdeskUtils.api.getTickets({ status: 'PENDING', per_page: 1, page: 1 }),
+                HelpdeskUtils.api.getTickets({ status: 'ASSIGNED,IN_PROGRESS', per_page: 1, page: 1 }),
+                HelpdeskUtils.api.getTickets({ status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED', per_page: 1, page: 1 })
+            ]);
+
+            summaryStats = {
+                total: totalResp.total || 0,
+                pending: pendingResp.total || 0,
+                inProgress: inProgressResp.total || 0,
+                resolved: resolvedResp.total || 0
+            };
+
+            updateSummaryCards();
+        } catch (error) {
+            console.error('Error loading summary stats:', error);
         }
     }
-    loadSummaryStats();
-    loadTickets();
-    setupFilters();
-    setupWebSocketListeners();
-});
 
-// ==================== LOAD SUMMARY STATS ====================
-async function loadSummaryStats() {
-    try {
-        // Cargar estadísticas de resumen (solo conteos, sin paginación)
-        const [totalResp, pendingResp, inProgressResp, resolvedResp] = await Promise.all([
-            HelpdeskUtils.api.getTickets({ per_page: 1, page: 1 }),
-            HelpdeskUtils.api.getTickets({ status: 'PENDING', per_page: 1, page: 1 }),
-            HelpdeskUtils.api.getTickets({ status: 'ASSIGNED,IN_PROGRESS', per_page: 1, page: 1 }),
-            HelpdeskUtils.api.getTickets({ status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED', per_page: 1, page: 1 })
-        ]);
+    // ==================== LOAD TICKETS (CON PAGINACIÓN BACKEND) ====================
+    async function loadTickets() {
+        try {
+            console.log('🎫 Cargando tickets (página', currentPage, ')...');
 
-        summaryStats = {
-            total: totalResp.total || 0,
-            pending: pendingResp.total || 0,
-            inProgress: inProgressResp.total || 0,
-            resolved: resolvedResp.total || 0
-        };
+            // Construir parámetros de consulta
+            const params = {
+                page: currentPage,
+                per_page: itemsPerPage,
+                ...currentFilters
+            };
 
-        updateSummaryCards();
-    } catch (error) {
-        console.error('Error loading summary stats:', error);
-    }
-}
+            const response = await HelpdeskUtils.api.getTickets(params);
+            const tickets = response.tickets || [];
+            totalTickets = response.total || 0;
 
-// ==================== LOAD TICKETS (CON PAGINACIÓN BACKEND) ====================
-async function loadTickets() {
-    try {
-        console.log('🎫 Cargando tickets (página', currentPage, ')...');
+            renderTickets(tickets);
 
-        // Construir parámetros de consulta
-        const params = {
-            page: currentPage,
-            per_page: itemsPerPage,
-            ...currentFilters
-        };
+            if (pendingScrollRestore > 0) {
+                const sy = pendingScrollRestore;
+                pendingScrollRestore = 0;
+                requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
+            }
 
-        const response = await HelpdeskUtils.api.getTickets(params);
-        const tickets = response.tickets || [];
-        totalTickets = response.total || 0;
+            console.log('✅ Tickets cargados:', tickets.length, 'de', totalTickets);
 
-        renderTickets(tickets);
-
-        if (pendingScrollRestore > 0) {
-            const sy = pendingScrollRestore;
-            pendingScrollRestore = 0;
-            requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
+        } catch (error) {
+            console.error('Error loading tickets:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            HelpdeskUtils.showToast(`Error al cargar tickets: ${errorMessage}`, 'error');
+            showErrorState();
         }
-
-        console.log('✅ Tickets cargados:', tickets.length, 'de', totalTickets);
-
-    } catch (error) {
-        console.error('Error loading tickets:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        HelpdeskUtils.showToast(`Error al cargar tickets: ${errorMessage}`, 'error');
-        showErrorState();
     }
-}
 
-// ==================== SUMMARY CARDS ====================
-function updateSummaryCards() {
-    document.getElementById('totalTickets').textContent = summaryStats.total;
-    document.getElementById('pendingTickets').textContent = summaryStats.pending;
-    document.getElementById('inProgressTickets').textContent = summaryStats.inProgress;
-    document.getElementById('resolvedTickets').textContent = summaryStats.resolved;
-}
+    // ==================== SUMMARY CARDS ====================
+    function updateSummaryCards() {
+        document.getElementById('totalTickets').textContent = summaryStats.total;
+        document.getElementById('pendingTickets').textContent = summaryStats.pending;
+        document.getElementById('inProgressTickets').textContent = summaryStats.inProgress;
+        document.getElementById('resolvedTickets').textContent = summaryStats.resolved;
+    }
 
-// ==================== FILTERS ====================
-function setupFilters() {
-    const filterStatus = document.getElementById('filterStatus');
-    const filterArea = document.getElementById('filterArea');
-    const filterPriority = document.getElementById('filterPriority');
-    const searchInput = document.getElementById('searchInput');
-    const btnClearFilters = document.getElementById('btnClearFilters');
+    // ==================== FILTERS ====================
+    function setupFilters() {
+        const filterStatus = document.getElementById('filterStatus');
+        const filterArea = document.getElementById('filterArea');
+        const filterPriority = document.getElementById('filterPriority');
+        const searchInput = document.getElementById('searchInput');
+        const btnClearFilters = document.getElementById('btnClearFilters');
 
-    filterStatus.addEventListener('change', applyFilters);
-    filterArea.addEventListener('change', applyFilters);
-    filterPriority.addEventListener('change', applyFilters);
-    
-    // Debounce para búsqueda
-    let searchTimeout;
-    searchInput.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(applyFilters, 500);
-    });
+        filterStatus.addEventListener('change', applyFilters);
+        filterArea.addEventListener('change', applyFilters);
+        filterPriority.addEventListener('change', applyFilters);
 
-    btnClearFilters.addEventListener('click', () => {
-        filterStatus.value = '';
-        filterArea.value = '';
-        filterPriority.value = '';
-        searchInput.value = '';
-        HelpdeskUtils.NavState.clear('admin_tickets_list');
-        applyFilters();
-    });
-}
+        // Debounce para búsqueda  (searchTimeout es de módulo, ver arriba)
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(applyFilters, 500);
+        });
 
-function applyFilters() {
-    const statusFilter = document.getElementById('filterStatus').value;
-    const areaFilter = document.getElementById('filterArea').value;
-    const priorityFilter = document.getElementById('filterPriority').value;
-    const searchText = document.getElementById('searchInput').value.trim();
+        btnClearFilters.addEventListener('click', () => {
+            filterStatus.value = '';
+            filterArea.value = '';
+            filterPriority.value = '';
+            searchInput.value = '';
+            HelpdeskUtils.NavState.clear('admin_tickets_list');
+            applyFilters();
+        });
+    }
 
-    // Construir objeto de filtros
-    currentFilters = {};
-    
-    if (statusFilter) currentFilters.status = statusFilter;
-    if (areaFilter) currentFilters.area = areaFilter;
-    if (priorityFilter) currentFilters.priority = priorityFilter;
-    if (searchText) currentFilters.search = searchText;
+    function applyFilters() {
+        const statusFilter = document.getElementById('filterStatus').value;
+        const areaFilter = document.getElementById('filterArea').value;
+        const priorityFilter = document.getElementById('filterPriority').value;
+        const searchText = document.getElementById('searchInput').value.trim();
 
-    // Resetear a página 1 cuando cambian los filtros
-    currentPage = 1;
-    
-    // Recargar tickets con nuevos filtros
-    loadTickets();
-    
-    // Recargar estadísticas de resumen con filtros
-    loadSummaryStats();
-}
+        // Construir objeto de filtros
+        currentFilters = {};
 
-// ==================== RENDER TICKETS ====================
-function renderTickets(tickets) {
-    const container = document.getElementById('ticketsList');
-    const countBadge = document.getElementById('ticketCount');
+        if (statusFilter) currentFilters.status = statusFilter;
+        if (areaFilter) currentFilters.area = areaFilter;
+        if (priorityFilter) currentFilters.priority = priorityFilter;
+        if (searchText) currentFilters.search = searchText;
 
-    // Update count
-    countBadge.textContent = `${totalTickets} ticket${totalTickets !== 1 ? 's' : ''}`;
+        // Resetear a página 1 cuando cambian los filtros
+        currentPage = 1;
 
-    // Empty state
-    if (tickets.length === 0) {
-        container.innerHTML = `
+        // Recargar tickets con nuevos filtros
+        loadTickets();
+
+        // Recargar estadísticas de resumen con filtros
+        loadSummaryStats();
+    }
+
+    // ==================== RENDER TICKETS ====================
+    function renderTickets(tickets) {
+        const container = document.getElementById('ticketsList');
+        const countBadge = document.getElementById('ticketCount');
+
+        // Update count
+        countBadge.textContent = `${totalTickets} ticket${totalTickets !== 1 ? 's' : ''}`;
+
+        // Empty state
+        if (tickets.length === 0) {
+            container.innerHTML = `
             <div class="text-center py-5">
                 <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
                 <h5 class="text-muted">No hay tickets</h5>
@@ -173,20 +214,20 @@ function renderTickets(tickets) {
                 </p>
             </div>
         `;
-        document.getElementById('paginationNav').style.display = 'none';
-        return;
+            document.getElementById('paginationNav').style.display = 'none';
+            return;
+        }
+
+        // Render tickets
+        container.innerHTML = tickets.map(ticket => createTicketCard(ticket)).join('');
+
+        // Render pagination
+        const totalPages = Math.ceil(totalTickets / itemsPerPage);
+        renderPagination(totalPages);
     }
 
-    // Render tickets
-    container.innerHTML = tickets.map(ticket => createTicketCard(ticket)).join('');
-
-    // Render pagination
-    const totalPages = Math.ceil(totalTickets / itemsPerPage);
-    renderPagination(totalPages);
-}
-
-function createTicketCard(ticket) {
-    return `
+    function createTicketCard(ticket) {
+        return `
         <div class="ticket-card status-${ticket.status} border-bottom p-3" onclick="goToTicketDetail(${ticket.id})">
             <div class="row g-3">
                 <!-- Columna Principal: Información del Ticket -->
@@ -268,24 +309,24 @@ function createTicketCard(ticket) {
             </div>
         </div>
     `;
-}
-
-// ==================== PAGINATION ====================
-function renderPagination(totalPages) {
-    const paginationNav = document.getElementById('paginationNav');
-    const paginationList = document.getElementById('paginationList');
-
-    if (totalPages <= 1) {
-        paginationNav.style.display = 'none';
-        return;
     }
 
-    paginationNav.style.display = 'block';
+    // ==================== PAGINATION ====================
+    function renderPagination(totalPages) {
+        const paginationNav = document.getElementById('paginationNav');
+        const paginationList = document.getElementById('paginationList');
 
-    let paginationHTML = '';
+        if (totalPages <= 1) {
+            paginationNav.style.display = 'none';
+            return;
+        }
 
-    // Previous button
-    paginationHTML += `
+        paginationNav.style.display = 'block';
+
+        let paginationHTML = '';
+
+        // Previous button
+        paginationHTML += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;">
                 <i class="fas fa-chevron-left"></i>
@@ -293,50 +334,50 @@ function renderPagination(totalPages) {
         </li>
     `;
 
-    // Page numbers
-    const maxVisiblePages = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+        // Page numbers
+        const maxVisiblePages = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
 
-    if (endPage - startPage < maxVisiblePages - 1) {
-        startPage = Math.max(1, endPage - maxVisiblePages + 1);
-    }
+        if (endPage - startPage < maxVisiblePages - 1) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+        }
 
-    // First page
-    if (startPage > 1) {
-        paginationHTML += `
+        // First page
+        if (startPage > 1) {
+            paginationHTML += `
             <li class="page-item">
                 <a class="page-link" href="#" onclick="changePage(1); return false;">1</a>
             </li>
         `;
-        if (startPage > 2) {
-            paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+            if (startPage > 2) {
+                paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+            }
         }
-    }
 
-    // Page numbers
-    for (let i = startPage; i <= endPage; i++) {
-        paginationHTML += `
+        // Page numbers
+        for (let i = startPage; i <= endPage; i++) {
+            paginationHTML += `
             <li class="page-item ${i === currentPage ? 'active' : ''}">
                 <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
             </li>
         `;
-    }
-
-    // Last page
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) {
-            paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
         }
-        paginationHTML += `
+
+        // Last page
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                paginationHTML += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+            }
+            paginationHTML += `
             <li class="page-item">
                 <a class="page-link" href="#" onclick="changePage(${totalPages}); return false;">${totalPages}</a>
             </li>
         `;
-    }
+        }
 
-    // Next button
-    paginationHTML += `
+        // Next button
+        paginationHTML += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">
                 <i class="fas fa-chevron-right"></i>
@@ -344,130 +385,117 @@ function renderPagination(totalPages) {
         </li>
     `;
 
-    paginationList.innerHTML = paginationHTML;
-}
+        paginationList.innerHTML = paginationHTML;
+    }
 
-function changePage(page) {
-    currentPage = page;
-    loadTickets(); // Cargar desde backend
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
+    function changePage(page) {
+        currentPage = page;
+        loadTickets(); // Cargar desde backend
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 
-// ==================== TICKET DETAIL ====================
-function goToTicketDetail(ticketId) {
-    HelpdeskUtils.NavState.save('admin_tickets_list', {
-        search: document.getElementById('searchInput').value,
-        status: document.getElementById('filterStatus').value,
-        area: document.getElementById('filterArea').value,
-        priority: document.getElementById('filterPriority').value,
-        filters: currentFilters,
-        page: currentPage,
-        scrollY: window.scrollY,
-    });
-    window.location.href = `/help-desk/user/tickets/${ticketId}?from=admin_tickets_list`;
-}
+    // ==================== TICKET DETAIL ====================
+    function goToTicketDetail(ticketId) {
+        HelpdeskUtils.NavState.save('admin_tickets_list', {
+            search: document.getElementById('searchInput').value,
+            status: document.getElementById('filterStatus').value,
+            area: document.getElementById('filterArea').value,
+            priority: document.getElementById('filterPriority').value,
+            filters: currentFilters,
+            page: currentPage,
+            scrollY: window.scrollY,
+        });
+        window.location.href = `/help-desk/user/tickets/${ticketId}?from=admin_tickets_list`;
+    }
 
-// ==================== WEBSOCKET REAL-TIME UPDATES ====================
+    // ==================== WEBSOCKET REAL-TIME UPDATES ====================
 
-/**
- * Debounce helper
- */
-function debounce(fn, delay) {
-    let timeoutId;
-    return function(...args) {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => fn.apply(this, args), delay);
-    };
-}
+    /**
+     * Configura los listeners de WebSocket para actualizaciones en tiempo real
+     */
+    function setupWebSocketListeners() {
+        socketPoll = setInterval(() => {
+            if (window.__helpdeskSocket) {
+                clearInterval(socketPoll);
+                socketPoll = null;
+                bindAdminSocketEvents();
+            }
+        }, 100);
 
-/**
- * Configura los listeners de WebSocket para actualizaciones en tiempo real
- */
-function setupWebSocketListeners() {
-    const checkSocket = setInterval(() => {
-        if (window.__helpdeskSocket) {
-            clearInterval(checkSocket);
-            bindAdminSocketEvents();
-        }
-    }, 100);
+        socketPollTimeout = setTimeout(() => {
+            if (socketPoll) { clearInterval(socketPoll); socketPoll = null; }
+        }, 5000);
+    }
 
-    setTimeout(() => clearInterval(checkSocket), 5000);
-}
+    function bindAdminSocketEvents() {
+        const socket = window.__helpdeskSocket;
+        if (!socket) return;
 
-function bindAdminSocketEvents() {
-    const socket = window.__helpdeskSocket;
-    if (!socket) return;
+        // Unirse al room de admin (recibe todos los eventos de tickets)
+        window.__hdJoinAdmin?.();
 
-    // Unirse al room de admin (recibe todos los eventos de tickets)
-    window.__hdJoinAdmin?.();
+        // Remover listeners previos
+        socket.off('ticket_created');
+        socket.off('ticket_assigned');
+        socket.off('ticket_reassigned');
+        socket.off('ticket_status_changed');
+        socket.off('ticket_self_assigned');
 
-    const silentRefresh = debounce(() => {
-        loadSummaryStats();
-        loadTickets();
-    }, 500);
+        // Nuevo ticket creado
+        socket.on('ticket_created', (data) => {
+            console.log('[Admin List] ticket_created:', data);
+            const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+            const area = data?.area || '';
+            HelpdeskUtils.showToast(`Nuevo ticket ${ticketNum} (${area})`, 'info');
+            silentRefresh();
+        });
 
-    // Remover listeners previos
-    socket.off('ticket_created');
-    socket.off('ticket_assigned');
-    socket.off('ticket_reassigned');
-    socket.off('ticket_status_changed');
-    socket.off('ticket_self_assigned');
+        // Ticket asignado
+        socket.on('ticket_assigned', (data) => {
+            console.log('[Admin List] ticket_assigned:', data);
+            const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+            HelpdeskUtils.showToast(`Ticket ${ticketNum} asignado`, 'info');
+            silentRefresh();
+        });
 
-    // Nuevo ticket creado
-    socket.on('ticket_created', (data) => {
-        console.log('[Admin List] ticket_created:', data);
-        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
-        const area = data?.area || '';
-        HelpdeskUtils.showToast(`Nuevo ticket ${ticketNum} (${area})`, 'info');
-        silentRefresh();
-    });
+        // Ticket reasignado
+        socket.on('ticket_reassigned', (data) => {
+            console.log('[Admin List] ticket_reassigned:', data);
+            const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+            HelpdeskUtils.showToast(`Ticket ${ticketNum} reasignado`, 'info');
+            silentRefresh();
+        });
 
-    // Ticket asignado
-    socket.on('ticket_assigned', (data) => {
-        console.log('[Admin List] ticket_assigned:', data);
-        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
-        HelpdeskUtils.showToast(`Ticket ${ticketNum} asignado`, 'info');
-        silentRefresh();
-    });
+        // Cambio de estado
+        socket.on('ticket_status_changed', (data) => {
+            console.log('[Admin List] ticket_status_changed:', data);
+            const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+            const newStatus = data?.new_status || '';
+            HelpdeskUtils.showToast(`Ticket ${ticketNum} → ${newStatus}`, 'info');
+            silentRefresh();
+        });
 
-    // Ticket reasignado
-    socket.on('ticket_reassigned', (data) => {
-        console.log('[Admin List] ticket_reassigned:', data);
-        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
-        HelpdeskUtils.showToast(`Ticket ${ticketNum} reasignado`, 'info');
-        silentRefresh();
-    });
+        // Técnico tomó un ticket del pool
+        socket.on('ticket_self_assigned', (data) => {
+            console.log('[Admin List] ticket_self_assigned:', data);
+            const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
+            HelpdeskUtils.showToast(`Ticket ${ticketNum} auto-asignado`, 'info');
+            silentRefresh();
+        });
 
-    // Cambio de estado
-    socket.on('ticket_status_changed', (data) => {
-        console.log('[Admin List] ticket_status_changed:', data);
-        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
-        const newStatus = data?.new_status || '';
-        HelpdeskUtils.showToast(`Ticket ${ticketNum} → ${newStatus}`, 'info');
-        silentRefresh();
-    });
+        console.log('[Admin List] WebSocket listeners configurados');
+    }
 
-    // Técnico tomó un ticket del pool
-    socket.on('ticket_self_assigned', (data) => {
-        console.log('[Admin List] ticket_self_assigned:', data);
-        const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
-        HelpdeskUtils.showToast(`Ticket ${ticketNum} auto-asignado`, 'info');
-        silentRefresh();
-    });
+    // ==================== UTILITY FUNCTIONS ====================
+    function truncateText(text, maxLength) {
+        if (!text) return '';
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
+    }
 
-    console.log('[Admin List] WebSocket listeners configurados');
-}
-
-// ==================== UTILITY FUNCTIONS ====================
-function truncateText(text, maxLength) {
-    if (!text) return '';
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
-}
-
-function showErrorState() {
-    const container = document.getElementById('ticketsList');
-    container.innerHTML = `
+    function showErrorState() {
+        const container = document.getElementById('ticketsList');
+        container.innerHTML = `
         <div class="text-center py-5">
             <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
             <h5 class="text-danger">Error al cargar tickets</h5>
@@ -477,4 +505,11 @@ function showErrorState() {
             </button>
         </div>
     `;
-}
+    }
+
+    // Handlers usados por onclick en el HTML generado.
+    window.goToTicketDetail = goToTicketDetail;
+    window.changePage = changePage;
+
+    window.HelpdeskPage.page('admin_tickets_list', { init: init, destroy: destroy });
+})();
