@@ -19,9 +19,12 @@
 
     // Handlers almacenados por referencia para poder removerlos
     let _handlers = {};
+    let _deptSelectorHandler = null;
+    let _active = false;
 
     // ==================== INIT / DESTROY ====================
     function init() {
+        _active = true;
         loadInitialData();
         setupEventListeners();
 
@@ -37,6 +40,14 @@
     }
 
     function destroy() {
+        _active = false;
+        // Remover listener del dept-selector (cross-dept)
+        var deptSel = document.getElementById('dept-selector');
+        if (deptSel && _deptSelectorHandler) {
+            deptSel.removeEventListener('change', _deptSelectorHandler);
+        }
+        _deptSelectorHandler = null;
+
         // Remover listeners de formularios/inputs
         const searchUsers = document.getElementById('search-users');
         if (searchUsers && _handlers.filterUsers) {
@@ -181,7 +192,8 @@
                 selector.value = String(initialId);
                 currentDepartment = allDepartments.find(d => d.id === parseInt(selector.value, 10)) || null;
 
-                selector.addEventListener('change', async () => {
+                if (!_active) return;
+                _deptSelectorHandler = async function () {
                     currentDepartment = allDepartments.find(d => d.id === parseInt(selector.value, 10)) || null;
                     if (currentDepartment) {
                         showLoading();
@@ -189,7 +201,8 @@
                         await reloadDepartmentData();
                         hideLoading();
                     }
-                });
+                };
+                selector.addEventListener('change', _deptSelectorHandler);
             }
             return;
         }
