@@ -280,11 +280,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const REQUEST_ID = {{ request_id }};
-    const CAN_APPROVE = {{ 'true' if can_approve else 'false' }};
-    const CURRENT_USER_PERMS = {{ sign_perms | tojson }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_request_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_request_detail.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-request-id="{{ request_id }}" data-can-approve="{{ 'true' if can_approve else 'false' }}" data-current-user-perms="{{ sign_perms | tojson | forceescape }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

@@ -49,6 +49,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "inventory_campaigns_campaign_create": ["js/inventory/campaigns/campaign_create.js"],
     "inventory_campaigns_campaign_detail": ["js/inventory/campaigns/campaign_detail.js"],
     "inventory_campaigns_campaign_validate": ["js/inventory/campaigns/campaign_validate.js"],
+    "inventory_retirement_retirement_requests_list": ["js/inventory/retirement/retirement_requests_list.js"],
+    "inventory_retirement_retirement_request_create": ["js/inventory/retirement/retirement_request_create.js"],
+    "inventory_retirement_retirement_request_detail": ["js/inventory/retirement/retirement_request_detail.js"],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
@@ -65,6 +68,7 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.warehouse_pages.movements": "warehouse_movements",
     "helpdesk_pages.warehouse_pages.reports": "warehouse_reports",
     "helpdesk_pages.inventory_pages.campaigns_list": "inventory_campaigns_campaigns_list",
+    "helpdesk_pages.inventory_pages.retirement_requests_list": "inventory_retirement_retirement_requests_list",
 }
 
 

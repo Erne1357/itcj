@@ -17,18 +17,10 @@
     const PAGE_SIZE = 20;
     let debounceTimer = null;
     let pendingScrollRestore = 0;
+    let CAN_VIEW_ALL = false;
+    let CAN_APPROVE = false;
 
-    const el = {
-        search: document.getElementById('search-input'),
-        status: document.getElementById('status-filter'),
-        scope:  document.getElementById('scope-filter'),
-        clear:  document.getElementById('btn-clear-filters'),
-        tbody:  document.getElementById('requests-tbody'),
-        total:  document.getElementById('total-count'),
-        pagInfo: document.getElementById('pagination-info'),
-        pagList: document.getElementById('pagination-list'),
-        pagContainer: document.getElementById('pagination-container'),
-    };
+    let el = {};
 
     function statusBadge(status) {
         const s = STATUS_LABELS[status] || { label: status, cls: 'bg-light text-dark' };
@@ -53,7 +45,7 @@
 
     function buildRow(r) {
         const itemsCount = r.items_count !== undefined ? r.items_count : '—';
-        return `<tr style="cursor:pointer;" onclick="goToRequest(${r.id})">
+        return `<tr style="cursor:pointer;" onclick="window.goToRequest(${r.id})">
             <td class="pl-3 folio-cell">${r.folio}</td>
             <td>${statusBadge(r.status)}</td>
             <td class="d-none d-md-table-cell text-truncate" style="max-width:200px;" title="${r.reason}">${r.reason}</td>
@@ -166,6 +158,24 @@
     }
 
     function init() {
+        const root = document.querySelector('[data-hd-page]');
+        CAN_VIEW_ALL = root && root.dataset.canViewAll === 'true';
+        CAN_APPROVE  = root && root.dataset.canApprove === 'true';
+
+        el = {
+            search: document.getElementById('search-input'),
+            status: document.getElementById('status-filter'),
+            scope:  document.getElementById('scope-filter'),
+            clear:  document.getElementById('btn-clear-filters'),
+            tbody:  document.getElementById('requests-tbody'),
+            total:  document.getElementById('total-count'),
+            pagInfo: document.getElementById('pagination-info'),
+            pagList: document.getElementById('pagination-list'),
+            pagContainer: document.getElementById('pagination-container'),
+        };
+
+        window.goToRequest = goToRequest;
+
         // Restore state if coming back from a request detail
         if (document.referrer.includes('/help-desk/inventory/retirement-requests/')) {
             const saved = HelpdeskUtils.NavState.load('retirement_requests');
@@ -194,9 +204,14 @@
         loadRequests();
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    function destroy() {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+        if (typeof window.goToRequest !== 'undefined') {
+            window.goToRequest = undefined;
+        }
+    }
 
-    // Expose goToRequest for use in onclick handlers
-    window.goToRequest = goToRequest;
+    window.HelpdeskPage.page('inventory_retirement_retirement_requests_list', { init, destroy });
 
 })();

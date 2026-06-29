@@ -31,56 +31,18 @@
         4: 'helpdesk.retirement.sign.comp_center',
     };
 
+    let REQUEST_ID = null;
+    let CAN_APPROVE = false;
+    let CURRENT_USER_PERMS = [];
+
     let requestData = null;
     let pendingAddItemId = null;
+    let searchTimer = null;
 
-    const el = {
-        folioDisplay:       document.getElementById('folio-display'),
-        statusBadge:        document.getElementById('status-badge'),
-        headerMeta:         document.getElementById('header-meta'),
-        actionButtons:      document.getElementById('action-buttons'),
-        detailReqBy:        document.getElementById('detail-requested-by'),
-        detailCreatedAt:    document.getElementById('detail-created-at'),
-        detailReason:       document.getElementById('detail-reason'),
-        reviewedByRow:      document.getElementById('reviewed-by-row'),
-        reviewedAtRow:      document.getElementById('reviewed-at-row'),
-        reviewNotesRow:     document.getElementById('review-notes-row'),
-        detailReviewedBy:   document.getElementById('detail-reviewed-by'),
-        detailReviewedAt:   document.getElementById('detail-reviewed-at'),
-        detailRevNotes:     document.getElementById('detail-review-notes'),
-        itemsTbody:         document.getElementById('items-tbody'),
-        itemsCountBadge:    document.getElementById('items-count-badge'),
-        btnAddItem:         document.getElementById('btn-add-item'),
-        addItemSearch:      document.getElementById('add-item-search'),
-        addItemResults:     document.getElementById('add-item-results'),
-        addItemNotes:       document.getElementById('add-item-notes'),
-        addItemSelected:    document.getElementById('add-item-selected'),
-        addItemSelLabel:    document.getElementById('add-item-selected-label'),
-        btnConfirmAdd:      document.getElementById('btn-confirm-add-item'),
-        colActions:         document.getElementById('col-actions'),
-        reviewPanel:        document.getElementById('review-panel'),
-        reviewNotes:        document.getElementById('review-notes-input'),
-        btnApprove:         document.getElementById('btn-approve'),
-        btnReject:          document.getElementById('btn-reject'),
-        statusTimeline:     document.getElementById('status-timeline'),
-        docName:            document.getElementById('doc-name'),
-        btnAttachDoc:       document.getElementById('btn-attach-doc'),
-        docFileInput:       document.getElementById('doc-file-input'),
-        btnUploadDoc:       document.getElementById('btn-upload-doc'),
-        btnDownloadDoc:     document.getElementById('btn-download-doc'),
-        confirmModal:       document.getElementById('confirm-modal'),
-        confirmTitle:       document.getElementById('confirm-modal-title'),
-        confirmBody:        document.getElementById('confirm-modal-body'),
-        confirmOk:          document.getElementById('confirm-modal-ok'),
-        // Firma multi-paso
-        signingPanel:       document.getElementById('signing-panel'),
-        signingRoleTitle:   document.getElementById('signing-role-title'),
-        signingNotes:       document.getElementById('signing-notes'),
-        btnApproveSign:     document.getElementById('btn-approve-sign'),
-        btnRejectSign:      document.getElementById('btn-reject-sign'),
-        signaturesTimeline: document.getElementById('signatures-timeline'),
-        signaturesBody:     document.getElementById('signatures-timeline-body'),
-    };
+    let el = {};
+
+    // Click-outside handler stored for cleanup
+    let _docClickHandler = null;
 
     function fmtDate(iso) {
         if (!iso) return '—';
@@ -111,7 +73,7 @@
             renderRequest(requestData);
             await loadSignatures();
         } catch (err) {
-            el.headerMeta.textContent = 'Error: ' + err.message;
+            if (el.headerMeta) el.headerMeta.textContent = 'Error: ' + err.message;
         }
     }
 
@@ -407,7 +369,7 @@
 
         // Verificar si el usuario tiene el permiso correspondiente a este step
         const requiredPerm = SIGN_PERM_BY_STEP[pendingStep.step];
-        const userPerms = (typeof CURRENT_USER_PERMS !== 'undefined') ? CURRENT_USER_PERMS : [];
+        const userPerms = CURRENT_USER_PERMS;
         const canSign = requiredPerm && userPerms.includes(requiredPerm);
 
         if (canSign) {
@@ -446,51 +408,7 @@
         }
     }
 
-    // Vincular botones de firma
-    if (el.btnApproveSign) {
-        el.btnApproveSign.addEventListener('click', () => {
-            confirmAction(
-                'Autorizar solicitud',
-                '¿Confirmas la autorización de esta solicitud de baja?',
-                () => { closeConfirmModal(); signRequest('APPROVED'); }
-            );
-        });
-    }
-
-    if (el.btnRejectSign) {
-        el.btnRejectSign.addEventListener('click', () => {
-            const notes = el.signingNotes ? el.signingNotes.value.trim() : '';
-            if (!notes) {
-                showToast('Debes indicar el motivo del rechazo en el campo de observaciones', 'warning');
-                if (el.signingNotes) el.signingNotes.focus();
-                return;
-            }
-            confirmAction(
-                'Rechazar solicitud',
-                '¿Confirmas el rechazo de esta solicitud de baja?',
-                () => { closeConfirmModal(); signRequest('REJECTED'); }
-            );
-        });
-    }
-
     // ── Agregar equipo (DRAFT) ────────────────────────────────────────────────
-    let searchTimer = null;
-    if (el.addItemSearch) {
-        el.addItemSearch.addEventListener('input', () => {
-            clearTimeout(searchTimer);
-            const q = el.addItemSearch.value.trim();
-            if (!q) { el.addItemResults.style.display = 'none'; return; }
-            searchTimer = setTimeout(() => searchForAdd(q), 300);
-        });
-    }
-
-    document.addEventListener('click', e => {
-        if (el.addItemSearch && !el.addItemSearch.contains(e.target) &&
-            el.addItemResults && !el.addItemResults.contains(e.target)) {
-            if (el.addItemResults) el.addItemResults.style.display = 'none';
-        }
-    });
-
     async function searchForAdd(q) {
         if (!el.addItemResults) return;
         try {
@@ -523,46 +441,6 @@
         } catch (_) { /* ignorar */ }
     }
 
-    if (el.btnConfirmAdd) {
-        el.btnConfirmAdd.addEventListener('click', async () => {
-            if (!pendingAddItemId) return;
-            try {
-                const _notes = el.addItemNotes ? el.addItemNotes.value || null : null;
-                const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                    },
-                    body: JSON.stringify({
-                        item_ids: [pendingAddItemId],
-                        notes_map: _notes ? { [pendingAddItemId]: _notes } : {}
-                    }),
-                });
-                if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
-                pendingAddItemId = null;
-                if (el.addItemSearch)   el.addItemSearch.value  = '';
-                if (el.addItemNotes)    el.addItemNotes.value   = '';
-                if (el.addItemSelected) el.addItemSelected.classList.add('d-none');
-                const panel = document.getElementById('add-item-panel');
-                if (panel && window.$ && $(panel).collapse) $(panel).collapse('hide');
-                loadRequest();
-            } catch (err) { showToast(err.message, 'error'); }
-        });
-    }
-
-    async function removeItem(retirementItemId) {
-        if (!await HelpdeskUtils.confirmDialog('Quitar equipo', '¿Quitar este equipo de la solicitud?')) return;
-        try {
-            const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items/${retirementItemId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            });
-            if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
-            loadRequest();
-        } catch (err) { showToast(err.message, 'error'); }
-    }
-
     // ── Acciones generales ────────────────────────────────────────────────────
     async function doAction(action, extra = {}) {
         try {
@@ -580,48 +458,16 @@
         } catch (err) { showToast(err.message, 'error'); }
     }
 
-    // Aprobar / Rechazar (panel admin — flujo original PENDING)
-    if (el.btnApprove) {
-        el.btnApprove.addEventListener('click', () => confirmAction(
-            'Aprobar solicitud',
-            '¿Aprobar esta solicitud? Los equipos incluidos serán dados de baja del inventario.',
-            () => doAction('approve', { notes: el.reviewNotes ? el.reviewNotes.value || null : null })
-        ));
-    }
-    if (el.btnReject) {
-        el.btnReject.addEventListener('click', () => confirmAction(
-            'Rechazar solicitud',
-            '¿Rechazar esta solicitud?',
-            () => doAction('reject', { notes: el.reviewNotes ? el.reviewNotes.value || null : null })
-        ));
-    }
-
-    // Descarga forzada de documento adjunto.
-    // Anchor con `download` + Content-Disposition: attachment.
-    // Evita preview inline (ad-blockers/extensions lo bloquean con ERR_BLOCKED_BY_CLIENT).
-    if (el.btnDownloadDoc) {
-        el.btnDownloadDoc.href = `${API_BASE}/retirement-requests/${REQUEST_ID}/document`;
-        el.btnDownloadDoc.setAttribute('download', '');
-        el.btnDownloadDoc.removeAttribute('target');
-    }
-
-    // Subir documento
-    if (el.btnUploadDoc) {
-        el.btnUploadDoc.addEventListener('click', async () => {
-            const file = el.docFileInput ? el.docFileInput.files[0] : null;
-            if (!file) { showToast('Selecciona un archivo primero', 'warning'); return; }
-            const fd = new FormData();
-            fd.append('file', file);
-            try {
-                const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/attach`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-                    body: fd,
-                });
-                if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
-                loadRequest();
-            } catch (err) { showToast(err.message, 'error'); }
-        });
+    async function removeItem(retirementItemId) {
+        if (!await HelpdeskUtils.confirmDialog('Quitar equipo', '¿Quitar este equipo de la solicitud?')) return;
+        try {
+            const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items/${retirementItemId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+            });
+            if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
+            loadRequest();
+        } catch (err) { showToast(err.message, 'error'); }
     }
 
     // ── Modal de confirmación ─────────────────────────────────────────────────
@@ -640,7 +486,202 @@
         }
     }
 
-    // ── Inicialización ────────────────────────────────────────────────────────
-    document.addEventListener('DOMContentLoaded', loadRequest);
+    // ── Init ──────────────────────────────────────────────────────────────────
+    function init() {
+        const root = document.querySelector('[data-hd-page]');
+        REQUEST_ID         = parseInt(root.dataset.requestId, 10);
+        CAN_APPROVE        = root.dataset.canApprove === 'true';
+        CURRENT_USER_PERMS = JSON.parse(root.dataset.currentUserPerms || '[]');
+
+        el = {
+            folioDisplay:       document.getElementById('folio-display'),
+            statusBadge:        document.getElementById('status-badge'),
+            headerMeta:         document.getElementById('header-meta'),
+            actionButtons:      document.getElementById('action-buttons'),
+            detailReqBy:        document.getElementById('detail-requested-by'),
+            detailCreatedAt:    document.getElementById('detail-created-at'),
+            detailReason:       document.getElementById('detail-reason'),
+            reviewedByRow:      document.getElementById('reviewed-by-row'),
+            reviewedAtRow:      document.getElementById('reviewed-at-row'),
+            reviewNotesRow:     document.getElementById('review-notes-row'),
+            detailReviewedBy:   document.getElementById('detail-reviewed-by'),
+            detailReviewedAt:   document.getElementById('detail-reviewed-at'),
+            detailRevNotes:     document.getElementById('detail-review-notes'),
+            itemsTbody:         document.getElementById('items-tbody'),
+            itemsCountBadge:    document.getElementById('items-count-badge'),
+            btnAddItem:         document.getElementById('btn-add-item'),
+            addItemSearch:      document.getElementById('add-item-search'),
+            addItemResults:     document.getElementById('add-item-results'),
+            addItemNotes:       document.getElementById('add-item-notes'),
+            addItemSelected:    document.getElementById('add-item-selected'),
+            addItemSelLabel:    document.getElementById('add-item-selected-label'),
+            btnConfirmAdd:      document.getElementById('btn-confirm-add-item'),
+            colActions:         document.getElementById('col-actions'),
+            reviewPanel:        document.getElementById('review-panel'),
+            reviewNotes:        document.getElementById('review-notes-input'),
+            btnApprove:         document.getElementById('btn-approve'),
+            btnReject:          document.getElementById('btn-reject'),
+            statusTimeline:     document.getElementById('status-timeline'),
+            docName:            document.getElementById('doc-name'),
+            btnAttachDoc:       document.getElementById('btn-attach-doc'),
+            docFileInput:       document.getElementById('doc-file-input'),
+            btnUploadDoc:       document.getElementById('btn-upload-doc'),
+            btnDownloadDoc:     document.getElementById('btn-download-doc'),
+            confirmModal:       document.getElementById('confirm-modal'),
+            confirmTitle:       document.getElementById('confirm-modal-title'),
+            confirmBody:        document.getElementById('confirm-modal-body'),
+            confirmOk:          document.getElementById('confirm-modal-ok'),
+            // Firma multi-paso
+            signingPanel:       document.getElementById('signing-panel'),
+            signingRoleTitle:   document.getElementById('signing-role-title'),
+            signingNotes:       document.getElementById('signing-notes'),
+            btnApproveSign:     document.getElementById('btn-approve-sign'),
+            btnRejectSign:      document.getElementById('btn-reject-sign'),
+            signaturesTimeline: document.getElementById('signatures-timeline'),
+            signaturesBody:     document.getElementById('signatures-timeline-body'),
+        };
+
+        // Botones de firma
+        if (el.btnApproveSign) {
+            el.btnApproveSign.addEventListener('click', () => {
+                confirmAction(
+                    'Autorizar solicitud',
+                    '¿Confirmas la autorización de esta solicitud de baja?',
+                    () => { closeConfirmModal(); signRequest('APPROVED'); }
+                );
+            });
+        }
+
+        if (el.btnRejectSign) {
+            el.btnRejectSign.addEventListener('click', () => {
+                const notes = el.signingNotes ? el.signingNotes.value.trim() : '';
+                if (!notes) {
+                    showToast('Debes indicar el motivo del rechazo en el campo de observaciones', 'warning');
+                    if (el.signingNotes) el.signingNotes.focus();
+                    return;
+                }
+                confirmAction(
+                    'Rechazar solicitud',
+                    '¿Confirmas el rechazo de esta solicitud de baja?',
+                    () => { closeConfirmModal(); signRequest('REJECTED'); }
+                );
+            });
+        }
+
+        // Búsqueda para agregar equipo (DRAFT)
+        if (el.addItemSearch) {
+            el.addItemSearch.addEventListener('input', () => {
+                clearTimeout(searchTimer);
+                const q = el.addItemSearch.value.trim();
+                if (!q) { if (el.addItemResults) el.addItemResults.style.display = 'none'; return; }
+                searchTimer = setTimeout(() => searchForAdd(q), 300);
+            });
+        }
+
+        _docClickHandler = (e) => {
+            if (el.addItemSearch && !el.addItemSearch.contains(e.target) &&
+                el.addItemResults && !el.addItemResults.contains(e.target)) {
+                if (el.addItemResults) el.addItemResults.style.display = 'none';
+            }
+        };
+        document.addEventListener('click', _docClickHandler);
+
+        // Confirmar agregar equipo
+        if (el.btnConfirmAdd) {
+            el.btnConfirmAdd.addEventListener('click', async () => {
+                if (!pendingAddItemId) return;
+                try {
+                    const _notes = el.addItemNotes ? el.addItemNotes.value || null : null;
+                    const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/items`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                        },
+                        body: JSON.stringify({
+                            item_ids: [pendingAddItemId],
+                            notes_map: _notes ? { [pendingAddItemId]: _notes } : {}
+                        }),
+                    });
+                    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
+                    pendingAddItemId = null;
+                    if (el.addItemSearch)   el.addItemSearch.value  = '';
+                    if (el.addItemNotes)    el.addItemNotes.value   = '';
+                    if (el.addItemSelected) el.addItemSelected.classList.add('d-none');
+                    const panel = document.getElementById('add-item-panel');
+                    if (panel && window.$ && $(panel).collapse) $(panel).collapse('hide');
+                    loadRequest();
+                } catch (err) { showToast(err.message, 'error'); }
+            });
+        }
+
+        // Aprobar / Rechazar (panel admin — flujo original PENDING)
+        if (el.btnApprove) {
+            el.btnApprove.addEventListener('click', () => confirmAction(
+                'Aprobar solicitud',
+                '¿Aprobar esta solicitud? Los equipos incluidos serán dados de baja del inventario.',
+                () => doAction('approve', { notes: el.reviewNotes ? el.reviewNotes.value || null : null })
+            ));
+        }
+        if (el.btnReject) {
+            el.btnReject.addEventListener('click', () => confirmAction(
+                'Rechazar solicitud',
+                '¿Rechazar esta solicitud?',
+                () => doAction('reject', { notes: el.reviewNotes ? el.reviewNotes.value || null : null })
+            ));
+        }
+
+        // Descarga forzada de documento adjunto
+        if (el.btnDownloadDoc) {
+            el.btnDownloadDoc.href = `${API_BASE}/retirement-requests/${REQUEST_ID}/document`;
+            el.btnDownloadDoc.setAttribute('download', '');
+            el.btnDownloadDoc.removeAttribute('target');
+        }
+
+        // Subir documento
+        if (el.btnUploadDoc) {
+            el.btnUploadDoc.addEventListener('click', async () => {
+                const file = el.docFileInput ? el.docFileInput.files[0] : null;
+                if (!file) { showToast('Selecciona un archivo primero', 'warning'); return; }
+                const fd = new FormData();
+                fd.append('file', file);
+                try {
+                    const res = await fetch(`${API_BASE}/retirement-requests/${REQUEST_ID}/attach`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                        body: fd,
+                    });
+                    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Error'); }
+                    loadRequest();
+                } catch (err) { showToast(err.message, 'error'); }
+            });
+        }
+
+        loadRequest();
+    }
+
+    // ── Destroy ───────────────────────────────────────────────────────────────
+    function destroy() {
+        clearTimeout(searchTimer);
+        searchTimer = null;
+
+        if (_docClickHandler) {
+            document.removeEventListener('click', _docClickHandler);
+            _docClickHandler = null;
+        }
+
+        // Dispose Bootstrap modal
+        if (el.confirmModal) {
+            try { $(el.confirmModal).modal('hide'); } catch (_) {}
+            try { $(el.confirmModal).modal('dispose'); } catch (_) {}
+        }
+
+        el = {};
+        requestData = null;
+        pendingAddItemId = null;
+        REQUEST_ID = null;
+    }
+
+    window.HelpdeskPage.page('inventory_retirement_retirement_request_detail', { init, destroy });
 
 })();

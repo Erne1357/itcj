@@ -124,10 +124,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const CAN_VIEW_ALL = {{ 'true' if can_view_all else 'false' }};
-    const CAN_APPROVE  = {{ 'true' if can_approve else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_requests_list.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_requests_list.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-can-view-all="{{ 'true' if can_view_all else 'false' }}" data-can-approve="{{ 'true' if can_approve else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}
