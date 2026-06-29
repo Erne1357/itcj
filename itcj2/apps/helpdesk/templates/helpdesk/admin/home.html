@@ -153,11 +153,4 @@
 <link href="{{ url_for('static', filename='helpdesk/css/admin/home.css') }}?v={{ sv('helpdesk', 'css/admin/home.css') }}" rel="stylesheet">
 {% endblock %}
 
-{% block extra_js %}
-<script>
-function generateTicketsReport() {
-    window.location.href = "{{ url_for('helpdesk_pages.admin_pages.stats') }}";
-}
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/home.js') }}?v={{ sv('helpdesk', 'js/admin/home.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}
