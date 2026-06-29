@@ -52,6 +52,10 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "inventory_retirement_retirement_requests_list": ["js/inventory/retirement/retirement_requests_list.js"],
     "inventory_retirement_retirement_request_create": ["js/inventory/retirement/retirement_request_create.js"],
     "inventory_retirement_retirement_request_detail": ["js/inventory/retirement/retirement_request_detail.js"],
+    "inventory_items_items_list": ["js/inventory/items/items_list.js"],
+    "inventory_items_item_create": ["js/inventory/items/item_create.js"],
+    "inventory_items_item_detail": ["js/inventory/items/item_detail.js"],
+    "inventory_items_pending_items": ["js/inventory/items/pending_items.js"],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
@@ -69,6 +73,9 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.warehouse_pages.reports": "warehouse_reports",
     "helpdesk_pages.inventory_pages.campaigns_list": "inventory_campaigns_campaigns_list",
     "helpdesk_pages.inventory_pages.retirement_requests_list": "inventory_retirement_retirement_requests_list",
+    "helpdesk_pages.inventory_pages.items_list": "inventory_items_items_list",
+    "helpdesk_pages.inventory_pages.item_create": "inventory_items_item_create",
+    "helpdesk_pages.inventory_pages.pending_items": "inventory_items_pending_items",
 }
 
 

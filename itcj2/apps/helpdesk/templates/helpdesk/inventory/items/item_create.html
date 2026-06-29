@@ -995,9 +995,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const BULK_MODE = {{ 'true' if bulk_mode else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/item_create.js') }}?v={{ sv('helpdesk', 'js/inventory/items/item_create.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-bulk-mode="{{ 'true' if bulk_mode else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

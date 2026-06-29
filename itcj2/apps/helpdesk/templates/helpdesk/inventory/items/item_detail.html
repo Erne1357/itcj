@@ -505,44 +505,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    // Pasar el item_id y permisos desde Flask a JavaScript
-    const ITEM_ID = {{ item_id }};
-    const CAN_EDIT = {{ 'true' if can_edit else 'false' }};
-    const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
-</script>
-<script>
-// Sistema de navegación inteligente
-document.addEventListener('DOMContentLoaded', function() {
-    const backButton = document.getElementById('backButton');
-    const backButtonText = document.getElementById('backButtonText');
-    const backButtonContainer = document.getElementById('backButtonContainer');
-    const referrer = document.referrer;
-    
-    // Solo mostrar botón si viene de dentro de la aplicación
-    if (referrer && referrer.includes('/help-desk/')) {
-        let backUrl = referrer;
-        let backText = 'Volver';
-        
-        // Detectar origen específico
-        if (referrer.includes('/help-desk/user/tickets/')) {
-            backText = 'Volver al Ticket';
-        } else if (referrer.includes('/help-desk/secretary/dashboard')) {
-            backText = 'Volver al Dashboard';
-        } else if (referrer.includes('/help-desk/inventory/items') && !referrer.includes('/items/')) {
-            backText = 'Volver a Inventario';
-        } else if (referrer.includes('/help-desk/admin')) {
-            backText = 'Volver a Admin';
-        } else if (referrer.includes('/help-desk/department')) {
-            backText = 'Volver a Departamento';
-        }
-        
-        backButton.href = backUrl;
-        backButtonText.textContent = backText;
-        backButtonContainer.style.display = 'block';
-    }
-});
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/item_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/items/item_detail.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-item-id="{{ item_id }}" data-can-edit="{{ 'true' if can_edit else 'false' }}" data-is-admin="{{ 'true' if is_admin else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

@@ -3,241 +3,316 @@
  * Filtros, búsqueda, paginación y acciones
  */
 
-let currentPage = 1;
-let totalPages = 1;
-let totalItems = 0;
-let perPage = 20;
-let currentFilters = {};
-let allCategories = [];
-let allDepartments = [];
-let pendingScrollRestore = 0;
+(function () {
+    'use strict';
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Restore state if coming back from an item detail page
-    if (/\/help-desk\/inventory\/items\/\d+/.test(document.referrer)) {
-        const saved = HelpdeskUtils.NavState.load('inventory_items');
-        if (saved) {
-            document.getElementById('search-input').value = saved.search || '';
-            document.getElementById('category-filter').value = saved.category_id || '';
-            document.getElementById('status-filter').value = saved.status || '';
-            document.getElementById('assigned-filter').value = saved.assigned || '';
-            const deptEl = document.getElementById('department-filter');
-            if (deptEl) deptEl.value = saved.department_id || '';
-            currentFilters = saved.filters || {};
-            currentPage = saved.page || 1;
-            pendingScrollRestore = saved.scrollY || 0;
+    // ==================== ESTADO DEL MÓDULO ====================
+    let currentPage = 1;
+    let totalPages = 1;
+    let totalItems = 0;
+    let perPage = 20;
+    let currentFilters = {};
+    let allCategories = [];
+    let allDepartments = [];
+    let pendingScrollRestore = 0;
+
+    // Handlers para destruir
+    let _searchHandler = null;
+    let _categoryHandler = null;
+    let _statusHandler = null;
+    let _assignedHandler = null;
+    let _deptHandler = null;
+    let _docClickHandler = null;
+
+    // ==================== INIT / DESTROY ====================
+    function init() {
+        const root = document.querySelector('[data-hd-page]');
+        // No hay data-* necesarios para esta página (usa HelpdeskUtils.NavState)
+
+        // Restore state if coming back from an item detail page
+        if (/\/help-desk\/inventory\/items\/\d+/.test(document.referrer)) {
+            const saved = HelpdeskUtils.NavState.load('inventory_items');
+            if (saved) {
+                document.getElementById('search-input').value = saved.search || '';
+                document.getElementById('category-filter').value = saved.category_id || '';
+                document.getElementById('status-filter').value = saved.status || '';
+                document.getElementById('assigned-filter').value = saved.assigned || '';
+                const deptEl = document.getElementById('department-filter');
+                if (deptEl) deptEl.value = saved.department_id || '';
+                currentFilters = saved.filters || {};
+                currentPage = saved.page || 1;
+                pendingScrollRestore = saved.scrollY || 0;
+            }
         }
-    }
 
-    initializeFilters();
-    loadCategories();
-    loadDepartments();
-    loadItems(currentPage);
-    
-    // Event listeners
-    document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 500));
-    document.getElementById('category-filter').addEventListener('change', applyFilters);
-    document.getElementById('status-filter').addEventListener('change', applyFilters);
-    document.getElementById('assigned-filter').addEventListener('change', applyFilters);
-    
-    const deptFilter = document.getElementById('department-filter');
-    if (deptFilter) {
-        deptFilter.addEventListener('change', applyFilters);
-    }
+        initializeFilters();
+        loadCategories();
+        loadDepartments();
+        loadItems(currentPage);
 
-    // Select all checkbox
-    document.getElementById('select-all').addEventListener('change', function(e) {
-        const checkboxes = document.querySelectorAll('#items-table tbody input[type="checkbox"]');
-        checkboxes.forEach(cb => cb.checked = e.target.checked);
-        updateBulkBar();
-    });
+        // Event listeners — guardar referencias para destroy
+        _searchHandler = debounce(applyFilters, 500);
+        _categoryHandler = applyFilters;
+        _statusHandler = applyFilters;
+        _assignedHandler = applyFilters;
 
-    // Bulk transfer button
-    const btnBulkTransfer = document.getElementById('btn-bulk-transfer');
-    if (btnBulkTransfer) btnBulkTransfer.addEventListener('click', openBulkTransferModal);
-    const btnBulkDeselect = document.getElementById('btn-bulk-deselect');
-    if (btnBulkDeselect) btnBulkDeselect.addEventListener('click', () => {
-        document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
-        updateBulkBar();
-    });
-    const btnConfirmBulkTransfer = document.getElementById('btn-confirm-bulk-transfer');
-    if (btnConfirmBulkTransfer) btnConfirmBulkTransfer.addEventListener('click', executeBulkTransfer);
+        document.getElementById('search-input').addEventListener('input', _searchHandler);
+        document.getElementById('category-filter').addEventListener('change', _categoryHandler);
+        document.getElementById('status-filter').addEventListener('change', _statusHandler);
+        document.getElementById('assigned-filter').addEventListener('change', _assignedHandler);
 
-    const btnBulkBaja = document.getElementById('btn-bulk-baja');
-    if (btnBulkBaja) btnBulkBaja.addEventListener('click', () => {
-        const ids = getSelectedItemIds();
-        if (!ids.length) return;
-        window.location.href = `/help-desk/inventory/retirement-requests/create?item_ids=${ids.join(',')}`;
-    });
+        const deptFilter = document.getElementById('department-filter');
+        if (deptFilter) {
+            _deptHandler = applyFilters;
+            deptFilter.addEventListener('change', _deptHandler);
+        }
 
-    const btnBulkLimbo = document.getElementById('btn-bulk-limbo');
-    if (btnBulkLimbo) btnBulkLimbo.addEventListener('click', executeBulkLimbo);
-
-    // Form submit - Cambiar estado
-    document.getElementById('change-status-form').addEventListener('submit', handleChangeStatus);
-
-    // Save state when navigating to an item detail
-    document.addEventListener('click', function(e) {
-        const link = e.target.closest('a[href]');
-        if (link && /^\/help-desk\/inventory\/items\/\d+$/.test(link.getAttribute('href'))) {
-            HelpdeskUtils.NavState.save('inventory_items', {
-                search: document.getElementById('search-input').value,
-                category_id: document.getElementById('category-filter').value,
-                status: document.getElementById('status-filter').value,
-                assigned: document.getElementById('assigned-filter').value,
-                department_id: document.getElementById('department-filter')?.value || '',
-                filters: currentFilters,
-                page: currentPage,
-                scrollY: window.scrollY,
+        // Select all checkbox
+        const selectAllCb = document.getElementById('select-all');
+        if (selectAllCb) {
+            selectAllCb.addEventListener('change', function (e) {
+                const checkboxes = document.querySelectorAll('#items-table tbody input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = e.target.checked);
+                updateBulkBar();
             });
         }
-    });
-});
 
-// ==================== CARGAR DATOS ====================
-async function loadItems(page = 1) {
-    showLoading();
-    currentPage = page;
+        // Bulk transfer button
+        const btnBulkTransfer = document.getElementById('btn-bulk-transfer');
+        if (btnBulkTransfer) btnBulkTransfer.addEventListener('click', openBulkTransferModal);
+        const btnBulkDeselect = document.getElementById('btn-bulk-deselect');
+        if (btnBulkDeselect) btnBulkDeselect.addEventListener('click', () => {
+            document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
+            updateBulkBar();
+        });
+        const btnConfirmBulkTransfer = document.getElementById('btn-confirm-bulk-transfer');
+        if (btnConfirmBulkTransfer) btnConfirmBulkTransfer.addEventListener('click', executeBulkTransfer);
 
-    try {
-        // Construir query params
-        const params = new URLSearchParams({
-            page: page,
-            per_page: perPage
+        const btnBulkBaja = document.getElementById('btn-bulk-baja');
+        if (btnBulkBaja) btnBulkBaja.addEventListener('click', () => {
+            const ids = getSelectedItemIds();
+            if (!ids.length) return;
+            window.location.href = `/help-desk/inventory/retirement-requests/create?item_ids=${ids.join(',')}`;
         });
 
-        if (currentFilters.search) params.append('search', currentFilters.search);
-        if (currentFilters.category_id) params.append('category_id', currentFilters.category_id);
-        if (currentFilters.status) params.append('status', currentFilters.status);
-        if (currentFilters.assigned) params.append('assigned', currentFilters.assigned);
-        if (currentFilters.department_id) params.append('department_id', currentFilters.department_id);
+        const btnBulkLimbo = document.getElementById('btn-bulk-limbo');
+        if (btnBulkLimbo) btnBulkLimbo.addEventListener('click', executeBulkLimbo);
 
-        const response = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        // Form submit - Cambiar estado
+        const changeStatusForm = document.getElementById('change-status-form');
+        if (changeStatusForm) changeStatusForm.addEventListener('submit', handleChangeStatus);
+
+        // Save state when navigating to an item detail
+        _docClickHandler = function (e) {
+            const link = e.target.closest('a[href]');
+            if (link && /^\/help-desk\/inventory\/items\/\d+$/.test(link.getAttribute('href'))) {
+                HelpdeskUtils.NavState.save('inventory_items', {
+                    search: document.getElementById('search-input').value,
+                    category_id: document.getElementById('category-filter').value,
+                    status: document.getElementById('status-filter').value,
+                    assigned: document.getElementById('assigned-filter').value,
+                    department_id: document.getElementById('department-filter')?.value || '',
+                    filters: currentFilters,
+                    page: currentPage,
+                    scrollY: window.scrollY,
+                });
             }
-        });
+        };
+        document.addEventListener('click', _docClickHandler);
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar inventario');
-        }
-
-        const result = await response.json();
-
-        totalItems = result.total;
-        totalPages = result.total_pages;
-
-        renderTable(result.data);
-        renderPagination();
-        updateStats();
-        hideLoading();
-
-        if (pendingScrollRestore > 0) {
-            const sy = pendingScrollRestore;
-            pendingScrollRestore = 0;
-            requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
-        }
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudo cargar el inventario: ${errorMessage}`);
-        hideLoading();
+        // Exponer funciones globales usadas por onclick
+        window.exportToExcel = exportToExcel;
+        window.clearFilters = clearFilters;
     }
-}
 
-async function loadCategories() {
-    try {
-        const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+    function destroy() {
+        // Remover event listeners
+        const searchEl = document.getElementById('search-input');
+        if (searchEl && _searchHandler) searchEl.removeEventListener('input', _searchHandler);
+
+        const catEl = document.getElementById('category-filter');
+        if (catEl && _categoryHandler) catEl.removeEventListener('change', _categoryHandler);
+
+        const statusEl = document.getElementById('status-filter');
+        if (statusEl && _statusHandler) statusEl.removeEventListener('change', _statusHandler);
+
+        const assignedEl = document.getElementById('assigned-filter');
+        if (assignedEl && _assignedHandler) assignedEl.removeEventListener('change', _assignedHandler);
+
+        const deptEl = document.getElementById('department-filter');
+        if (deptEl && _deptHandler) deptEl.removeEventListener('change', _deptHandler);
+
+        if (_docClickHandler) {
+            document.removeEventListener('click', _docClickHandler);
+            _docClickHandler = null;
+        }
+
+        // Dispose modals
+        try { $('#quickActionsModal').modal('dispose'); } catch (_) {}
+        try { $('#bulkTransferModal').modal('dispose'); } catch (_) {}
+        try { $('#changeStatusModal').modal('dispose'); } catch (_) {}
+
+        // Limpiar globals
+        delete window.exportToExcel;
+        delete window.clearFilters;
+
+        // Reset estado
+        currentPage = 1;
+        totalPages = 1;
+        totalItems = 0;
+        currentFilters = {};
+        allCategories = [];
+        allDepartments = [];
+        pendingScrollRestore = 0;
+        _searchHandler = null;
+        _categoryHandler = null;
+        _statusHandler = null;
+        _assignedHandler = null;
+        _deptHandler = null;
+    }
+
+    // ==================== CARGAR DATOS ====================
+    async function loadItems(page = 1) {
+        showLoading();
+        currentPage = page;
+
+        try {
+            const params = new URLSearchParams({
+                page: page,
+                per_page: perPage
+            });
+
+            if (currentFilters.search) params.append('search', currentFilters.search);
+            if (currentFilters.category_id) params.append('category_id', currentFilters.category_id);
+            if (currentFilters.status) params.append('status', currentFilters.status);
+            if (currentFilters.assigned) params.append('assigned', currentFilters.assigned);
+            if (currentFilters.department_id) params.append('department_id', currentFilters.department_id);
+
+            const response = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || 'Error al cargar inventario');
             }
-        });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
-        }
+            const result = await response.json();
 
-        const result = await response.json();
-        allCategories = result.data;
+            totalItems = result.total;
+            totalPages = result.total_pages;
 
-        const select = document.getElementById('category-filter');
-        select.innerHTML = '<option value="">Todas las categorías</option>';
+            renderTable(result.data);
+            renderPagination();
+            updateStats();
+            hideLoading();
 
-        allCategories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat.id;
-            option.textContent = cat.name;
-            select.appendChild(option);
-        });
-
-    } catch (error) {
-        console.error('Error cargando categorías:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
-    }
-}
-
-async function loadDepartments() {
-    const deptFilter = document.getElementById('department-filter');
-    if (!deptFilter) return; // No disponible para jefes de depto
-
-    try {
-        const response = await fetch('/api/core/v2/departments?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            if (pendingScrollRestore > 0) {
+                const sy = pendingScrollRestore;
+                pendingScrollRestore = 0;
+                requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
             }
-        });
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`No se pudo cargar el inventario: ${errorMessage}`);
+            hideLoading();
+        }
+    }
+
+    async function loadCategories() {
+        try {
+            const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
+            }
+
+            const result = await response.json();
+            allCategories = result.data;
+
+            const select = document.getElementById('category-filter');
+            select.innerHTML = '<option value="">Todas las categorías</option>';
+
+            allCategories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat.id;
+                option.textContent = cat.name;
+                select.appendChild(option);
+            });
+
+        } catch (error) {
+            console.error('Error cargando categorías:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`No se pudieron cargar las categorías: ${errorMessage}`);
+        }
+    }
+
+    async function loadDepartments() {
+        const deptFilter = document.getElementById('department-filter');
+        if (!deptFilter) return;
+
+        try {
+            const response = await fetch('/api/core/v2/departments?active=true', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
+            }
+
+            const result = await response.json();
+            allDepartments = result.data;
+
+            deptFilter.innerHTML = '<option value="">Todos los departamentos</option>';
+
+            allDepartments.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept.id;
+                option.textContent = dept.name;
+                deptFilter.appendChild(option);
+            });
+
+        } catch (error) {
+            console.error('Error cargando departamentos:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
+        }
+    }
+
+    // ==================== RENDERIZADO ====================
+    function renderTable(items) {
+        const tbody = document.querySelector('#items-table tbody');
+
+        if (items.length === 0) {
+            document.getElementById('table-container').style.display = 'none';
+            document.getElementById('empty-state').style.display = 'block';
+            return;
         }
 
-        const result = await response.json();
-        allDepartments = result.data;
+        document.getElementById('table-container').style.display = 'block';
+        document.getElementById('empty-state').style.display = 'none';
 
-        deptFilter.innerHTML = '<option value="">Todos los departamentos</option>';
+        const selectAllCb = document.getElementById('select-all');
+        if (selectAllCb) selectAllCb.checked = false;
 
-        allDepartments.forEach(dept => {
-            const option = document.createElement('option');
-            option.value = dept.id;
-            option.textContent = dept.name;
-            deptFilter.appendChild(option);
-        });
+        const tbodyHtml = items.map(item => {
+            const statusBadge = getStatusBadge(item.status);
+            const warrantyIndicator = getWarrantyIndicator(item);
+            const categoryIcon = getCategoryIcon(item.category?.icon);
 
-    } catch (error) {
-        console.error('Error cargando departamentos:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
-    }
-}
-
-// ==================== RENDERIZADO ====================
-function renderTable(items) {
-    const tbody = document.querySelector('#items-table tbody');
-    
-    if (items.length === 0) {
-        document.getElementById('table-container').style.display = 'none';
-        document.getElementById('empty-state').style.display = 'block';
-        return;
-    }
-
-    document.getElementById('table-container').style.display = 'block';
-    document.getElementById('empty-state').style.display = 'none';
-
-    // Reset select-all and bulk bar after render
-    const selectAllCb = document.getElementById('select-all');
-    if (selectAllCb) selectAllCb.checked = false;
-
-    const tbodyHtml = items.map(item => {
-        const statusBadge = getStatusBadge(item.status);
-        const warrantyIndicator = getWarrantyIndicator(item);
-        const categoryIcon = getCategoryIcon(item.category?.icon);
-
-        return `
+            return `
             <tr>
                 <td>
                     <input type="checkbox" class="item-checkbox" data-item-id="${item.id}"
@@ -280,13 +355,13 @@ function renderTable(items) {
                 </td>
                 <td class="text-center table-actions">
                     <div class="btn-group btn-group-sm">
-                        <a href="/help-desk/inventory/items/${item.id}" 
-                           class="btn btn-sm btn-outline-primary" 
+                        <a href="/help-desk/inventory/items/${item.id}"
+                           class="btn btn-sm btn-outline-primary"
                            title="Ver detalle">
                             <i class="fas fa-eye"></i>
                         </a>
-                        <button class="btn btn-sm btn-outline-secondary" 
-                                onclick="showQuickActions(${item.id})" 
+                        <button class="btn btn-sm btn-outline-secondary"
+                                onclick="showQuickActions(${item.id})"
                                 title="Acciones">
                             <i class="fas fa-ellipsis-v"></i>
                         </button>
@@ -294,23 +369,22 @@ function renderTable(items) {
                 </td>
             </tr>
         `;
-    }).join('');
-    tbody.innerHTML = tbodyHtml;
-    updateBulkBar();
-}
-
-function renderPagination() {
-    const container = document.getElementById('pagination-container');
-    
-    if (totalPages <= 1) {
-        container.innerHTML = '';
-        return;
+        }).join('');
+        tbody.innerHTML = tbodyHtml;
+        updateBulkBar();
     }
 
-    let html = '';
+    function renderPagination() {
+        const container = document.getElementById('pagination-container');
 
-    // Previous
-    html += `
+        if (totalPages <= 1) {
+            container.innerHTML = '';
+            return;
+        }
+
+        let html = '';
+
+        html += `
         <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="loadItems(${currentPage - 1}); return false;">
                 <i class="fas fa-chevron-left"></i>
@@ -318,35 +392,33 @@ function renderPagination() {
         </li>
     `;
 
-    // Pages
-    const maxVisible = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        const maxVisible = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
 
-    if (endPage - startPage < maxVisible - 1) {
-        startPage = Math.max(1, endPage - maxVisible + 1);
-    }
+        if (endPage - startPage < maxVisible - 1) {
+            startPage = Math.max(1, endPage - maxVisible + 1);
+        }
 
-    if (startPage > 1) {
-        html += `<li class="page-item"><a class="page-link" href="#" onclick="loadItems(1); return false;">1</a></li>`;
-        if (startPage > 2) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-    }
+        if (startPage > 1) {
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="loadItems(1); return false;">1</a></li>`;
+            if (startPage > 2) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+        }
 
-    for (let i = startPage; i <= endPage; i++) {
-        html += `
+        for (let i = startPage; i <= endPage; i++) {
+            html += `
             <li class="page-item ${i === currentPage ? 'active' : ''}">
                 <a class="page-link" href="#" onclick="loadItems(${i}); return false;">${i}</a>
             </li>
         `;
-    }
+        }
 
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-        html += `<li class="page-item"><a class="page-link" href="#" onclick="loadItems(${totalPages}); return false;">${totalPages}</a></li>`;
-    }
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="loadItems(${totalPages}); return false;">${totalPages}</a></li>`;
+        }
 
-    // Next
-    html += `
+        html += `
         <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="loadItems(${currentPage + 1}); return false;">
                 <i class="fas fa-chevron-right"></i>
@@ -354,136 +426,111 @@ function renderPagination() {
         </li>
     `;
 
-    container.innerHTML = html;
-}
-
-function updateStats() {
-    const from = totalItems === 0 ? 0 : (currentPage - 1) * perPage + 1;
-    const to = Math.min(currentPage * perPage, totalItems);
-
-    document.getElementById('showing-from').textContent = from;
-    document.getElementById('showing-to').textContent = to;
-    document.getElementById('showing-total').textContent = totalItems;
-
-    document.getElementById('total-items-text').textContent = 
-        `${totalItems} equipo${totalItems !== 1 ? 's' : ''} en total`;
-}
-
-// ==================== FILTROS ====================
-function initializeFilters() {
-    currentFilters = {};
-}
-
-function applyFilters() {
-    currentFilters = {
-        search: document.getElementById('search-input').value.trim() || null,
-        category_id: document.getElementById('category-filter').value || null,
-        status: document.getElementById('status-filter').value || null,
-        assigned: document.getElementById('assigned-filter').value || null
-    };
-
-    const deptFilter = document.getElementById('department-filter');
-    if (deptFilter) {
-        currentFilters.department_id = deptFilter.value || null;
+        container.innerHTML = html;
     }
 
-    renderActiveFilters();
-    loadItems(1); // Reset a página 1
-}
+    function updateStats() {
+        const from = totalItems === 0 ? 0 : (currentPage - 1) * perPage + 1;
+        const to = Math.min(currentPage * perPage, totalItems);
 
-function renderActiveFilters() {
-    const container = document.getElementById('active-filters');
-    const filters = [];
+        document.getElementById('showing-from').textContent = from;
+        document.getElementById('showing-to').textContent = to;
+        document.getElementById('showing-total').textContent = totalItems;
 
-    if (currentFilters.search) {
-        filters.push({
-            label: `Búsqueda: "${currentFilters.search}"`,
-            key: 'search'
-        });
+        document.getElementById('total-items-text').textContent =
+            `${totalItems} equipo${totalItems !== 1 ? 's' : ''} en total`;
     }
 
-    if (currentFilters.category_id) {
-        const cat = allCategories.find(c => c.id == currentFilters.category_id);
-        if (cat) {
-            filters.push({
-                label: `Categoría: ${cat.name}`,
-                key: 'category_id'
-            });
-        }
+    // ==================== FILTROS ====================
+    function initializeFilters() {
+        currentFilters = {};
     }
 
-    if (currentFilters.status) {
-        const statusLabels = {
-            'ACTIVE': 'Activo',
-            'MAINTENANCE': 'Mantenimiento',
-            'DAMAGED': 'Dañado',
-            'LOST': 'Extraviado'
+    function applyFilters() {
+        currentFilters = {
+            search: document.getElementById('search-input').value.trim() || null,
+            category_id: document.getElementById('category-filter').value || null,
+            status: document.getElementById('status-filter').value || null,
+            assigned: document.getElementById('assigned-filter').value || null
         };
-        filters.push({
-            label: `Estado: ${statusLabels[currentFilters.status]}`,
-            key: 'status'
-        });
-    }
 
-    if (currentFilters.assigned) {
-        const assignedLabels = {
-            'yes': 'Asignados',
-            'no': 'Globales'
-        };
-        filters.push({
-            label: `Asignación: ${assignedLabels[currentFilters.assigned]}`,
-            key: 'assigned'
-        });
-    }
-
-    if (currentFilters.department_id) {
-        const dept = allDepartments.find(d => d.id == currentFilters.department_id);
-        if (dept) {
-            filters.push({
-                label: `Departamento: ${dept.name}`,
-                key: 'department_id'
-            });
+        const deptFilter = document.getElementById('department-filter');
+        if (deptFilter) {
+            currentFilters.department_id = deptFilter.value || null;
         }
+
+        renderActiveFilters();
+        loadItems(1);
     }
 
-    container.innerHTML = filters.map(filter => `
+    function renderActiveFilters() {
+        const container = document.getElementById('active-filters');
+        const filters = [];
+
+        if (currentFilters.search) {
+            filters.push({ label: `Búsqueda: "${currentFilters.search}"`, key: 'search' });
+        }
+
+        if (currentFilters.category_id) {
+            const cat = allCategories.find(c => c.id == currentFilters.category_id);
+            if (cat) filters.push({ label: `Categoría: ${cat.name}`, key: 'category_id' });
+        }
+
+        if (currentFilters.status) {
+            const statusLabels = {
+                'ACTIVE': 'Activo', 'MAINTENANCE': 'Mantenimiento',
+                'DAMAGED': 'Dañado', 'LOST': 'Extraviado'
+            };
+            filters.push({ label: `Estado: ${statusLabels[currentFilters.status]}`, key: 'status' });
+        }
+
+        if (currentFilters.assigned) {
+            const assignedLabels = { 'yes': 'Asignados', 'no': 'Globales' };
+            filters.push({ label: `Asignación: ${assignedLabels[currentFilters.assigned]}`, key: 'assigned' });
+        }
+
+        if (currentFilters.department_id) {
+            const dept = allDepartments.find(d => d.id == currentFilters.department_id);
+            if (dept) filters.push({ label: `Departamento: ${dept.name}`, key: 'department_id' });
+        }
+
+        container.innerHTML = filters.map(filter => `
         <span class="filter-chip">
             ${filter.label}
             <span class="close" onclick="removeFilter('${filter.key}')">&times;</span>
         </span>
     `).join('');
-}
-
-function removeFilter(key) {
-    currentFilters[key] = null;
-    
-    // Actualizar controles
-    if (key === 'search') document.getElementById('search-input').value = '';
-    if (key === 'category_id') document.getElementById('category-filter').value = '';
-    if (key === 'status') document.getElementById('status-filter').value = '';
-    if (key === 'assigned') document.getElementById('assigned-filter').value = '';
-    if (key === 'department_id' && document.getElementById('department-filter')) {
-        document.getElementById('department-filter').value = '';
     }
 
-    renderActiveFilters();
-    loadItems(1);
-}
+    function removeFilter(key) {
+        currentFilters[key] = null;
 
-function clearFilters() {
-    document.getElementById('filters-form').reset();
-    initializeFilters();
-    renderActiveFilters();
-    HelpdeskUtils.NavState.clear('inventory_items');
-    loadItems(1);
-}
+        if (key === 'search') document.getElementById('search-input').value = '';
+        if (key === 'category_id') document.getElementById('category-filter').value = '';
+        if (key === 'status') document.getElementById('status-filter').value = '';
+        if (key === 'assigned') document.getElementById('assigned-filter').value = '';
+        if (key === 'department_id' && document.getElementById('department-filter')) {
+            document.getElementById('department-filter').value = '';
+        }
 
-// ==================== ACCIONES ====================
-function showQuickActions(itemId) {
-    const modal = $('#quickActionsModal');
-    const body = document.getElementById('quick-actions-body');
+        renderActiveFilters();
+        loadItems(1);
+    }
 
-    body.innerHTML = `
+    function clearFilters() {
+        document.getElementById('filters-form').reset();
+        initializeFilters();
+        renderActiveFilters();
+        HelpdeskUtils.NavState.clear('inventory_items');
+        loadItems(1);
+    }
+
+    // ==================== ACCIONES ====================
+    function showQuickActions(itemId) {
+        const modal = $('#quickActionsModal');
+        const body = document.getElementById('quick-actions-body');
+
+        body.innerHTML = `
         <div class="list-group">
             <a href="/help-desk/inventory/items/${itemId}" class="list-group-item list-group-item-action">
                 <i class="fas fa-eye text-primary mr-2"></i> Ver Detalle
@@ -505,277 +552,288 @@ function showQuickActions(itemId) {
         </div>
     `;
 
-    modal.modal('show');
-}
-
-function openChangeStatus(itemId) {
-    $('#quickActionsModal').modal('hide');
-    document.getElementById('change-status-item-id').value = itemId;
-    $('#changeStatusModal').modal('show');
-}
-
-async function handleChangeStatus(e) {
-    e.preventDefault();
-
-    const itemId = document.getElementById('change-status-item-id').value;
-    const newStatus = document.getElementById('new-status').value;
-    const notes = document.getElementById('status-notes').value;
-
-    if (!newStatus) {
-        showToast('Debes seleccionar un estado', 'error');
-        return;
+        modal.modal('show');
     }
 
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/items/${itemId}/status`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ status: newStatus, notes })
-        });
+    function openChangeStatus(itemId) {
+        $('#quickActionsModal').modal('hide');
+        document.getElementById('change-status-item-id').value = itemId;
+        $('#changeStatusModal').modal('show');
+    }
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || error.message || 'Error al cambiar estado');
+    async function handleChangeStatus(e) {
+        e.preventDefault();
+
+        const itemId = document.getElementById('change-status-item-id').value;
+        const newStatus = document.getElementById('new-status').value;
+        const notes = document.getElementById('status-notes').value;
+
+        if (!newStatus) {
+            showToast('Debes seleccionar un estado', 'error');
+            return;
         }
 
-        $('#changeStatusModal').modal('hide');
-        showSuccess('Estado actualizado correctamente');
-        loadItems(currentPage); // Recargar
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/items/${itemId}/status`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ status: newStatus, notes })
+            });
 
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al cambiar estado: ${errorMessage}`);
-    }
-}
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || error.message || 'Error al cambiar estado');
+            }
 
-// ==================== EXPORTAR ====================
-function exportToExcel() {
-    showToast('Función de exportación en desarrollo', 'info');
-    // TODO: Implementar exportación a Excel
-}
+            $('#changeStatusModal').modal('hide');
+            showToast('Estado actualizado correctamente', 'success');
+            loadItems(currentPage);
 
-// ==================== HELPERS ====================
-function getStatusBadge(status) {
-    const badges = {
-        'ACTIVE': { color: 'success', text: 'Activo' },
-        'MAINTENANCE': { color: 'warning', text: 'Mantenimiento' },
-        'DAMAGED': { color: 'danger', text: 'Dañado' },
-        'RETIRED': { color: 'secondary', text: 'Retirado' },
-        'LOST': { color: 'dark', text: 'Extraviado' }
-    };
-    return badges[status] || { color: 'secondary', text: status };
-}
-
-function getWarrantyIndicator(item) {
-    if (!item.warranty_expiration) {
-        return { html: '<small class="text-muted">Sin info</small>' };
+        } catch (error) {
+            console.error('Error:', error);
+            const errorMessage = error.message || 'Error desconocido';
+            showError(`Error al cambiar estado: ${errorMessage}`);
+        }
     }
 
-    if (item.is_under_warranty) {
-        const days = item.warranty_days_remaining;
-        let className = 'active';
-        let text = `${days} días`;
+    // ==================== EXPORTAR ====================
+    function exportToExcel() {
+        showToast('Función de exportación en desarrollo', 'info');
+    }
 
-        if (days <= 30) {
-            className = 'expiring';
-            text = `⚠️ ${days} días`;
+    // ==================== HELPERS ====================
+    function getStatusBadge(status) {
+        const badges = {
+            'ACTIVE': { color: 'success', text: 'Activo' },
+            'MAINTENANCE': { color: 'warning', text: 'Mantenimiento' },
+            'DAMAGED': { color: 'danger', text: 'Dañado' },
+            'RETIRED': { color: 'secondary', text: 'Retirado' },
+            'LOST': { color: 'dark', text: 'Extraviado' }
+        };
+        return badges[status] || { color: 'secondary', text: status };
+    }
+
+    function getWarrantyIndicator(item) {
+        if (!item.warranty_expiration) {
+            return { html: '<small class="text-muted">Sin info</small>' };
         }
 
-        return {
-            html: `
+        if (item.is_under_warranty) {
+            const days = item.warranty_days_remaining;
+            let className = 'active';
+            let text = `${days} días`;
+
+            if (days <= 30) {
+                className = 'expiring';
+                text = `⚠️ ${days} días`;
+            }
+
+            return {
+                html: `
                 <span class="warranty-indicator ${className}"></span>
                 <small>${text}</small>
             `
-        };
-    } else {
-        return {
-            html: `
+            };
+        } else {
+            return {
+                html: `
                 <span class="warranty-indicator expired"></span>
                 <small class="text-danger">Vencida</small>
             `
+            };
+        }
+    }
+
+    function getCategoryIcon(icon) {
+        return icon || 'fas fa-box';
+    }
+
+    function buildSerialsCell(item) {
+        const parts = [];
+        if (item.supplier_serial) {
+            parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="Serial Proveedor: ${escapeHtml(item.supplier_serial)}"><span class="text-muted">Prov:</span> ${escapeHtml(item.supplier_serial)}</small>`);
+        }
+        if (item.itcj_serial) {
+            parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="Serial ITCJ: ${escapeHtml(item.itcj_serial)}"><span class="text-muted">ITCJ:</span> ${escapeHtml(item.itcj_serial)}</small>`);
+        }
+        if (item.id_tecnm) {
+            parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="ID TecNM: ${escapeHtml(item.id_tecnm)}"><span class="text-muted">TecNM:</span> ${escapeHtml(item.id_tecnm)}</small>`);
+        }
+        return parts.length ? parts.join('') : '<small class="text-muted">—</small>';
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        return String(text).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
+    }
+
+    function showLoading() {
+        document.getElementById('loading-container').style.display = 'block';
+        document.getElementById('table-container').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'none';
+    }
+
+    function hideLoading() {
+        document.getElementById('loading-container').style.display = 'none';
+    }
+
+    function showError(message) {
+        showToast(message, 'error');
+    }
+
+    function debounce(func, wait) {
+        let timeout;
+        return function (...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
         };
     }
-}
 
-function getCategoryIcon(icon) {
-    return icon || 'fas fa-box';
-}
-
-function buildSerialsCell(item) {
-    const parts = [];
-    if (item.supplier_serial) {
-        parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="Serial Proveedor: ${escapeHtml(item.supplier_serial)}"><span class="text-muted">Prov:</span> ${escapeHtml(item.supplier_serial)}</small>`);
+    // ==================== SELECCIÓN / ACCIONES MASIVAS ====================
+    function getSelectedItemIds() {
+        return Array.from(document.querySelectorAll('.item-checkbox:checked'))
+            .map(cb => parseInt(cb.dataset.itemId));
     }
-    if (item.itcj_serial) {
-        parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="Serial ITCJ: ${escapeHtml(item.itcj_serial)}"><span class="text-muted">ITCJ:</span> ${escapeHtml(item.itcj_serial)}</small>`);
+
+    function updateBulkBar() {
+        const ids = getSelectedItemIds();
+        const bar = document.getElementById('bulk-action-bar');
+        const countEl = document.getElementById('bulk-selected-count');
+        if (!bar) return;
+        if (ids.length > 0) {
+            bar.style.display = '';
+            if (countEl) countEl.textContent = ids.length;
+        } else {
+            bar.style.display = 'none';
+        }
     }
-    if (item.id_tecnm) {
-        parts.push(`<small class="d-block text-truncate" style="max-width:120px;" title="ID TecNM: ${escapeHtml(item.id_tecnm)}"><span class="text-muted">TecNM:</span> ${escapeHtml(item.id_tecnm)}</small>`);
-    }
-    return parts.length ? parts.join('') : '<small class="text-muted">—</small>';
-}
 
-function escapeHtml(text) {
-    if (!text) return '';
-    return String(text).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-}
+    function openBulkTransferModal() {
+        const ids = getSelectedItemIds();
+        if (!ids.length) return;
 
-function showLoading() {
-    document.getElementById('loading-container').style.display = 'block';
-    document.getElementById('table-container').style.display = 'none';
-    document.getElementById('empty-state').style.display = 'none';
-}
-
-function hideLoading() {
-    document.getElementById('loading-container').style.display = 'none';
-}
-
-function showSuccess(message) {
-    // Implementar con tu librería de notificaciones (toastr, sweetalert, etc.)
-    showToast(message, 'success');
-}
-
-function showError(message) {
-    showToast(message, 'error');
-}
-
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
-
-// ==================== SELECCIÓN / ACCIONES MASIVAS ====================
-function getSelectedItemIds() {
-    return Array.from(document.querySelectorAll('.item-checkbox:checked'))
-        .map(cb => parseInt(cb.dataset.itemId));
-}
-
-function updateBulkBar() {
-    const ids = getSelectedItemIds();
-    const bar = document.getElementById('bulk-action-bar');
-    const countEl = document.getElementById('bulk-selected-count');
-    if (!bar) return;
-    if (ids.length > 0) {
-        bar.style.display = '';
+        const countEl = document.getElementById('bulk-transfer-count');
         if (countEl) countEl.textContent = ids.length;
-    } else {
-        bar.style.display = 'none';
-    }
-}
 
-function openBulkTransferModal() {
-    const ids = getSelectedItemIds();
-    if (!ids.length) return;
+        const deptSelect = document.getElementById('bulk-transfer-dept');
+        if (deptSelect && allDepartments.length) {
+            deptSelect.innerHTML = '<option value="">Seleccionar...</option>';
+            allDepartments.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.name;
+                deptSelect.appendChild(opt);
+            });
+        }
 
-    const countEl = document.getElementById('bulk-transfer-count');
-    if (countEl) countEl.textContent = ids.length;
-
-    // Populate department select from already-loaded allDepartments
-    const deptSelect = document.getElementById('bulk-transfer-dept');
-    if (deptSelect && allDepartments.length) {
-        deptSelect.innerHTML = '<option value="">Seleccionar...</option>';
-        allDepartments.forEach(d => {
-            const opt = document.createElement('option');
-            opt.value = d.id;
-            opt.textContent = d.name;
-            deptSelect.appendChild(opt);
-        });
+        $('#bulkTransferModal').modal('show');
     }
 
-    $('#bulkTransferModal').modal('show');
-}
+    async function executeBulkTransfer() {
+        const ids = getSelectedItemIds();
+        const deptId = parseInt(document.getElementById('bulk-transfer-dept').value);
+        if (!deptId) { showToast('Selecciona un departamento destino', 'error'); return; }
 
-async function executeBulkTransfer() {
-    const ids = getSelectedItemIds();
-    const deptId = parseInt(document.getElementById('bulk-transfer-dept').value);
-    if (!deptId) { showToast('Selecciona un departamento destino', 'error'); return; }
+        const btn = document.getElementById('btn-confirm-bulk-transfer');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Transfiriendo...'; }
 
-    const btn = document.getElementById('btn-confirm-bulk-transfer');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Transfiriendo...'; }
+        try {
+            const res = await fetch('/api/help-desk/v2/inventory/items/bulk-transfer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                body: JSON.stringify({ item_ids: ids, target_department_id: deptId }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Error al transferir');
 
-    try {
-        const res = await fetch('/api/help-desk/v2/inventory/items/bulk-transfer', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ item_ids: ids, target_department_id: deptId }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Error al transferir');
+            $('#bulkTransferModal').modal('hide');
+            document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
+            updateBulkBar();
 
-        $('#bulkTransferModal').modal('hide');
-        document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
-        updateBulkBar();
+            const transferred = data.transferred_ids ? data.transferred_ids.length : 0;
+            const errors = data.errors ? data.errors.length : 0;
+            let msg = `${transferred} equipo(s) transferido(s) correctamente.`;
+            if (errors) msg += ` ${errors} con errores.`;
+            showToast(msg, transferred > 0 ? 'success' : 'error');
+            loadItems(currentPage);
 
-        const transferred = data.transferred_ids ? data.transferred_ids.length : 0;
-        const errors = data.errors ? data.errors.length : 0;
-        let msg = `${transferred} equipo(s) transferido(s) correctamente.`;
-        if (errors) msg += ` ${errors} con errores.`;
-        showToast(msg, transferred > 0 ? 'success' : 'error');
-        loadItems(currentPage);
-
-    } catch (err) {
-        showToast('Error: ' + err.message, 'error');
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-exchange-alt"></i> Transferir'; }
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-exchange-alt"></i> Transferir'; }
+        }
     }
-}
 
-async function executeBulkLimbo() {
-    const ids = getSelectedItemIds();
-    if (!ids.length) return;
-    if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', `¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
+    async function executeBulkLimbo() {
+        const ids = getSelectedItemIds();
+        if (!ids.length) return;
+        if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', `¿Enviar ${ids.length} equipo(s) al limbo? Quedarán sin departamento ni usuario asignado.`)) return;
 
-    const btn = document.getElementById('btn-bulk-limbo');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+        const btn = document.getElementById('btn-bulk-limbo');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
 
-    try {
-        const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ item_ids: ids }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
+        try {
+            const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                body: JSON.stringify({ item_ids: ids }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
 
-        document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
-        updateBulkBar();
+            document.querySelectorAll('.item-checkbox, #select-all').forEach(cb => cb.checked = false);
+            updateBulkBar();
 
-        const sent = data.sent_ids ? data.sent_ids.length : 0;
-        const errors = data.errors ? data.errors.length : 0;
-        let msg = `${sent} equipo(s) enviado(s) al limbo.`;
-        if (errors) msg += ` ${errors} con errores.`;
-        showToast(msg, sent > 0 ? 'success' : 'error');
-        loadItems(currentPage);
+            const sent = data.sent_ids ? data.sent_ids.length : 0;
+            const errors = data.errors ? data.errors.length : 0;
+            let msg = `${sent} equipo(s) enviado(s) al limbo.`;
+            if (errors) msg += ` ${errors} con errores.`;
+            showToast(msg, sent > 0 ? 'success' : 'error');
+            loadItems(currentPage);
 
-    } catch (err) {
-        showToast('Error: ' + err.message, 'error');
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-inbox"></i> Limbo'; }
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-inbox"></i> Limbo'; }
+        }
     }
-}
 
-async function sendSingleToLimbo(itemId) {
-    $('#quickActionsModal').modal('hide');
-    if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', '¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
+    async function sendSingleToLimbo(itemId) {
+        $('#quickActionsModal').modal('hide');
+        if (!await HelpdeskUtils.confirmDialog('Enviar al limbo', '¿Enviar este equipo al limbo? Quedará sin departamento ni usuario asignado.')) return;
 
-    try {
-        const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
-            body: JSON.stringify({ item_ids: [itemId] }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
-        showToast('Equipo enviado al limbo correctamente', 'success');
-        loadItems(currentPage);
-    } catch (err) {
-        showToast('Error: ' + err.message, 'error');
+        try {
+            const res = await fetch('/api/help-desk/v2/inventory/items/bulk-send-to-limbo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('access_token')}` },
+                body: JSON.stringify({ item_ids: [itemId] }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
+            showToast('Equipo enviado al limbo correctamente', 'success');
+            loadItems(currentPage);
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        }
     }
-}
+
+    // Registrar en el controller
+    window.HelpdeskPage.page('inventory_items_items_list', { init, destroy });
+
+    // Exponer funciones usadas en onclick de HTML generado dinámicamente
+    // (necesitan estar en scope global porque onclick="..." no ve scope IIFE)
+    window.showQuickActions = showQuickActions;
+    window.openChangeStatus = openChangeStatus;
+    window.updateBulkBar = updateBulkBar;
+    window.loadItems = loadItems;
+    window.removeFilter = removeFilter;
+    window.openAssignModal = function (itemId) {
+        // placeholder — si esta función existe globalmente desde otro módulo
+        // se delegará. Si no, no hace nada (quickActions ya ofrece acceso por link).
+    };
+    window.sendSingleToLimbo = sendSingleToLimbo;
+
+})();
