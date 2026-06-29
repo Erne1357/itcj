@@ -18,17 +18,7 @@
     let CAN_CREATE = false;
     let USER_DEPT_ID = null;
 
-    const el = {
-        folio:        document.getElementById('filter-folio'),
-        status:       document.getElementById('filter-status'),
-        department:   document.getElementById('filter-department'),
-        clear:        document.getElementById('btn-clear-filters'),
-        tbody:        document.getElementById('campaigns-tbody'),
-        total:        document.getElementById('total-count'),
-        pagInfo:      document.getElementById('pagination-info'),
-        pagList:      document.getElementById('pagination-list'),
-        pagContainer: document.getElementById('pagination-container'),
-    };
+    let el = {};
 
     function statusBadge(status) {
         const s = STATUS_LABELS[status] || { label: status, cls: 'bg-light text-dark' };
@@ -192,6 +182,18 @@
     }
 
     function init() {
+        el = {
+            folio:        document.getElementById('filter-folio'),
+            status:       document.getElementById('filter-status'),
+            department:   document.getElementById('filter-department'),
+            clear:        document.getElementById('btn-clear-filters'),
+            tbody:        document.getElementById('campaigns-tbody'),
+            total:        document.getElementById('total-count'),
+            pagInfo:      document.getElementById('pagination-info'),
+            pagList:      document.getElementById('pagination-list'),
+            pagContainer: document.getElementById('pagination-container'),
+        };
+
         const root = document.querySelector('[data-hd-page]');
         if (root) {
             CAN_VIEW_ALL = root.dataset.canViewAll === 'true';
@@ -199,6 +201,8 @@
             const rawDept = root.dataset.userDeptId;
             USER_DEPT_ID = rawDept ? parseInt(rawDept, 10) : null;
         }
+
+        window.goToCampaign = goToCampaign;
 
         initEvents();
         if (CAN_VIEW_ALL) loadDepartments();
@@ -213,9 +217,8 @@
             document.removeEventListener('click', paginationClickHandler);
             paginationClickHandler = null;
         }
+        window.goToCampaign = undefined;
     }
-
-    window.goToCampaign = goToCampaign;
 
     window.HelpdeskPage.page('inventory_campaigns_campaigns_list', { init: init, destroy: destroy });
 
