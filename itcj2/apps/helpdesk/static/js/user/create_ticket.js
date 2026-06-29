@@ -330,6 +330,11 @@
         // Destroy RequesterSelection (limpia searchTimeout + modal)
         RequesterSelection.destroy();
 
+        // Remover listener de descCharCount (acumula en cada revisita HTMX)
+        if (typeof FormValidation !== 'undefined' && FormValidation.destroy) {
+            FormValidation.destroy();
+        }
+
         // Remover listeners almacenados en PhotoUpload
         PhotoUpload.destroy();
 

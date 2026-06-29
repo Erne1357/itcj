@@ -28,7 +28,9 @@
     // Handles para cleanup de WebSocket
     let userSocketBound = false;
     let socketCheckInterval = null;
+    let socketSafetyTimeout = null;
     let searchDebounceTimeout = null;
+    let _active = false;
 
     // ==================== INITIALIZATION ====================
     function init() {
@@ -46,7 +48,9 @@
         ticketToCancel = null;
         userSocketBound = false;
         socketCheckInterval = null;
+        socketSafetyTimeout = null;
         searchDebounceTimeout = null;
+        _active = true;
 
         // Guardar la página actual para navegación inteligente
         sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
@@ -102,9 +106,14 @@
             socket.off('ticket_assigned');
             socket.off('ticket_comment_added');
         }
+        _active = false;
         if (socketCheckInterval) {
             clearInterval(socketCheckInterval);
             socketCheckInterval = null;
+        }
+        if (socketSafetyTimeout) {
+            clearTimeout(socketSafetyTimeout);
+            socketSafetyTimeout = null;
         }
         userSocketBound = false;
 
@@ -700,6 +709,11 @@
 
     function setupWebSocketListeners() {
         socketCheckInterval = setInterval(() => {
+            if (!_active) {
+                clearInterval(socketCheckInterval);
+                socketCheckInterval = null;
+                return;
+            }
             if (window.__helpdeskSocket) {
                 clearInterval(socketCheckInterval);
                 socketCheckInterval = null;
@@ -708,7 +722,8 @@
         }, 100);
 
         // Seguridad: no esperar más de 5s
-        setTimeout(() => {
+        socketSafetyTimeout = setTimeout(() => {
+            socketSafetyTimeout = null;
             if (socketCheckInterval) {
                 clearInterval(socketCheckInterval);
                 socketCheckInterval = null;
@@ -717,6 +732,7 @@
     }
 
     function bindUserSocketEvents() {
+        if (!_active) return;
         if (userSocketBound) return;
 
         const socket = window.__helpdeskSocket;
