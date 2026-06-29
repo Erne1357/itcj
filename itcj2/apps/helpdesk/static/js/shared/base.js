@@ -90,6 +90,22 @@ $(document).ready(function() {
     'use strict';
     if (window.HelpdeskPage) return;            // singleton
 
+    // --- Morph-safety: preservar widgets inyectados por JS en runtime ---
+    // El FAB de notificaciones (#notifFab-/#notifPanel-) se inserta en <body> en
+    // runtime y NO existe en el HTML del servidor. Con hx-swap="morph:innerHTML"
+    // sobre <body>, idiomorph difea contra la respuesta del server (sin FAB) y lo
+    // eliminaría en la 1ª navegación boosteada. Cancelamos su remoción.
+    // (En iframe el FAB se autosuprime, así que esto solo aplica standalone.)
+    if (window.Idiomorph && Idiomorph.defaults && Idiomorph.defaults.callbacks) {
+        var _hdPrevBeforeRemoved = Idiomorph.defaults.callbacks.beforeNodeRemoved;
+        Idiomorph.defaults.callbacks.beforeNodeRemoved = function (node) {
+            if (node && node.nodeType === 1 && node.id && /^notif(Fab|Panel)-/.test(node.id)) {
+                return false; // preservar: no remover el widget inyectado
+            }
+            if (typeof _hdPrevBeforeRemoved === 'function') return _hdPrevBeforeRemoved(node);
+        };
+    }
+
     var registry = {};
     var currentKey = null;
 

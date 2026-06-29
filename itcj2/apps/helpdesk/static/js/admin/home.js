@@ -1,4 +1,4 @@
-// itcj/apps/helpdesk/static/js/admin/home.js
+// itcj2/apps/helpdesk/static/js/admin/home.js
 (function () {
     'use strict';
 
