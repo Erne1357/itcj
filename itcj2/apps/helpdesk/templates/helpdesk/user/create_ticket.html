@@ -694,10 +694,4 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/user/create_ticket.js') }}?v={{ sv('helpdesk', 'js/user/create_ticket.js') }}"></script>
-<!-- Shepherd.js Library -->
-<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
-<!-- Tutorial Script -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ sv('helpdesk', 'js/user/ticket_tutorial.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

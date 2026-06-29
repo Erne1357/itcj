@@ -74,6 +74,16 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "technician_team": ["js/technician/dashboard.js"],
     "secretary_dashboard": ["js/secretary/dashboard.js"],
     "department_head_dashboard": ["js/department_head/dashboard.js"],
+    "user_my_tickets": [
+        "https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js",
+        "js/user/ticket_tutorial.js",
+        "js/user/my_tickets.js",
+    ],
+    "user_create_ticket": [
+        "https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js",
+        "js/user/ticket_tutorial.js",
+        "js/user/create_ticket.js",
+    ],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
@@ -105,6 +115,8 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.technician_pages.team": "technician_team",
     "helpdesk_pages.secretary_pages.dashboard": "secretary_dashboard",
     "helpdesk_pages.department_pages.tickets": "department_head_dashboard",
+    "helpdesk_pages.user_pages.my_tickets": "user_my_tickets",
+    "helpdesk_pages.user_pages.create_ticket": "user_create_ticket",
 }
 
 

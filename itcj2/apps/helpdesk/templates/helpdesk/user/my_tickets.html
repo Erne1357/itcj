@@ -334,11 +334,4 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-<!-- Shepherd.js Library (cargar primero) -->
-<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
-<!-- Tutorial Script (cargar segundo, antes de my_tickets.js) -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ sv('helpdesk', 'js/user/ticket_tutorial.js') }}"></script>
-<!-- My Tickets Script (cargar último, después del tutorial) -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/my_tickets.js') }}?v={{ sv('helpdesk', 'js/user/my_tickets.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}
