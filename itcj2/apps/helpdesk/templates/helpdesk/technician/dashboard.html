@@ -573,9 +573,4 @@
     href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ sv('helpdesk', 'css/technician/dashboard.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-{% if can_consume_warehouse %}
-<script src="{{ url_for('static', filename='helpdesk/js/technician/warehouse_ticket.js') }}?v={{ sv('helpdesk', 'js/technician/warehouse_ticket.js') }}"></script>
-{% endif %}
-<script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ sv('helpdesk', 'js/technician/dashboard.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

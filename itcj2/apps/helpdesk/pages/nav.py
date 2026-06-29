@@ -69,6 +69,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     ],
     "inventory_reports_verification": ["js/inventory/reports/verification.js"],
     "inventory_reports_reports": ["js/inventory/reports/reports.js"],
+    "technician_dashboard": ["js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
+    "technician_my_assignments": ["js/technician/dashboard.js"],
+    "technician_team": ["js/technician/dashboard.js"],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
@@ -95,6 +98,9 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.inventory_pages.my_equipment": "inventory_assignment_my_equipment",
     "helpdesk_pages.inventory_pages.verification": "inventory_reports_verification",
     "helpdesk_pages.inventory_pages.reports": "inventory_reports_reports",
+    "helpdesk_pages.technician_pages.dashboard": "technician_dashboard",
+    "helpdesk_pages.technician_pages.my_assignments": "technician_my_assignments",
+    "helpdesk_pages.technician_pages.team": "technician_team",
 }
 
 
