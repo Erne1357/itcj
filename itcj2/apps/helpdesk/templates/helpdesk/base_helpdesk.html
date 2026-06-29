@@ -66,7 +66,7 @@
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             {% for sub_item in item.dropdown %}
                                             <li>
-                                                <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" href="{{ sub_item.url }}">
+                                                <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" href="{{ sub_item.url }}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
                                                     <i class="fas {{ sub_item.icon }} me-1"></i>{{ sub_item.label }}
                                                 </a>
                                             </li>
@@ -75,7 +75,7 @@
                                     </li>
                                     {% else %}
                                     <li class="nav-item">
-                                        <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" href="{{ item.url }}">
+                                        <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" href="{{ item.url }}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
                                             <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
                                         </a>
                                     </li>
@@ -128,7 +128,7 @@
                                 <div class="collapse {% if group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
                                     <div class="app-sidebar-sub-items">
                                         {% for sub_item in item.dropdown %}
-                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub_item.endpoint %}active{% endif %}">
+                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub_item.endpoint %}active{% endif %}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
                                             <i class="fas {{ sub_item.icon }}"></i>
                                             <span>{{ sub_item.label }}</span>
                                         </a>
@@ -137,7 +137,7 @@
                                 </div>
                             </div>
                         {% else %}
-                            <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}">
+                            <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
                                 <i class="fas {{ item.icon }}"></i>
                                 <span>{{ item.label }}</span>
                             </a>

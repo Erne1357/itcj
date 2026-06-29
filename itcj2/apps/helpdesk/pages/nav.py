@@ -16,6 +16,14 @@ from itcj2.templates import ENDPOINT_MAP, render
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages")
 
+# Endpoints de nav que participan en la navegación boosteada del piloto.
+HTMX_BOOSTED_ENDPOINTS = {
+    "helpdesk_pages.admin_pages.tickets_list",
+}
+# active_page de las páginas del piloto (cluster con navegación fluida).
+# Vaciar este set desactiva el boost en toda la app (rollback de 1 línea).
+HTMX_PILOT_PAGES = {"admin_home", "admin_categories", "admin_tickets_list"}
+
 
 def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
     """Construye el contexto de navegación de Help-Desk para un usuario.
@@ -43,12 +51,14 @@ def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
         nav_items = get_helpdesk_navigation(user_perms, user_roles)
 
         for item in nav_items:
+            item["hx_boost"] = item.get("endpoint") in HTMX_BOOSTED_ENDPOINTS
             if item.get("endpoint") and item["endpoint"] != "#":
                 item["url"] = ENDPOINT_MAP.get(item["endpoint"], "#")
                 if "fragment" in item:
                     item["url"] += item["fragment"]
 
             for sub in item.get("dropdown", []):
+                sub["hx_boost"] = sub.get("endpoint") in HTMX_BOOSTED_ENDPOINTS
                 if sub.get("endpoint") and sub["endpoint"] != "#":
                     sub["url"] = ENDPOINT_MAP.get(sub["endpoint"], "#")
                     if "fragment" in sub:
@@ -88,5 +98,10 @@ def render_helpdesk(
         else {"helpdesk_nav_items": [], "current_route": request.url.path}
     )
 
-    ctx = {**(context or {}), **nav_ctx}
+    active_page = (context or {}).get("active_page")
+    ctx = {
+        **(context or {}),
+        **nav_ctx,
+        "htmx_boost_enabled": active_page in HTMX_PILOT_PAGES,
+    }
     return render(request, template, ctx, status_code)

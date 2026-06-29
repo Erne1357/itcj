@@ -852,3 +852,22 @@ body {
 .badge-secondary { background-color: #858796; color: #fff; }
 .badge-dark      { background-color: #5a5c69; color: #fff; }
 .badge-light     { background-color: #f8f9fc; color: #5a5c69; border: 1px solid #e3e6f0; }
+
+/* === Barra de progreso de navegación HTMX (hx-boost) === */
+body.hd-navigating::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    width: 100%;
+    z-index: 20000;
+    background: linear-gradient(90deg, var(--bs-primary, #0d6efd), #6ea8fe);
+    transform-origin: left;
+    animation: hd-nav-progress 1s ease-out infinite;
+}
+@keyframes hd-nav-progress {
+    0%   { transform: scaleX(0);  opacity: 1; }
+    80%  { transform: scaleX(0.9); }
+    100% { transform: scaleX(1);  opacity: 0.4; }
+}

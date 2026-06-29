@@ -49,3 +49,33 @@ def test_pilot_page_has_htmx_assets_and_marker(app_client, path, key):
     assert "idiomorph" in html
     assert f'data-hd-page="{key}"' in html
     assert 'hx-ext="morph"' in html
+
+
+def test_nav_marks_only_boosted_endpoints():
+    from itcj2.apps.helpdesk.pages.nav import _build_helpdesk_nav
+    with patched_authz():
+        ctx = _build_helpdesk_nav(user_id=200, current_path="/help-desk/admin/tickets-list")
+    flat = []
+    for it in ctx["helpdesk_nav_items"]:
+        flat.append(it)
+        flat += it.get("dropdown", [])
+    by_ep = {x.get("endpoint"): x for x in flat}
+    assert by_ep["helpdesk_pages.admin_pages.tickets_list"]["hx_boost"] is True
+    assert by_ep["helpdesk_pages.admin_pages.assign_tickets"]["hx_boost"] is False
+
+
+def test_only_boosted_endpoint_link_carries_hx_boost(app_client):
+    """En home (página piloto): el link a tickets-list lleva hx-boost; el de
+    assign-tickets NO. Valida el scoping "isla" sin pegar a BD de entidades."""
+    import re
+    with patched_authz():
+        resp = app_client.get("/help-desk/admin/home", headers=ADMIN)
+    assert resp.status_code == 200
+    html = resp.text
+    assert 'hx-boost="true"' in html
+    # ancla a tickets-list → con boost
+    m_list = re.search(r'<a[^>]*tickets-list[^>]*>', html)
+    assert m_list and 'hx-boost="true"' in m_list.group(0)
+    # ancla a assign-tickets (endpoint NO boosteado) → sin boost
+    m_assign = re.search(r'<a[^>]*assign-tickets[^>]*>', html)
+    assert m_assign and 'hx-boost="true"' not in m_assign.group(0)
