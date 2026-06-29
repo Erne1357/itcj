@@ -23,7 +23,13 @@ logger = logging.getLogger("itcj2.apps.helpdesk.pages")
 # clásica al instante (los módulos siguen registrando init en la carga inicial).
 HTMX_BOOST_ENABLED = True
 
-# Mapa: active_page -> lista de módulos JS a cargar para esa página.
+# Mapa: hd_page -> lista de módulos JS a cargar para esa página.
+#   · hd_page es la clave ÚNICA por template (derivada del path con
+#     _template_to_key), NO active_page: varias páginas comparten active_page
+#     (ej. items_list/item_create/item_detail = "inventory_items") pero cada
+#     template tiene su propio hd_page (inventory_items_items_list, etc.).
+#     Para piloto/almacén el derivado coincide con el nombre histórico
+#     (admin/home.html -> admin_home; warehouse/dashboard.html -> warehouse_dashboard).
 #   · Una entrada aquí = página MIGRADA al controller HelpdeskPage (navegable
 #     por boost). Lista vacía = página migrada SIN JS propio (ej. categorías).
 #   · Las rutas relativas se sirven desde /static/helpdesk/ y se versionan con
@@ -41,8 +47,9 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "warehouse_reports": ["js/warehouse/reports.js"],
 }
 
-# Mapa endpoint de nav (estilo Flask) -> active_page destino. Permite saber si
-# un link del nav apunta a una página migrada (y por tanto debe boostearse).
+# Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
+# link del nav apunta a una página migrada (y por tanto debe boostearse). El
+# valor es el hd_page (clave única por template) de la página destino.
 ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.admin_pages.home": "admin_home",
     "helpdesk_pages.admin_pages.tickets_list": "admin_tickets_list",
@@ -74,9 +81,24 @@ def _module_url(path: str) -> str:
     return f"/static/helpdesk/{path}?v={sv('helpdesk', path)}"
 
 
-def _hd_modules_attr(active_page: str | None) -> str:
+def _hd_modules_attr(hd_page: str | None) -> str:
     """Valor de data-hd-modules: URLs de los módulos de la página separadas por '|'."""
-    return "|".join(_module_url(p) for p in HD_PAGE_MODULES.get(active_page or "", []))
+    return "|".join(_module_url(p) for p in HD_PAGE_MODULES.get(hd_page or "", []))
+
+
+def _template_to_key(template: str) -> str:
+    """Clave única (hd_page) derivada del path del template.
+
+    "helpdesk/inventory/items/item_detail.html" -> "inventory_items_item_detail".
+    Para piloto/almacén coincide con el nombre histórico de active_page
+    ("helpdesk/admin/home.html" -> "admin_home").
+    """
+    key = template or ""
+    if key.startswith("helpdesk/"):
+        key = key[len("helpdesk/"):]
+    if key.endswith(".html"):
+        key = key[:-5]
+    return key.replace("/", "_")
 
 
 # Alias retrocompatible (algún código/test puede referenciarlo).
@@ -156,11 +178,12 @@ def render_helpdesk(
         else {"helpdesk_nav_items": [], "current_route": request.url.path}
     )
 
-    active_page = (context or {}).get("active_page")
+    hd_page = _template_to_key(template)
     ctx = {
         **(context or {}),
         **nav_ctx,
-        "htmx_boost_enabled": HTMX_BOOST_ENABLED and _is_migrated(active_page),
-        "hd_modules": _hd_modules_attr(active_page),
+        "hd_page": hd_page,
+        "htmx_boost_enabled": HTMX_BOOST_ENABLED and _is_migrated(hd_page),
+        "hd_modules": _hd_modules_attr(hd_page),
     }
     return render(request, template, ctx, status_code)

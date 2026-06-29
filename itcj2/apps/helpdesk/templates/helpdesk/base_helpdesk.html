@@ -178,7 +178,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ active_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" {% block hd_data %}{% endblock %}>
+    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or active_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" {% block hd_data %}{% endblock %}>
         {% block content %}{% endblock %}
     </main>
 
