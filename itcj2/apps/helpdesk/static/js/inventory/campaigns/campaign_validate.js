@@ -1,10 +1,16 @@
 'use strict';
 (function () {
 
-    const API_BASE = `/api/help-desk/v2/inventory/campaigns/${CAMPAIGN_ID}`;
+    // Server data (set in init from dataset)
+    let CAMPAIGN_ID = null;
+    let API_BASE = null;
 
     let validationData = null;
     let currentView = 'all'; // all | new | existing | changes
+
+    // Timer handles for destroy
+    let _redirectTimer1 = null;
+    let _redirectTimer2 = null;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -430,7 +436,7 @@
             if (!data.success) throw new Error(data.error);
             $('#modal-confirm-approve').modal('hide');
             HelpdeskUtils.showToast(data.message, 'success');
-            setTimeout(() => { window.location = `/help-desk/inventory/campaigns/${CAMPAIGN_ID}`; }, 1500);
+            _redirectTimer1 = setTimeout(() => { window.location = `/help-desk/inventory/campaigns/${CAMPAIGN_ID}`; }, 1500);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -466,7 +472,7 @@
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast(data.message, 'success');
-            setTimeout(() => { window.location = `/help-desk/inventory/campaigns/${CAMPAIGN_ID}`; }, 1500);
+            _redirectTimer2 = setTimeout(() => { window.location = `/help-desk/inventory/campaigns/${CAMPAIGN_ID}`; }, 1500);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -490,10 +496,33 @@
     // ── Init ─────────────────────────────────────────────────────────────────
 
     function init() {
+        const root = document.querySelector('[data-hd-page]');
+        if (root) {
+            CAMPAIGN_ID = parseInt(root.dataset.campaignId, 10);
+        }
+        API_BASE = `/api/help-desk/v2/inventory/campaigns/${CAMPAIGN_ID}`;
+
         initViewFilters();
         initDecisionPanel();
         loadValidationData();
         loadValidationGroups();
+    }
+
+    function destroy() {
+        if (_redirectTimer1 !== null) { clearTimeout(_redirectTimer1); _redirectTimer1 = null; }
+        if (_redirectTimer2 !== null) { clearTimeout(_redirectTimer2); _redirectTimer2 = null; }
+        // Dispose Bootstrap modals
+        ['modal-item-detail', 'modal-confirm-approve'].forEach(id => {
+            const modalEl = document.getElementById(id);
+            if (modalEl) {
+                try { $(modalEl).modal('hide'); } catch (_) {}
+                try { $(modalEl).modal('dispose'); } catch (_) {}
+            }
+        });
+        // Clear window globals
+        delete window.toggleReplacementsSection;
+        delete window.toggleCard;
+        delete window.showItemModal;
     }
 
     // ── Grupos / Salones (vista de validación) ───────────────────────────────
@@ -633,6 +662,6 @@
         `;
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    window.HelpdeskPage.page('inventory_campaigns_campaign_validate', { init: init, destroy: destroy });
 
 })();

@@ -118,11 +118,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const CAN_VIEW_ALL  = {{ 'true' if can_view_all else 'false' }};
-    const CAN_CREATE    = {{ 'true' if can_create else 'false' }};
-    const USER_DEPT_ID  = {{ user_dept_id if user_dept_id else 'null' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/campaigns/campaigns_list.js') }}?v={{ sv('helpdesk', 'js/inventory/campaigns/campaigns_list.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-can-view-all="{{ 'true' if can_view_all else 'false' }}" data-can-create="{{ 'true' if can_create else 'false' }}" data-user-dept-id="{{ user_dept_id if user_dept_id else '' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

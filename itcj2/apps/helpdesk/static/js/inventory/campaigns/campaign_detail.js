@@ -1,9 +1,16 @@
 'use strict';
 (function () {
 
-    const API_BASE = `/api/help-desk/v2/inventory/campaigns/${CAMPAIGN_ID}`;
+    // Server data (set in init from dataset)
+    let CAMPAIGN_ID = null;
+    let CAN_MANAGE = false;
+    let CAN_VALIDATE = false;
+    let IS_ADMIN = false;
 
-    // Estatus de campaña
+    let API_BASE = null;
+
+    // ── Estado ────────────────────────────────────────────────────────────────
+
     const STATUS_LABELS = {
         OPEN:               { label: 'Abierta',              cls: 'badge-primary' },
         PENDING_VALIDATION: { label: 'Pendiente validación', cls: 'badge-warning' },
@@ -28,6 +35,11 @@
 
     let campaignData = null;
     let selectedItemIds = new Set();
+
+    // Timer handles for destroy
+    let _reloadTimer1 = null;
+    let _reloadTimer2 = null;
+    let bulkDebounce = null;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -246,7 +258,7 @@
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast(data.message, 'success');
-            setTimeout(() => window.location.reload(), 1200);
+            _reloadTimer1 = setTimeout(() => window.location.reload(), 1200);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -269,7 +281,7 @@
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast(data.message, 'success');
-            setTimeout(() => window.location.reload(), 1200);
+            _reloadTimer2 = setTimeout(() => window.location.reload(), 1200);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
         }
@@ -298,8 +310,6 @@
     };
 
     // ── Bulk assign modal ────────────────────────────────────────────────────
-
-    let bulkDebounce = null;
 
     function initBulkAssign() {
         const btnBulk = el('btn-bulk-assign');
@@ -519,6 +529,15 @@
     // ── Init ─────────────────────────────────────────────────────────────────
 
     function init() {
+        const root = document.querySelector('[data-hd-page]');
+        if (root) {
+            CAMPAIGN_ID = parseInt(root.dataset.campaignId, 10);
+            CAN_MANAGE = root.dataset.canManage === 'true';
+            CAN_VALIDATE = root.dataset.canValidate === 'true';
+            IS_ADMIN = root.dataset.isAdmin === 'true';
+        }
+        API_BASE = `/api/help-desk/v2/inventory/campaigns/${CAMPAIGN_ID}`;
+
         // Botón reabrir (puede estar en el DOM del alert)
         const btnReopen = el('btn-reopen');
         if (btnReopen) btnReopen.addEventListener('click', reopenCampaign);
@@ -526,6 +545,27 @@
         initBulkAssign();
         initGroups();
         loadCampaign().then(() => loadGroupsView());
+    }
+
+    function destroy() {
+        // Clear reload timers
+        if (_reloadTimer1 !== null) { clearTimeout(_reloadTimer1); _reloadTimer1 = null; }
+        if (_reloadTimer2 !== null) { clearTimeout(_reloadTimer2); _reloadTimer2 = null; }
+        // Clear bulk debounce
+        if (bulkDebounce !== null) { clearTimeout(bulkDebounce); bulkDebounce = null; }
+        // Dispose Bootstrap modals
+        const modalIds = ['modal-new-group', 'modal-move-item', 'modal-bulk-assign'];
+        modalIds.forEach(id => {
+            const modalEl = document.getElementById(id);
+            if (modalEl) {
+                try { $(modalEl).modal('hide'); } catch (_) {}
+                try { $(modalEl).modal('dispose'); } catch (_) {}
+            }
+        });
+        // Clear window globals
+        delete window.unassignItem;
+        delete window.toggleBulkItem;
+        delete window.reloadCampaignGroups;
     }
 
     // ── Grupos / Salones de la campaña ─────────────────────────────────────────
@@ -747,6 +787,6 @@
     // Exponer recarga manual de grupos
     window.reloadCampaignGroups = loadGroupsView;
 
-    document.addEventListener('DOMContentLoaded', init);
+    window.HelpdeskPage.page('inventory_campaigns_campaign_detail', { init: init, destroy: destroy });
 
 })();

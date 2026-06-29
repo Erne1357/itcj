@@ -243,9 +243,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const CAMPAIGN_ID = {{ campaign_id }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/campaigns/campaign_validate.js') }}?v={{ sv('helpdesk', 'js/inventory/campaigns/campaign_validate.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-campaign-id="{{ campaign_id }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

@@ -313,12 +313,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const CAMPAIGN_ID  = {{ campaign_id }};
-    const CAN_MANAGE   = {{ 'true' if can_manage else 'false' }};
-    const CAN_VALIDATE = {{ 'true' if can_validate else 'false' }};
-    const IS_ADMIN     = {{ 'true' if is_admin else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/campaigns/campaign_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/campaigns/campaign_detail.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-campaign-id="{{ campaign_id }}" data-can-manage="{{ 'true' if can_manage else 'false' }}" data-can-validate="{{ 'true' if can_validate else 'false' }}" data-is-admin="{{ 'true' if is_admin else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

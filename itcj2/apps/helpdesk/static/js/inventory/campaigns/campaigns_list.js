@@ -11,6 +11,12 @@
     let currentPage = 1;
     const PAGE_SIZE = 20;
     let debounceTimer = null;
+    let paginationClickHandler = null;
+
+    // Server data (set in init from dataset)
+    let CAN_VIEW_ALL = false;
+    let CAN_CREATE = false;
+    let USER_DEPT_ID = null;
 
     const el = {
         folio:        document.getElementById('filter-folio'),
@@ -164,14 +170,15 @@
             });
         }
 
-        document.addEventListener('click', e => {
+        paginationClickHandler = function (e) {
             const link = e.target.closest('[data-page]');
             if (!link) return;
             e.preventDefault();
             currentPage = parseInt(link.dataset.page, 10);
             loadCampaigns();
             window.scrollTo(0, 0);
-        });
+        };
+        document.addEventListener('click', paginationClickHandler);
     }
 
     function restoreNavState() {
@@ -185,12 +192,31 @@
     }
 
     function init() {
+        const root = document.querySelector('[data-hd-page]');
+        if (root) {
+            CAN_VIEW_ALL = root.dataset.canViewAll === 'true';
+            CAN_CREATE = root.dataset.canCreate === 'true';
+            const rawDept = root.dataset.userDeptId;
+            USER_DEPT_ID = rawDept ? parseInt(rawDept, 10) : null;
+        }
+
         initEvents();
         if (CAN_VIEW_ALL) loadDepartments();
         restoreNavState();
         loadCampaigns();
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    function destroy() {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+        if (paginationClickHandler) {
+            document.removeEventListener('click', paginationClickHandler);
+            paginationClickHandler = null;
+        }
+    }
+
+    window.goToCampaign = goToCampaign;
+
+    window.HelpdeskPage.page('inventory_campaigns_campaigns_list', { init: init, destroy: destroy });
 
 })();

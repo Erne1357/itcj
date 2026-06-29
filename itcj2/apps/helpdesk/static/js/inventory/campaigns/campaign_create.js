@@ -73,15 +73,32 @@
         el.error.classList.remove('d-none');
     }
 
+    let _deptHandler = null;
+    let _submitHandler = null;
+
     function init() {
+        _deptHandler = () => checkActiveCampaign(el.dept.value);
+        _submitHandler = handleSubmit;
+
         if (el.dept) {
-            el.dept.addEventListener('change', () => checkActiveCampaign(el.dept.value));
+            el.dept.addEventListener('change', _deptHandler);
         }
         if (el.form) {
-            el.form.addEventListener('submit', handleSubmit);
+            el.form.addEventListener('submit', _submitHandler);
         }
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    function destroy() {
+        if (el.dept && _deptHandler) {
+            el.dept.removeEventListener('change', _deptHandler);
+            _deptHandler = null;
+        }
+        if (el.form && _submitHandler) {
+            el.form.removeEventListener('submit', _submitHandler);
+            _submitHandler = null;
+        }
+    }
+
+    window.HelpdeskPage.page('inventory_campaigns_campaign_create', { init: init, destroy: destroy });
 
 })();

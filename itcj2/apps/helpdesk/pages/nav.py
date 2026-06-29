@@ -45,6 +45,10 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "warehouse_entries": ["js/warehouse/entries.js"],
     "warehouse_movements": ["js/warehouse/movements.js"],
     "warehouse_reports": ["js/warehouse/reports.js"],
+    "inventory_campaigns_campaigns_list": ["js/inventory/campaigns/campaigns_list.js"],
+    "inventory_campaigns_campaign_create": ["js/inventory/campaigns/campaign_create.js"],
+    "inventory_campaigns_campaign_detail": ["js/inventory/campaigns/campaign_detail.js"],
+    "inventory_campaigns_campaign_validate": ["js/inventory/campaigns/campaign_validate.js"],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
@@ -60,6 +64,7 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.warehouse_pages.entries": "warehouse_entries",
     "helpdesk_pages.warehouse_pages.movements": "warehouse_movements",
     "helpdesk_pages.warehouse_pages.reports": "warehouse_reports",
+    "helpdesk_pages.inventory_pages.campaigns_list": "inventory_campaigns_campaigns_list",
 }
 
 
