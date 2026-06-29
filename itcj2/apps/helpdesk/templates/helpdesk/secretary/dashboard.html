@@ -178,10 +178,6 @@
 {% endblock %}
 
 
-{% block extra_js %}
-<script>
-    const DEPARTMENT_ID = {{ department.id | tojson }};
-</script>
+{% block hd_data %}data-department-id="{{ department.id | tojson }}"{% endblock %}
 
-<script src="{{ url_for('static', filename='helpdesk/js/secretary/dashboard.js') }}?v={{ sv('helpdesk', 'js/secretary/dashboard.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}
