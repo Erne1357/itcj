@@ -37,6 +37,7 @@
         window.createTicket = createTicket;
         window.viewTicket = viewTicket;
         window.viewInventoryItem = viewInventoryItem;
+        window.loadDepartmentTickets = loadDepartmentTickets;
 
         initializeDashboard().then(() => {
             // Restore state if coming back from a ticket detail
@@ -73,6 +74,7 @@
         delete window.createTicket;
         delete window.viewTicket;
         delete window.viewInventoryItem;
+        delete window.loadDepartmentTickets;
 
         // Socket listeners
         const socket = window.__helpdeskSocket;

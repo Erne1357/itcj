@@ -104,6 +104,10 @@
             btn.removeEventListener('click', _btnResetMyPasswordHandler);
             _btnResetMyPasswordHandler = null;
         }
+
+        // Remove btnRefreshSecretaries click listener
+        const btnRefresh = document.getElementById('btnRefreshSecretaries');
+        if (btnRefresh && _btnRefreshHandler) { btnRefresh.removeEventListener('click', _btnRefreshHandler); _btnRefreshHandler = null; }
     }
 
     // ==================== INITIALIZATION ====================
