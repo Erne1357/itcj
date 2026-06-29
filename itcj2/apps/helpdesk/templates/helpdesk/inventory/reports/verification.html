@@ -418,15 +418,8 @@
 </div>
 
 
-<!-- Datos del servidor para JS -->
-<script>
-    const VERIF_CONFIG = {
-        canViewAll: {{ 'true' if can_view_all else 'false' }},
-        apiBase: '/api/help-desk/v2/inventory/verification',
-    };
-</script>
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/reports/verification.js') }}?v={{ sv('helpdesk', 'js/inventory/reports/verification.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-can-view-all="{{ 'true' if can_view_all else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

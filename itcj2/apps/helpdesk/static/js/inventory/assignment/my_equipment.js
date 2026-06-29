@@ -1,22 +1,44 @@
 // my_equipment.js - Gestión de equipos asignados al usuario actual
-(function() {
+(function () {
     'use strict';
 
     const API_BASE = '/api/help-desk/v2/inventory';
     let myEquipment = [];
     let currentEquipment = null;
 
-    // ==================== INICIALIZACIÓN ====================
-    document.addEventListener('DOMContentLoaded', function() {
+    // ==================== INIT / DESTROY ====================
+    function init() {
+        window.showEquipmentDetail = showEquipmentDetail;
+        window.refreshEquipment = refreshEquipment;
+
+        if (window.MyEquipmentModal) {
+            window.MyEquipmentModal.setup();
+        }
+
         loadMyEquipment();
-    });
+    }
+
+    function destroy() {
+        if (window.MyEquipmentModal) {
+            window.MyEquipmentModal.teardown();
+        }
+
+        delete window.showEquipmentDetail;
+        delete window.refreshEquipment;
+
+        myEquipment = [];
+        currentEquipment = null;
+    }
 
     // ==================== CARGA DE DATOS ====================
+    function refreshEquipment() {
+        loadMyEquipment();
+    }
+
     async function loadMyEquipment() {
         try {
             showLoading();
 
-            // Llamar al endpoint que obtiene equipos del usuario actual
             const response = await fetch(`${API_BASE}/items/my-equipment`, {
                 method: 'GET',
                 headers: {
@@ -150,7 +172,7 @@
     }
 
     // ==================== MODAL DE DETALLE ====================
-    window.showEquipmentDetail = async function(itemId) {
+    async function showEquipmentDetail(itemId) {
         currentEquipment = myEquipment.find(e => e.id === itemId);
 
         if (!currentEquipment) {
@@ -158,25 +180,23 @@
             return;
         }
 
-        // Mostrar loading primero
         document.getElementById('modal-loading').style.display = 'block';
         document.getElementById('modal-content').style.display = 'none';
-        
-        // Abrir modal (compatible con iframe y navegación normal)
-        const $modal = $('#equipmentDetailModal');
-        
-        // Verificar si estamos en iframe
+
+        const $modal = window.jQuery ? window.jQuery('#equipmentDetailModal') : null;
+
         const inIframe = window.self !== window.top;
-        
-        $modal.modal({
-            backdrop: inIframe ? true : true,  // Permitir cerrar con click fuera
-            keyboard: true,                     // Permitir cerrar con ESC
-            focus: true                         // Auto-foco en el modal
-        });
-        $modal.modal('show');
+
+        if ($modal) {
+            $modal.modal({
+                backdrop: inIframe ? true : true,
+                keyboard: true,
+                focus: true
+            });
+            $modal.modal('show');
+        }
 
         try {
-            // Cargar información detallada
             const response = await fetch(`${API_BASE}/items/${itemId}`, {
                 method: 'GET',
                 headers: {
@@ -192,37 +212,27 @@
             const result = await response.json();
             const item = result.data;
 
-            // Actualizar título del modal
             document.getElementById('modal-title').textContent = item.inventory_number;
 
-            // Llenar información básica
             fillInfoTab(item);
-
-            // Llenar especificaciones
             fillSpecsTab(item);
-
-            // Cargar historial
             loadHistory(itemId);
-
-            // Cargar tickets
             loadRelatedTickets(itemId);
 
-            // Mostrar contenido
             document.getElementById('modal-loading').style.display = 'none';
             document.getElementById('modal-content').style.display = 'block';
 
-            // Activar el primer tab
-            setTimeout(() => {
-                $('#equipmentTabs a[href="#info-content"]').tab('show');
+            setTimeout(function () {
+                if (window.jQuery) window.jQuery('#equipmentTabs a[href="#info-content"]').tab('show');
             }, 100);
 
         } catch (error) {
             console.error('Error loading equipment detail:', error);
             const errorMessage = error.message || 'Error desconocido';
             showError(`Error al cargar los detalles del equipo: ${errorMessage}`);
-            $modal.modal('hide');
+            if ($modal) $modal.modal('hide');
         }
-    };
+    }
 
     function fillInfoTab(item) {
         const container = document.getElementById('info-container');
@@ -388,7 +398,7 @@
             }
 
             let historyHtml = '';
-            history.forEach((entry, index) => {
+            history.forEach((entry) => {
                 const icon = getHistoryIcon(entry.action_type);
                 const date = new Date(entry.created_at).toLocaleString('es-MX');
 
@@ -610,9 +620,7 @@
         }
     }
 
-    // ==================== FUNCIONES PÚBLICAS ====================
-    window.refreshEquipment = function() {
-        loadMyEquipment();
-    };
+    // ==================== REGISTRO ====================
+    window.HelpdeskPage.page('inventory_assignment_my_equipment', { init: init, destroy: destroy });
 
 })();

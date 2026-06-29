@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Verificación de Inventario
  * Carga la tabla de equipos con su estado de verificación,
  * permite abrir el modal para verificar un equipo y
@@ -9,71 +9,30 @@
 
     /* ═══════════════════════════════ Estado ═══════════════════════════════ */
     const state = {
-        items: [],          // página actual cargada desde la API
+        items: [],
         currentPage: 1,
         perPage: 50,
-        totalItems: 0,      // total de la API (filtrado)
+        totalItems: 0,
         totalPages: 1,
         currentItemId: null,
         currentItemData: null,
     };
 
     /* ═══════════════════════════════ DOM refs ══════════════════════════════ */
-    const $ = (sel) => document.querySelector(sel);
-    const el = {
-        loading:         $('#loading-state'),
-        empty:           $('#empty-state'),
-        tableWrapper:    $('#table-wrapper'),
-        tbody:           $('#verif-tbody'),
-        tableCountLabel: $('#table-count-label'),
-        paginationInfo:  $('#pagination-info'),
-        paginationCtrl:  $('#pagination-controls'),
-        countUnverified: $('#count-unverified'),
-        badgeUnverified: $('#badge-unverified'),
-        statTotal:       $('#stat-total'),
-        statRecent:      $('#stat-recent'),
-        statOutdated:    $('#stat-outdated'),
-        statCritical:    $('#stat-critical'),
-        filterSearch:    $('#filter-search'),
-        filterDept:      $('#filter-department'),
-        filterVerif:     $('#filter-verif-status'),
-        btnRefresh:      $('#btn-refresh'),
-        // Modal verificar
-        modalVerify:     $('#modal-verify'),
-        verifItemNumber: $('#verif-item-number'),
-        verifItemName:   $('#verif-item-name'),
-        verifItemDept:   $('#verif-item-dept'),
-        verifLocation:   $('#verif-location'),
-        verifStatus:     $('#verif-status'),
-        verifBrand:      $('#verif-brand'),
-        verifModel:      $('#verif-model'),
-        verifSupplierSerial: $('#verif-supplier-serial'),
-        verifItcjSerial:    $('#verif-itcj-serial'),
-        verifIdTecnm:       $('#verif-id-tecnm'),
-        verifObs:        $('#verif-observations'),
-        verifGroup:      $('#verif-group'),
-        verifGroupHint:  $('#verif-group-hint'),
-        specsSection:    $('#specs-section'),
-        specsContainer:  $('#specs-fields-container'),
-        specsCollapse:   $('#specs-collapse'),
-        changesAlert:    $('#changes-alert'),
-        changesMsg:      $('#changes-msg'),
-        btnConfirm:      $('#btn-confirm-verify'),
-        btnVerifyLabel:  $('#btn-verify-label'),
-        // Modal historial
-        modalHistory:    $('#modal-history'),
-        historyLoading:  $('#history-loading'),
-        historyEmpty:    $('#history-empty'),
-        historyList:     $('#history-list'),
-        historyItemName: $('#history-item-name'),
-    };
+    // Populated inside init() — declared here as module-level for use across functions
+    let el = {};
+
+    let VERIF_CONFIG = {};
+
+    /* ═══════════════════════════════ searchTimer ═══════════════════════════ */
+    let searchTimer = null;
 
     /* ═══════════════════════════ Verificación status ══════════════════════ */
     const VERIF_LABELS = {
-        recent:   { text: 'Reciente',   cls: 'badge-verif-recent',   row: 'row-recent'   },
-        outdated: { text: 'Vencido',    cls: 'badge-verif-outdated', row: 'row-outdated' },
-        critical: { text: 'Crítico',    cls: 'badge-verif-critical', row: 'row-critical' },
-        never:    { text: 'Sin verificar', cls: 'badge-verif-never', row: 'row-never'   },
+        recent:   { text: 'Reciente',      cls: 'badge-verif-recent',   row: 'row-recent'   },
+        outdated: { text: 'Vencido',       cls: 'badge-verif-outdated', row: 'row-outdated' },
+        critical: { text: 'Crítico',       cls: 'badge-verif-critical', row: 'row-critical' },
+        never:    { text: 'Sin verificar', cls: 'badge-verif-never',    row: 'row-never'    },
     };
 
     function verifBadgeHtml(status) {
@@ -97,7 +56,8 @@
         });
     }
 
-    function showToast(msg, type = 'success') {
+    function showToast(msg, type) {
+        type = type || 'success';
         if (window.HelpdeskUtils && window.HelpdeskUtils.showToast) {
             window.HelpdeskUtils.showToast(msg, type);
             return;
@@ -161,7 +121,6 @@
         el.statCritical.textContent = criticalAndNever;
         el.countUnverified.textContent = (stats.never ?? 0) + (stats.outdated ?? 0);
 
-        // Badge de nunca/vencido
         const urgent = (stats.never ?? 0) + (stats.outdated ?? 0) + (stats.critical ?? 0);
         el.badgeUnverified.classList.toggle('bg-danger',   urgent > 10);
         el.badgeUnverified.classList.toggle('text-white',  urgent > 10);
@@ -169,9 +128,6 @@
         el.badgeUnverified.classList.toggle('text-dark',   urgent <= 10);
     }
 
-    /* ═══════════════════════════════════════════════════════════════════════ */
-    /* Los filtros ahora se envían al servidor; applyFilters solo resetea     */
-    /* la página y dispara loadItems.                                         */
     function applyFilters() {
         state.currentPage = 1;
         loadItems();
@@ -197,12 +153,10 @@
 
         el.tableCountLabel.textContent = ` (${total} equipo${total !== 1 ? 's' : ''})`;
         el.tbody.innerHTML = state.items.map(item => buildRow(item)).join('');
-        // Reset checkboxes on page change
         const verifSelAll = document.getElementById('verif-select-all');
         if (verifSelAll) verifSelAll.checked = false;
         updateVerifBulkBar();
 
-        // Info de paginación (calculada desde server)
         const start = (state.currentPage - 1) * state.perPage + 1;
         const end   = Math.min(state.currentPage * state.perPage, total);
         el.paginationInfo.textContent = `Mostrando ${start}-${end} de ${total}`;
@@ -261,7 +215,6 @@
         }
         const cur = state.currentPage;
 
-        // Construir conjunto de páginas a mostrar (con ventana ±2 alrededor de la actual)
         const show = new Set([1, pages]);
         for (let i = Math.max(1, cur - 2); i <= Math.min(pages, cur + 2); i++) show.add(i);
         const sorted = [...show].sort((a, b) => a - b);
@@ -294,7 +247,6 @@
         state.currentItemId   = itemId;
         state.currentItemData = item;
 
-        // Rellenar campos
         el.verifItemNumber.textContent = item.inventory_number;
         el.verifItemName.textContent   = [item.brand, item.model].filter(Boolean).join(' ') || '—';
         el.verifItemDept.textContent   = item.department ? item.department.name : '—';
@@ -312,7 +264,6 @@
         el.btnVerifyLabel.textContent = 'Registrar Verificación';
         el.btnConfirm.disabled = false;
 
-        // Reset group select while groups load
         if (el.verifGroup) {
             el.verifGroup.innerHTML = '<option value="">Cargando grupos…</option>';
             el.verifGroup.disabled = true;
@@ -323,7 +274,6 @@
 
         if (window.jQuery) window.jQuery(el.modalVerify).modal('show');
 
-        // Load groups async (non-blocking — modal already visible)
         loadGroupsForModal(item);
     }
 
@@ -371,7 +321,6 @@
 
     /* ─── Especificaciones técnicas dinámicas ─────────────────────────── */
     function renderSpecFields(item) {
-        // Safety: spec_template puede venir como string JSON en algunos entornos
         let template = item.category && item.category.spec_template;
         if (template && typeof template === 'string') {
             try { template = JSON.parse(template); } catch (e) { template = null; }
@@ -416,7 +365,6 @@
                 </div>`;
             }
 
-            // text / number
             const inputType = def.type === 'number' ? 'number' : 'text';
             const valStr    = (val !== undefined && val !== null) ? escAttr(String(val)) : '';
             return `<div class="col-12 col-md-6 mb-2">
@@ -427,17 +375,14 @@
             </div>`;
         }).join('');
 
-        // Cerrar el panel al abrir un nuevo equipo
         el.specsCollapse.classList.add('d-none');
         const toggleText = document.getElementById('specs-toggle-text');
         const toggleIcon = document.getElementById('specs-toggle-icon');
         if (toggleText) toggleText.textContent = 'Mostrar';
         if (toggleIcon) { toggleIcon.classList.remove('fa-chevron-up'); toggleIcon.classList.add('fa-chevron-down'); }
 
-        // Mostrar la sección
         el.specsSection.classList.remove('d-none');
 
-        // Bind change detection a los nuevos campos
         el.specsContainer.querySelectorAll('.spec-field').forEach(f => {
             f.addEventListener('change', detectChanges);
             f.addEventListener('input',  detectChanges);
@@ -484,7 +429,6 @@
         if (el.verifIdTecnm && el.verifIdTecnm.value !== (item.id_tecnm || ''))
             changes.push('ID TecNM');
 
-        // Especificaciones técnicas
         const specFields = el.specsContainer
             ? el.specsContainer.querySelectorAll('.spec-field') : [];
         if (specFields.length > 0) {
@@ -536,12 +480,10 @@
             observations:       el.verifObs.value.trim()    || null,
         };
 
-        // Grupo: siempre enviarlo para que el backend lo procese si cambió
         if (el.verifGroup && !el.verifGroup.disabled) {
             payload.group_id = el.verifGroup.value ? parseInt(el.verifGroup.value, 10) : null;
         }
 
-        // Recopilar especificaciones técnicas si existen campos dinámicos
         const specFields = el.specsContainer
             ? el.specsContainer.querySelectorAll('.spec-field') : [];
         if (specFields.length > 0) {
@@ -575,11 +517,8 @@
 
             if (!json.success) throw new Error(json.error || 'Error al guardar');
 
-            // Cerrar modal
             if (window.jQuery) window.jQuery(el.modalVerify).modal('hide');
 
-            // Recargar la página actual con datos frescos del servidor
-            // (actualiza stats y estado de verificación correctamente)
             loadItems();
 
             showToast('Verificación registrada correctamente.', 'success');
@@ -660,8 +599,6 @@
     function bindEvents() {
         bindSpecsToggle();
 
-        // Filtros con debounce en búsqueda
-        let searchTimer = null;
         el.filterSearch.addEventListener('input', () => {
             clearTimeout(searchTimer);
             searchTimer = setTimeout(applyFilters, 300);
@@ -672,7 +609,6 @@
 
         el.btnRefresh.addEventListener('click', loadItems);
 
-        // Delegación de eventos en la tabla
         el.tbody.addEventListener('click', (e) => {
             const btnVerify  = e.target.closest('.btn-verify');
             const btnHistory = e.target.closest('.btn-history');
@@ -690,7 +626,6 @@
             }
         });
 
-        // Paginación — cada clic carga la página del servidor
         el.paginationCtrl.addEventListener('click', (e) => {
             const btn = e.target.closest('[data-page]');
             if (!btn || btn.classList.contains('disabled') || btn.classList.contains('active')) return;
@@ -700,17 +635,14 @@
             loadItems();
         });
 
-        // Detectar cambios en modal
         [el.verifLocation, el.verifStatus, el.verifBrand, el.verifModel,
          el.verifSupplierSerial, el.verifItcjSerial, el.verifIdTecnm].forEach(input => {
             if (input) input.addEventListener('input', detectChanges);
         });
         if (el.verifGroup) el.verifGroup.addEventListener('change', detectChanges);
 
-        // Confirmar verificación
         el.btnConfirm.addEventListener('click', submitVerification);
 
-        // ── Bulk selection ────────────────────────────────────────────────────
         const verifSelectAll = document.getElementById('verif-select-all');
         if (verifSelectAll) {
             verifSelectAll.addEventListener('change', function () {
@@ -848,16 +780,102 @@
         }
     }
 
-    /* ═════════════════════════════ Init ════════════════════════════════════ */
+    /* ═════════════════════════════ Init / Destroy ══════════════════════════ */
     function init() {
+        // Leer config del servidor desde data-* del main
+        const root = document.querySelector('[data-hd-page]');
+        VERIF_CONFIG = {
+            canViewAll: root && root.dataset.canViewAll === 'true',
+            apiBase: '/api/help-desk/v2/inventory/verification',
+        };
+
+        // Cache DOM refs DENTRO de init()
+        const qs = (sel) => document.querySelector(sel);
+        el = {
+            loading:         qs('#loading-state'),
+            empty:           qs('#empty-state'),
+            tableWrapper:    qs('#table-wrapper'),
+            tbody:           qs('#verif-tbody'),
+            tableCountLabel: qs('#table-count-label'),
+            paginationInfo:  qs('#pagination-info'),
+            paginationCtrl:  qs('#pagination-controls'),
+            countUnverified: qs('#count-unverified'),
+            badgeUnverified: qs('#badge-unverified'),
+            statTotal:       qs('#stat-total'),
+            statRecent:      qs('#stat-recent'),
+            statOutdated:    qs('#stat-outdated'),
+            statCritical:    qs('#stat-critical'),
+            filterSearch:    qs('#filter-search'),
+            filterDept:      qs('#filter-department'),
+            filterVerif:     qs('#filter-verif-status'),
+            btnRefresh:      qs('#btn-refresh'),
+            modalVerify:     qs('#modal-verify'),
+            verifItemNumber: qs('#verif-item-number'),
+            verifItemName:   qs('#verif-item-name'),
+            verifItemDept:   qs('#verif-item-dept'),
+            verifLocation:   qs('#verif-location'),
+            verifStatus:     qs('#verif-status'),
+            verifBrand:      qs('#verif-brand'),
+            verifModel:      qs('#verif-model'),
+            verifSupplierSerial: qs('#verif-supplier-serial'),
+            verifItcjSerial:    qs('#verif-itcj-serial'),
+            verifIdTecnm:       qs('#verif-id-tecnm'),
+            verifObs:        qs('#verif-observations'),
+            verifGroup:      qs('#verif-group'),
+            verifGroupHint:  qs('#verif-group-hint'),
+            specsSection:    qs('#specs-section'),
+            specsContainer:  qs('#specs-fields-container'),
+            specsCollapse:   qs('#specs-collapse'),
+            changesAlert:    qs('#changes-alert'),
+            changesMsg:      qs('#changes-msg'),
+            btnConfirm:      qs('#btn-confirm-verify'),
+            btnVerifyLabel:  qs('#btn-verify-label'),
+            modalHistory:    qs('#modal-history'),
+            historyLoading:  qs('#history-loading'),
+            historyEmpty:    qs('#history-empty'),
+            historyList:     qs('#history-list'),
+            historyItemName: qs('#history-item-name'),
+        };
+
+        // updateVerifBulkBar must be on window for inline onchange handlers
+        window.updateVerifBulkBar = updateVerifBulkBar;
+
         bindEvents();
         loadItems();
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
+    function destroy() {
+        // Cancel pending debounce
+        if (searchTimer !== null) {
+            clearTimeout(searchTimer);
+            searchTimer = null;
+        }
+
+        // Dispose the 3 Bootstrap-4 jQuery modals
+        ['#modal-verif-bulk-transfer', '#modal-verify', '#modal-history'].forEach(function (sel) {
+            try {
+                const modalEl = document.querySelector(sel);
+                if (modalEl && window.jQuery) {
+                    window.jQuery(modalEl).modal('hide');
+                    window.jQuery(modalEl).modal('dispose');
+                }
+            } catch (e) { /* ignore */ }
+        });
+
+        delete window.updateVerifBulkBar;
+
+        // Reset state
+        state.items = [];
+        state.currentPage = 1;
+        state.totalItems = 0;
+        state.totalPages = 1;
+        state.currentItemId = null;
+        state.currentItemData = null;
+
+        el = {};
+        VERIF_CONFIG = {};
     }
+
+    window.HelpdeskPage.page('inventory_reports_verification', { init: init, destroy: destroy });
 
 })();

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Reportes de Inventario
  * Maneja 5 pestañas: Equipos, Movimientos, Garantías, Mantenimiento, Ciclo de Vida
  */
@@ -16,7 +16,11 @@
     let allCategories = [];
     let eqCurrentPage = 1;
     let mvCurrentPage = 1;
-    let currentActiveTab = typeof ACTIVE_TAB !== 'undefined' ? ACTIVE_TAB : 'equipos';
+    let ACTIVE_TAB = 'equipos';
+    let currentActiveTab = 'equipos';
+
+    // Tab button listeners (stored for teardown)
+    let _tabHandlers = [];
 
     // Labels para event types y statuses
     const EVENT_LABELS = {
@@ -52,21 +56,56 @@
         'LOST': 'Extraviado'
     };
 
-    // ==================== INIT ====================
+    // ==================== INIT / DESTROY ====================
 
-    document.addEventListener('DOMContentLoaded', function () {
+    function init() {
+        const root = document.querySelector('[data-hd-page]');
+        ACTIVE_TAB = (root && root.dataset.activeTab) ? root.dataset.activeTab : 'equipos';
+        currentActiveTab = ACTIVE_TAB;
+
+        // Expose window functions
+        window.exportReport = exportReport;
+        window.loadEquipmentReport = loadEquipmentReport;
+        window.clearEquipmentFilters = clearEquipmentFilters;
+        window.loadMovementsReport = loadMovementsReport;
+        window.clearMovementsFilters = clearMovementsFilters;
+        window.setDatePreset = setDatePreset;
+        window.loadVerificationReport = loadVerificationReport;
+
         loadFilterData();
         setupTabListeners();
         setDatePreset('month');
-
-        // Cargar datos del tab activo
         loadActiveTabData();
-    });
+    }
+
+    function destroy() {
+        // Remove tab button listeners
+        _tabHandlers.forEach(function (item) {
+            item.el.removeEventListener('shown.bs.tab', item.fn);
+        });
+        _tabHandlers = [];
+
+        // Clean up window functions
+        delete window.exportReport;
+        delete window.loadEquipmentReport;
+        delete window.clearEquipmentFilters;
+        delete window.loadMovementsReport;
+        delete window.clearMovementsFilters;
+        delete window.setDatePreset;
+        delete window.loadVerificationReport;
+
+        // Reset state
+        allDepartments = [];
+        allCategories = [];
+        eqCurrentPage = 1;
+        mvCurrentPage = 1;
+        currentActiveTab = 'equipos';
+    }
 
     function setupTabListeners() {
         const tabEls = document.querySelectorAll('#reportTabs button[data-bs-toggle="tab"]');
         tabEls.forEach(function (tabEl) {
-            tabEl.addEventListener('shown.bs.tab', function (event) {
+            const fn = function (event) {
                 const target = event.target.getAttribute('data-bs-target');
                 if (target === '#panel-equipos') currentActiveTab = 'equipos';
                 else if (target === '#panel-movimientos') currentActiveTab = 'movimientos';
@@ -75,21 +114,21 @@
                 else if (target === '#panel-ciclo-vida') currentActiveTab = 'ciclo-vida';
                 else if (target === '#panel-verificacion') currentActiveTab = 'verificacion';
 
-                // Actualizar URL sin recargar
                 const url = new URL(window.location);
                 url.searchParams.set('tab', currentActiveTab);
                 history.replaceState(null, '', url);
 
                 loadActiveTabData();
                 updateExportButtons();
-            });
+            };
+            tabEl.addEventListener('shown.bs.tab', fn);
+            _tabHandlers.push({ el: tabEl, fn: fn });
         });
     }
 
     function loadActiveTabData() {
         switch (currentActiveTab) {
             case 'equipos':
-                // Solo cargar si la tabla está vacía (placeholder)
                 break;
             case 'movimientos':
                 break;
@@ -146,7 +185,6 @@
             });
         });
 
-        // Single-select con opción "Todos" para el tab de verificación
         const vrSelect = document.getElementById('vr-department');
         if (vrSelect) {
             vrSelect.innerHTML = '<option value="">Todos</option>';
@@ -173,7 +211,7 @@
 
     // ==================== REPORTE DE EQUIPOS ====================
 
-    window.loadEquipmentReport = async function (page) {
+    async function loadEquipmentReport(page) {
         eqCurrentPage = page || 1;
         const tbody = document.getElementById('eq-tbody');
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Cargando...</td></tr>';
@@ -206,7 +244,7 @@
             console.error('Error:', error);
             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-3"><i class="fas fa-exclamation-triangle"></i> Error al cargar datos</td></tr>';
         }
-    };
+    }
 
     function renderEquipmentTable(items) {
         const tbody = document.getElementById('eq-tbody');
@@ -233,21 +271,20 @@
         }).join('');
     }
 
-    window.clearEquipmentFilters = function () {
+    function clearEquipmentFilters() {
         document.getElementById('eq-departments').selectedIndex = -1;
         document.getElementById('eq-categories').selectedIndex = -1;
         document.getElementById('eq-statuses').selectedIndex = -1;
         document.getElementById('eq-search').value = '';
-        // Deseleccionar todos
         ['eq-departments', 'eq-categories', 'eq-statuses'].forEach(function (id) {
             const select = document.getElementById(id);
             Array.from(select.options).forEach(function (opt) { opt.selected = false; });
         });
-    };
+    }
 
     // ==================== REPORTE DE MOVIMIENTOS ====================
 
-    window.loadMovementsReport = async function (page) {
+    async function loadMovementsReport(page) {
         mvCurrentPage = page || 1;
         const tbody = document.getElementById('mv-tbody');
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Cargando...</td></tr>';
@@ -281,7 +318,7 @@
             console.error('Error:', error);
             tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-3"><i class="fas fa-exclamation-triangle"></i> Error al cargar datos</td></tr>';
         }
-    };
+    }
 
     function renderMovementsTable(events) {
         const tbody = document.getElementById('mv-tbody');
@@ -306,23 +343,22 @@
         }).join('');
     }
 
-    window.clearMovementsFilters = function () {
+    function clearMovementsFilters() {
         setDatePreset('month');
         ['mv-event-types', 'mv-departments'].forEach(function (id) {
             const select = document.getElementById(id);
             Array.from(select.options).forEach(function (opt) { opt.selected = false; });
         });
         document.getElementById('mv-search').value = '';
-    };
+    }
 
     // ==================== DATE PRESETS ====================
 
-    window.setDatePreset = function (preset) {
+    function setDatePreset(preset) {
         const today = new Date();
         let from = new Date();
         const to = today;
 
-        // Highlight active preset button
         document.querySelectorAll('.date-presets .btn').forEach(function (btn) {
             btn.classList.remove('active');
         });
@@ -341,11 +377,9 @@
                 from.setMonth(today.getMonth() - 6);
                 break;
             case 'custom':
-                // No cambiar fechas, solo habilitar edición
                 break;
         }
 
-        // Find and activate the clicked button
         const buttons = document.querySelectorAll('.date-presets .btn');
         buttons.forEach(function (btn) {
             if (btn.textContent.trim().toLowerCase().includes(preset === 'today' ? 'hoy' :
@@ -359,7 +393,7 @@
             document.getElementById('mv-date-from').value = formatDate(from);
             document.getElementById('mv-date-to').value = formatDate(to);
         }
-    };
+    }
 
     // ==================== GARANTÍAS ====================
 
@@ -378,7 +412,6 @@
             document.getElementById('w-expired').textContent = data.expired;
             document.getElementById('w-no-info').textContent = data.no_warranty_info;
 
-            // Combinar items que vencen pronto
             const allExpiring = [
                 ...data.expiring_30_days.items.map(function (i) { return { ...i, _urgency: '30 días' }; }),
                 ...data.expiring_60_days.items.map(function (i) { return { ...i, _urgency: '60 días' }; })
@@ -533,7 +566,7 @@
         never:    { text: 'Sin verificar', cls: 'badge-verif-never'    }
     };
 
-    window.loadVerificationReport = async function () {
+    async function loadVerificationReport() {
         const tbody = document.getElementById('vr-tbody');
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Cargando...</td></tr>';
 
@@ -570,7 +603,7 @@
             console.error('Error:', error);
             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-3"><i class="fas fa-exclamation-triangle"></i> Error al cargar datos</td></tr>';
         }
-    };
+    }
 
     function renderVerificationTable(items) {
         const tbody = document.getElementById('vr-tbody');
@@ -603,14 +636,12 @@
 
     // ==================== EXPORTACIÓN ====================
 
-    window.exportReport = async function (format) {
+    async function exportReport(format) {
         if (format === 'pdf') {
-            // Usar impresión del navegador
             window.print();
             return;
         }
 
-        // CSV export
         let reportType = '';
         let filters = {};
 
@@ -665,7 +696,6 @@
 
             if (!response.ok) throw new Error('Error al exportar');
 
-            // Descargar archivo
             const blob = await response.blob();
             const disposition = response.headers.get('Content-Disposition') || '';
             const filenameMatch = disposition.match(/filename=(.+)/);
@@ -690,14 +720,19 @@
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-file-csv"></i><span class="d-none d-sm-inline"> CSV</span>';
         }
-    };
+    }
 
     function updateExportButtons() {
         const csvBtn = document.getElementById('btn-export-csv');
         const pdfBtn = document.getElementById('btn-export-pdf');
-        // Habilitar export siempre que haya un tab activo
         csvBtn.disabled = false;
         pdfBtn.disabled = false;
+    }
+
+    function showToast(msg, type) {
+        if (window.HelpdeskUtils && window.HelpdeskUtils.showToast) {
+            window.HelpdeskUtils.showToast(msg, type || 'success');
+        }
     }
 
     // ==================== PAGINACIÓN ====================
@@ -714,12 +749,10 @@
         container.style.display = 'block';
         let html = '';
 
-        // Prev
         html += `<li class="page-item ${currentPage <= 1 ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="event.preventDefault(); ${callbackName}(${currentPage - 1})">«</a>
         </li>`;
 
-        // Page numbers (max 7 visible)
         const maxVisible = 7;
         let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
         let endPage = Math.min(totalPages, startPage + maxVisible - 1);
@@ -743,7 +776,6 @@
             html += `<li class="page-item"><a class="page-link" href="#" onclick="event.preventDefault(); ${callbackName}(${totalPages})">${totalPages}</a></li>`;
         }
 
-        // Next
         html += `<li class="page-item ${currentPage >= totalPages ? 'disabled' : ''}">
             <a class="page-link" href="#" onclick="event.preventDefault(); ${callbackName}(${currentPage + 1})">»</a>
         </li>`;
@@ -757,7 +789,6 @@
         const select = document.getElementById(selectId);
         if (!select) return [];
         return Array.from(select.selectedOptions).map(function (opt) {
-            // Intentar parsear como int, sino devolver string
             const val = opt.value;
             const num = parseInt(val);
             return isNaN(num) ? val : num;
@@ -786,5 +817,8 @@
         div.textContent = str;
         return div.innerHTML;
     }
+
+    // ==================== REGISTRO ====================
+    window.HelpdeskPage.page('inventory_reports_reports', { init: init, destroy: destroy });
 
 })();

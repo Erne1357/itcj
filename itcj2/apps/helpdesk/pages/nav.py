@@ -62,6 +62,13 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
         "js/inventory/dashboard.js",
     ],
+    "inventory_assignment_assign_equipment": ["js/inventory/assignment/assign_equipment.js"],
+    "inventory_assignment_my_equipment": [
+        "js/inventory/assignment/my_equipment_modal.js",
+        "js/inventory/assignment/my_equipment.js",
+    ],
+    "inventory_reports_verification": ["js/inventory/reports/verification.js"],
+    "inventory_reports_reports": ["js/inventory/reports/reports.js"],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> hd_page destino. Permite saber si un
@@ -84,6 +91,10 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.inventory_pages.pending_items": "inventory_items_pending_items",
     "helpdesk_pages.inventory_pages.groups_list": "inventory_groups_groups_list",
     "helpdesk_pages.inventory_pages.dashboard": "inventory_dashboard",
+    "helpdesk_pages.inventory_pages.assign_equipment": "inventory_assignment_assign_equipment",
+    "helpdesk_pages.inventory_pages.my_equipment": "inventory_assignment_my_equipment",
+    "helpdesk_pages.inventory_pages.verification": "inventory_reports_verification",
+    "helpdesk_pages.inventory_pages.reports": "inventory_reports_reports",
 }
 
 

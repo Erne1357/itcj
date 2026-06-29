@@ -587,9 +587,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const ACTIVE_TAB = '{{ active_tab }}';
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/reports/reports.js') }}?v={{ sv('helpdesk', 'js/inventory/reports/reports.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-active-tab="{{ active_tab }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}
