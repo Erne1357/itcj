@@ -161,11 +161,34 @@ const WarehouseEntries = (function () {
         } catch (err) { HelpdeskUtils.showToast(err.message, 'danger'); }
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('entryDate').value = new Date().toISOString().split('T')[0];
+    function init() {
+        currentPage = 1;
+        totalPages = 1;
+
+        // Clear product selects to avoid duplicates on revisit
+        const productFilter = document.getElementById('productFilter');
+        if (productFilter) {
+            while (productFilter.options.length > 1) productFilter.remove(1);
+        }
+        const entryProduct = document.getElementById('entryProduct');
+        if (entryProduct) {
+            entryProduct.innerHTML = '<option value="">Selecciona un producto...</option>';
+        }
+
+        const entryDate = document.getElementById('entryDate');
+        if (entryDate) entryDate.value = new Date().toISOString().split('T')[0];
+
         loadProducts();
         load(1);
-    });
+    }
+
+    function destroy() {
+        currentPage = 1;
+        totalPages = 1;
+    }
+
+    window.WarehouseEntries = { load, prevPage, nextPage, save, voidEntry, confirmVoid };
+    window.HelpdeskPage.page('warehouse_entries', { init: init, destroy: destroy });
 
     return { load, prevPage, nextPage, save, voidEntry, confirmVoid };
 })();

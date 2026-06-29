@@ -108,10 +108,27 @@ const WarehouseMovements = (function () {
     function prevPage() { if (currentPage > 1) load(currentPage - 1); }
     function nextPage() { if (currentPage < totalPages) load(currentPage + 1); }
 
-    document.addEventListener('DOMContentLoaded', function () {
+    function init() {
+        currentPage = 1;
+        totalPages = 1;
+
+        // Clear productFilter to avoid duplicates on revisit
+        const productFilter = document.getElementById('productFilter');
+        if (productFilter) {
+            while (productFilter.options.length > 1) productFilter.remove(1);
+        }
+
         loadProducts();
         load(1);
-    });
+    }
+
+    function destroy() {
+        currentPage = 1;
+        totalPages = 1;
+    }
+
+    window.WarehouseMovements = { load, prevPage, nextPage };
+    window.HelpdeskPage.page('warehouse_movements', { init: init, destroy: destroy });
 
     return { load, prevPage, nextPage };
 })();

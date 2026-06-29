@@ -33,6 +33,12 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "admin_home": ["js/admin/home.js"],
     "admin_tickets_list": ["js/admin/tickets_list.js"],
     "admin_categories": [],
+    "warehouse_dashboard": ["js/warehouse/dashboard.js"],
+    "warehouse_categories": ["js/warehouse/categories.js"],
+    "warehouse_products": ["js/warehouse/products.js"],
+    "warehouse_entries": ["js/warehouse/entries.js"],
+    "warehouse_movements": ["js/warehouse/movements.js"],
+    "warehouse_reports": ["js/warehouse/reports.js"],
 }
 
 # Mapa endpoint de nav (estilo Flask) -> active_page destino. Permite saber si
@@ -41,6 +47,12 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.admin_pages.home": "admin_home",
     "helpdesk_pages.admin_pages.tickets_list": "admin_tickets_list",
     "helpdesk_pages.admin_pages.categories": "admin_categories",
+    "helpdesk_pages.warehouse_pages.dashboard": "warehouse_dashboard",
+    "helpdesk_pages.warehouse_pages.categories": "warehouse_categories",
+    "helpdesk_pages.warehouse_pages.products": "warehouse_products",
+    "helpdesk_pages.warehouse_pages.entries": "warehouse_entries",
+    "helpdesk_pages.warehouse_pages.movements": "warehouse_movements",
+    "helpdesk_pages.warehouse_pages.reports": "warehouse_reports",
 }
 
 

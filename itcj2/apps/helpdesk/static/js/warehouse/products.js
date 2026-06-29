@@ -8,6 +8,9 @@ const WarehouseProducts = (function () {
     let totalPages = 1;
     let editingId = null;
 
+    // Stored handler reference for cleanup
+    let _onProductModalHidden = null;
+
     async function loadCategories() {
         try {
             const res = await fetch(`${API}/categories?with_subcategories=true`);
@@ -224,8 +227,22 @@ const WarehouseProducts = (function () {
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('productModal').addEventListener('hidden.bs.modal', function () {
+    function init() {
+        currentPage = 1;
+        totalPages = 1;
+        editingId = null;
+
+        // Clear select options to avoid duplicates on revisit (keep first placeholder option)
+        const catFilter = document.getElementById('categoryFilter');
+        if (catFilter) {
+            while (catFilter.options.length > 1) catFilter.remove(1);
+        }
+        const subcatSelect = document.getElementById('prodSubcategory');
+        if (subcatSelect) {
+            while (subcatSelect.options.length > 1) subcatSelect.remove(1);
+        }
+
+        _onProductModalHidden = function () {
             editingId = null;
             document.getElementById('productModalTitle').innerHTML =
                 '<i class="fas fa-cube me-2"></i>Nuevo Producto';
@@ -235,10 +252,28 @@ const WarehouseProducts = (function () {
             document.getElementById('prodSubcategory').value = '';
             document.getElementById('prodDept').value = 'comp_center';
             document.getElementById('prodDesc').value = '';
-        });
+        };
+
+        const prodModal = document.getElementById('productModal');
+        if (prodModal) prodModal.addEventListener('hidden.bs.modal', _onProductModalHidden);
+
         loadCategories();
         load(1);
-    });
+    }
+
+    function destroy() {
+        const prodModal = document.getElementById('productModal');
+        if (prodModal && _onProductModalHidden) {
+            prodModal.removeEventListener('hidden.bs.modal', _onProductModalHidden);
+        }
+        _onProductModalHidden = null;
+        editingId = null;
+        currentPage = 1;
+        totalPages = 1;
+    }
+
+    window.WarehouseProducts = { load, reset, prevPage, nextPage, showStock, edit, save };
+    window.HelpdeskPage.page('warehouse_products', { init: init, destroy: destroy });
 
     return { load, reset, prevPage, nextPage, showStock, edit, save };
 })();

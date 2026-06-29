@@ -6,6 +6,10 @@ const WarehouseCategories = (function () {
     const API = '/api/warehouse/v2';
     let selectedCatId = null;
 
+    // Stored handler references for cleanup
+    let _onCategoryModalHidden = null;
+    let _onSubcategoryModalHidden = null;
+
     async function load() {
         try {
             const res = await fetch(`${API}/categories?with_subcategories=true`);
@@ -135,19 +139,45 @@ const WarehouseCategories = (function () {
         } catch (err) { HelpdeskUtils.showToast(err.message, 'danger'); }
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('categoryModal').addEventListener('hidden.bs.modal', function () {
+    function init() {
+        selectedCatId = null;
+
+        _onCategoryModalHidden = function () {
             document.getElementById('catId').value = '';
             document.getElementById('catName').value = '';
             document.getElementById('catDesc').value = '';
-        });
-        document.getElementById('subcategoryModal').addEventListener('hidden.bs.modal', function () {
+        };
+        _onSubcategoryModalHidden = function () {
             document.getElementById('subcatId').value = '';
             document.getElementById('subcatName').value = '';
             document.getElementById('subcatDesc').value = '';
-        });
+        };
+
+        const catModal = document.getElementById('categoryModal');
+        if (catModal) catModal.addEventListener('hidden.bs.modal', _onCategoryModalHidden);
+
+        const subcatModal = document.getElementById('subcategoryModal');
+        if (subcatModal) subcatModal.addEventListener('hidden.bs.modal', _onSubcategoryModalHidden);
+
         load();
-    });
+    }
+
+    function destroy() {
+        const catModal = document.getElementById('categoryModal');
+        if (catModal && _onCategoryModalHidden) {
+            catModal.removeEventListener('hidden.bs.modal', _onCategoryModalHidden);
+        }
+        const subcatModal = document.getElementById('subcategoryModal');
+        if (subcatModal && _onSubcategoryModalHidden) {
+            subcatModal.removeEventListener('hidden.bs.modal', _onSubcategoryModalHidden);
+        }
+        _onCategoryModalHidden = null;
+        _onSubcategoryModalHidden = null;
+        selectedCatId = null;
+    }
+
+    window.WarehouseCategories = { selectCategory, saveCategory, editSubcategory, saveSubcategory };
+    window.HelpdeskPage.page('warehouse_categories', { init: init, destroy: destroy });
 
     return { selectCategory, saveCategory, editSubcategory, saveSubcategory };
 })();
