@@ -108,12 +108,7 @@ $(document).ready(function() {
 
     var registry = {};
     var currentKey = null;
-
-    function readKey() {
-        var root = document.querySelector('[data-hd-page]');
-        var key = root ? root.getAttribute('data-hd-page') : null;
-        return key || null;
-    }
+    var loadedModules = {};   // src -> true (evita recargar/re-declarar módulos)
 
     function teardown() {
         var hooks = currentKey && registry[currentKey];
@@ -131,19 +126,45 @@ $(document).ready(function() {
         }
     }
 
+    // Carga secuencial (orden = deps CDN antes que el módulo app) y dedup por src.
+    // Al terminar de cargar, cada módulo llama HelpdeskPage.page(key, ...) y, si su
+    // página sigue activa, register() dispara el init. Por eso no llamamos setup()
+    // aquí: evita doble-init. En revisitas (módulo ya cargado) activate() hace setup().
+    function loadModules(attr) {
+        var srcs = (attr || '').split('|').filter(Boolean);
+        var i = 0;
+        function next() {
+            if (i >= srcs.length) return;
+            var src = srcs[i++];
+            if (loadedModules[src]) { next(); return; }
+            loadedModules[src] = true;
+            var s = document.createElement('script');
+            s.src = src;
+            s.onload = next;
+            s.onerror = function () { console.error('[HelpdeskPage] fallo módulo ' + src); next(); };
+            document.head.appendChild(s);
+        }
+        next();
+    }
+
     function activate() {
-        var key = readKey();
+        var root = document.querySelector('[data-hd-page]');
+        var key = root ? (root.getAttribute('data-hd-page') || null) : null;
         if (key === currentKey) return;          // mismo destino → no-op
         teardown();                              // destruye la página saliente
         currentKey = key;
-        setup();                                 // inicializa la entrante
+        if (!key) return;
+        if (registry[key]) { setup(); return; }  // módulo ya cargado → re-init directo
+        var mods = root.getAttribute('data-hd-modules');
+        if (!mods) { setup(); return; }          // página migrada sin JS (ej. categorías)
+        loadModules(mods);                       // 1ª visita → carga; register() hará setup()
     }
 
     function register(key, hooks) {
         if (!key) return;
         registry[key] = hooks || {};
-        // Si el módulo se registra DESPUÉS del primer activate (carga diferida)
-        // y su página ya está montada, inicialízala ahora.
+        // Si el módulo se registra mientras su página está activa (carga diferida),
+        // inicialízala ahora.
         if (key === currentKey) setup();
     }
 

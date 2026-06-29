@@ -12,17 +12,63 @@ import logging
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 
-from itcj2.templates import ENDPOINT_MAP, render
+from itcj2.templates import ENDPOINT_MAP, render, sv
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages")
 
-# Endpoints de nav que participan en la navegación boosteada del piloto.
-HTMX_BOOSTED_ENDPOINTS = {
-    "helpdesk_pages.admin_pages.tickets_list",
+# ---------------------------------------------------------------------------
+# Navegación HTMX (hx-boost + idiomorph morph) — fuente única de verdad
+# ---------------------------------------------------------------------------
+# Rollback global del boost: poner en False → toda la app vuelve a navegación
+# clásica al instante (los módulos siguen registrando init en la carga inicial).
+HTMX_BOOST_ENABLED = True
+
+# Mapa: active_page -> lista de módulos JS a cargar para esa página.
+#   · Una entrada aquí = página MIGRADA al controller HelpdeskPage (navegable
+#     por boost). Lista vacía = página migrada SIN JS propio (ej. categorías).
+#   · Las rutas relativas se sirven desde /static/helpdesk/ y se versionan con
+#     sv(); las URLs http(s):// (CDN: Chart, ApexCharts, Sortable, Shepherd) se
+#     pasan tal cual. Orden = orden de carga (deps CDN antes que el módulo app).
+HD_PAGE_MODULES: dict[str, list[str]] = {
+    "admin_home": ["js/admin/home.js"],
+    "admin_tickets_list": ["js/admin/tickets_list.js"],
+    "admin_categories": [],
 }
-# active_page de las páginas del piloto (cluster con navegación fluida).
-# Vaciar este set desactiva el boost en toda la app (rollback de 1 línea).
-HTMX_PILOT_PAGES = {"admin_home", "admin_categories", "admin_tickets_list"}
+
+# Mapa endpoint de nav (estilo Flask) -> active_page destino. Permite saber si
+# un link del nav apunta a una página migrada (y por tanto debe boostearse).
+ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
+    "helpdesk_pages.admin_pages.home": "admin_home",
+    "helpdesk_pages.admin_pages.tickets_list": "admin_tickets_list",
+    "helpdesk_pages.admin_pages.categories": "admin_categories",
+}
+
+
+def _is_migrated(active_page: str | None) -> bool:
+    return bool(active_page) and active_page in HD_PAGE_MODULES
+
+
+def _endpoint_is_boostable(endpoint: str | None) -> bool:
+    """True si el link del nav apunta a una página migrada (debe llevar hx-boost)."""
+    if not HTMX_BOOST_ENABLED or not endpoint:
+        return False
+    return _is_migrated(ENDPOINT_TO_ACTIVE_PAGE.get(endpoint))
+
+
+def _module_url(path: str) -> str:
+    """URL final de un módulo: CDN tal cual; estático local versionado con sv()."""
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return f"/static/helpdesk/{path}?v={sv('helpdesk', path)}"
+
+
+def _hd_modules_attr(active_page: str | None) -> str:
+    """Valor de data-hd-modules: URLs de los módulos de la página separadas por '|'."""
+    return "|".join(_module_url(p) for p in HD_PAGE_MODULES.get(active_page or "", []))
+
+
+# Alias retrocompatible (algún código/test puede referenciarlo).
+HTMX_PILOT_PAGES = set(HD_PAGE_MODULES)
 
 
 def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
@@ -51,14 +97,14 @@ def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
         nav_items = get_helpdesk_navigation(user_perms, user_roles)
 
         for item in nav_items:
-            item["hx_boost"] = item.get("endpoint") in HTMX_BOOSTED_ENDPOINTS
+            item["hx_boost"] = _endpoint_is_boostable(item.get("endpoint"))
             if item.get("endpoint") and item["endpoint"] != "#":
                 item["url"] = ENDPOINT_MAP.get(item["endpoint"], "#")
                 if "fragment" in item:
                     item["url"] += item["fragment"]
 
             for sub in item.get("dropdown", []):
-                sub["hx_boost"] = sub.get("endpoint") in HTMX_BOOSTED_ENDPOINTS
+                sub["hx_boost"] = _endpoint_is_boostable(sub.get("endpoint"))
                 if sub.get("endpoint") and sub["endpoint"] != "#":
                     sub["url"] = ENDPOINT_MAP.get(sub["endpoint"], "#")
                     if "fragment" in sub:
@@ -102,6 +148,7 @@ def render_helpdesk(
     ctx = {
         **(context or {}),
         **nav_ctx,
-        "htmx_boost_enabled": active_page in HTMX_PILOT_PAGES,
+        "htmx_boost_enabled": HTMX_BOOST_ENABLED and _is_migrated(active_page),
+        "hd_modules": _hd_modules_attr(active_page),
     }
     return render(request, template, ctx, status_code)

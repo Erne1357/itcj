@@ -178,7 +178,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ active_page or '' }}">
+    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ active_page or '' }}" data-hd-modules="{{ hd_modules or '' }}">
         {% block content %}{% endblock %}
     </main>
 
@@ -213,9 +213,8 @@
     <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
 
     <script src="{{ url_for('static', filename='helpdesk/js/shared/base.js') }}?v={{ sv('helpdesk', 'js/shared/base.js') }}"></script>
-    <!-- Módulos de página del piloto HTMX (cargados 1 vez; morph-safe) -->
-    <script src="{{ url_for('static', filename='helpdesk/js/admin/home.js') }}?v={{ sv('helpdesk', 'js/admin/home.js') }}"></script>
-    <script src="{{ url_for('static', filename='helpdesk/js/admin/tickets_list.js') }}?v={{ sv('helpdesk', 'js/admin/tickets_list.js') }}"></script>
+    {# Los módulos de página se cargan bajo demanda por el controller HelpdeskPage
+       (atributo data-hd-modules en <main>), no aquí. Ver pages/nav.py HD_PAGE_MODULES. #}
     {% block extra_js %}{% endblock %}
 </body>
 
