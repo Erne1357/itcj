@@ -5,7 +5,6 @@ Equivalente a itcj/apps/helpdesk/routes/pages/admin.py.
 Rutas:
   GET /help-desk/admin/home                   → Dashboard de administrador
   GET /help-desk/admin/assign-tickets         → Asignación de tickets
-  GET /help-desk/admin/tickets                → Todos los tickets (admin)
   GET /help-desk/admin/tickets-list           → Lista completa de tickets
   GET /help-desk/admin/categories             → Gestión de categorías
   GET /help-desk/admin/inventory              → Redirige a lista de inventario
@@ -66,21 +65,6 @@ async def assign_tickets(
     return render_helpdesk(request, "helpdesk/admin/assign_tickets.html", {
         "user_roles": user_roles,
         "active_page": "admin_assign_tickets",
-    })
-
-
-@router.get("/tickets", name="helpdesk.pages.admin.all_tickets")
-async def all_tickets(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.list"])),
-):
-    """Vista de todos los tickets del sistema."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/admin/all_tickets.html", {
-        "user_roles": user_roles,
-        "active_page": "admin_tickets",
     })
 
 
