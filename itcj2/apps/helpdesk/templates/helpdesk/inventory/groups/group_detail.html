@@ -3,7 +3,7 @@
 {% block title %}Detalle de Grupo - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups/group_detail.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups/group_detail.css') }}?v={{ sv('helpdesk', 'css/inventory/groups/group_detail.css') }}">
 {% endblock %}
 
 {% block content %}

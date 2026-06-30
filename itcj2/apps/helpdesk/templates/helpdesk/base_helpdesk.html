@@ -19,7 +19,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="bg-light" hx-ext="morph" hx-swap="morph:innerHTML" hx-target="body">
+<body class="bg-light" hx-ext="morph,head-support" hx-swap="morph:innerHTML" hx-target="body">
 
     <!-- Header con Navegación -->
     <header class="sitec-header-nav sticky-top shadow-sm mb-2 mb-md-4">
@@ -66,7 +66,7 @@
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             {% for sub_item in item.dropdown %}
                                             <li>
-                                                <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" href="{{ sub_item.url }}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
+                                                <a class="dropdown-item {% if sub_item.is_active %}active{% endif %}" href="{{ sub_item.url }}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
                                                     <i class="fas {{ sub_item.icon }} me-1"></i>{{ sub_item.label }}
                                                 </a>
                                             </li>
@@ -75,7 +75,7 @@
                                     </li>
                                     {% else %}
                                     <li class="nav-item">
-                                        <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" href="{{ item.url }}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
+                                        <a class="nav-link {% if item.is_active %}active{% endif %}" href="{{ item.url }}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
                                             <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
                                         </a>
                                     </li>
@@ -113,7 +113,7 @@
                 {% if helpdesk_nav_items %}
                     {% for item in helpdesk_nav_items %}
                         {% if item.dropdown %}
-                            {% set group_active = current_route in item.dropdown | map(attribute='endpoint') | list %}
+                            {% set group_active = item.group_active %}
                             <div class="app-sidebar-group {% if group_active %}has-active{% endif %}">
                                 <button class="app-sidebar-group-toggle"
                                         type="button"
@@ -128,7 +128,7 @@
                                 <div class="collapse {% if group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
                                     <div class="app-sidebar-sub-items">
                                         {% for sub_item in item.dropdown %}
-                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub_item.endpoint %}active{% endif %}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
+                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if sub_item.is_active %}active{% endif %}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
                                             <i class="fas {{ sub_item.icon }}"></i>
                                             <span>{{ sub_item.label }}</span>
                                         </a>
@@ -137,7 +137,7 @@
                                 </div>
                             </div>
                         {% else %}
-                            <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
+                            <a href="{{ item.url }}" class="app-sidebar-item {% if item.is_active %}active{% endif %}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
                                 <i class="fas {{ item.icon }}"></i>
                                 <span>{{ item.label }}</span>
                             </a>
@@ -178,7 +178,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or active_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" {% block hd_data %}{% endblock %}>
+    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" {% block hd_data %}{% endblock %}>
         {% block content %}{% endblock %}
     </main>
 
@@ -192,6 +192,10 @@
     <!-- HTMX (navegación sin recargar) + Idiomorph (swap por morphing) -->
     <script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
+    <!-- head-support: fusiona el head del response en cada navegacion boosted.
+         Sin esto, el CSS del bloque extra_css de la pagina destino NO se aplica
+         hasta una recarga completa, porque hx-target="body" no toca el head. -->
+    <script src="https://unpkg.com/htmx-ext-head-support@2.0.4/head-support.js" integrity="sha384-alEpTwaoXBHw9xh1d3fDZ4lNnOqQYkcIaRQTSQXgSZnAhcnj1H4F27lOZ1Eci1Sp" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
 

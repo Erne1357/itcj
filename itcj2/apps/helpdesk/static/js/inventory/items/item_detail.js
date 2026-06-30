@@ -565,7 +565,7 @@
             const meta = getEventMeta(event.event_type);
             const diffBlock = renderEventDiff(event);
             const ticketLink = event.related_ticket
-                ? `<a href="/help-desk/admin/tickets/${event.related_ticket.id}" class="badge bg-info text-white ms-1">
+                ? `<a href="/help-desk/user/tickets/${event.related_ticket.id}" class="badge bg-info text-white ms-1">
                        <i class="fas fa-ticket-alt"></i> #${escapeHtml(event.related_ticket.ticket_number || event.related_ticket.id)}
                    </a>`
                 : '';

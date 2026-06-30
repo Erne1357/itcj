@@ -3,7 +3,7 @@
 {% block title %}Grupos de Equipos - Help-Desk ITCJ{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups/groups_list.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/inventory/groups/groups_list.css') }}?v={{ sv('helpdesk', 'css/inventory/groups/groups_list.css') }}">
 {% endblock %}
 
 {% block content %}

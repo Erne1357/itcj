@@ -36,6 +36,8 @@
     let _btnRefreshHandler = null;
     let _btnResetMyPasswordHandler = null;
     let _createTicketModalInstance = null;
+    let _btnSubmitTicketHandler = null;
+    let _ticketAreaChangeHandler = null;
 
     // ==================== INIT / DESTROY ====================
     function init() {
@@ -47,6 +49,7 @@
         window.refreshDashboard = refreshDashboard;
         window.toggleInactiveUsers = toggleInactiveUsers;
         window.resetSecretaryPassword = resetSecretaryPassword;
+        window.openCreateTicketModal = openCreateTicketModal;
 
         // Guardar la página actual para navegación inteligente
         sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
@@ -63,6 +66,7 @@
         delete window.refreshDashboard;
         delete window.toggleInactiveUsers;
         delete window.resetSecretaryPassword;
+        delete window.openCreateTicketModal;
 
         // Reset module state
         departmentTickets = [];
@@ -92,10 +96,21 @@
             _searchTimeout = null;
         }
 
-        // Dispose createTicketModal if instantiated
+        // Dispose createTicketModal if instantiated + remove submit listener
         if (_createTicketModalInstance) {
             try { _createTicketModalInstance.dispose(); } catch (e) { /* noop */ }
             _createTicketModalInstance = null;
+        }
+        const btnSubmit = document.getElementById('btnSubmitTicket');
+        if (btnSubmit && _btnSubmitTicketHandler) {
+            btnSubmit.removeEventListener('click', _btnSubmitTicketHandler);
+            _btnSubmitTicketHandler = null;
+        }
+        // Remove area radio change listeners
+        const radios = document.querySelectorAll('input[name="ticketArea"]');
+        if (_ticketAreaChangeHandler) {
+            radios.forEach(r => r.removeEventListener('change', _ticketAreaChangeHandler));
+            _ticketAreaChangeHandler = null;
         }
 
         // Remove btnResetMyPassword click listener
@@ -459,6 +474,165 @@
         }
 
         renderTickets(filtered);
+    }
+
+    // ==================== CREAR TICKET ====================
+
+    /**
+     * Abre el modal #createTicketModal (Bootstrap 5).
+     * Carga las categorías del área seleccionada y cablea el submit al endpoint
+     * POST /api/help-desk/v2/tickets (permiso helpdesk.tickets.api.create).
+     * El dept head crea el ticket para sí mismo (requester_id = propio).
+     */
+    function openCreateTicketModal() {
+        const modalEl = document.getElementById('createTicketModal');
+        if (!modalEl) {
+            HelpdeskUtils.showToast('Modal de creación no encontrado', 'danger');
+            return;
+        }
+
+        // Crear o reutilizar la instancia Bootstrap Modal
+        if (!_createTicketModalInstance) {
+            _createTicketModalInstance = new bootstrap.Modal(modalEl);
+        }
+
+        // Limpiar formulario
+        const form = document.getElementById('createTicketForm');
+        if (form) form.reset();
+
+        // Restaurar estado del botón submit por si quedó deshabilitado en un envío anterior
+        const btnSubmit = document.getElementById('btnSubmitTicket');
+        if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Crear Ticket';
+        }
+
+        // Cargar categorías para el área por defecto (SOPORTE está checked en el template)
+        const selectedArea = (form
+            ? (form.querySelector('input[name="ticketArea"]:checked') || {})
+            : {}).value || 'SOPORTE';
+        loadTicketCategories(selectedArea);
+
+        // Cablear cambio de área → recargar categorías (solo une vez)
+        if (!_ticketAreaChangeHandler) {
+            _ticketAreaChangeHandler = function (e) {
+                loadTicketCategories(e.target.value);
+            };
+            document.querySelectorAll('input[name="ticketArea"]').forEach(r =>
+                r.addEventListener('change', _ticketAreaChangeHandler)
+            );
+        }
+
+        // Cablear botón submit (solo une vez)
+        if (btnSubmit && !_btnSubmitTicketHandler) {
+            _btnSubmitTicketHandler = handleSubmitTicket;
+            btnSubmit.addEventListener('click', _btnSubmitTicketHandler);
+        }
+
+        _createTicketModalInstance.show();
+    }
+
+    async function loadTicketCategories(area) {
+        const select = document.getElementById('ticketCategory');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">Cargando categorías...</option>';
+        select.disabled = true;
+
+        try {
+            const res = await fetch(
+                `/api/help-desk/v2/categories?area=${encodeURIComponent(area)}&active=true`,
+                { credentials: 'include' }
+            );
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            const cats = data.categories || [];
+
+            if (cats.length === 0) {
+                select.innerHTML = '<option value="">Sin categorías disponibles</option>';
+            } else {
+                select.innerHTML = '<option value="">Selecciona una categoría</option>' +
+                    cats.map(c =>
+                        `<option value="${c.id}">${escHtml(c.name)}</option>`
+                    ).join('');
+            }
+            select.disabled = false;
+        } catch (err) {
+            console.error('loadTicketCategories error:', err);
+            select.innerHTML = '<option value="">Error al cargar categorías</option>';
+            select.disabled = false;
+        }
+    }
+
+    async function handleSubmitTicket() {
+        const btnSubmit = document.getElementById('btnSubmitTicket');
+
+        // Recopilar valores del formulario
+        const areaInput = document.querySelector('input[name="ticketArea"]:checked');
+        const area        = areaInput ? areaInput.value : '';
+        const categoryId  = parseInt(document.getElementById('ticketCategory').value, 10) || null;
+        const title       = (document.getElementById('ticketTitle').value || '').trim();
+        const description = (document.getElementById('ticketDescription').value || '').trim();
+        const priority    = document.getElementById('ticketPriority').value || 'MEDIA';
+        const location    = (document.getElementById('ticketLocation').value || '').trim() || null;
+
+        // Validaciones client-side (espeja las del backend)
+        if (!area) {
+            HelpdeskUtils.showToast('Selecciona el tipo de solicitud (área)', 'warning');
+            return;
+        }
+        if (!categoryId) {
+            HelpdeskUtils.showToast('Selecciona una categoría', 'warning');
+            return;
+        }
+        if (title.length < 5) {
+            HelpdeskUtils.showToast('El título debe tener al menos 5 caracteres', 'warning');
+            return;
+        }
+        if (description.length < 20) {
+            HelpdeskUtils.showToast('La descripción debe tener al menos 20 caracteres', 'warning');
+            return;
+        }
+
+        // Deshabilitar botón durante la petición
+        const originalHtml = btnSubmit.innerHTML;
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creando...';
+
+        try {
+            const resp = await fetch('/api/help-desk/v2/tickets', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ area, category_id: categoryId, title, description, priority, location }),
+            });
+
+            const data = await resp.json();
+
+            if (!resp.ok) {
+                const msg = (data.detail && typeof data.detail === 'object')
+                    ? (data.detail.message || data.detail.error || 'Error al crear ticket')
+                    : (typeof data.detail === 'string' ? data.detail : 'Error al crear ticket');
+                throw new Error(msg);
+            }
+
+            HelpdeskUtils.showToast(
+                `Ticket ${escHtml(data.ticket?.ticket_number || '')} creado exitosamente`,
+                'success'
+            );
+
+            if (_createTicketModalInstance) _createTicketModalInstance.hide();
+
+            // Refrescar la lista de tickets del departamento
+            await loadDepartmentTickets();
+
+        } catch (err) {
+            console.error('handleSubmitTicket error:', err);
+            HelpdeskUtils.showToast(err.message || 'Error al crear ticket', 'danger');
+        } finally {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = originalHtml;
+        }
     }
 
     // ==================== STATISTICS ====================

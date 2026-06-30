@@ -32,10 +32,11 @@ def patched_authz(perms=NAV_PERMS):
         yield
 
 
+# admin/categories ya NO es página HTMX: ahora redirige al tab de Config
+# (unificado en config/categories_tab.js). Por eso sale del set de páginas piloto.
 PILOT = [
     ("/help-desk/admin/home", "admin_home"),
     ("/help-desk/admin/tickets-list", "admin_tickets_list"),
-    ("/help-desk/admin/categories", "admin_categories"),
 ]
 
 
@@ -48,7 +49,21 @@ def test_pilot_page_has_htmx_assets_and_marker(app_client, path, key):
     assert "unpkg.com/htmx.org@2.0.3" in html
     assert "idiomorph" in html
     assert f'data-hd-page="{key}"' in html
-    assert 'hx-ext="morph"' in html
+    # head-support (fusiona el <head> en navegación boosted → CSS por-página)
+    assert 'hx-ext="morph,head-support"' in html
+    assert "htmx-ext-head-support" in html
+
+
+def test_admin_categories_redirects_to_config():
+    """admin/categories e inventory_categories quedaron unificadas en Config."""
+    from itcj2.apps.helpdesk.pages.admin import categories, inventory_categories
+    import asyncio
+
+    with patched_authz():
+        r1 = asyncio.run(categories(request=None, user={"sub": "200", "role": "admin"}))
+        r2 = asyncio.run(inventory_categories(request=None, user={"sub": "200", "role": "admin"}))
+    assert r1.status_code == 302 and "/help-desk/admin/config#categorias" in r1.headers["location"]
+    assert r2.status_code == 302 and "/help-desk/admin/config#inv-cat" in r2.headers["location"]
 
 
 def test_nav_marks_only_boosted_endpoints():

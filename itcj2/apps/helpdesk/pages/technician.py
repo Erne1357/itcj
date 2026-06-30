@@ -3,9 +3,7 @@ Páginas del área de técnicos de Help-Desk.
 Equivalente a itcj/apps/helpdesk/routes/pages/technician.py.
 
 Rutas:
-  GET /help-desk/technician/dashboard        → Dashboard personal del técnico
-  GET /help-desk/technician/my-assignments   → Tickets asignados al técnico
-  GET /help-desk/technician/team             → Vista de tickets del equipo
+  GET /help-desk/technician/dashboard        → Dashboard personal del técnico (hace todo)
   GET /help-desk/technician/tickets/{id}     → Detalle de ticket (vista técnico)
 """
 import logging
@@ -57,36 +55,6 @@ async def dashboard(
         "user_roles": user_roles,
         "active_page": "tech_dashboard",
         "can_consume_warehouse": can_consume_warehouse,
-    })
-
-
-@router.get("/my-assignments", name="helpdesk.pages.technician.my_assignments")
-async def my_assignments(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.my_tickets"])),
-):
-    """Tickets asignados al técnico actual."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/technician/my_assignments.html", {
-        "user_roles": user_roles,
-        "active_page": "tech_assignments",
-    })
-
-
-@router.get("/team", name="helpdesk.pages.technician.team")
-async def team(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.team"])),
-):
-    """Vista de tickets del equipo técnico."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/technician/team.html", {
-        "user_roles": user_roles,
-        "active_page": "tech_team",
     })
 
 

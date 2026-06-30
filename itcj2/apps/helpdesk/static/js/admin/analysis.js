@@ -562,10 +562,11 @@
     // ================================================================
     function init() {
         // Reset estado para re-render en revisita
-        activeTab   = 'outliers';
-        loadedTabs  = new Set();
-        outlierData = null;
-        kmeansData  = null;
+        activeTab     = 'outliers';
+        activeOutlier = 'resolution';
+        loadedTabs    = new Set();
+        outlierData   = null;
+        kmeansData    = null;
         clearTimeout(dateDebounce);
         dateDebounce = null;
         destroyAllCharts();

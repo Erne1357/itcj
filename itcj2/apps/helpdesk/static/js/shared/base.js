@@ -186,7 +186,11 @@ $(document).ready(function() {
     }
 
     // Barra de progreso de navegación (feedback en cargas lentas).
-    function navStart() { document.body.classList.add('hd-navigating'); }
+    // Solo en requests boosteados (navegación real); evita parpadeo si en el
+    // futuro se agregan hx-get/hx-post in-page que no son navegación.
+    function navStart(evt) {
+        if (evt && evt.detail && evt.detail.boosted) document.body.classList.add('hd-navigating');
+    }
     function navEnd() { document.body.classList.remove('hd-navigating'); }
 
     function boot() { bindSidebar(); activate(); }

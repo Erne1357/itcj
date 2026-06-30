@@ -88,14 +88,12 @@ async def categories(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.categories.page.list"])),
 ):
-    """Gestión de categorías de tickets."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
+    """Categorías de tickets — unificadas en el tab de Configuración.
 
-    return render_helpdesk(request, "helpdesk/admin/categories.html", {
-        "user_roles": user_roles,
-        "active_page": "admin_categories",
-    })
+    La página standalone quedó superseded por `config/categories_tab.js`.
+    Se mantiene la ruta como redirect para bookmarks/links viejos.
+    """
+    return RedirectResponse("/help-desk/admin/config#categorias", status_code=302)
 
 
 @router.get("/inventory", name="helpdesk.pages.admin.inventory_list")
@@ -121,14 +119,12 @@ async def inventory_categories(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_categories.page.list"])),
 ):
-    """Gestión de categorías de inventario."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
+    """Categorías de inventario — unificadas en el tab de Configuración.
 
-    return render_helpdesk(request, "helpdesk/admin/inventory_categories.html", {
-        "user_roles": user_roles,
-        "active_page": "admin_inventory_categories",
-    })
+    La página standalone quedó superseded por `config/inventory_categories_tab.js`.
+    Se mantiene la ruta como redirect para bookmarks/links viejos.
+    """
+    return RedirectResponse("/help-desk/admin/config#inv-cat", status_code=302)
 
 
 @router.get("/inventory/reports", name="helpdesk.pages.admin.inventory_reports")

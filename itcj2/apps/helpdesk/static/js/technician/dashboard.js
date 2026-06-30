@@ -1,5 +1,5 @@
 // itcj2/apps/helpdesk/static/js/technician/dashboard.js
-// Módulo IIFE — registrado para technician_dashboard / technician_my_assignments / technician_team.
+// Módulo IIFE — registrado para technician_dashboard.
 // Cargado por el controller HelpdeskPage (base.js) vía data-hd-modules; NO usa DOMContentLoaded.
 
 (function () {
@@ -38,10 +38,6 @@
         // destroy() las elimina todas para evitar fugas.
         if (hdPage === 'technician_dashboard') {
             _initDashboard();
-        } else if (hdPage === 'technician_my_assignments') {
-            _initMyAssignments();
-        } else if (hdPage === 'technician_team') {
-            _initTeam();
         }
     }
 
@@ -146,110 +142,6 @@
         setupWebSocketListeners();
     }
 
-    // ==================== BRANCH: MY ASSIGNMENTS ====================
-
-    function _initMyAssignments() {
-        window.goToTicketDetailWithState = goToTicketDetailWithState;
-        window.openStartWorkModal = openStartWorkModal;
-        window.openResolveModal = openResolveModal;
-        window.openSelfAssignModal = openSelfAssignModal;
-
-        loadAssignedTickets();
-        _setupWebSocketMy();
-    }
-
-    function _setupWebSocketMy() {
-        _socketCheckInterval = setInterval(function () {
-            if (window.__helpdeskSocket) {
-                clearInterval(_socketCheckInterval);
-                _socketCheckInterval = null;
-                _bindSocketMyAssignments();
-            }
-        }, 100);
-        setTimeout(function () {
-            if (_socketCheckInterval) { clearInterval(_socketCheckInterval); _socketCheckInterval = null; }
-        }, 5000);
-    }
-
-    function _bindSocketMyAssignments() {
-        if (socketRoomsBound) return;
-        var socket = window.__helpdeskSocket;
-        if (!socket) return;
-
-        window.__hdJoinTech?.();
-
-        socket.off('ticket_assigned');
-        socket.off('ticket_reassigned');
-        socket.off('ticket_status_changed');
-        socket.off('ticket_created');
-        socket.off('ticket_self_assigned');
-
-        var debouncedRefresh = debounce(function () { loadAssignedTickets(); }, 300);
-        socket.on('ticket_assigned', debouncedRefresh);
-        socket.on('ticket_reassigned', debouncedRefresh);
-        socket.on('ticket_status_changed', debouncedRefresh);
-
-        socketRoomsBound = true;
-    }
-
-    // ==================== BRANCH: TEAM ====================
-
-    function _initTeam() {
-        window.openSelfAssignModal = openSelfAssignModal;
-        window.goToTicketDetailWithState = goToTicketDetailWithState;
-
-        loadTeamTickets();
-        _setupWebSocketTeam();
-    }
-
-    function _setupWebSocketTeam() {
-        _socketCheckInterval = setInterval(function () {
-            if (window.__helpdeskSocket) {
-                clearInterval(_socketCheckInterval);
-                _socketCheckInterval = null;
-                _bindSocketTeam();
-            }
-        }, 100);
-        setTimeout(function () {
-            if (_socketCheckInterval) { clearInterval(_socketCheckInterval); _socketCheckInterval = null; }
-        }, 5000);
-    }
-
-    async function _bindSocketTeam() {
-        if (socketRoomsBound) return;
-        var socket = window.__helpdeskSocket;
-        if (!socket) return;
-
-        // Obtener área del técnico para unirse al room de equipo
-        try {
-            var userResp = await fetch('/api/core/v2/user/me');
-            var user = await userResp.json();
-            var userRoles = (user.data && user.data.roles && user.data.roles.helpdesk) || [];
-            if (userRoles.includes('tech_desarrollo')) techArea = 'desarrollo';
-            else if (userRoles.includes('tech_soporte')) techArea = 'soporte';
-        } catch (e) {
-            console.warn('[Team] No se pudo obtener área:', e);
-        }
-
-        window.__hdJoinTech?.();
-        if (techArea) window.__hdJoinTeam?.(techArea);
-
-        socket.off('ticket_assigned');
-        socket.off('ticket_reassigned');
-        socket.off('ticket_status_changed');
-        socket.off('ticket_created');
-        socket.off('ticket_self_assigned');
-
-        var debouncedRefresh = debounce(function () { loadTeamTickets(); }, 300);
-        socket.on('ticket_created', function (data) {
-            if (techArea && data.area && data.area.toLowerCase() === techArea) debouncedRefresh();
-        });
-        socket.on('ticket_self_assigned', debouncedRefresh);
-        socket.on('ticket_reassigned', debouncedRefresh);
-
-        socketRoomsBound = true;
-    }
-
     // ==================== DASHBOARD INITIALIZATION ====================
 
     async function initializeDashboard() {
@@ -292,65 +184,10 @@
             var queueBadge = document.getElementById('queueBadge');
             if (queueBadge) queueBadge.textContent = myTickets.assigned.length;
 
-            // my_assignments: actualizar contadores
-            var countPending = document.getElementById('countPending');
-            if (countPending) countPending.textContent = myTickets.assigned.length;
-
-            // Cargar también los in_progress para my_assignments
-            var hdPage = _getHdPage();
-            if (hdPage === 'technician_my_assignments') {
-                await _loadMyAssignmentsAll(container);
-            } else {
-                renderTicketList(myTickets.assigned, container, 'assigned');
-            }
+            renderTicketList(myTickets.assigned, container, 'assigned');
 
         } catch (error) {
             console.error('Error loading assigned tickets:', error);
-            showErrorState(container);
-        }
-    }
-
-    async function _loadMyAssignmentsAll(container) {
-        // Para my_assignments cargamos todos los estados y mostramos con filtro
-        var statusFilter = document.getElementById('statusFilter');
-        var status = (statusFilter && statusFilter.value) ? statusFilter.value : '';
-
-        try {
-            var params = { assigned_to_me: true };
-            if (status) params.status = status;
-            else params.status = 'ASSIGNED,IN_PROGRESS,RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED';
-
-            var response = await HelpdeskUtils.api.getTickets(params);
-            var tickets = response.tickets || [];
-
-            // Separar por estado para contadores
-            var pending = tickets.filter(function (t) { return t.status === 'ASSIGNED'; });
-            var inProg = tickets.filter(function (t) { return t.status === 'IN_PROGRESS'; });
-            var resolved = tickets.filter(function (t) { return ['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED'].includes(t.status); });
-
-            var cp = document.getElementById('countPending');
-            var ci = document.getElementById('countInProgress');
-            var cr = document.getElementById('countResolved');
-            var ct = document.getElementById('countTotal');
-
-            if (cp) cp.textContent = pending.length;
-            if (ci) ci.textContent = inProg.length;
-            if (cr) cr.textContent = resolved.length;
-            if (ct) ct.textContent = tickets.length;
-
-            // Determinar tipo para acciones de tarjeta
-            if (tickets.length === 0) {
-                container.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-check-circle fa-3x mb-3"></i><p>No hay tickets</p></div>';
-                return;
-            }
-
-            container.innerHTML = tickets.map(function (t) {
-                var type = t.status === 'ASSIGNED' ? 'assigned' : (t.status === 'IN_PROGRESS' ? 'inProgress' : 'resolved');
-                return createTicketCard(t, type);
-            }).join('');
-
-        } catch (error) {
-            console.error('Error loading my assignments:', error);
             showErrorState(container);
         }
     }
@@ -1185,11 +1022,6 @@
 
     // ==================== HELPERS ====================
 
-    function _getHdPage() {
-        var el = document.querySelector('[data-hd-page]');
-        return el ? el.getAttribute('data-hd-page') : '';
-    }
-
     function truncateText(text, maxLength) {
         if (!text) return '';
         if (text.length <= maxLength) return text;
@@ -1212,11 +1044,7 @@
     }
 
     // ==================== CONTROLLER REGISTRATION ====================
-    // Registrar las 3 claves con el mismo objeto hooks.
-    // El controller (base.js) invocará init() cuando la página activa coincida.
     var hooks = { init: init, destroy: destroy };
     window.HelpdeskPage.page('technician_dashboard', hooks);
-    window.HelpdeskPage.page('technician_my_assignments', hooks);
-    window.HelpdeskPage.page('technician_team', hooks);
 
 })();

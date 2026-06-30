@@ -176,6 +176,8 @@
                 HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'RESOLVED_SUCCESS,RESOLVED_FAILED', per_page: 1, page: 1 })
             ]);
 
+            if (!_active) return;  // navegó fuera durante el fetch
+
             summaryStats = {
                 total: totalResp.total || 0,
                 active: activeResp.total || 0,
@@ -218,6 +220,9 @@
             };
 
             const response = await HelpdeskUtils.api.getTickets(params);
+            // Si el usuario navegó fuera (boost) durante el fetch, el DOM de esta
+            // página ya fue removido por idiomorph: abortar antes de tocarlo.
+            if (!_active) return;
             const tickets = response.tickets || [];
             totalTickets = response.total || 0;
             allTickets = tickets;
@@ -233,6 +238,8 @@
             console.log('Tickets cargados:', tickets.length, 'de', totalTickets);
 
         } catch (error) {
+            // Navegó fuera durante el fetch: no hay DOM ni toast que mostrar.
+            if (!_active) return;
             console.error('Error loading tickets:', error);
             const errorMessage = error.message || 'Error desconocido';
             HelpdeskUtils.showToast(`Error al cargar tickets: ${errorMessage}`, 'error');
@@ -672,7 +679,9 @@
     }
 
     function showErrorState() {
-        document.getElementById('ticketsList').innerHTML = `
+        const list = document.getElementById('ticketsList');
+        if (!list) return;  // DOM ya removido (navegación durante fetch)
+        list.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-exclamation-triangle text-danger"></i>
                 <h5 class="text-danger">Error al cargar tickets</h5>

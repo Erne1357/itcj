@@ -136,8 +136,6 @@ ENDPOINT_MAP: dict[str, str] = {
     # ── Help-Desk: Dashboards por rol ────────────────────────────────────────
     "helpdesk_pages.secretary_pages.dashboard":          "/help-desk/secretary/",
     "helpdesk_pages.technician_pages.dashboard":         "/help-desk/technician/dashboard",
-    "helpdesk_pages.technician_pages.my_assignments":    "/help-desk/technician/my-assignments",
-    "helpdesk_pages.technician_pages.team":              "/help-desk/technician/team",
     "helpdesk_pages.department_pages.tickets":           "/help-desk/department/",
     "helpdesk_pages.department_pages.reports":           "/help-desk/department/reports",
 

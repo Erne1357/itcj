@@ -231,7 +231,10 @@
                                 Ver inactivos
                             </label>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()">
+                        {# Botón oculto: no existe endpoint de creación de usuario accesible al dept head.
+                           El core requiere permiso global `core.users.api.create` (solo admin).
+                           Re-habilitar cuando exista un endpoint helpdesk-específico para crear usuarios de departamento. #}
+                        <button class="btn btn-sm btn-primary d-none" onclick="openCreateUserModal()" disabled>
                             <i class="fas fa-plus me-1"></i>Nuevo Usuario
                         </button>
                     </div>

@@ -65,11 +65,9 @@
     function dispatchInitialTab() {
         // Encuentra el tab activo en el DOM y emite el evento para que el módulo
         // correspondiente se lazy-inite inmediatamente.
-        const hash     = window.location.hash || '#categorias';
-        const buttonId = TAB_BUTTON_BY_HASH[hash];
-        const target   = buttonId ? ('#' + (document.getElementById(buttonId) || {}).getAttribute?.('data-bs-target')?.slice(1) || hash.slice(1)) : hash;
+        const hash = window.location.hash || '#categorias';
 
-        // Forma más directa: simplemente emitir con el hash como tab
+        // Emitir con el hash como tab para que el módulo correspondiente se lazy-inite.
         document.dispatchEvent(new CustomEvent('config:tab-shown', {
             detail: { tab: hash },
         }));

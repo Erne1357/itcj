@@ -82,7 +82,7 @@
                     <a href="{{ url_for('helpdesk_pages.admin_pages.tickets_list') }}" class="btn btn-outline-primary btn-sm btn-md-lg"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>
                         <i class="fas fa-list me-2"></i>Ver Todos los Tickets
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.categories') }}" class="btn btn-outline-primary btn-sm btn-md-lg"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#categorias" class="btn btn-outline-primary btn-sm btn-md-lg"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>
                         <i class="fas fa-tags me-2"></i>Gestionar Categorías
                     </a>
                 </div>
@@ -106,7 +106,7 @@
                     <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_create') }}" class="btn btn-outline-success btn-sm btn-md-lg">
                         <i class="fas fa-plus me-2"></i>Registrar Equipo
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_categories') }}" class="btn btn-outline-success btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#inv-cat" class="btn btn-outline-success btn-sm btn-md-lg"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>
                         <i class="fas fa-folder me-2"></i>Categorías de Inventario
                     </a>
                 </div>

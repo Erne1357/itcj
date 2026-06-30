@@ -832,7 +832,7 @@
         }
     }
 
-    // === BIND MODAL DETALLE (solo una vez en DOMContentLoaded) ===
+    // === BIND MODAL DETALLE (idempotente: guard por dataset.auditBound) ===
     function bindDetailModal() {
         const modal = document.getElementById('modal-audit-detail');
         if (!modal) return;

@@ -55,7 +55,6 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "admin_home": ["js/admin/home.js"],
     "admin_assign_tickets": ["js/admin/assign_tickets.js"],
     "admin_tickets_list": ["js/admin/tickets_list.js"],
-    "admin_categories": [],
     "warehouse_dashboard": ["js/warehouse/dashboard.js"],
     "warehouse_categories": ["js/warehouse/categories.js"],
     "warehouse_products": ["js/warehouse/products.js"],
@@ -91,8 +90,6 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "inventory_reports_lifecycle": [],
     "inventory_reports_maintenance": [],
     "inventory_reports_warranty": [],
-    # Página de categorías de inventario (admin) — JS propio en config_tab, sin módulo separado.
-    "admin_inventory_categories": [],
     # Página de reportes de inventario (admin) — índice estático con links a sub-reportes.
     "admin_inventory_reports": [],
     # Reportes del departamento (jefe de depto) — placeholder estático.
@@ -101,8 +98,6 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     # del brand link (base_helpdesk.html) cuando htmx_boost_enabled está activo.
     "home_landing": [],
     "technician_dashboard": ["js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
-    "technician_my_assignments": ["js/technician/dashboard.js"],
-    "technician_team": ["js/technician/dashboard.js"],
     "secretary_dashboard": ["js/secretary/dashboard.js"],
     "department_head_dashboard": ["js/department_head/dashboard.js"],
     "user_my_tickets": [
@@ -134,7 +129,6 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.admin_pages.home": "admin_home",
     "helpdesk_pages.admin_pages.assign_tickets": "admin_assign_tickets",
     "helpdesk_pages.admin_pages.tickets_list": "admin_tickets_list",
-    "helpdesk_pages.admin_pages.categories": "admin_categories",
     "helpdesk_pages.warehouse_pages.dashboard": "warehouse_dashboard",
     "helpdesk_pages.warehouse_pages.categories": "warehouse_categories",
     "helpdesk_pages.warehouse_pages.products": "warehouse_products",
@@ -154,15 +148,12 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.inventory_pages.verification": "inventory_reports_verification",
     "helpdesk_pages.inventory_pages.reports": "inventory_reports_reports",
     "helpdesk_pages.technician_pages.dashboard": "technician_dashboard",
-    "helpdesk_pages.technician_pages.my_assignments": "technician_my_assignments",
-    "helpdesk_pages.technician_pages.team": "technician_team",
     "helpdesk_pages.secretary_pages.dashboard": "secretary_dashboard",
     "helpdesk_pages.department_pages.tickets": "department_head_dashboard",
     "helpdesk_pages.department_pages.reports": "department_head_reports",
     "helpdesk_pages.user_pages.my_tickets": "user_my_tickets",
     "helpdesk_pages.user_pages.create_ticket": "user_create_ticket",
-    # Admin: categorías de inventario y reportes de inventario
-    "helpdesk_pages.admin_pages.inventory_categories": "admin_inventory_categories",
+    # Admin: índice de reportes de inventario
     "helpdesk_pages.admin_pages.inventory_reports": "admin_inventory_reports",
     # Landing / brand link
     "helpdesk_pages.home": "home_landing",
@@ -236,23 +227,41 @@ def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
             _db.close()
         nav_items = get_helpdesk_navigation(user_perms, user_roles)
 
+        def _path_only(url: str) -> str:
+            """Path sin fragment ni query, para comparar contra request.url.path."""
+            return (url or "").split("#", 1)[0].split("?", 1)[0]
+
         for item in nav_items:
             item["hx_boost"] = _endpoint_is_boostable(item.get("endpoint"))
+            item["is_active"] = False
             if item.get("endpoint") and item["endpoint"] != "#":
                 item["url"] = ENDPOINT_MAP.get(item["endpoint"], "#")
                 if "fragment" in item:
                     item["url"] += item["fragment"]
+                if item["url"] != "#":
+                    item["is_active"] = _path_only(item["url"]) == current_path
 
+            any_sub_active = False
             for sub in item.get("dropdown", []):
                 sub["hx_boost"] = _endpoint_is_boostable(sub.get("endpoint"))
+                sub["is_active"] = False
                 if sub.get("endpoint") and sub["endpoint"] != "#":
                     sub["url"] = ENDPOINT_MAP.get(sub["endpoint"], "#")
                     if "fragment" in sub:
                         sub["url"] += sub["fragment"]
+                    if sub["url"] != "#" and _path_only(sub["url"]) == current_path:
+                        any_sub_active = True
+                        # Items con fragment (tabs de Config) comparten path: el tab
+                        # activo es client-side, así que no resaltamos el sub-item
+                        # individual, solo el grupo. Sin fragment sí resalta.
+                        sub["is_active"] = "fragment" not in sub
 
                 for sub_sub in sub.get("submenu", []):
                     if sub_sub.get("endpoint") and sub_sub["endpoint"] != "#":
                         sub_sub["url"] = ENDPOINT_MAP.get(sub_sub["endpoint"], "#")
+
+            # Grupo (dropdown) activo si la ruta actual cae en alguno de sus sub-items.
+            item["group_active"] = bool(item.get("dropdown")) and any_sub_active
 
     except Exception as exc:
         logger.warning("Error building helpdesk nav for user %s: %s", user_id, exc)

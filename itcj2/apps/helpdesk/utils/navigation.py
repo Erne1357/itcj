@@ -9,14 +9,6 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
 
     # Estructura completa de navegación con permisos requeridos
     full_nav_structure = [
-        # ==================== DASHBOARD ADMIN ====================
-        {
-            "label": "Dashboard",
-            "endpoint": "helpdesk_pages.admin_pages.home",
-            "icon": "fa-gauge-high",
-            "permission": "helpdesk.dashboard.admin"
-        },
-
         # ==================== USUARIOS ====================
         {
             "label": "Crear Ticket",
@@ -44,6 +36,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "endpoint": "#",
             "icon": "fa-cogs",
             "dropdown": [
+                {
+                    "label": "Dashboard Admin",
+                    "endpoint": "helpdesk_pages.admin_pages.home",
+                    "icon": "fa-gauge-high",
+                    "permission": "helpdesk.dashboard.admin"
+                },
                 {
                     "label": "Dashboard Secretaría",
                     "endpoint": "helpdesk_pages.secretary_pages.dashboard",
