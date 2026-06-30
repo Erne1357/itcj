@@ -195,6 +195,10 @@
     <!-- HTMX (navegación sin recargar) + Idiomorph (swap por morphing) -->
     <script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
+    <!-- Alpine.js — reactividad de CLIENTE (bulk-select, tabs, toggles, modales)
+         siguiendo la regla de zonas (docs/auditoria_ui_helpdesk.md §4.2). Auto-init
+         del DOM nuevo por MutationObserver → convive con los swaps HTMX/idiomorph. -->
+    <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <!-- head-support: fusiona el head del response en cada navegacion boosted.
          Sin esto, el CSS del bloque extra_css de la pagina destino NO se aplica
          hasta una recarga completa, porque hx-target="body" no toca el head. -->

@@ -1,791 +1,380 @@
-// itcj/apps/helpdesk/static/js/user/my_tickets.js
-// Módulo HTMX-nav: IIFE + HelpdeskPage.page. No usar DOMContentLoaded.
-
+// itcj2/apps/helpdesk/static/js/user/my_tickets.js
+//
+// Migrado a componentes server-side + HTMX (docs/auditoria_ui_helpdesk.md §8):
+// la lista (tarjetas, filtros, paginación, empty) la rinde el server (macros
+// Jinja + fragmento HTMX). Este módulo quedó reducido a lo genuinamente cliente:
+//   - conteos de resumen (counts) vía API,
+//   - WebSocket en tiempo real → dispara recarga del fragmento (htmx refresh),
+//   - botón "Limpiar" → resetea el form y recarga,
+//   - modales de Calificar / Cancelar (interacción de cliente),
+//   - ISLA de modo TUTORIAL: rinde el ticket de ejemplo (fake, en memoria) en el
+//     contenedor de resultados, porque ese ticket NO existe en BD (§4.3).
 (function () {
     'use strict';
 
-    // ==================== ESTADO DEL MÓDULO ====================
-    // Estado encapsulado en el IIFE — se resetea en cada init()
-    let currentPage = 1;
-    const itemsPerPage = 10;
-    let currentFilters = {};
-    let totalTickets = 0;
-    let pendingScrollRestore = 0;
-    let allTickets = [];
-    let summaryStats = {
-        total: 0,
-        active: 0,
-        resolved: 0,
-        pendingRating: 0
-    };
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
 
-    let currentRatingAttention = 0;
-    let currentRatingSpeed = 0;
-    let currentRatingEfficiency = null;
-    let ticketToRate = null;
-    let ticketToCancel = null;
+    let _active = false;
+    let summaryStats = { total: 0, active: 0, resolved: 0, pendingRating: 0 };
 
-    // Handles para cleanup de WebSocket
+    // Modales (sin allTickets: los datos vienen del dataset del botón)
+    let ratingAttention = 0;
+    let ratingSpeed = 0;
+    let ratingEfficiency = null;
+    let ticketToRateId = null;
+    let ticketToCancelId = null;
+
+    // WebSocket
     let userSocketBound = false;
     let socketCheckInterval = null;
     let socketSafetyTimeout = null;
-    let searchDebounceTimeout = null;
-    let _active = false;
+    let silentRefreshTimer = null;
 
-    // ==================== INITIALIZATION ====================
+    // ==================== INIT / DESTROY ====================
     function init() {
-        // Resetear estado al entrar a la página (navegación HTMX puede re-llamar init)
-        currentPage = 1;
-        currentFilters = {};
-        totalTickets = 0;
-        pendingScrollRestore = 0;
-        allTickets = [];
-        summaryStats = { total: 0, active: 0, resolved: 0, pendingRating: 0 };
-        currentRatingAttention = 0;
-        currentRatingSpeed = 0;
-        currentRatingEfficiency = null;
-        ticketToRate = null;
-        ticketToCancel = null;
-        userSocketBound = false;
-        socketCheckInterval = null;
-        socketSafetyTimeout = null;
-        searchDebounceTimeout = null;
         _active = true;
+        summaryStats = { total: 0, active: 0, resolved: 0, pendingRating: 0 };
+        ratingAttention = 0; ratingSpeed = 0; ratingEfficiency = null;
+        ticketToRateId = null; ticketToCancelId = null;
+        userSocketBound = false;
 
-        // Guardar la página actual para navegación inteligente
-        sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
-            url: window.location.href,
-            text: 'Mis Tickets'
-        }));
-
-        // Restore state if coming back from a ticket detail
-        if (document.referrer.includes('/help-desk/user/tickets/')) {
-            const saved = HelpdeskUtils.NavState.load('my_tickets');
-            if (saved) {
-                document.getElementById('searchInput').value = saved.search || '';
-                document.getElementById('filterStatus').value = saved.status || '';
-                document.getElementById('filterArea').value = saved.area || '';
-                currentFilters = saved.filters || {};
-                currentPage = saved.page || 1;
-                pendingScrollRestore = saved.scrollY || 0;
-            }
-        }
-
-        // Registrar funciones window que usan HTML dinámico (onclick en cards)
+        // Funciones globales que usan los onclick de las tarjetas server-rendered.
         window.openRatingModal = openRatingModal;
         window.openCancelModal = openCancelModal;
-        window.goToTicketDetail = goToTicketDetail;
-        window.changePage = changePage;
-        window.loadMyTickets = loadMyTickets;
 
-        // Dar tiempo para que el tutorial se inicialice primero
-        const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
-        const delay = isTutorialMode ? 100 : 0;
+        bindClearButton();
+        setupRatingModal();
+        setupCancelModal();
 
-        setTimeout(() => {
+        if (isTutorialMode()) {
+            // Isla: render del ticket de ejemplo (no está en BD). Compat con el
+            // tutorial, que vuelve a llamar window.loadMyTickets tras arrancar.
+            window.loadMyTickets = renderTutorialCard;
+            renderTutorialCard();
+            setTutorialSummary();
+        } else {
             loadSummaryStats();
-            loadMyTickets();
-            setupFilters();
-            setupRatingModal();
-            setupCancelModal();
-        }, delay);
+            setTimeout(setupWebSocketListeners, 500);
+        }
 
-        // Iniciar tutorial si corresponde
+        // Arranque del tutorial si corresponde (flujo create_ticket → my_tickets).
         window.helpdeskTutorial?.maybeAutoStart('my_tickets');
-
-        // WebSocket
-        setTimeout(setupWebSocketListeners, 500);
     }
 
-    // ==================== DESTROY ====================
     function destroy() {
-        // Desconectar WebSocket listeners
+        _active = false;
         const socket = window.__helpdeskSocket;
         if (socket) {
             socket.off('ticket_status_changed');
             socket.off('ticket_assigned');
             socket.off('ticket_comment_added');
         }
-        _active = false;
-        if (socketCheckInterval) {
-            clearInterval(socketCheckInterval);
-            socketCheckInterval = null;
-        }
-        if (socketSafetyTimeout) {
-            clearTimeout(socketSafetyTimeout);
-            socketSafetyTimeout = null;
-        }
+        if (socketCheckInterval) { clearInterval(socketCheckInterval); socketCheckInterval = null; }
+        if (socketSafetyTimeout) { clearTimeout(socketSafetyTimeout); socketSafetyTimeout = null; }
+        if (silentRefreshTimer) { clearTimeout(silentRefreshTimer); silentRefreshTimer = null; }
         userSocketBound = false;
 
-        // Cancelar debounce de búsqueda
-        if (searchDebounceTimeout) {
-            clearTimeout(searchDebounceTimeout);
-            searchDebounceTimeout = null;
-        }
+        disposeModal('ratingModal');
+        disposeModal('cancelModal');
 
-        // Dispose modales de Bootstrap para evitar memory leaks
-        const ratingModalEl = document.getElementById('ratingModal');
-        if (ratingModalEl) {
-            try {
-                const inst = bootstrap.Modal.getInstance(ratingModalEl);
-                if (inst) inst.dispose();
-            } catch (e) { /* ignorar */ }
-        }
-        const cancelModalEl = document.getElementById('cancelModal');
-        if (cancelModalEl) {
-            try {
-                const inst = bootstrap.Modal.getInstance(cancelModalEl);
-                if (inst) inst.dispose();
-            } catch (e) { /* ignorar */ }
-        }
-
-        // Limpiar funciones globales registradas en init
         delete window.openRatingModal;
         delete window.openCancelModal;
-        delete window.goToTicketDetail;
-        delete window.changePage;
         delete window.loadMyTickets;
 
-        // Teardown del tutorial (cancela tour activo + re-habilita elementos)
         window.helpdeskTutorial?.teardown();
     }
 
-    // ==================== LOAD SUMMARY STATS ====================
+    function disposeModal(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        try { bootstrap.Modal.getInstance(el)?.dispose(); } catch (e) { /* ignore */ }
+    }
+
+    // ==================== FILTROS (HTMX) ====================
+    function bindClearButton() {
+        const btn = document.getElementById('btnClearFilters');
+        const form = document.getElementById('hd-filter-form');
+        if (!btn || !form) return;
+        btn.addEventListener('click', function () {
+            form.querySelectorAll('select').forEach((s) => { s.value = ''; });
+            const search = document.getElementById('searchInput');
+            if (search) search.value = '';
+            refreshList();
+        });
+    }
+
+    function refreshList() {
+        const form = document.getElementById('hd-filter-form');
+        if (form && window.htmx) window.htmx.trigger(form, 'refresh');
+    }
+
+    // ==================== SUMMARY STATS ====================
     async function loadSummaryStats() {
         try {
-            const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
-
-            if (isTutorialMode) {
-                const tutorialData = window.getTutorialTicketData();
-                if (tutorialData && tutorialData.ticket) {
-                    summaryStats = {
-                        total: 1,
-                        active: 1,
-                        resolved: 0,
-                        pendingRating: 0
-                    };
-                    updateSummaryCards();
-                    return;
-                }
-            }
-
             const [totalResp, activeResp, resolvedResp, ratingResp] = await Promise.all([
                 HelpdeskUtils.api.getTickets({ created_by_me: true, per_page: 1, page: 1 }),
                 HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'PENDING,ASSIGNED,IN_PROGRESS', per_page: 1, page: 1 }),
                 HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'RESOLVED_SUCCESS,RESOLVED_FAILED,CLOSED', per_page: 1, page: 1 }),
                 HelpdeskUtils.api.getTickets({ created_by_me: true, status: 'RESOLVED_SUCCESS,RESOLVED_FAILED', per_page: 1, page: 1 })
             ]);
-
-            if (!_active) return;  // navegó fuera durante el fetch
-
+            if (!_active) return;
             summaryStats = {
                 total: totalResp.total || 0,
                 active: activeResp.total || 0,
                 resolved: resolvedResp.total || 0,
                 pendingRating: ratingResp.total || 0
             };
-
             updateSummaryCards();
         } catch (error) {
             console.error('Error loading summary stats:', error);
         }
     }
 
-    // ==================== LOAD TICKETS (CON PAGINACIÓN BACKEND) ====================
-    async function loadMyTickets() {
-        try {
-            console.log('Cargando tickets (página', currentPage, ')...');
-
-            const isTutorialMode = typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
-
-            if (isTutorialMode) {
-                const tutorialData = window.getTutorialTicketData();
-
-                if (tutorialData && tutorialData.ticket) {
-                    const tickets = [tutorialData.ticket];
-                    allTickets = tickets;
-                    totalTickets = 1;
-                    renderTickets(tickets);
-                    return;
-                } else {
-                    console.warn('Modo tutorial activo pero sin datos de ticket');
-                }
-            }
-
-            const params = {
-                created_by_me: true,
-                page: currentPage,
-                per_page: itemsPerPage,
-                ...currentFilters
-            };
-
-            const response = await HelpdeskUtils.api.getTickets(params);
-            // Si el usuario navegó fuera (boost) durante el fetch, el DOM de esta
-            // página ya fue removido por idiomorph: abortar antes de tocarlo.
-            if (!_active) return;
-            const tickets = response.tickets || [];
-            totalTickets = response.total || 0;
-            allTickets = tickets;
-
-            renderTickets(tickets);
-
-            if (pendingScrollRestore > 0) {
-                const sy = pendingScrollRestore;
-                pendingScrollRestore = 0;
-                requestAnimationFrame(() => window.scrollTo({ top: sy, behavior: 'instant' }));
-            }
-
-            console.log('Tickets cargados:', tickets.length, 'de', totalTickets);
-
-        } catch (error) {
-            // Navegó fuera durante el fetch: no hay DOM ni toast que mostrar.
-            if (!_active) return;
-            console.error('Error loading tickets:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            HelpdeskUtils.showToast(`Error al cargar tickets: ${errorMessage}`, 'error');
-            showErrorState();
-        }
-    }
-
-    // ==================== SUMMARY CARDS ====================
     function updateSummaryCards() {
-        document.getElementById('totalTickets').textContent = summaryStats.total;
-        document.getElementById('activeTickets').textContent = summaryStats.active;
-        document.getElementById('resolvedTickets').textContent = summaryStats.resolved;
-        document.getElementById('pendingRating').textContent = summaryStats.pendingRating;
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        set('totalTickets', summaryStats.total);
+        set('activeTickets', summaryStats.active);
+        set('resolvedTickets', summaryStats.resolved);
+        set('pendingRating', summaryStats.pendingRating);
     }
 
-    // ==================== FILTERS ====================
-    function setupFilters() {
-        const filterStatus = document.getElementById('filterStatus');
-        const filterArea = document.getElementById('filterArea');
-        const searchInput = document.getElementById('searchInput');
-
-        filterStatus.addEventListener('change', applyFilters);
-        filterArea.addEventListener('change', applyFilters);
-
-        searchInput.addEventListener('input', () => {
-            clearTimeout(searchDebounceTimeout);
-            searchDebounceTimeout = setTimeout(applyFilters, 500);
-        });
+    function setTutorialSummary() {
+        summaryStats = { total: 1, active: 1, resolved: 0, pendingRating: 0 };
+        updateSummaryCards();
     }
 
-    function applyFilters() {
-        const statusFilter = document.getElementById('filterStatus').value;
-        const areaFilter = document.getElementById('filterArea').value;
-        const searchText = document.getElementById('searchInput').value.trim();
-
-        currentFilters = {};
-
-        if (statusFilter === 'PENDING_RATING') {
-            currentFilters.status = 'RESOLVED_SUCCESS,RESOLVED_FAILED';
-        } else if (statusFilter) {
-            currentFilters.status = statusFilter;
-        }
-
-        if (areaFilter) currentFilters.area = areaFilter;
-        if (searchText) currentFilters.search = searchText;
-
-        currentPage = 1;
-
-        loadMyTickets();
-        loadSummaryStats();
+    // ==================== TUTORIAL ISLAND ====================
+    function isTutorialMode() {
+        return typeof window.isTutorialModeActive === 'function' && window.isTutorialModeActive();
     }
 
-    // ==================== RENDER TICKETS ====================
-    function renderTickets(tickets) {
-        const container = document.getElementById('ticketsList');
-        const countBadge = document.getElementById('ticketCount');
-
-        countBadge.textContent = `${totalTickets} ticket${totalTickets !== 1 ? 's' : ''}`;
-
-        if (tickets.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-inbox text-muted"></i>
-                    <h5 class="text-muted">No hay tickets</h5>
-                    <p class="text-muted">
-                        ${totalTickets === 0
-                            ? 'Aún no has creado ningún ticket.'
-                            : 'No hay tickets que coincidan con los filtros.'}
-                    </p>
-                    ${totalTickets === 0 ? `
-                        <a href="/help-desk/user/create" class="btn btn-primary mt-3">
-                            <i class="fas fa-plus me-2"></i>Crear mi primer ticket
-                        </a>
-                    ` : ''}
+    function renderTutorialCard() {
+        const container = document.getElementById('hd-tickets-results');
+        if (!container) return;
+        const data = typeof window.getTutorialTicketData === 'function' ? window.getTutorialTicketData() : null;
+        const t = data && data.ticket;
+        if (!t) return;
+        // Clases hd-ticket-card (estilo unificado) + ticket-card (hook que el
+        // tutorial usa en attachTo). Incluye un .btn-primary como ancla del paso.
+        container.innerHTML = `
+            <a class="hd-ticket-card ticket-card" href="/help-desk/user/tickets/${t.id}?from=my_tickets&tutorial=true">
+              <div class="row g-3">
+                <div class="col-md-9">
+                  <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+                    <span class="fw-bold text-primary">${escapeHtml(t.ticket_number || '')}</span>
+                    ${HelpdeskUtils.getAreaBadge(t.area)}
+                    ${HelpdeskUtils.getPriorityBadge(t.priority)}
+                  </div>
+                  <div class="hd-ticket-card__title">${escapeHtml(t.title || '')}</div>
+                  <div class="hd-ticket-card__desc">${escapeHtml(t.description || '')}</div>
                 </div>
-            `;
-            document.getElementById('paginationNav').style.display = 'none';
-            return;
-        }
-
-        container.innerHTML = tickets.map(ticket => createTicketCard(ticket)).join('');
-
-        const totalPages = Math.ceil(totalTickets / itemsPerPage);
-        renderPagination(totalPages);
-    }
-
-    function createTicketCard(ticket) {
-        const canRate = ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'].includes(ticket.status) && !ticket.rating_attention;
-        const canCancel = ['PENDING', 'ASSIGNED'].includes(ticket.status);
-        const hasRating = ticket.rating_attention !== null;
-
-        return `
-        <div class="ticket-card border-bottom p-3" onclick="goToTicketDetail(${ticket.id})">
-            <div class="row align-items-start">
-                <!-- Main Info -->
-                <div class="col-md-8">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
-                        ${HelpdeskUtils.getAreaBadge(ticket.area)}
-                        ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
-                        ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
-                    </div>
-
-                    <h5 class="mb-2">${ticket.title}</h5>
-
-                    <p class="text-muted mb-2 small" style="max-width: 600px;">
-                        ${truncateText(ticket.description, 150)}
-                    </p>
-
-                    ${ticket.location ? `
-                        <div class="text-muted small mb-2">
-                            <i class="fas fa-map-marker-alt me-1"></i>${ticket.location}
-                        </div>
-                    ` : ''}
-
-                    <div class="text-muted small">
-                        <i class="fas fa-clock me-1"></i>
-                        Creado ${HelpdeskUtils.formatTimeAgo(ticket.created_at)}
-
-                        ${ticket.assigned_to ? `
-                            <span class="ms-3">
-                                <i class="fas fa-user-check me-1"></i>
-                                Asignado a: ${ticket.assigned_to.name}
-                            </span>
-                        ` : ticket.assigned_to_team ? `
-                            <span class="ms-3">
-                                <i class="fas fa-users me-1"></i>
-                                Equipo: ${ticket.assigned_to_team}
-                            </span>
-                        ` : ''}
-
-                        ${ticket.resolved_at ? `
-                            <span class="ms-3">
-                                <i class="fas fa-check me-1"></i>
-                                Resuelto ${HelpdeskUtils.formatTimeAgo(ticket.resolved_at)}
-                            </span>
-                        ` : ''}
-                    </div>
-
-                    ${ticket.resolution_notes ? `
-                        <div class="alert alert-success mt-2 mb-0 py-2 small position-relative">
-                            <i class="fas fa-check-circle me-1"></i>
-                            <strong>Solución:</strong> ${truncateText(ticket.resolution_notes, 200)}
-                            ${ticket.solution_attachments && ticket.solution_attachments.length > 0 ? `
-                                <div class="mt-2 pt-2 border-top border-success border-opacity-25">
-                                    <span class="badge bg-success">
-                                        <i class="fas fa-paperclip me-1"></i>
-                                        ${ticket.solution_attachments.length} archivo${ticket.solution_attachments.length > 1 ? 's' : ''} adjunto${ticket.solution_attachments.length > 1 ? 's' : ''}
-                                    </span>
-                                    <small class="text-muted ms-2">
-                                        <i class="fas fa-info-circle me-1"></i>Ver en detalle
-                                    </small>
-                                </div>
-                            ` : ''}
-                        </div>
-                    ` : ''}
-
-                    ${hasRating ? `
-                        <div class="mt-2 p-2 bg-light rounded small">
-                            <strong>Tu evaluación:</strong>
-                            <div class="mt-1">
-                                <span class="me-3"><i class="fas fa-user-tie me-1"></i>Atención: ${HelpdeskUtils.renderStarRating(ticket.rating_attention)}</span>
-                                <span class="me-3"><i class="fas fa-tachometer-alt me-1"></i>Rapidez: ${HelpdeskUtils.renderStarRating(ticket.rating_speed)}</span>
-                                <span><i class="fas fa-check-circle me-1"></i>Eficiencia: ${ticket.rating_efficiency ? 'Sí' : 'No'}</span>
-                            </div>
-                            ${ticket.rating_comment ? `
-                                <div class="mt-1 text-muted">
-                                    <i class="fas fa-comment me-1"></i>"${ticket.rating_comment}"
-                                </div>
-                            ` : ''}
-                        </div>
-                    ` : ''}
+                <div class="col-md-3">
+                  <div class="hd-ticket-card__label">Estado</div>
+                  <div class="mb-2">${HelpdeskUtils.getStatusBadge(t.status)}</div>
+                  <div class="mt-2 d-flex flex-column gap-2" onclick="event.stopPropagation()">
+                    <a class="btn btn-primary btn-sm w-100" href="/help-desk/user/tickets/${t.id}?from=my_tickets&tutorial=true">
+                      <i class="fas fa-eye me-1"></i>Abrir
+                    </a>
+                  </div>
                 </div>
-
-                <!-- Status & Actions -->
-                <div class="col-md-4 text-md-end">
-                    <div class="mb-3">
-                        ${HelpdeskUtils.getStatusBadge(ticket.status)}
-                    </div>
-
-                    <div class="d-flex flex-column gap-2" onclick="event.stopPropagation()">
-                        ${canRate ? `
-                            <button class="btn btn-warning btn-sm" onclick="openRatingModal(${ticket.id})">
-                                <i class="fas fa-star me-1"></i>Calificar
-                            </button>
-                        ` : ''}
-
-                        ${canCancel ? `
-                            <button class="btn btn-outline-danger btn-sm" onclick="openCancelModal(${ticket.id})">
-                                <i class="fas fa-ban me-1"></i>Cancelar
-                            </button>
-                        ` : ''}
-
-                        <button class="btn btn-primary btn-sm w-100" onclick="goToTicketDetail(${ticket.id})">
-                            <i class="fas fa-eye me-1"></i>Ver Detalle
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+              </div>
+            </a>`;
     }
 
-    // ==================== PAGINATION ====================
-    function renderPagination(totalPages) {
-        const paginationNav = document.getElementById('paginationNav');
-        const paginationList = document.getElementById('paginationList');
-
-        if (totalPages <= 1) {
-            paginationNav.style.display = 'none';
-            return;
-        }
-
-        paginationNav.style.display = 'block';
-
-        let html = '';
-
-        html += `
-        <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage - 1}); return false;">
-                <i class="fas fa-chevron-left"></i>
-            </a>
-        </li>
-    `;
-
-        for (let i = 1; i <= totalPages; i++) {
-            if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
-                html += `
-                <li class="page-item ${i === currentPage ? 'active' : ''}">
-                    <a class="page-link" href="#" onclick="changePage(${i}); return false;">${i}</a>
-                </li>
-            `;
-            } else if (i === currentPage - 2 || i === currentPage + 2) {
-                html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-            }
-        }
-
-        html += `
-        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="changePage(${currentPage + 1}); return false;">
-                <i class="fas fa-chevron-right"></i>
-            </a>
-        </li>
-    `;
-
-        paginationList.innerHTML = html;
-    }
-
-    function changePage(page) {
-        currentPage = page;
-        loadMyTickets();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    // ==================== RATING MODAL ====================
-    function setupRatingModal() {
-        document.querySelectorAll('.star-btn-attention').forEach(btn => {
-            btn.addEventListener('click', () => {
-                currentRatingAttention = parseInt(btn.dataset.rating);
-                updateStarButtons();
-                checkRatingFormValidity();
-            });
-        });
-
-        document.querySelectorAll('.star-btn-speed').forEach(btn => {
-            btn.addEventListener('click', () => {
-                currentRatingSpeed = parseInt(btn.dataset.rating);
-                updateStarButtons();
-                checkRatingFormValidity();
-            });
-        });
-
-        document.querySelectorAll('input[name="ratingEfficiency"]').forEach(radio => {
-            radio.addEventListener('change', () => {
-                currentRatingEfficiency = radio.value === 'true';
-                checkRatingFormValidity();
-            });
-        });
-
-        document.getElementById('btnSubmitRating').addEventListener('click', submitRating);
-    }
-
-    function openRatingModal(ticketId) {
-        ticketToRate = allTickets.find(t => t.id === ticketId);
-        if (!ticketToRate) {
-            HelpdeskUtils.showToast('Ticket no encontrado', 'danger');
-            return;
-        }
-
-        currentRatingAttention = 0;
-        currentRatingSpeed = 0;
-        currentRatingEfficiency = null;
-
-        document.getElementById('ratingTicketSummary').innerHTML = `
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <strong>${ticketToRate.ticket_number}</strong>
-                    <p class="mb-0 text-muted small">${ticketToRate.title}</p>
-                </div>
-                ${HelpdeskUtils.getStatusBadge(ticketToRate.status)}
-            </div>
-        `;
-
-        updateStarButtons();
-        document.getElementById('ratingComment').value = '';
-
-        document.querySelectorAll('input[name="ratingEfficiency"]').forEach(radio => {
-            radio.checked = false;
-        });
-
-        const submitBtn = document.getElementById('btnSubmitRating');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Enviar Calificación';
-
-        const modal = new bootstrap.Modal(document.getElementById('ratingModal'));
-        modal.show();
-    }
-
-    function updateStarButtons() {
-        document.querySelectorAll('.star-btn-attention').forEach(btn => {
-            const rating = parseInt(btn.dataset.rating);
-            if (rating <= currentRatingAttention) {
-                btn.classList.add('active');
-                btn.querySelector('i').classList.replace('far', 'fas');
-            } else {
-                btn.classList.remove('active');
-                btn.querySelector('i').classList.replace('fas', 'far');
-            }
-        });
-
-        document.querySelectorAll('.star-btn-speed').forEach(btn => {
-            const rating = parseInt(btn.dataset.rating);
-            if (rating <= currentRatingSpeed) {
-                btn.classList.add('active');
-                btn.querySelector('i').classList.replace('far', 'fas');
-            } else {
-                btn.classList.remove('active');
-                btn.querySelector('i').classList.replace('fas', 'far');
-            }
-        });
-    }
-
-    function checkRatingFormValidity() {
-        const isValid = currentRatingAttention > 0 && currentRatingSpeed > 0 && currentRatingEfficiency !== null;
-        document.getElementById('btnSubmitRating').disabled = !isValid;
-    }
-
-    async function submitRating() {
-        if (currentRatingAttention === 0 || currentRatingSpeed === 0 || currentRatingEfficiency === null) {
-            HelpdeskUtils.showToast('Por favor completa todos los campos obligatorios', 'warning');
-            return;
-        }
-
-        const submitBtn = document.getElementById('btnSubmitRating');
-        const originalText = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Enviando...';
-
-        try {
-            await HelpdeskUtils.api.rateTicket(ticketToRate.id, {
-                rating_attention: currentRatingAttention,
-                rating_speed: currentRatingSpeed,
-                rating_efficiency: currentRatingEfficiency,
-                comment: document.getElementById('ratingComment').value.trim() || null
-            });
-
-            HelpdeskUtils.showToast('¡Gracias por tu evaluación!', 'success');
-
-            const modal = bootstrap.Modal.getInstance(document.getElementById('ratingModal'));
-            modal.hide();
-
-            await loadMyTickets();
-
-        } catch (error) {
-            console.error('Error submitting rating:', error);
-            HelpdeskUtils.showToast(error.message || 'Error al enviar calificación', 'error');
-
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalText;
-        }
-    }
-
-    // ==================== CANCEL MODAL ====================
-    function setupCancelModal() {
-        document.getElementById('btnConfirmCancel').addEventListener('click', confirmCancel);
-    }
-
-    function openCancelModal(ticketId) {
-        ticketToCancel = allTickets.find(t => t.id === ticketId);
-        if (!ticketToCancel) return;
-
-        document.getElementById('cancelTicketInfo').textContent =
-            `Ticket ${ticketToCancel.ticket_number}: ${ticketToCancel.title}`;
-
-        document.getElementById('cancelReason').value = '';
-
-        const modal = new bootstrap.Modal(document.getElementById('cancelModal'));
-        modal.show();
-    }
-
-    async function confirmCancel() {
-        if (!ticketToCancel) return;
-
-        const confirmBtn = document.getElementById('btnConfirmCancel');
-        const originalText = confirmBtn.innerHTML;
-
-        confirmBtn.disabled = true;
-        confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Cancelando...';
-
-        try {
-            const reason = document.getElementById('cancelReason').value.trim();
-
-            await HelpdeskUtils.api.cancelTicket(ticketToCancel.id, reason || null);
-
-            HelpdeskUtils.showToast('Ticket cancelado exitosamente', 'success');
-
-            const modal = bootstrap.Modal.getInstance(document.getElementById('cancelModal'));
-            modal.hide();
-
-            await loadMyTickets();
-
-        } catch (error) {
-            console.error('Error canceling ticket:', error);
-            HelpdeskUtils.showToast(error.message || 'Error al cancelar ticket', 'error');
-
-            confirmBtn.disabled = false;
-            confirmBtn.innerHTML = originalText;
-        }
-    }
-
-    // ==================== HELPERS ====================
-    function truncateText(text, maxLength) {
-        if (!text) return '';
-        if (text.length <= maxLength) return text;
-        return text.substring(0, maxLength) + '...';
-    }
-
-    function showErrorState() {
-        const list = document.getElementById('ticketsList');
-        if (!list) return;  // DOM ya removido (navegación durante fetch)
-        list.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-exclamation-triangle text-danger"></i>
-                <h5 class="text-danger">Error al cargar tickets</h5>
-                <p class="text-muted">Ocurrió un error al cargar tus tickets. Por favor intenta de nuevo.</p>
-                <button class="btn btn-primary mt-3" onclick="loadMyTickets()">
-                    <i class="fas fa-redo me-2"></i>Reintentar
-                </button>
-            </div>
-        `;
-    }
-
-    // ==================== NAVIGATION ====================
-    function goToTicketDetail(ticketId) {
-        HelpdeskUtils.NavState.save('my_tickets', {
-            search: document.getElementById('searchInput').value,
-            status: document.getElementById('filterStatus').value,
-            area: document.getElementById('filterArea').value,
-            filters: currentFilters,
-            page: currentPage,
-            scrollY: window.scrollY,
-        });
-        HelpdeskUtils.goToTicketDetail(ticketId, 'my_tickets');
-    }
-
-    // ==================== WEBSOCKET REAL-TIME UPDATES ====================
-
-    function debounce(fn, delay) {
-        let timeoutId;
-        return function (...args) {
-            clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => fn.apply(this, args), delay);
-        };
+    // ==================== WEBSOCKET REAL-TIME ====================
+    function silentRefresh() {
+        clearTimeout(silentRefreshTimer);
+        silentRefreshTimer = setTimeout(() => {
+            if (!_active) return;
+            loadSummaryStats();
+            refreshList();
+        }, 500);
     }
 
     function setupWebSocketListeners() {
         socketCheckInterval = setInterval(() => {
-            if (!_active) {
-                clearInterval(socketCheckInterval);
-                socketCheckInterval = null;
-                return;
-            }
+            if (!_active) { clearInterval(socketCheckInterval); socketCheckInterval = null; return; }
             if (window.__helpdeskSocket) {
-                clearInterval(socketCheckInterval);
-                socketCheckInterval = null;
+                clearInterval(socketCheckInterval); socketCheckInterval = null;
                 bindUserSocketEvents();
             }
         }, 100);
-
-        // Seguridad: no esperar más de 5s
         socketSafetyTimeout = setTimeout(() => {
             socketSafetyTimeout = null;
-            if (socketCheckInterval) {
-                clearInterval(socketCheckInterval);
-                socketCheckInterval = null;
-            }
+            if (socketCheckInterval) { clearInterval(socketCheckInterval); socketCheckInterval = null; }
         }, 5000);
     }
 
     function bindUserSocketEvents() {
-        if (!_active) return;
-        if (userSocketBound) return;
-
+        if (!_active || userSocketBound) return;
         const socket = window.__helpdeskSocket;
         if (!socket) return;
-
-        const debouncedRefresh = debounce(() => {
-            loadMyTickets();
-        }, 500);
 
         socket.off('ticket_status_changed');
         socket.off('ticket_assigned');
         socket.off('ticket_comment_added');
 
         socket.on('ticket_status_changed', (data) => {
-            const myTicket = allTickets.find(t => t.id == data.ticket_id);
-            if (myTicket) {
-                console.log('[My Tickets] ticket_status_changed:', data);
-                HelpdeskUtils.showToast(`Ticket ${data.ticket_number}: estado actualizado`, 'info');
-                debouncedRefresh();
-            }
+            HelpdeskUtils.showToast(`Ticket ${data.ticket_number}: estado actualizado`, 'info');
+            silentRefresh();
         });
-
         socket.on('ticket_assigned', (data) => {
-            const myTicket = allTickets.find(t => t.id == data.ticket_id);
-            if (myTicket) {
-                console.log('[My Tickets] ticket_assigned:', data);
-                HelpdeskUtils.showToast(`Tu ticket fue asignado a ${data.assigned_to_name}`, 'info');
-                debouncedRefresh();
-            }
+            HelpdeskUtils.showToast(`Tu ticket fue asignado a ${data.assigned_to_name || ''}`, 'info');
+            silentRefresh();
         });
-
         socket.on('ticket_comment_added', (data) => {
-            const myTicket = allTickets.find(t => t.id == data.ticket_id);
-            if (myTicket) {
-                console.log('[My Tickets] ticket_comment_added:', data);
-                HelpdeskUtils.showToast(`Nuevo comentario en ${myTicket.ticket_number}`, 'info');
-            }
+            HelpdeskUtils.showToast(`Nuevo comentario en ${data.ticket_number || 'tu ticket'}`, 'info');
         });
 
         userSocketBound = true;
-        console.log('[My Tickets] WebSocket listeners configurados');
+    }
+
+    // ==================== RATING MODAL ====================
+    function setupRatingModal() {
+        document.querySelectorAll('.star-btn-attention').forEach(btn => {
+            btn.addEventListener('click', () => {
+                ratingAttention = parseInt(btn.dataset.rating);
+                updateStarButtons();
+                checkRatingFormValidity();
+            });
+        });
+        document.querySelectorAll('.star-btn-speed').forEach(btn => {
+            btn.addEventListener('click', () => {
+                ratingSpeed = parseInt(btn.dataset.rating);
+                updateStarButtons();
+                checkRatingFormValidity();
+            });
+        });
+        document.querySelectorAll('input[name="ratingEfficiency"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                ratingEfficiency = radio.value === 'true';
+                checkRatingFormValidity();
+            });
+        });
+        const submit = document.getElementById('btnSubmitRating');
+        if (submit) submit.addEventListener('click', submitRating);
+    }
+
+    function openRatingModal(btn) {
+        ticketToRateId = parseInt(btn.dataset.id);
+        ratingAttention = 0; ratingSpeed = 0; ratingEfficiency = null;
+
+        const summary = document.getElementById('ratingTicketSummary');
+        if (summary) {
+            summary.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <strong>${escapeHtml(btn.dataset.number || '')}</strong>
+                        <p class="mb-0 text-muted small">${escapeHtml(btn.dataset.title || '')}</p>
+                    </div>
+                    ${HelpdeskUtils.getStatusBadge(btn.dataset.status)}
+                </div>`;
+        }
+
+        updateStarButtons();
+        const comment = document.getElementById('ratingComment');
+        if (comment) comment.value = '';
+        document.querySelectorAll('input[name="ratingEfficiency"]').forEach(r => { r.checked = false; });
+
+        const submitBtn = document.getElementById('btnSubmitRating');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Enviar Calificación';
+
+        new bootstrap.Modal(document.getElementById('ratingModal')).show();
+    }
+
+    function updateStarButtons() {
+        const paint = (selector, value) => {
+            document.querySelectorAll(selector).forEach(btn => {
+                const rating = parseInt(btn.dataset.rating);
+                const icon = btn.querySelector('i');
+                if (rating <= value) {
+                    btn.classList.add('active');
+                    icon.classList.replace('far', 'fas');
+                } else {
+                    btn.classList.remove('active');
+                    icon.classList.replace('fas', 'far');
+                }
+            });
+        };
+        paint('.star-btn-attention', ratingAttention);
+        paint('.star-btn-speed', ratingSpeed);
+    }
+
+    function checkRatingFormValidity() {
+        const ok = ratingAttention > 0 && ratingSpeed > 0 && ratingEfficiency !== null;
+        document.getElementById('btnSubmitRating').disabled = !ok;
+    }
+
+    async function submitRating() {
+        if (ratingAttention === 0 || ratingSpeed === 0 || ratingEfficiency === null) {
+            HelpdeskUtils.showToast('Por favor completa todos los campos obligatorios', 'warning');
+            return;
+        }
+        const submitBtn = document.getElementById('btnSubmitRating');
+        const original = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Enviando...';
+        try {
+            await HelpdeskUtils.api.rateTicket(ticketToRateId, {
+                rating_attention: ratingAttention,
+                rating_speed: ratingSpeed,
+                rating_efficiency: ratingEfficiency,
+                comment: (document.getElementById('ratingComment').value || '').trim() || null
+            });
+            HelpdeskUtils.showToast('¡Gracias por tu evaluación!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('ratingModal'))?.hide();
+            refreshList();
+            loadSummaryStats();
+        } catch (error) {
+            console.error('Error submitting rating:', error);
+            HelpdeskUtils.showToast(error.message || 'Error al enviar calificación', 'error');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = original;
+        }
+    }
+
+    // ==================== CANCEL MODAL ====================
+    function setupCancelModal() {
+        const btn = document.getElementById('btnConfirmCancel');
+        if (btn) btn.addEventListener('click', confirmCancel);
+    }
+
+    function openCancelModal(btn) {
+        ticketToCancelId = parseInt(btn.dataset.id);
+        const info = document.getElementById('cancelTicketInfo');
+        if (info) info.textContent = `Ticket ${btn.dataset.number}: ${btn.dataset.title}`;
+        const reason = document.getElementById('cancelReason');
+        if (reason) reason.value = '';
+        new bootstrap.Modal(document.getElementById('cancelModal')).show();
+    }
+
+    async function confirmCancel() {
+        if (!ticketToCancelId) return;
+        const confirmBtn = document.getElementById('btnConfirmCancel');
+        const original = confirmBtn.innerHTML;
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Cancelando...';
+        try {
+            const reason = (document.getElementById('cancelReason').value || '').trim();
+            await HelpdeskUtils.api.cancelTicket(ticketToCancelId, reason || null);
+            HelpdeskUtils.showToast('Ticket cancelado exitosamente', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('cancelModal'))?.hide();
+            refreshList();
+            loadSummaryStats();
+        } catch (error) {
+            console.error('Error canceling ticket:', error);
+            HelpdeskUtils.showToast(error.message || 'Error al cancelar ticket', 'error');
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = original;
+        }
     }
 
     // ==================== REGISTRO EN EL CONTROLLER ====================
     window.HelpdeskPage.page('user_my_tickets', { init, destroy });
-
 })();

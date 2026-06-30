@@ -1,0 +1,63 @@
+{#
+  filter_bar — barra de filtros HTMX reutilizable (reemplaza las 11 copias de
+  markup de filtros). Un <form> que hace hx-get a la MISMA url de la página y
+  reemplaza el contenedor de resultados; hx-push-url comparte el estado en la URL
+  (back/forward + deep-link restauran los filtros).
+
+  Args:
+    form_url          str   URL de la página (sirve página o fragmento según HX-Request).
+    fields            list  de dicts {name, label, icon, options:[(val,text)], selected, col?}.
+    target            str   selector del contenedor de resultados (default #hd-tickets-results).
+    search            bool  incluir el input de búsqueda (default true).
+    search_name       str   name del input de búsqueda (default 'search').
+    search_value      str   valor actual (prefija el input).
+    search_placeholder str  placeholder.
+    clear             bool  incluir botón Limpiar (default true).
+
+  IDs producidos (estables, los usa el JS/E2E): form #hd-filter-form,
+  select #filter{Name} (capitalize), input #searchInput, botón #btnClearFilters.
+#}
+
+{% macro filter_select(name, label, icon, options, selected='', col='col-6 col-md-3') %}
+<div class="{{ col }}">
+  <label class="form-label fw-semibold small"><i class="fas {{ icon }} me-1 d-none d-sm-inline"></i>{{ label }}</label>
+  <select class="form-select form-select-sm" id="filter{{ name|capitalize }}" name="{{ name }}">
+    {% for val, text in options %}
+      <option value="{{ val }}" {{ 'selected' if selected == val }}>{{ text }}</option>
+    {% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+{% macro filter_bar(form_url, fields, target='#hd-tickets-results', search=true, search_name='search', search_value='', search_placeholder='Título, número, solicitante o asignado...', clear=true) %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body p-2 p-md-3">
+    <form id="hd-filter-form" class="row g-2 g-md-3 align-items-end"
+          hx-get="{{ form_url }}"
+          hx-target="{{ target }}"
+          hx-swap="innerHTML"
+          hx-trigger="change, keyup changed delay:400ms from:#searchInput, refresh"
+          hx-push-url="true"
+          hx-indicator="{{ target }}"
+          onsubmit="return false;">
+      {% for fld in fields %}
+        {{ filter_select(fld.name, fld.label, fld.icon, fld.options, fld.selected, fld.col or 'col-6 col-md-3') }}
+      {% endfor %}
+      {% if search %}
+      <div class="col-12 col-md-3">
+        <label class="form-label fw-semibold small"><i class="fas fa-search me-1 d-none d-sm-inline"></i>Buscar</label>
+        <input type="text" class="form-control form-control-sm" id="searchInput" name="{{ search_name }}"
+               value="{{ search_value }}" placeholder="{{ search_placeholder }}">
+      </div>
+      {% endif %}
+      {% if clear %}
+      <div class="col-12 col-md-2 mt-2 mt-md-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btnClearFilters">
+          <i class="fas fa-times me-1"></i><span class="d-none d-sm-inline">Limpiar</span><span class="d-sm-none">×</span>
+        </button>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+{% endmacro %}

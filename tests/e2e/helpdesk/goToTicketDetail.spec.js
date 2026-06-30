@@ -15,14 +15,10 @@ const { gotoHelpdesk } = require('./_helpers');
  *   2. Under normal (human-paced) navigation, leaving my-tickets must produce
  *      NO uncaught pageerror at all.
  *
- * KNOWN SEPARATE FINDING (NOT this session's fix — see report): if you boost
- * away from my-tickets *before* the initial loadMyTickets() fetch resolves, the
- * fetch's catch calls showErrorState() which does
- * `document.getElementById('ticketsList').innerHTML = …` on an element that the
- * morph already removed → "Cannot set properties of null (setting 'innerHTML')"
- * (my_tickets.js showErrorState:675 ← loadMyTickets:239). That is an unguarded
- * async race in the app, surfaced only by instant navigation; the teardown fix
- * itself is correct.
+ * NOTA: tras la migración a componentes server-side + HTMX, my_tickets ya no
+ * rinde la lista en JS (sin loadMyTickets/showErrorState ni el viejo
+ * `#ticketsList`). El render lo hace el server; el contenedor es
+ * `#hd-tickets-results`. La race histórica del fetch inicial desapareció con eso.
  */
 test.describe('teardown — my-tickets boosted navigation', () => {
   test('immediate boost-away never throws "Cannot delete property goToTicketDetail"', async ({ page }) => {
@@ -56,7 +52,8 @@ test.describe('teardown — my-tickets boosted navigation', () => {
 
     // Wait for the initial ticket load to settle (the empty-state or cards render),
     // i.e. mimic a real user reading the page before navigating away.
-    await page.locator('#ticketsList').waitFor({ state: 'attached', timeout: 10_000 });
+    // Tras la migración a componentes server-side el contenedor es #hd-tickets-results.
+    await page.locator('#hd-tickets-results').waitFor({ state: 'attached', timeout: 10_000 });
     await page.waitForTimeout(1500);
 
     const target = page.locator('a[hx-boost="true"][href="/help-desk/user/create"]').first();

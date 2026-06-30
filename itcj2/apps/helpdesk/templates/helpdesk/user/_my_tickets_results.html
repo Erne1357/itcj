@@ -1,0 +1,44 @@
+{#
+  Fragmento de resultados de "Mis Tickets" (usuario). Devuelto por
+  GET /help-desk/user/my-tickets cuando llega HX-Request (no boost).
+  Reemplaza el innerHTML de #hd-tickets-results.
+
+  Contexto: tickets, total, current_page, total_pages, has_filters, oob.
+#}
+{% from "helpdesk/_components/ticket_card.html" import ticket_card %}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob %}
+<span id="ticketCount" class="badge bg-secondary" hx-swap-oob="true">{{ total }} ticket{{ '' if total == 1 else 's' }}</span>
+{% endif %}
+
+{% if tickets %}
+  <div class="hd-ticket-list">
+    {% for t in tickets %}
+      {% set can_rate = t.status in ['RESOLVED_SUCCESS', 'RESOLVED_FAILED'] and t.rating_attention is none %}
+      {% set can_cancel = t.status in ['PENDING', 'ASSIGNED'] %}
+      {% set acts %}
+        {% if can_rate %}<button type="button" class="btn btn-warning btn-sm" onclick="openRatingModal(this)" data-id="{{ t.id }}" data-number="{{ t.ticket_number }}" data-title="{{ t.title }}" data-status="{{ t.status }}"><i class="fas fa-star me-1"></i>Calificar</button>{% endif %}
+        {% if can_cancel %}<button type="button" class="btn btn-outline-danger btn-sm" onclick="openCancelModal(this)" data-id="{{ t.id }}" data-number="{{ t.ticket_number }}" data-title="{{ t.title }}"><i class="fas fa-ban me-1"></i>Cancelar</button>{% endif %}
+      {% endset %}
+      {{ ticket_card(t,
+            href='/help-desk/user/tickets/' ~ t.id ~ '?from=my_tickets',
+            show_people=false, show_assigned=true, show_description=true,
+            show_location=true, show_resolution=true, show_rating=true,
+            actions=(acts if (can_rate or can_cancel) else None)) }}
+    {% endfor %}
+  </div>
+  {% if total_pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      {{ pagination(current_page, total_pages, '/help-desk/user/my-tickets') }}
+    </div>
+  {% endif %}
+{% elif has_filters %}
+  {{ empty_state('fa-inbox', 'No hay tickets', 'No hay tickets que coincidan con los filtros aplicados.') }}
+{% else %}
+  {{ empty_state('fa-inbox', 'No hay tickets', 'Aún no has creado ningún ticket.') }}
+  <div class="text-center pb-4">
+    <a href="/help-desk/user/create" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Crear mi primer ticket</a>
+  </div>
+{% endif %}
