@@ -87,6 +87,54 @@ def _query_tickets_ctx(request: Request, user_id: int, user_roles: set) -> dict:
     }
 
 
+def _query_documents_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta tickets de SOPORTE para la generación de documentos.
+
+    Reusado por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento). El
+    filtro de fecha se aplica en Python sobre el resultado (la vista no pagina:
+    trae hasta 500 tickets de Soporte, como hacía el render JS anterior).
+    """
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    status = p.get("status") or None
+    search = (p.get("search", "") or "").strip() or None
+    date_from = (p.get("date_from", "") or "").strip() or None
+    date_to = (p.get("date_to", "") or "").strip() or None
+
+    _db = SessionLocal()
+    try:
+        result = ticket_service.list_tickets(
+            _db,
+            user_id=user_id,
+            user_roles=user_roles,
+            area="SOPORTE",  # solo Soporte genera documentos oficiales
+            status=[status] if status else None,
+            search=search,
+            page=1,
+            per_page=500,
+        )
+    finally:
+        _db.close()
+
+    tickets = result["tickets"]
+    if date_from:
+        tickets = [t for t in tickets if t.get("created_at") and t["created_at"][:10] >= date_from]
+    if date_to:
+        tickets = [t for t in tickets if t.get("created_at") and t["created_at"][:10] <= date_to]
+
+    return {
+        "tickets": tickets,
+        "total": len(tickets),
+        "f_status": p.get("status", ""),
+        "f_search": p.get("search", ""),
+        "f_date_from": date_from or "",
+        "f_date_to": date_to or "",
+        "has_filters": bool(status or search or date_from or date_to),
+    }
+
+
 @router.get("/home", name="helpdesk.pages.admin.home")
 async def home(
     request: Request,
@@ -265,11 +313,22 @@ async def documents(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.documents.page.list"])),
 ):
-    """Generación de documentos PDF/DOCX a partir de tickets."""
+    """Generación de documentos PDF/DOCX a partir de tickets.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX): petición HTMX
+    no-boost (filtros) → solo el FRAGMENTO de la lista; si no → la PÁGINA completa.
+    """
+    from itcj2.templates import render
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_documents_ctx(request, user_id, user_roles)
 
-    return render_helpdesk(request, "helpdesk/admin/documents.html", {
-        "user_roles": user_roles,
-        "active_page": "admin_documents",
-    })
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/admin/_documents_results.html", ctx)
+
+    ctx.update({"user_roles": user_roles, "active_page": "admin_documents"})
+    return render_helpdesk(request, "helpdesk/admin/documents.html", ctx)

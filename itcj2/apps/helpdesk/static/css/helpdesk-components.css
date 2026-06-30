@@ -66,3 +66,10 @@
     box-shadow: var(--hd-shadow-sm);
 }
 .hd-bulk-bar__count { font-weight: 600; }
+
+/* ---------- DOC ROW — fila compacta seleccionable (documents) ---------- */
+.hd-doc-row {
+    cursor: pointer;
+    transition: background var(--hd-transition);
+}
+.hd-doc-row:hover { background: var(--hd-surface-2); }
