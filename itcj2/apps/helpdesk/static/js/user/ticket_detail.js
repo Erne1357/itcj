@@ -35,6 +35,7 @@
         commentPendingFiles = [];
         ticketSocketBound = false;
         _socketPoller = null;
+        resDropzoneSetup = false;   // morph: dropzone DOM se recrea en revisita -> re-bindear
 
         // Reset resolve panel visibility
         const resolvePanel = document.getElementById('resolvePanel');
