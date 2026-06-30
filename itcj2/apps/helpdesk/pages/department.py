@@ -48,24 +48,97 @@ def _get_managed_department(user_id: int) -> dict:
     return managed
 
 
+def _query_dept_tickets_ctx(request: Request, user_id: int, user_roles: set, department_id: int) -> dict:
+    """Lista los tickets del departamento para el dashboard de jefe de departamento.
+
+    Reusado por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento). Reusa
+    ``ticket_service.list_tickets`` con el ``department_id`` y los roles reales del
+    usuario (mismo scoping que el endpoint API que llamaba el JS anterior).
+    """
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    status = p.get("status") or None
+    area = p.get("area") or None
+    search = (p.get("search", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+
+    _db = SessionLocal()
+    try:
+        result = ticket_service.list_tickets(
+            _db,
+            user_id=user_id,
+            user_roles=user_roles,
+            department_id=department_id,
+            status=[status] if status else None,
+            area=area,
+            search=search,
+            page=page,
+            per_page=20,
+        )
+    finally:
+        _db.close()
+
+    return {
+        "tickets": result["tickets"],
+        "total": result["total"],
+        "current_page": result["current_page"],
+        "total_pages": result["pages"],
+        "f_status": p.get("status", ""),
+        "f_area": p.get("area", ""),
+        "f_search": p.get("search", ""),
+        "has_filters": bool(status or area or search),
+    }
+
+
 @router.get("", include_in_schema=False)
 @router.get("/", name="helpdesk.pages.department.tickets")
 async def tickets(
     request: Request,
     user: dict = Depends(require_page_login),
 ):
-    """Vista de tickets del departamento gestionado por el jefe."""
+    """Vista de tickets del departamento gestionado por el jefe.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX): petición HTMX
+    no-boost (filtros/paginación de la lista) → solo el FRAGMENTO; si no → la PÁGINA.
+    """
+    from itcj2.templates import render
+
     _require_department_head(user)
     user_id = int(user["sub"])
     managed = _get_managed_department(user_id)
 
-    return render_helpdesk(request, "helpdesk/department_head/dashboard.html", {
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        user_roles = user_roles_in_app(_db, user_id, "helpdesk")
+    finally:
+        _db.close()
+
+    department_id = managed["department"]["id"]
+    ctx = _query_dept_tickets_ctx(request, user_id, user_roles, department_id)
+
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/department_head/_dashboard_tickets_results.html", ctx)
+
+    ctx.update({
         "title": f"Departamento - {managed['department']['name']}",
         "department": managed["department"],
+        "department_name": managed["department"]["name"],
         "position": managed["position"],
         "assignment": managed["assignment"],
         "active_page": "dashboard",
     })
+    return render_helpdesk(request, "helpdesk/department_head/dashboard.html", ctx)
 
 
 @router.get("/inventory", name="helpdesk.pages.department.inventory")

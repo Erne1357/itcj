@@ -1,0 +1,32 @@
+{#
+  Fragmento de la lista de tickets del departamento (jefe de departamento). Devuelto
+  por GET /help-desk/department/ cuando llega HX-Request (no boost). Reemplaza el
+  innerHTML de #hd-tickets-results. Contexto: tickets, total, current_page,
+  total_pages, has_filters, oob.
+#}
+{% from "helpdesk/_components/ticket_card.html" import ticket_card %}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob %}
+<span class="badge rounded-pill bg-primary ms-1" id="ticketsBadge" hx-swap-oob="true">{{ total }}</span>
+{% endif %}
+
+{% if tickets %}
+  <div class="hd-ticket-list">
+    {% for t in tickets %}
+      {{ ticket_card(t,
+            href='/help-desk/user/tickets/' ~ t.id ~ '?from=department',
+            show_people=true, show_assigned=true, show_description=false, show_location=true) }}
+    {% endfor %}
+  </div>
+  {% if total_pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      {{ pagination(current_page, total_pages, '/help-desk/department/') }}
+    </div>
+  {% endif %}
+{% elif has_filters %}
+  {{ empty_state('fa-inbox', 'No hay tickets', 'No hay tickets que coincidan con los filtros aplicados.') }}
+{% else %}
+  {{ empty_state('fa-inbox', 'No hay tickets', 'Aún no hay tickets en este departamento.') }}
+{% endif %}

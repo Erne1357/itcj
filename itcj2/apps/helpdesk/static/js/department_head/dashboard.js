@@ -2,20 +2,16 @@
 
 /**
  * Department Head Dashboard - Sistema de Tickets ITCJ
- * Gestión de tickets y usuarios del departamento
+ * Gestión de tickets y usuarios del departamento.
+ *
+ * Migrado (docs/auditoria_ui_helpdesk.md §8): la LISTA de tickets del depto la
+ * rinde el server (fragmento + macros, filtros/paginación por HTMX). Este módulo
+ * conserva: KPIs (endpoint stats), usuarios, passwords, tareas pendientes,
+ * actividad reciente, estadísticas, y el modal de creación de tickets. El render
+ * JS divergente de la lista (renderTickets/setupFilters/applyFilters) se eliminó.
  *
  * HTMX navigation module — wrapped in IIFE to avoid collisions with
- * secretary/dashboard.js which defines identically-named globals
- * (refreshDashboard, loadDepartmentTickets, renderTickets, setupFilters,
- *  applyFilters, etc.). Both modules coexist in the same session.
- *
- * PRE-EXISTING BUGS (do NOT fix — they existed before this migration):
- *   - openCreateTicketModal(): called by onclick in the Tickets tab header
- *     button but is NOT defined anywhere in this file. Left as-is.
- *   - openCreateUserModal(): called by onclick in the Users tab header
- *     button but is NOT defined anywhere in this file. Left as-is.
- *   Attempting to assign `window.openCreateTicketModal = openCreateTicketModal`
- *   would cause a ReferenceError; these functions simply do not exist.
+ * secretary/dashboard.js which defines identically-named globals.
  */
 ;(function () {
     'use strict';
@@ -24,12 +20,11 @@
     let DEPARTMENT_ID = null;
     let DEPARTMENT_NAME = null;
 
-    let departmentTickets = [];
+    let departmentTickets = [];   // sólo para actividad reciente y estadísticas
     let departmentUsers = [];
     let _showInactiveUsers = false;
 
     // Teardown handles
-    let _searchTimeout = null;
     let _statsTabHandler = null;
     let _passwordsTabLoaded = false;
     let _passwordsTabHandler = null;
@@ -57,8 +52,8 @@
             text: 'Departamento'
         }));
 
+        bindClearButton();
         initializeDashboard();
-        setupFilters();
     }
 
     function destroy() {
@@ -89,12 +84,6 @@
             _passwordsTabHandler = null;
         }
         _passwordsTabLoaded = false;
-
-        // Cancel search debounce
-        if (_searchTimeout !== null) {
-            clearTimeout(_searchTimeout);
-            _searchTimeout = null;
-        }
 
         // Dispose createTicketModal if instantiated + remove submit listener
         if (_createTicketModalInstance) {
@@ -191,84 +180,36 @@
         }
     }
 
-    // ==================== LOAD TICKETS ====================
-    async function loadDepartmentTickets() {
-        const container = document.getElementById('ticketsList');
-        HelpdeskUtils.showLoading('ticketsList');
+    // ==================== FILTROS / LISTA (HTMX) ====================
+    function bindClearButton() {
+        const btn = document.getElementById('btnClearFilters');
+        const form = document.getElementById('hd-filter-form');
+        if (!btn || !form) return;
+        btn.addEventListener('click', function () {
+            form.querySelectorAll('select').forEach(function (s) { s.value = ''; });
+            const search = document.getElementById('searchInput');
+            if (search) search.value = '';
+            refreshList();
+        });
+    }
 
+    function refreshList() {
+        const form = document.getElementById('hd-filter-form');
+        if (form && window.htmx) window.htmx.trigger(form, 'refresh');
+    }
+
+    // ==================== LOAD TICKETS (sólo para actividad reciente y estadísticas) ====================
+    async function loadDepartmentTickets() {
         try {
             const response = await HelpdeskUtils.api.getTickets({
                 department_id: DEPARTMENT_ID,
                 per_page: 100
             });
-
             departmentTickets = response.tickets || [];
-            document.getElementById('ticketsBadge').textContent = departmentTickets.length;
-
-            renderTickets(departmentTickets);
-
         } catch (error) {
-            console.error('Error loading tickets:', error);
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
-                    <p class="text-danger">Error al cargar tickets</p>
-                </div>
-            `;
+            console.error('Error loading tickets for analytics:', error);
+            departmentTickets = [];
         }
-    }
-
-    function renderTickets(tickets) {
-        const container = document.getElementById('ticketsList');
-
-        if (tickets.length === 0) {
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
-                    <p class="text-muted">No hay tickets del departamento</p>
-                    <button class="btn btn-primary mt-3" onclick="window.location.href='/help-desk/user/create'">
-                        <i class="fas fa-plus me-2"></i>Crear Primer Ticket
-                    </button>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = tickets.map(ticket => `
-            <div class="ticket-dept-card border-bottom p-3"
-                 onclick="HelpdeskUtils.goToTicketDetail(${ticket.id}, 'department')">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
-                            ${HelpdeskUtils.getStatusBadge(ticket.status)}
-                            ${HelpdeskUtils.getAreaBadge(ticket.area)}
-                            ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
-                            ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
-                        </div>
-
-                        <h5 class="mb-2">${ticket.title}</h5>
-
-                        <div class="text-muted small">
-                            <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
-                            ${ticket.location ? `
-                                <span class="ms-3">
-                                    <i class="fas fa-map-marker-alt me-1"></i>${ticket.location}
-                                </span>
-                            ` : ''}
-                            <span class="ms-3">
-                                <i class="fas fa-clock me-1"></i>${HelpdeskUtils.formatTimeAgo(ticket.created_at)}
-                            </span>
-                            ${ticket.assigned_to ? `
-                                <span class="ms-3 text-primary">
-                                    <i class="fas fa-user-check me-1"></i>${ticket.assigned_to.name}
-                                </span>
-                            ` : ''}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `).join('');
     }
 
     // ==================== LOAD USERS ====================
@@ -435,47 +376,6 @@
         }
     }
 
-    // ==================== FILTERS ====================
-    function setupFilters() {
-        const filterStatus = document.getElementById('filterStatus');
-        const filterArea = document.getElementById('filterArea');
-        const searchTickets = document.getElementById('searchTickets');
-
-        filterStatus.addEventListener('change', applyFilters);
-        filterArea.addEventListener('change', applyFilters);
-
-        searchTickets.addEventListener('input', () => {
-            if (_searchTimeout !== null) clearTimeout(_searchTimeout);
-            _searchTimeout = setTimeout(applyFilters, 300);
-        });
-    }
-
-    function applyFilters() {
-        const status = document.getElementById('filterStatus').value;
-        const area = document.getElementById('filterArea').value;
-        const search = document.getElementById('searchTickets').value.toLowerCase().trim();
-
-        let filtered = [...departmentTickets];
-
-        if (status) {
-            filtered = filtered.filter(t => t.status === status);
-        }
-
-        if (area) {
-            filtered = filtered.filter(t => t.area === area);
-        }
-
-        if (search) {
-            filtered = filtered.filter(t =>
-                t.title.toLowerCase().includes(search) ||
-                t.requester?.name.toLowerCase().includes(search) ||
-                t.ticket_number.toLowerCase().includes(search)
-            );
-        }
-
-        renderTickets(filtered);
-    }
-
     // ==================== CREAR TICKET ====================
 
     /**
@@ -623,8 +523,9 @@
 
             if (_createTicketModalInstance) _createTicketModalInstance.hide();
 
-            // Refrescar la lista de tickets del departamento
-            await loadDepartmentTickets();
+            // Refrescar la lista server-side (HTMX), datos de analíticas y KPIs
+            refreshList();
+            await Promise.all([loadDepartmentTickets(), loadDepartmentStats()]);
 
         } catch (err) {
             console.error('handleSubmitTicket error:', err);
