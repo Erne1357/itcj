@@ -1,8 +1,14 @@
-// itcj/apps/helpdesk/static/js/admin/assign_tickets.js
-
 /**
  * Admin Assign Tickets — Sistema de Tickets ITCJ
  * HTMX-nav IIFE: registra init/destroy con window.HelpdeskPage.page()
+ *
+ * Arquitectura: tarjetas renderizadas server-side (macro ticket_card); el
+ * filtrado es show/hide client-side sobre los .hd-assign-item ya presentes.
+ * Los arrays allPendingTickets / allAssigned... siguen cargándose para que
+ * los modales (openAssignmentModal, openReassignmentModal, openEditTicketModal,
+ * showTicketQuickView) continúen funcionando sin cambios.
+ * Tras una acción (assign/reassign/edit/socket) se llama refreshLists() para
+ * recargar los tres fragmentos server-side vía htmx.ajax.
  */
 (function () {
     'use strict';
@@ -206,7 +212,23 @@
     async function refreshDashboard() {
         HelpdeskUtils.showToast('Actualizando dashboard...', 'info');
         await initializeDashboard();
+        refreshLists();
         HelpdeskUtils.showToast('Dashboard actualizado', 'success');
+    }
+
+    // ==================== SERVER-SIDE FRAGMENT REFRESH ====================
+    /**
+     * Recarga los tres contenedores de listas desde el servidor (HTMX ajax).
+     * Se llama tras acciones que cambian el estado de los tickets (assign,
+     * reassign, edit, socket events). Los filtros se resetean al estado
+     * no-filtrado — es aceptable ya que los arrays también se recargan.
+     */
+    function refreshLists() {
+        if (!window.htmx) return;
+        const base = '/help-desk/admin/assign-tickets';
+        window.htmx.ajax('GET', base + '?tab=queue',      { target: '#hd-tab-queue',      swap: 'innerHTML' });
+        window.htmx.ajax('GET', base + '?tab=assigned',   { target: '#hd-tab-assigned',   swap: 'innerHTML' });
+        window.htmx.ajax('GET', base + '?tab=inprogress', { target: '#hd-tab-inprogress', swap: 'innerHTML' });
     }
 
     // ==================== DASHBOARD STATS ====================
@@ -323,9 +345,6 @@
 
     // ==================== PENDING TICKETS (QUEUE) ====================
     async function loadPendingTickets() {
-        const container = document.getElementById('queueList');
-        HelpdeskUtils.showLoading('queueList');
-
         try {
             // per_page: 0 significa sin limite (obtener todos los pendientes)
             const response = await HelpdeskUtils.api.getTickets({
@@ -335,104 +354,21 @@
 
             allPendingTickets = response.tickets || [];
 
-            // Update badge
+            // Update badge (sincroniza array JS con el badge; el server ya lo
+            // habrá pintado en el render inicial, aquí lo mantiene al día)
             document.getElementById('queueBadge').textContent = allPendingTickets.length;
 
-            renderPendingTickets(allPendingTickets);
+            // Aplicar filtros show/hide sobre las tarjetas server-rendered
+            applyFilters();
 
         } catch (error) {
             console.error('Error loading pending tickets:', error);
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
-                    <p class="text-danger">Error al cargar tickets pendientes</p>
-                    <button class="btn btn-primary" onclick="loadPendingTickets()">
-                        <i class="fas fa-redo me-2"></i>Reintentar
-                    </button>
-                </div>
-            `;
+            HelpdeskUtils.showToast('Error al cargar tickets pendientes', 'error');
         }
-    }
-
-    function renderPendingTickets(tickets) {
-        const container = document.getElementById('queueList');
-
-        if (tickets.length === 0) {
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
-                    <h5 class="text-success">¡Excelente trabajo!</h5>
-                    <p class="text-muted">No hay tickets pendientes de asignación</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = tickets.map(ticket => createPendingTicketCard(ticket)).join('');
-    }
-
-    function createPendingTicketCard(ticket) {
-        return `
-            <div class="ticket-queue-card border-bottom p-3 priority-${ticket.priority}"
-                style="cursor: pointer;" onclick="showTicketQuickView(${ticket.id})" title="Click para ver detalle">
-                <div class="row align-items-center">
-                    <div class="col-md-8">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <h6 class="mb-0 fw-bold">${ticket.ticket_number}</h6>
-                            ${HelpdeskUtils.getAreaBadge(ticket.area)}
-                            ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
-                            ${ticket.category ? `<span class="badge bg-secondary">${ticket.category.name}</span>` : ''}
-                        </div>
-
-                        <h5 class="mb-2 ticket-title-link">
-                            ${ticket.title}
-                        </h5>
-
-                        <p class="text-muted mb-2 small" style="max-width: 600px;">
-                            ${truncateText(ticket.description, 120)}
-                        </p>
-
-                        <div class="text-muted small">
-                            <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
-                            ${ticket.department ? `
-                                <span class="ms-3">
-                                    <i class="fas fa-building me-1"></i>${ticket.department.name}
-                                </span>
-                            ` : ''}
-                            ${ticket.location ? `
-                                <span class="ms-3">
-                                    <i class="fas fa-map-marker-alt me-1"></i>${ticket.location}
-                                </span>
-                            ` : ''}
-                            <span class="ms-3">
-                                <i class="fas fa-clock me-1"></i>${HelpdeskUtils.formatTimeAgo(ticket.created_at)}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="col-md-4 text-end">
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-outline-info btn-sm"
-                                    onclick="event.stopPropagation(); openEditTicketModal(${ticket.id})"
-                                    title="Vista previa / Editar">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button class="btn btn-primary btn-sm"
-                                    onclick="event.stopPropagation(); openAssignmentModal(${ticket.id})">
-                                <i class="fas fa-user-plus me-1"></i>Asignar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
     }
 
     // ==================== ACTIVE TICKETS (ASSIGNED + IN_PROGRESS) ====================
     async function loadActiveTickets() {
-        HelpdeskUtils.showLoading('assignedList');
-        HelpdeskUtils.showLoading('inprogressList');
-
         try {
             const response = await HelpdeskUtils.api.getTickets({
                 status: 'ASSIGNED,IN_PROGRESS',
@@ -451,20 +387,13 @@
             _updateTabAreaCounts('assigned');
             _updateTabAreaCounts('inprogress');
 
-            // Render both lists
+            // Apply show/hide filters on server-rendered cards
             _filterTab('assigned');
             _filterTab('inprogress');
 
         } catch (error) {
             console.error('Error loading active tickets:', error);
-            const errHtml = `
-                <div class="text-center py-5">
-                    <i class="fas fa-exclamation-triangle fa-3x text-danger mb-3"></i>
-                    <p class="text-danger">Error al cargar tickets activos</p>
-                </div>
-            `;
-            document.getElementById('assignedList').innerHTML   = errHtml;
-            document.getElementById('inprogressList').innerHTML = errHtml;
+            HelpdeskUtils.showToast('Error al cargar tickets activos', 'error');
         }
     }
 
@@ -481,26 +410,50 @@
             tickets.filter(t => t.area === 'SOPORTE').length;
     }
 
+    /**
+     * Muestra/oculta los .hd-assign-item dentro del contenedor de la pestaña
+     * según los filtros activos (área, técnico, búsqueda). No re-renderiza nada
+     * — las tarjetas son server-side y ya están en el DOM.
+     */
     function _filterTab(tab) {
         const isAssigned  = tab === 'assigned';
-        const tickets     = isAssigned ? allAssignedTickets   : allInProgressTickets;
         const areaFilter  = isAssigned ? assignedAreaFilter   : inprogressAreaFilter;
         const techFilter  = isAssigned ? assignedTechFilter   : inprogressTechFilter;
         const searchEl    = document.getElementById(isAssigned ? 'searchAssigned' : 'searchInprogress');
         const search      = searchEl ? searchEl.value.toLowerCase().trim() : '';
-        const containerId = isAssigned ? 'assignedList' : 'inprogressList';
+        const containerId = isAssigned ? 'hd-tab-assigned' : 'hd-tab-inprogress';
+        const container   = document.getElementById(containerId);
+        if (!container) return;
 
-        let filtered = [...tickets];
-        if (areaFilter)          filtered = filtered.filter(t => t.area === areaFilter);
-        if (techFilter !== null) filtered = filtered.filter(t => t.assigned_to?.id === techFilter);
-        if (search)              filtered = filtered.filter(t =>
-            t.title.toLowerCase().includes(search)          ||
-            t.ticket_number.toLowerCase().includes(search)  ||
-            t.requester?.name?.toLowerCase().includes(search) ||
-            t.location?.toLowerCase().includes(search)
-        );
+        let visibleCount = 0;
+        container.querySelectorAll('.hd-assign-item').forEach(el => {
+            const elArea   = el.dataset.area || '';
+            const elTech   = el.dataset.tech || '';
+            const elSearch = el.dataset.search || '';
 
-        renderActiveTickets(filtered, containerId);
+            const matchArea   = !areaFilter || elArea === areaFilter;
+            const matchTech   = techFilter === null || elTech === String(techFilter);
+            const matchSearch = !search || elSearch.includes(search);
+
+            const visible = matchArea && matchTech && matchSearch;
+            el.style.display = visible ? '' : 'none';
+            if (visible) visibleCount++;
+        });
+
+        // Mostrar/ocultar mensaje de "sin resultados por filtro" si no hay visibles
+        // pero sí hay tarjetas (el empty_state server-side solo cubre lista vacía real)
+        let noFilterEl = container.querySelector('.hd-assign-no-filter-results');
+        if (visibleCount === 0 && container.querySelectorAll('.hd-assign-item').length > 0) {
+            if (!noFilterEl) {
+                noFilterEl = document.createElement('div');
+                noFilterEl.className = 'hd-assign-no-filter-results text-center py-4 text-muted';
+                noFilterEl.innerHTML = '<i class="fas fa-filter fa-2x mb-2 d-block opacity-50"></i>Sin coincidencias con los filtros aplicados.';
+                container.appendChild(noFilterEl);
+            }
+            noFilterEl.style.display = '';
+        } else if (noFilterEl) {
+            noFilterEl.style.display = 'none';
+        }
     }
 
     function _renderTechPillsForTab(tab) {
@@ -591,66 +544,6 @@
         _renderTechPillsForTab('inprogress');
         _filterTab('inprogress');
     }
-
-    function renderActiveTickets(tickets, containerId) {
-        const container = document.getElementById(containerId);
-
-        if (tickets.length === 0) {
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
-                    <p class="text-muted">No hay tickets activos</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = tickets.map(ticket => `
-            <div class="border-bottom p-3" style="cursor: pointer;" onclick="showTicketQuickView(${ticket.id})" title="Click para ver detalle">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <h6 class="mb-0">${ticket.ticket_number}</h6>
-                            ${HelpdeskUtils.getStatusBadge(ticket.status)}
-                            ${HelpdeskUtils.getPriorityBadge(ticket.priority)}
-                        </div>
-
-                        <h5 class="mb-2 ticket-title-link">
-                            ${ticket.title}
-                        </h5>
-
-                        <div class="text-muted small">
-                            <i class="fas fa-user me-1"></i>${ticket.requester?.name || 'N/A'}
-                            ${ticket.assigned_to ? `
-                                <span class="ms-3 text-primary">
-                                    <i class="fas fa-user-check me-1"></i>${ticket.assigned_to.name}
-                                </span>
-                            ` : ticket.assigned_to_team ? `
-                                <span class="ms-3 text-info">
-                                    <i class="fas fa-users me-1"></i>Equipo ${ticket.assigned_to_team}
-                                </span>
-                            ` : ''}
-                            <span class="ms-3">
-                                <i class="fas fa-clock me-1"></i>${HelpdeskUtils.formatTimeAgo(ticket.created_at)}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-sm btn-outline-warning"
-                                onclick="event.stopPropagation(); openReassignmentModal(${ticket.id})">
-                            <i class="fas fa-exchange-alt"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-primary"
-                                onclick="event.stopPropagation(); showTicketDetail(${ticket.id})">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `).join('');
-    }
-
 
     // ==================== TECHNICIANS ====================
     async function loadTechnicians() {
@@ -907,13 +800,14 @@
             const modal = bootstrap.Modal.getInstance(document.getElementById('assignmentModal'));
             modal.hide();
 
-            // Refresh dashboard
+            // Refresh arrays + server-rendered lists
             await Promise.all([
                 loadDashboardStats(),
                 loadPendingTickets(),
                 loadActiveTickets(),
                 loadTechnicians()
             ]);
+            refreshLists();
 
         } catch (error) {
             console.error('Error assigning ticket:', error);
@@ -1014,9 +908,10 @@
             const modal = bootstrap.Modal.getInstance(document.getElementById('reassignmentModal'));
             modal.hide();
 
-            // Refresh
+            // Refresh arrays + server-rendered lists
             await loadActiveTickets();
             await loadTechnicians();
+            refreshLists();
 
         } catch (error) {
             console.error('Error reassigning ticket:', error);
@@ -1055,32 +950,45 @@
         });
     }
 
+    /**
+     * Filtra la cola de pendientes (#hd-tab-queue) por área, prioridad y
+     * búsqueda usando show/hide sobre los .hd-assign-item server-rendered.
+     */
     function applyFilters() {
-        const area = document.getElementById('filterArea').value;
+        const area     = document.getElementById('filterArea').value;
         const priority = document.getElementById('filterPriority').value;
-        const search = document.getElementById('searchQueue').value.toLowerCase().trim();
+        const search   = document.getElementById('searchQueue').value.toLowerCase().trim();
+        const container = document.getElementById('hd-tab-queue');
+        if (!container) return;
 
-        let filtered = [...allPendingTickets];
+        let visibleCount = 0;
+        container.querySelectorAll('.hd-assign-item').forEach(el => {
+            const elArea     = el.dataset.area     || '';
+            const elPriority = el.dataset.priority || '';
+            const elSearch   = el.dataset.search   || '';
 
-        if (area) {
-            filtered = filtered.filter(t => t.area === area);
+            const matchArea     = !area     || elArea === area;
+            const matchPriority = !priority || elPriority === priority;
+            const matchSearch   = !search   || elSearch.includes(search);
+
+            const visible = matchArea && matchPriority && matchSearch;
+            el.style.display = visible ? '' : 'none';
+            if (visible) visibleCount++;
+        });
+
+        // Mostrar "sin coincidencias" si hay tarjetas pero ninguna pasa el filtro
+        let noFilterEl = container.querySelector('.hd-assign-no-filter-results');
+        if (visibleCount === 0 && container.querySelectorAll('.hd-assign-item').length > 0) {
+            if (!noFilterEl) {
+                noFilterEl = document.createElement('div');
+                noFilterEl.className = 'hd-assign-no-filter-results text-center py-4 text-muted';
+                noFilterEl.innerHTML = '<i class="fas fa-filter fa-2x mb-2 d-block opacity-50"></i>Sin coincidencias con los filtros aplicados.';
+                container.appendChild(noFilterEl);
+            }
+            noFilterEl.style.display = '';
+        } else if (noFilterEl) {
+            noFilterEl.style.display = 'none';
         }
-
-        if (priority) {
-            filtered = filtered.filter(t => t.priority === priority);
-        }
-
-        if (search) {
-            filtered = filtered.filter(t => {
-                return t.title.toLowerCase().includes(search) ||
-                       t.description.toLowerCase().includes(search) ||
-                       t.ticket_number.toLowerCase().includes(search) ||
-                       t.requester?.name.toLowerCase().includes(search) ||
-                       t.location?.toLowerCase().includes(search);
-            });
-        }
-
-        renderPendingTickets(filtered);
     }
 
     // ==================== STATISTICS ====================
@@ -1175,12 +1083,14 @@
         const debouncedRefreshPending = debounce(() => {
             loadPendingTickets();
             loadDashboardStats();
+            refreshLists();
         }, 300);
 
         const debouncedRefreshActive = debounce(() => {
             loadActiveTickets();
             loadTechnicians();
             loadDashboardStats();
+            refreshLists();
         }, 300);
 
         const debouncedRefreshAll = debounce(() => {
@@ -1188,6 +1098,7 @@
             loadActiveTickets();
             loadTechnicians();
             loadDashboardStats();
+            refreshLists();
         }, 300);
 
         // Remover listeners previos
@@ -1552,9 +1463,10 @@
             const modal = bootstrap.Modal.getInstance(document.getElementById('editTicketModal'));
             modal.hide();
 
-            // Refrescar lista de tickets
+            // Refrescar arrays + server-rendered lists
             await loadPendingTickets();
             await loadDashboardStats();
+            refreshLists();
 
         } catch (error) {
             console.error('Error al guardar cambios:', error);

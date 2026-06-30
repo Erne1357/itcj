@@ -150,19 +150,92 @@ async def home(
     })
 
 
+def _query_assign_lists_ctx(request: Request, user_id: int, user_roles: set, tab: str = None) -> dict:
+    """Consulta las listas de tickets para la vista de asignación.
+
+    Si ``tab`` es None devuelve las tres listas completas (render de página
+    entera). Si ``tab`` es 'queue'|'assigned'|'inprogress' devuelve solo esa
+    lista (render de fragmento HTMX).
+    """
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.database import SessionLocal
+
+    _STATUS_MAP = {
+        "queue":      ["PENDING"],
+        "assigned":   ["ASSIGNED"],
+        "inprogress": ["IN_PROGRESS"],
+    }
+    _PER_PAGE_MAP = {
+        "queue":      500,
+        "assigned":   200,
+        "inprogress": 200,
+    }
+
+    _db = SessionLocal()
+    try:
+        if tab is not None:
+            statuses   = _STATUS_MAP.get(tab, ["PENDING"])
+            per_page   = _PER_PAGE_MAP.get(tab, 200)
+            result     = ticket_service.list_tickets(
+                _db, user_id=user_id, user_roles=user_roles,
+                status=statuses, per_page=per_page,
+            )
+            tickets = result["tickets"]
+            return {"tickets": tickets, "count": len(tickets), "tab": tab}
+
+        # Full page: three lists
+        r_pending = ticket_service.list_tickets(
+            _db, user_id=user_id, user_roles=user_roles,
+            status=["PENDING"], per_page=500,
+        )
+        r_assigned = ticket_service.list_tickets(
+            _db, user_id=user_id, user_roles=user_roles,
+            status=["ASSIGNED"], per_page=200,
+        )
+        r_inprogress = ticket_service.list_tickets(
+            _db, user_id=user_id, user_roles=user_roles,
+            status=["IN_PROGRESS"], per_page=200,
+        )
+    finally:
+        _db.close()
+
+    return {
+        "t_pending":        r_pending["tickets"],
+        "t_pending_count":  len(r_pending["tickets"]),
+        "t_assigned":       r_assigned["tickets"],
+        "t_assigned_count": len(r_assigned["tickets"]),
+        "t_inprogress":       r_inprogress["tickets"],
+        "t_inprogress_count": len(r_inprogress["tickets"]),
+    }
+
+
 @router.get("/assign-tickets", name="helpdesk.pages.admin.assign_tickets")
 async def assign_tickets(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.assignments.page.list"])),
 ):
-    """Vista para asignar y gestionar tickets."""
+    """Vista para asignar y gestionar tickets.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición HTMX no-boost con ``?tab=`` → solo el FRAGMENTO de esa lista.
+      - petición normal o boosteada → PÁGINA completa con las 3 listas server-side.
+    """
+    from itcj2.templates import render
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
 
-    return render_helpdesk(request, "helpdesk/admin/assign_tickets.html", {
-        "user_roles": user_roles,
-        "active_page": "admin_assign_tickets",
-    })
+    is_htmx  = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        tab = request.query_params.get("tab", "queue")
+        ctx = _query_assign_lists_ctx(request, user_id, user_roles, tab=tab)
+        ctx["oob"] = True
+        return render(request, "helpdesk/admin/_assign_results.html", ctx)
+
+    ctx = _query_assign_lists_ctx(request, user_id, user_roles)
+    ctx.update({"user_roles": user_roles, "active_page": "admin_assign_tickets"})
+    return render_helpdesk(request, "helpdesk/admin/assign_tickets.html", ctx)
 
 
 @router.get("/tickets-list", name="helpdesk.pages.admin.tickets_list")

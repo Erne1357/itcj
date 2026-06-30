@@ -1,4 +1,3 @@
-<!-- itcj/apps/helpdesk/templates/admin/assign_tickets.html -->
 {% extends "helpdesk/base_helpdesk.html" %}
 
 {% block title %}Asignación de Tickets{% endblock %}
@@ -114,19 +113,19 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link active px-2 px-md-3" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button">
                 <i class="fas fa-inbox me-1 me-md-2"></i><span class="d-none d-sm-inline">Cola de </span>Tickets
-                <span class="badge bg-danger ms-1 ms-md-2" id="queueBadge">0</span>
+                <span class="badge bg-danger ms-1 ms-md-2" id="queueBadge">{{ t_pending_count }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link px-2 px-md-3" id="assigned-tab" data-bs-toggle="tab" data-bs-target="#assigned" type="button">
                 <i class="fas fa-user-check me-1 me-md-2"></i>Asignado
-                <span class="badge bg-warning ms-1 ms-md-2" id="assignedBadge">0</span>
+                <span class="badge bg-warning ms-1 ms-md-2" id="assignedBadge">{{ t_assigned_count }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link px-2 px-md-3" id="inprogress-tab" data-bs-toggle="tab" data-bs-target="#inprogress" type="button">
                 <i class="fas fa-tasks me-1 me-md-2"></i><span class="d-none d-sm-inline">En </span>Proceso
-                <span class="badge bg-primary ms-1 ms-md-2" id="inprogressBadge">0</span>
+                <span class="badge bg-primary ms-1 ms-md-2" id="inprogressBadge">{{ t_inprogress_count }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -192,12 +191,10 @@
                 </div>
             </div>
             <div class="card-body p-0">
-                <div id="queueList">
-                    <!-- Loading state -->
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="text-muted mt-3">Cargando cola de tickets...</p>
-                    </div>
+                <div id="hd-tab-queue" class="hd-results">
+                    {% with tickets=t_pending, tab='queue', count=t_pending_count, oob=false %}
+                        {% include "helpdesk/admin/_assign_results.html" %}
+                    {% endwith %}
                 </div>
             </div>
         </div>
@@ -248,11 +245,10 @@
         <!-- Lista -->
         <div class="card border-0 shadow-sm">
             <div class="card-body p-0">
-                <div id="assignedList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-warning" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets asignados...</p>
-                    </div>
+                <div id="hd-tab-assigned" class="hd-results">
+                    {% with tickets=t_assigned, tab='assigned', count=t_assigned_count, oob=false %}
+                        {% include "helpdesk/admin/_assign_results.html" %}
+                    {% endwith %}
                 </div>
             </div>
         </div>
@@ -303,11 +299,10 @@
         <!-- Lista -->
         <div class="card border-0 shadow-sm">
             <div class="card-body p-0">
-                <div id="inprogressList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets en proceso...</p>
-                    </div>
+                <div id="hd-tab-inprogress" class="hd-results">
+                    {% with tickets=t_inprogress, tab='inprogress', count=t_inprogress_count, oob=false %}
+                        {% include "helpdesk/admin/_assign_results.html" %}
+                    {% endwith %}
                 </div>
             </div>
         </div>
