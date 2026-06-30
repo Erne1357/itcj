@@ -86,6 +86,20 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     ],
     "inventory_reports_verification": ["js/inventory/reports/verification.js"],
     "inventory_reports_reports": ["js/inventory/reports/reports.js"],
+    # Reportes de sub-páginas (redirigen a /reports?tab=…; templates ya no se sirven
+    # directamente — se registran para que hx-boost no se rompa si alguien llega aquí).
+    "inventory_reports_lifecycle": [],
+    "inventory_reports_maintenance": [],
+    "inventory_reports_warranty": [],
+    # Página de categorías de inventario (admin) — JS propio en config_tab, sin módulo separado.
+    "admin_inventory_categories": [],
+    # Página de reportes de inventario (admin) — índice estático con links a sub-reportes.
+    "admin_inventory_reports": [],
+    # Reportes del departamento (jefe de depto) — placeholder estático.
+    "department_head_reports": [],
+    # Landing de Help-Desk — página standalone; se registra para habilitar boost
+    # del brand link (base_helpdesk.html) cuando htmx_boost_enabled está activo.
+    "home_landing": [],
     "technician_dashboard": ["js/technician/warehouse_ticket.js", "js/technician/dashboard.js"],
     "technician_my_assignments": ["js/technician/dashboard.js"],
     "technician_team": ["js/technician/dashboard.js"],
@@ -143,8 +157,14 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.technician_pages.team": "technician_team",
     "helpdesk_pages.secretary_pages.dashboard": "secretary_dashboard",
     "helpdesk_pages.department_pages.tickets": "department_head_dashboard",
+    "helpdesk_pages.department_pages.reports": "department_head_reports",
     "helpdesk_pages.user_pages.my_tickets": "user_my_tickets",
     "helpdesk_pages.user_pages.create_ticket": "user_create_ticket",
+    # Admin: categorías de inventario y reportes de inventario
+    "helpdesk_pages.admin_pages.inventory_categories": "admin_inventory_categories",
+    "helpdesk_pages.admin_pages.inventory_reports": "admin_inventory_reports",
+    # Landing / brand link
+    "helpdesk_pages.home": "home_landing",
 }
 
 

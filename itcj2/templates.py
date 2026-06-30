@@ -125,6 +125,9 @@ ENDPOINT_MAP: dict[str, str] = {
     "pages_core.pages_mobile.mobile_switch_desktop":     "/itcj/m/switch-desktop",
     "pages_core.pages_mobile.mobile_switch_mobile":      "/itcj/m/switch-mobile",
 
+    # ── Help-Desk: Landing ──────────────────────────────────────────────────
+    "helpdesk_pages.home":                               "/help-desk/",
+
     # ── Help-Desk: Páginas de usuario ───────────────────────────────────────
     "helpdesk_pages.user_pages.create_ticket":           "/help-desk/user/create",
     "helpdesk_pages.user_pages.my_tickets":              "/help-desk/user/my-tickets",

@@ -32,7 +32,7 @@
                     </button>
 
                     <!-- Logo y Título -->
-                    <a class="navbar-brand d-flex align-items-center gap-1 gap-md-2" href="{{ url_for('helpdesk_pages.home') }}">
+                    <a class="navbar-brand d-flex align-items-center gap-1 gap-md-2" href="{{ url_for('helpdesk_pages.home') }}"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>
                         <div class="sitec-logo-small">
                             <span class="fw-bold text-white">CC</span>
                         </div>
@@ -170,7 +170,7 @@
         <div class="container py-2">
             <ol class="breadcrumb mb-0">
                 {% block breadcrumb %}
-                <li class="breadcrumb-item"><a href="{{ url_for('helpdesk_pages.home') }}">Help-Desk</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('helpdesk_pages.home') }}"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>Help-Desk</a></li>
                 {% endblock %}
             </ol>
         </div>
