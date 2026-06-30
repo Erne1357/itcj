@@ -61,7 +61,7 @@ def test_nav_marks_only_boosted_endpoints():
         flat += it.get("dropdown", [])
     by_ep = {x.get("endpoint"): x for x in flat}
     assert by_ep["helpdesk_pages.admin_pages.tickets_list"]["hx_boost"] is True
-    assert by_ep["helpdesk_pages.admin_pages.assign_tickets"]["hx_boost"] is False
+    assert by_ep["helpdesk_pages.admin_pages.assign_tickets"]["hx_boost"] is True
 
 
 def test_only_boosted_endpoint_link_carries_hx_boost(app_client):
@@ -76,6 +76,6 @@ def test_only_boosted_endpoint_link_carries_hx_boost(app_client):
     # ancla a tickets-list → con boost
     m_list = re.search(r'<a[^>]*tickets-list[^>]*>', html)
     assert m_list and 'hx-boost="true"' in m_list.group(0)
-    # ancla a assign-tickets (endpoint NO boosteado) → sin boost
+    # ancla a assign-tickets (endpoint ahora boosteado tras migración Fase 2) → con boost
     m_assign = re.search(r'<a[^>]*assign-tickets[^>]*>', html)
-    assert m_assign and 'hx-boost="true"' not in m_assign.group(0)
+    assert m_assign and 'hx-boost="true"' in m_assign.group(0)

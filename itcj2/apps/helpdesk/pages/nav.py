@@ -37,6 +37,7 @@ HTMX_BOOST_ENABLED = True
 #     pasan tal cual. Orden = orden de carga (deps CDN antes que el módulo app).
 HD_PAGE_MODULES: dict[str, list[str]] = {
     "admin_home": ["js/admin/home.js"],
+    "admin_assign_tickets": ["js/admin/assign_tickets.js"],
     "admin_tickets_list": ["js/admin/tickets_list.js"],
     "admin_categories": [],
     "warehouse_dashboard": ["js/warehouse/dashboard.js"],
@@ -97,6 +98,7 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
 # valor es el hd_page (clave única por template) de la página destino.
 ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.admin_pages.home": "admin_home",
+    "helpdesk_pages.admin_pages.assign_tickets": "admin_assign_tickets",
     "helpdesk_pages.admin_pages.tickets_list": "admin_tickets_list",
     "helpdesk_pages.admin_pages.categories": "admin_categories",
     "helpdesk_pages.warehouse_pages.dashboard": "warehouse_dashboard",
