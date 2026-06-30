@@ -38,6 +38,55 @@ def _helpdesk_roles(user_id: int) -> set:
         _db.close()
 
 
+def _query_tickets_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de tickets para la vista admin.
+
+    Reusado por la PÁGINA (`tickets_list`, render completo) y el PARTIAL HTMX
+    (`tickets_list_partial`, fragmento). Reusa `ticket_service.list_tickets`
+    (mismo motor que el endpoint API). Devuelve también la selección actual de
+    filtros para prefijar el form en el render completo.
+    """
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    status = p.get("status")
+    if status:
+        status = [s.strip().upper() for s in status.split(",") if s.strip()] or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+
+    _db = SessionLocal()
+    try:
+        result = ticket_service.list_tickets(
+            _db,
+            user_id=user_id,
+            user_roles=user_roles,
+            status=status,
+            area=p.get("area") or None,
+            priority=p.get("priority") or None,
+            search=(p.get("search", "") or "").strip() or None,
+            page=page,
+            per_page=20,
+        )
+    finally:
+        _db.close()
+
+    return {
+        "tickets": result["tickets"],
+        "total": result["total"],
+        "current_page": result["current_page"],
+        "total_pages": result["pages"],
+        # selección actual de filtros (prefija el form en el render completo)
+        "f_status": p.get("status", ""),
+        "f_area": p.get("area", ""),
+        "f_priority": p.get("priority", ""),
+        "f_search": p.get("search", ""),
+    }
+
+
 @router.get("/home", name="helpdesk.pages.admin.home")
 async def home(
     request: Request,
@@ -73,14 +122,28 @@ async def tickets_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.list_all"])),
 ):
-    """Lista completa de todos los tickets ordenada por fecha de creación descendente."""
+    """Lista de tickets.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa.
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-tickets-results) + contador OOB.
+    Así ``hx-push-url`` empuja la URL bonita de la página (compartible, back/fwd).
+    """
+    from itcj2.templates import render
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_tickets_ctx(request, user_id, user_roles)
 
-    return render_helpdesk(request, "helpdesk/admin/tickets_list.html", {
-        "user_roles": user_roles,
-        "active_page": "admin_tickets_list",
-    })
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/admin/_tickets_list_results.html", ctx)
+
+    ctx.update({"user_roles": user_roles, "active_page": "admin_tickets_list"})
+    return render_helpdesk(request, "helpdesk/admin/tickets_list.html", ctx)
 
 
 @router.get("/categories", name="helpdesk.pages.admin.categories")

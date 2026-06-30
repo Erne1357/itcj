@@ -1,0 +1,52 @@
+{#
+  pagination — paginación HTMX reutilizable (reemplaza las ~10 renderPagination
+  copiadas). Cada link hace hx-get al endpoint partial incluyendo los filtros
+  del form, y empuja la URL (hx-push-url) → estado compartible + back/forward.
+
+  Args:
+    current_page  int
+    total_pages   int
+    partial_url   str  endpoint que devuelve el fragmento de resultados
+    target        css selector del contenedor a reemplazar (default #hd-tickets-results)
+    include       css selector del form de filtros a incluir (default #hd-filter-form)
+#}
+{% macro pagination(current_page, total_pages, partial_url, target='#hd-tickets-results', include='#hd-filter-form') %}
+{%- set max_visible = 5 -%}
+{%- set start0 = [1, current_page - 2] | max -%}
+{%- set end = [total_pages, start0 + max_visible - 1] | min -%}
+{%- set start = [1, end - max_visible + 1] | max -%}
+<nav class="hd-pagination" aria-label="Paginación">
+  <ul class="pagination mb-0 flex-wrap">
+    <li class="page-item {{ 'disabled' if current_page == 1 }}">
+      <a class="page-link" href="#" aria-label="Anterior"
+         hx-get="{{ partial_url }}?page={{ current_page - 1 }}" hx-include="{{ include }}"
+         hx-target="{{ target }}" hx-swap="innerHTML" hx-push-url="true"><i class="fas fa-chevron-left"></i></a>
+    </li>
+    {% if start > 1 %}
+      <li class="page-item">
+        <a class="page-link" href="#" hx-get="{{ partial_url }}?page=1" hx-include="{{ include }}"
+           hx-target="{{ target }}" hx-swap="innerHTML" hx-push-url="true">1</a>
+      </li>
+      {% if start > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+    {% endif %}
+    {% for p in range(start, end + 1) %}
+      <li class="page-item {{ 'active' if p == current_page }}">
+        <a class="page-link" href="#" hx-get="{{ partial_url }}?page={{ p }}" hx-include="{{ include }}"
+           hx-target="{{ target }}" hx-swap="innerHTML" hx-push-url="true">{{ p }}</a>
+      </li>
+    {% endfor %}
+    {% if end < total_pages %}
+      {% if end < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+      <li class="page-item">
+        <a class="page-link" href="#" hx-get="{{ partial_url }}?page={{ total_pages }}" hx-include="{{ include }}"
+           hx-target="{{ target }}" hx-swap="innerHTML" hx-push-url="true">{{ total_pages }}</a>
+      </li>
+    {% endif %}
+    <li class="page-item {{ 'disabled' if current_page == total_pages }}">
+      <a class="page-link" href="#" aria-label="Siguiente"
+         hx-get="{{ partial_url }}?page={{ current_page + 1 }}" hx-include="{{ include }}"
+         hx-target="{{ target }}" hx-swap="innerHTML" hx-push-url="true"><i class="fas fa-chevron-right"></i></a>
+    </li>
+  </ul>
+</nav>
+{% endmacro %}

@@ -1,0 +1,66 @@
+{#
+  ticket_card — UNA tarjeta de ticket para las 7 vistas (reemplaza los 7
+  createTicketCard divergentes). Parametrizable por flags + slot de acciones.
+
+  Args:
+    ticket          dict del ticket (to_dict): ticket_number, area, priority,
+                    status, title, description, created_at, category, created_by,
+                    requester, assigned_to, assigned_to_team, id.
+    href            si se da, la tarjeta es un <a> al detalle.
+    show_people     muestra creado_por / solicitante (default true).
+    show_assigned   muestra el asignado (default true).
+    show_description muestra la descripción truncada (default true).
+    actions         bloque HTML (caller) con botones de acción (slot). Si se da,
+                    se renderiza en una zona que detiene la propagación del click.
+
+  Markup escapado por Jinja (autoescape) → corrige el XSS latente del render JS,
+  que metía title/description sin escapar a innerHTML.
+#}
+{% from "helpdesk/_components/badges.html" import status_badge, priority_badge, area_badge, category_badge %}
+
+{% macro ticket_card(ticket, href=None, show_people=true, show_assigned=true, show_description=true, actions=None) %}
+<{{ 'a' if href else 'div' }} class="hd-ticket-card" data-status="{{ ticket.status }}"{% if href %} href="{{ href }}"{% endif %}>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+        <span class="fw-bold text-primary">{{ ticket.ticket_number }}</span>
+        {{ area_badge(ticket.area) }}
+        {% if ticket.category %}{{ category_badge(ticket.category.name) }}{% endif %}
+        {{ priority_badge(ticket.priority) }}
+      </div>
+      <div class="hd-ticket-card__title">{{ ticket.title }}</div>
+      {% if show_description and ticket.description %}
+        <div class="hd-ticket-card__desc">{{ ticket.description | truncate(110, true, '…') }}</div>
+      {% endif %}
+      <div class="hd-ticket-card__meta mt-1">
+        <i class="fas fa-calendar-alt me-1"></i>{{ ticket.created_at | hd_datetime }}
+      </div>
+    </div>
+
+    {% if show_people %}
+    <div class="col-md-3">
+      <div class="hd-ticket-card__label"><i class="fas fa-user-edit me-1"></i>Creado por</div>
+      <div class="hd-ticket-card__value mb-2">{{ ticket.created_by.name if ticket.created_by else 'N/A' }}</div>
+      <div class="hd-ticket-card__label"><i class="fas fa-user-circle me-1"></i>Solicitante</div>
+      <div class="hd-ticket-card__value">{{ ticket.requester.name if ticket.requester else 'N/A' }}</div>
+    </div>
+    {% endif %}
+
+    <div class="col-md-3">
+      <div class="hd-ticket-card__label"><i class="fas fa-info-circle me-1"></i>Estado</div>
+      <div class="mb-2">{{ status_badge(ticket.status) }}</div>
+      {% if show_assigned %}
+        <div class="hd-ticket-card__label"><i class="fas fa-user-check me-1"></i>Asignado a</div>
+        <div class="hd-ticket-card__value">
+          {% if ticket.assigned_to %}{{ ticket.assigned_to.name }}
+          {% elif ticket.assigned_to_team %}<span class="badge bg-info">Equipo: {{ ticket.assigned_to_team }}</span>
+          {% else %}<span class="text-muted">Sin asignar</span>{% endif %}
+        </div>
+      {% endif %}
+      {% if actions %}
+        <div class="mt-2 d-flex flex-column gap-2" onclick="event.stopPropagation()">{{ actions }}</div>
+      {% endif %}
+    </div>
+  </div>
+</{{ 'a' if href else 'div' }}>
+{% endmacro %}

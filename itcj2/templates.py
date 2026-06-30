@@ -41,6 +41,38 @@ templates = Jinja2Templates(
     ]
 )
 
+
+# ---------------------------------------------------------------------------
+# Filtros Jinja compartidos para componentes server-side (prefijo hd_*).
+# Usados por los macros de helpdesk/_components/ (ticket_card, etc.).
+# ---------------------------------------------------------------------------
+from datetime import datetime as _dt  # noqa: E402
+
+
+def _hd_parse_dt(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, _dt):
+        return value
+    try:
+        return _dt.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def hd_datetime(value, fmt: str = "%d/%m/%Y %H:%M") -> str:
+    d = _hd_parse_dt(value)
+    return d.strftime(fmt) if d else ""
+
+
+def hd_date(value, fmt: str = "%d/%m/%Y") -> str:
+    d = _hd_parse_dt(value)
+    return d.strftime(fmt) if d else ""
+
+
+templates.env.filters["hd_datetime"] = hd_datetime
+templates.env.filters["hd_date"] = hd_date
+
 # ---------------------------------------------------------------------------
 # Static versioning
 # ---------------------------------------------------------------------------

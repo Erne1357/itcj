@@ -1,0 +1,42 @@
+{#
+  Badges de Help-Desk — FUENTE ÚNICA. Replican EXACTAMENTE lo que devolvían
+  HelpdeskUtils.getStatusBadge/getPriorityBadge/getAreaBadge (badges sólidos de
+  Bootstrap, mismo mapeo de color/icono/texto) → consistentes con TODA la app y
+  heredan el tema de Bootstrap. Reemplazan también las redefiniciones locales
+  divergentes (p.ej. admin/documents.js).
+#}
+
+{% macro status_badge(status) -%}
+  {%- set m = {
+      'PENDING':          ('bg-secondary', 'fa-clock',        'Pendiente'),
+      'ASSIGNED':         ('bg-info',      'fa-user-check',   'Asignado'),
+      'IN_PROGRESS':      ('bg-warning',   'fa-cog',          'En Progreso'),
+      'RESOLVED_SUCCESS': ('bg-success',   'fa-check-circle', 'Resuelto'),
+      'RESOLVED_FAILED':  ('bg-danger',    'fa-times-circle', 'No Resuelto'),
+      'CLOSED':           ('bg-dark',      'fa-lock',         'Cerrado'),
+      'CANCELED':         ('bg-secondary', 'fa-ban',          'Cancelado'),
+  } -%}
+  {%- set cls, icon, label = m.get(status, m['PENDING']) -%}
+  <span class="badge {{ cls }}"><i class="fas {{ icon }} me-1"></i>{{ label }}</span>
+{%- endmacro %}
+
+{% macro priority_badge(priority) -%}
+  {%- set m = {
+      'BAJA':    ('bg-success', 'fa-arrow-down', ''),
+      'MEDIA':   ('bg-warning', 'fa-minus',      ''),
+      'ALTA':    ('bg-danger',  'fa-arrow-up',   ''),
+      'URGENTE': ('bg-dark',    'fa-fire',       'priority-pulse'),
+  } -%}
+  {%- set cls, icon, extra = m.get(priority, m['MEDIA']) -%}
+  <span class="badge {{ cls }} {{ extra }}"><i class="fas {{ icon }} me-1"></i>{{ priority }}</span>
+{%- endmacro %}
+
+{% macro area_badge(area) -%}
+  {%- set m = {'DESARROLLO': ('bg-primary', 'fa-code', 'Desarrollo'), 'SOPORTE': ('bg-info', 'fa-wrench', 'Soporte')} -%}
+  {%- set cls, icon, label = m.get(area, m['SOPORTE']) -%}
+  <span class="badge {{ cls }}"><i class="fas {{ icon }} me-1"></i>{{ label }}</span>
+{%- endmacro %}
+
+{% macro category_badge(name) -%}
+  <span class="badge bg-secondary">{{ name }}</span>
+{%- endmacro %}

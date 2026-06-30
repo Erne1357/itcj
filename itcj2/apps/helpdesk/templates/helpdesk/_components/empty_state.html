@@ -1,0 +1,11 @@
+{#
+  empty_state — estado vacío reutilizable (reemplaza las 3+ variantes divergentes
+  de .empty-state). Estilo en helpdesk-components.css (.hd-empty-state).
+#}
+{% macro empty_state(icon, title, message) %}
+<div class="hd-empty-state">
+  <div class="hd-empty-state__icon"><i class="fas {{ icon }}"></i></div>
+  <h5 class="hd-empty-state__title">{{ title }}</h5>
+  <p class="hd-empty-state__msg">{{ message }}</p>
+</div>
+{% endmacro %}

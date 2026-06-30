@@ -1,0 +1,31 @@
+{#
+  Fragmento de resultados de la lista de tickets (admin). Devuelto por
+  GET /help-desk/admin/tickets-list/partial (hx-get del form de filtros y de la
+  paginación). NO extiende base — es un partial puro que reemplaza el innerHTML
+  de #hd-tickets-results.
+
+  Contexto esperado: tickets, total, current_page, total_pages, oob (bool).
+#}
+{% from "helpdesk/_components/ticket_card.html" import ticket_card %}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob %}
+{# Actualiza el contador del header fuera de banda (está fuera del target) #}
+<span id="ticketCount" class="badge bg-secondary" hx-swap-oob="true">{{ total }} ticket{{ '' if total == 1 else 's' }}</span>
+{% endif %}
+
+{% if tickets %}
+  <div class="hd-ticket-list">
+    {% for t in tickets %}
+      {{ ticket_card(t, href='/help-desk/user/tickets/' ~ t.id ~ '?from=admin_tickets_list') }}
+    {% endfor %}
+  </div>
+  {% if total_pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      {{ pagination(current_page, total_pages, '/help-desk/admin/tickets-list') }}
+    </div>
+  {% endif %}
+{% else %}
+  {{ empty_state('fa-inbox', 'No hay tickets', 'No hay tickets que coincidan con los filtros aplicados.') }}
+{% endif %}

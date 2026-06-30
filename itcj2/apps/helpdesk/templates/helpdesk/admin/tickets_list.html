@@ -1,4 +1,7 @@
-<!-- itcj/apps/helpdesk/templates/admin/tickets_list.html -->
+<!-- itcj/apps/helpdesk/templates/admin/tickets_list.html
+     PILOTO de arquitectura de componentes: tarjeta/badges/paginación/empty-state
+     son macros server-side (helpdesk/_components/), filtros y paginación van por
+     HTMX (hx-get → partial), estilos desde tokens. Ver docs/auditoria_ui_helpdesk.md -->
 {% extends "helpdesk/base_helpdesk.html" %}
 
 {% block title %}Lista de Tickets{% endblock %}
@@ -8,7 +11,7 @@
 
 {% block content %}
 
-<!-- Summary Cards -->
+<!-- Summary Cards (conteos globales; siguen alimentados por JS + WebSocket) -->
 <div class="row mb-4 g-2 g-md-3">
     <div class="col-6 col-md-3">
         <div class="card border-0 shadow-sm border-start border-primary border-4 h-100">
@@ -25,7 +28,6 @@
             </div>
         </div>
     </div>
-
     <div class="col-6 col-md-3">
         <div class="card border-0 shadow-sm border-start border-warning border-4 h-100">
             <div class="card-body py-2 py-md-3">
@@ -41,7 +43,6 @@
             </div>
         </div>
     </div>
-
     <div class="col-6 col-md-3">
         <div class="card border-0 shadow-sm border-start border-info border-4 h-100">
             <div class="card-body py-2 py-md-3">
@@ -57,7 +58,6 @@
             </div>
         </div>
     </div>
-
     <div class="col-6 col-md-3">
         <div class="card border-0 shadow-sm border-start border-success border-4 h-100">
             <div class="card-body py-2 py-md-3">
@@ -75,99 +75,78 @@
     </div>
 </div>
 
-<!-- Filters and Search -->
+<!-- Filtros: form HTMX → recarga #hd-tickets-results sin JS. hx-push-url comparte
+     el estado en la URL (back/forward + deep-link restauran los filtros). -->
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-body p-2 p-md-3">
-        <div class="row g-2 g-md-3 align-items-end">
+        <form id="hd-filter-form" class="row g-2 g-md-3 align-items-end"
+              hx-get="/help-desk/admin/tickets-list"
+              hx-target="#hd-tickets-results"
+              hx-swap="innerHTML"
+              hx-trigger="change, keyup changed delay:400ms from:#searchInput, refresh"
+              hx-push-url="true"
+              hx-indicator="#hd-tickets-results"
+              onsubmit="return false;">
             <div class="col-6 col-md-3">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-filter me-1 d-none d-sm-inline"></i>Estado
-                </label>
-                <select class="form-select form-select-sm" id="filterStatus">
+                <label class="form-label fw-semibold small"><i class="fas fa-filter me-1 d-none d-sm-inline"></i>Estado</label>
+                <select class="form-select form-select-sm" id="filterStatus" name="status">
                     <option value="">Todos</option>
-                    <option value="PENDING">Pendiente</option>
-                    <option value="ASSIGNED">Asignado</option>
-                    <option value="IN_PROGRESS">En Progreso</option>
-                    <option value="RESOLVED_SUCCESS">Resuelto</option>
-                    <option value="RESOLVED_FAILED">No Resuelto</option>
-                    <option value="CLOSED">Cerrado</option>
-                    <option value="CANCELED">Cancelado</option>
+                    <option value="PENDING" {{ 'selected' if f_status == 'PENDING' }}>Pendiente</option>
+                    <option value="ASSIGNED" {{ 'selected' if f_status == 'ASSIGNED' }}>Asignado</option>
+                    <option value="IN_PROGRESS" {{ 'selected' if f_status == 'IN_PROGRESS' }}>En Progreso</option>
+                    <option value="RESOLVED_SUCCESS" {{ 'selected' if f_status == 'RESOLVED_SUCCESS' }}>Resuelto</option>
+                    <option value="RESOLVED_FAILED" {{ 'selected' if f_status == 'RESOLVED_FAILED' }}>No Resuelto</option>
+                    <option value="CLOSED" {{ 'selected' if f_status == 'CLOSED' }}>Cerrado</option>
+                    <option value="CANCELED" {{ 'selected' if f_status == 'CANCELED' }}>Cancelado</option>
                 </select>
             </div>
-
             <div class="col-6 col-md-2">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-layer-group me-1 d-none d-sm-inline"></i>Área
-                </label>
-                <select class="form-select form-select-sm" id="filterArea">
+                <label class="form-label fw-semibold small"><i class="fas fa-layer-group me-1 d-none d-sm-inline"></i>Área</label>
+                <select class="form-select form-select-sm" id="filterArea" name="area">
                     <option value="">Todas</option>
-                    <option value="DESARROLLO">Desarrollo</option>
-                    <option value="SOPORTE">Soporte</option>
+                    <option value="DESARROLLO" {{ 'selected' if f_area == 'DESARROLLO' }}>Desarrollo</option>
+                    <option value="SOPORTE" {{ 'selected' if f_area == 'SOPORTE' }}>Soporte</option>
                 </select>
             </div>
-
             <div class="col-6 col-md-2">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-exclamation-circle me-1 d-none d-sm-inline"></i>Prioridad
-                </label>
-                <select class="form-select form-select-sm" id="filterPriority">
+                <label class="form-label fw-semibold small"><i class="fas fa-exclamation-circle me-1 d-none d-sm-inline"></i>Prioridad</label>
+                <select class="form-select form-select-sm" id="filterPriority" name="priority">
                     <option value="">Todas</option>
-                    <option value="URGENTE">Urgente</option>
-                    <option value="ALTA">Alta</option>
-                    <option value="MEDIA">Media</option>
-                    <option value="BAJA">Baja</option>
+                    <option value="URGENTE" {{ 'selected' if f_priority == 'URGENTE' }}>Urgente</option>
+                    <option value="ALTA" {{ 'selected' if f_priority == 'ALTA' }}>Alta</option>
+                    <option value="MEDIA" {{ 'selected' if f_priority == 'MEDIA' }}>Media</option>
+                    <option value="BAJA" {{ 'selected' if f_priority == 'BAJA' }}>Baja</option>
                 </select>
             </div>
-
             <div class="col-6 col-md-3">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-search me-1 d-none d-sm-inline"></i>Buscar
-                </label>
-                <input type="text"
-                       class="form-control form-control-sm"
-                       id="searchInput"
-                       placeholder="Título, número, solicitante o asignado...">
+                <label class="form-label fw-semibold small"><i class="fas fa-search me-1 d-none d-sm-inline"></i>Buscar</label>
+                <input type="text" class="form-control form-control-sm" id="searchInput" name="search"
+                       value="{{ f_search }}" placeholder="Título, número, solicitante o asignado...">
             </div>
-
             <div class="col-12 col-md-2 mt-2 mt-md-0">
-                <button class="btn btn-outline-secondary btn-sm w-100" id="btnClearFilters">
+                <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btnClearFilters">
                     <i class="fas fa-times me-1"></i><span class="d-none d-sm-inline">Limpiar</span><span class="d-sm-none">×</span>
                 </button>
             </div>
-        </div>
+        </form>
     </div>
 </div>
 
-<!-- Tickets List -->
+<!-- Lista de tickets (render server-side; macros + HTMX partial) -->
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-bottom p-2 p-md-3">
         <div class="d-flex justify-content-between align-items-center">
             <h5 class="mb-0 fs-6 fs-md-5">
                 <i class="fas fa-list me-1 me-md-2"></i><span class="d-none d-sm-inline">Todos los </span>Tickets
             </h5>
-            <span class="badge bg-secondary" id="ticketCount">0</span>
+            <span class="badge bg-secondary" id="ticketCount">{{ total }} ticket{{ '' if total == 1 else 's' }}</span>
         </div>
     </div>
     <div class="card-body p-0">
-        <div id="ticketsList">
-            <!-- Loading state -->
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Cargando...</span>
-                </div>
-                <p class="text-muted mt-3">Cargando tickets...</p>
-            </div>
+        <div id="hd-tickets-results" class="hd-results">
+            {% include "helpdesk/admin/_tickets_list_results.html" %}
         </div>
     </div>
-</div>
-
-<!-- Pagination -->
-<div class="d-flex justify-content-center mt-4">
-    <nav id="paginationNav" style="display: none;">
-        <ul class="pagination" id="paginationList">
-            <!-- Se generará dinámicamente -->
-        </ul>
-    </nav>
 </div>
 
 {% endblock %}
