@@ -106,6 +106,9 @@
         }
         ticketSocketBound = false;
 
+        // Reset warehouse listeners flag so _attachListeners() re-binds on revisit
+        window.TicketWarehouse?._reset?.();
+
         // Dispose Bootstrap modals (guarded)
         const modalIds = [
             'startWorkModal',

@@ -151,6 +151,10 @@
         renderMaterials();
     }
 
+    function _reset() {
+        _listenersAttached = false;
+    }
+
     const TicketWarehouse = {
         searchProducts,
         selectProduct,
@@ -159,6 +163,7 @@
         getMaterials,
         reset,
         _attachListeners,
+        _reset,
     };
 
     window.TicketWarehouse = TicketWarehouse;
