@@ -1,12 +1,13 @@
 // itcj2/apps/helpdesk/static/js/user/warehouse_ticket.js
 // TicketWarehouse module for user ticket_detail — search, select and consume warehouse materials
 
-const TicketWarehouse = (function () {
+(function () {
     'use strict';
 
     const API_W = '/api/warehouse/v2';
     let materials = [];
     let searchTimer = null;
+    let _listenersAttached = false;
 
     function searchProducts(query) {
         clearTimeout(searchTimer);
@@ -76,10 +77,17 @@ const TicketWarehouse = (function () {
         renderMaterials();
     }
 
-    document.getElementById('warehouseQtyConfirm').addEventListener('click', _confirmQty);
-    document.getElementById('warehouseQtyInput').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') _confirmQty();
-    });
+    function _attachListeners() {
+        if (_listenersAttached) return;
+        const confirmBtn = document.getElementById('warehouseQtyConfirm');
+        const qtyInput = document.getElementById('warehouseQtyInput');
+        if (!confirmBtn || !qtyInput) return;
+        confirmBtn.addEventListener('click', _confirmQty);
+        qtyInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') _confirmQty();
+        });
+        _listenersAttached = true;
+    }
 
     function removeMaterial(productId) {
         materials = materials.filter(m => m.product_id !== productId);
@@ -137,7 +145,21 @@ const TicketWarehouse = (function () {
     }
 
     function getMaterials() { return [...materials]; }
-    function reset() { materials = []; renderMaterials(); }
 
-    return { searchProducts, selectProduct, removeMaterial, consumeAll, getMaterials, reset };
+    function reset() {
+        materials = [];
+        renderMaterials();
+    }
+
+    const TicketWarehouse = {
+        searchProducts,
+        selectProduct,
+        removeMaterial,
+        consumeAll,
+        getMaterials,
+        reset,
+        _attachListeners,
+    };
+
+    window.TicketWarehouse = TicketWarehouse;
 })();
