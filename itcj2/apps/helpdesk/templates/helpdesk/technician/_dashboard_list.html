@@ -1,0 +1,54 @@
+{#
+  Fragmento de una lista del dashboard de técnico (una por pestaña). Devuelto por
+  GET /help-desk/technician/dashboard?tab=<tab> cuando llega HX-Request (no boost).
+  Reemplaza el innerHTML del contenedor de la pestaña.
+
+  Las tarjetas usan el macro ticket_card; los botones de acción llevan los datos
+  del ticket en data-* para que los modales (Iniciar/Resolver/Tomar) los lean sin
+  depender de un array JS (regla de zonas: estado de cliente desde el DOM).
+
+  Contexto: tickets, tab ('assigned'|'inProgress'|'team'|'resolved'), oob, badge_id.
+#}
+{% from "helpdesk/_components/ticket_card.html" import ticket_card %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob and badge_id %}
+<span class="badge {{ badge_cls or 'bg-secondary' }} ms-1 ms-md-2" id="{{ badge_id }}" hx-swap-oob="true">{{ tickets|length }}</span>
+{% endif %}
+
+{% macro _data_attrs(t) -%}
+ data-id="{{ t.id }}" data-number="{{ t.ticket_number }}" data-title="{{ t.title }}"
+ data-priority="{{ t.priority }}" data-area="{{ t.area }}" data-status="{{ t.status }}"
+ data-description="{{ t.description or '' }}" data-assigned-id="{{ t.assigned_to.id if t.assigned_to else '' }}"
+{%- endmacro %}
+
+{% if tickets %}
+  <div class="hd-ticket-list">
+    {% for t in tickets %}
+      {% set acts %}
+        {% if tab == 'assigned' %}
+          <button type="button" class="btn btn-primary btn-sm" onclick="openStartWorkModal(this)" {{ _data_attrs(t) }}><i class="fas fa-play me-1"></i>Iniciar</button>
+        {% elif tab == 'inProgress' %}
+          <button type="button" class="btn btn-success btn-sm" onclick="openResolveModal(this)" {{ _data_attrs(t) }}><i class="fas fa-check-circle me-1"></i>Resolver</button>
+        {% elif tab == 'team' %}
+          <button type="button" class="btn btn-primary btn-sm" onclick="openSelfAssignModal(this)" {{ _data_attrs(t) }}><i class="fas fa-hand-paper me-1"></i>Tomar</button>
+        {% endif %}
+        <a class="btn btn-outline-secondary btn-sm" href="/help-desk/user/tickets/{{ t.id }}?from=technician"><i class="fas fa-eye me-1"></i>Ver Detalle</a>
+      {% endset %}
+      {{ ticket_card(t,
+            href=None,
+            show_people=true, show_assigned=true, show_description=true, show_location=true,
+            show_resolution=(tab == 'resolved'), show_rating=(tab == 'resolved'),
+            actions=acts) }}
+    {% endfor %}
+  </div>
+{% else %}
+  {% set empties = {
+      'assigned':   ('fa-inbox', 'Sin asignados', 'No tienes tickets asignados.'),
+      'inProgress': ('fa-coffee', 'Nada en progreso', '¡Buen momento para un descanso!'),
+      'team':       ('fa-users-slash', 'Sin tickets del equipo', 'No hay tickets del equipo disponibles.'),
+      'resolved':   ('fa-history', 'Sin historial', 'No hay tickets resueltos que coincidan.')
+  } %}
+  {% set e = empties.get(tab, ('fa-inbox', 'Sin tickets', 'Sin tickets.')) %}
+  {{ empty_state(e[0], e[1], e[2]) }}
+{% endif %}
