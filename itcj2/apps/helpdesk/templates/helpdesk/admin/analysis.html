@@ -338,10 +338,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<!-- Chart.js para gráficas básicas -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<!-- ApexCharts para scatter, heatmap, sparklines -->
-<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/analysis.js') }}?v={{ sv('helpdesk', 'js/admin/analysis.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

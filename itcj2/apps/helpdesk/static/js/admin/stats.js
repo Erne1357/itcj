@@ -1,4 +1,4 @@
-﻿/* itcj/apps/helpdesk/static/helpdesk/js/admin/stats.js */
+/* itcj/apps/helpdesk/static/helpdesk/js/admin/stats.js */
 (function () {
     'use strict';
 
@@ -21,6 +21,7 @@
     // ── Estado ───────────────────────────────────────────────────
     let activeTab = 'resumen';
     let loadedTabs = new Set();
+    let dateDebounce = null;
 
     // ── Colores temáticos ─────────────────────────────────────────
     const COLORS = {
@@ -553,8 +554,31 @@
         loadCurrentTab(true);
     }
 
+    // ── Destroy todos los charts ──────────────────────────────────
+    function destroyAllCharts() {
+        chartMonthly   = destroyChart(chartMonthly);
+        chartStatus    = destroyChart(chartStatus);
+        chartArea      = destroyChart(chartArea);
+        chartPriority  = destroyChart(chartPriority);
+        chartDeptBar   = destroyChart(chartDeptBar);
+        chartDeptRating= destroyChart(chartDeptRating);
+        chartTechBar   = destroyChart(chartTechBar);
+        chartTechRating= destroyChart(chartTechRating);
+        chartTimeHist  = destroyChart(chartTimeHist);
+        chartAreaTime  = destroyChart(chartAreaTime);
+        chartDistAtt   = destroyChart(chartDistAtt);
+        chartDistSpd   = destroyChart(chartDistSpd);
+    }
+
     // ── Setup ────────────────────────────────────────────────────
-    document.addEventListener('DOMContentLoaded', () => {
+    function init() {
+        // Reset estado para re-render en revisita
+        activeTab = 'resumen';
+        loadedTabs = new Set();
+        destroyAllCharts();
+        clearTimeout(dateDebounce);
+        dateDebounce = null;
+
         loadPeriods();
 
         // Tab listener
@@ -589,7 +613,6 @@
         });
 
         // Custom date range
-        let dateDebounce = null;
         ['filterStart', 'filterEnd'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
                 clearTimeout(dateDebounce);
@@ -619,5 +642,36 @@
 
         // Carga inicial
         loadCurrentTab();
-    });
+    }
+
+    function destroy() {
+        clearTimeout(dateDebounce);
+        dateDebounce = null;
+
+        // Remove tab listeners
+        document.querySelectorAll('#statsTabs .nav-link').forEach(link => {
+            link.replaceWith(link.cloneNode(true));
+        });
+
+        // Remove preset listeners
+        document.querySelectorAll('.btn-preset').forEach(btn => {
+            btn.replaceWith(btn.cloneNode(true));
+        });
+
+        // Remove filter listeners (clone to strip)
+        ['filterPeriod', 'filterStart', 'filterEnd', 'filterArea'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.replaceWith(el.cloneNode(true));
+        });
+
+        // Remove mode button listeners
+        document.querySelectorAll('#statsModeBtns .btn').forEach(btn => {
+            btn.replaceWith(btn.cloneNode(true));
+        });
+
+        destroyAllCharts();
+    }
+
+    // Registrar en el controller HTMX
+    window.HelpdeskPage.page('admin_stats', { init, destroy });
 })();

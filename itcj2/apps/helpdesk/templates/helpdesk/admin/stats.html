@@ -477,8 +477,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/stats.js') }}?v={{ sv('helpdesk', 'js/admin/stats.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

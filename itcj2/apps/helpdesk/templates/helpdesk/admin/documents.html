@@ -188,7 +188,4 @@
 
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/documents.js') }}?v={{ sv('helpdesk', 'js/admin/documents.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

@@ -8,48 +8,36 @@
     let tickets = [];
     let selectedTicketIds = new Set();
 
-    // ==================== INICIALIZACIÓN ====================
+    // ==================== SELECCIÓN ====================
 
-    document.addEventListener('DOMContentLoaded', () => {
-        setupEventListeners();
-    });
+    function onTicketSelectionChange(ticketId, isChecked) {
+        if (isChecked) {
+            selectedTicketIds.add(ticketId);
+        } else {
+            selectedTicketIds.delete(ticketId);
+            document.getElementById('selectAll').checked = false;
+        }
+        updateSelectionUI();
+    }
 
-    function setupEventListeners() {
-        // Select all checkbox
-        document.getElementById('selectAll').addEventListener('change', function () {
-            const checkboxes = document.querySelectorAll('.ticket-checkbox');
-            checkboxes.forEach(cb => {
-                cb.checked = this.checked;
-                const id = parseInt(cb.value);
-                if (this.checked) {
-                    selectedTicketIds.add(id);
-                } else {
-                    selectedTicketIds.delete(id);
-                }
-            });
-            updateSelectionUI();
-        });
+    function updateSelectionUI() {
+        const count = selectedTicketIds.size;
+        const btnGenerate = document.getElementById('btnGenerate');
+        const selectionCount = document.getElementById('selectionCount');
 
-        // Output mode: concatenated solo disponible con PDF
-        document.querySelectorAll('input[name="docFormat"]').forEach(radio => {
-            radio.addEventListener('change', function () {
-                const concatenatedRadio = document.getElementById('outputConcatenated');
-                if (this.value === 'docx') {
-                    concatenatedRadio.disabled = true;
-                    document.getElementById('outputZip').checked = true;
-                } else {
-                    concatenatedRadio.disabled = false;
-                }
-            });
-        });
+        btnGenerate.disabled = count === 0;
 
-        // Buscar con Enter
-        document.getElementById('filterSearch').addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                loadTickets();
-            }
-        });
+        if (count === 0) {
+            selectionCount.textContent = 'Selecciona tickets para generar';
+            selectionCount.className = 'text-muted';
+        } else {
+            selectionCount.textContent = `${count} ticket${count > 1 ? 's' : ''} seleccionado${count > 1 ? 's' : ''}`;
+            selectionCount.className = 'text-primary fw-bold';
+        }
+
+        // Mostrar/ocultar modo de salida
+        const outputModeContainer = document.getElementById('outputModeContainer');
+        outputModeContainer.style.display = count > 1 ? 'block' : 'none';
     }
 
     // ==================== CARGA DE TICKETS ====================
@@ -160,38 +148,6 @@
         }).join('');
     }
 
-    // ==================== SELECCIÓN ====================
-
-    function onTicketSelectionChange(ticketId, isChecked) {
-        if (isChecked) {
-            selectedTicketIds.add(ticketId);
-        } else {
-            selectedTicketIds.delete(ticketId);
-            document.getElementById('selectAll').checked = false;
-        }
-        updateSelectionUI();
-    }
-
-    function updateSelectionUI() {
-        const count = selectedTicketIds.size;
-        const btnGenerate = document.getElementById('btnGenerate');
-        const selectionCount = document.getElementById('selectionCount');
-
-        btnGenerate.disabled = count === 0;
-
-        if (count === 0) {
-            selectionCount.textContent = 'Selecciona tickets para generar';
-            selectionCount.className = 'text-muted';
-        } else {
-            selectionCount.textContent = `${count} ticket${count > 1 ? 's' : ''} seleccionado${count > 1 ? 's' : ''}`;
-            selectionCount.className = 'text-primary fw-bold';
-        }
-
-        // Mostrar/ocultar modo de salida
-        const outputModeContainer = document.getElementById('outputModeContainer');
-        outputModeContainer.style.display = count > 1 ? 'block' : 'none';
-    }
-
     // ==================== GENERACIÓN ====================
 
     async function generateDocuments() {
@@ -236,6 +192,7 @@
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generando...';
 
+        let objectUrl = null;
         try {
             const response = await fetch('/api/help-desk/v2/documents/generate', {
                 method: 'POST',
@@ -255,9 +212,9 @@
 
             // Descargar archivo
             const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
+            objectUrl = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
+            a.href = objectUrl;
 
             // Extraer nombre del header Content-Disposition
             const disposition = response.headers.get('Content-Disposition');
@@ -272,7 +229,6 @@
             a.download = filename;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
             HelpdeskUtils.showToast('Documentos generados exitosamente', 'success');
@@ -281,6 +237,10 @@
             console.error('Error generando documentos:', error);
             HelpdeskUtils.showToast(`Error: ${error.message}`, 'error');
         } finally {
+            if (objectUrl) {
+                window.URL.revokeObjectURL(objectUrl);
+                objectUrl = null;
+            }
             btn.disabled = false;
             btn.innerHTML = originalHTML;
             updateSelectionUI();
@@ -307,9 +267,80 @@
         return text.length > maxLen ? text.substring(0, maxLen) + '...' : text;
     }
 
-    // Exponer funciones globales necesarias para onclick en HTML
-    window.loadTickets = loadTickets;
-    window.generateDocuments = generateDocuments;
-    window._docOnTicketChange = onTicketSelectionChange;
+    // ==================== HTMX LIFECYCLE ====================
 
+    function setupEventListeners() {
+        // Select all checkbox
+        document.getElementById('selectAll').addEventListener('change', function () {
+            const checkboxes = document.querySelectorAll('.ticket-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = this.checked;
+                const id = parseInt(cb.value);
+                if (this.checked) {
+                    selectedTicketIds.add(id);
+                } else {
+                    selectedTicketIds.delete(id);
+                }
+            });
+            updateSelectionUI();
+        });
+
+        // Output mode: concatenated solo disponible con PDF
+        document.querySelectorAll('input[name="docFormat"]').forEach(radio => {
+            radio.addEventListener('change', function () {
+                const concatenatedRadio = document.getElementById('outputConcatenated');
+                if (this.value === 'docx') {
+                    concatenatedRadio.disabled = true;
+                    document.getElementById('outputZip').checked = true;
+                } else {
+                    concatenatedRadio.disabled = false;
+                }
+            });
+        });
+
+        // Buscar con Enter
+        document.getElementById('filterSearch').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                loadTickets();
+            }
+        });
+    }
+
+    function init() {
+        tickets = [];
+        selectedTicketIds = new Set();
+
+        // Exponer funciones globales para onclick en HTML
+        window.loadTickets        = loadTickets;
+        window.generateDocuments  = generateDocuments;
+        window._docOnTicketChange = onTicketSelectionChange;
+
+        setupEventListeners();
+    }
+
+    function destroy() {
+        // Limpiar window funcs
+        delete window.loadTickets;
+        delete window.generateDocuments;
+        delete window._docOnTicketChange;
+
+        // Remove selectAll listener
+        const selectAll = document.getElementById('selectAll');
+        if (selectAll) selectAll.replaceWith(selectAll.cloneNode(true));
+
+        // Remove docFormat listeners
+        document.querySelectorAll('input[name="docFormat"]').forEach(radio => {
+            radio.replaceWith(radio.cloneNode(true));
+        });
+
+        // Remove filterSearch listener
+        const filterSearch = document.getElementById('filterSearch');
+        if (filterSearch) filterSearch.replaceWith(filterSearch.cloneNode(true));
+
+        // No hay object URLs pendientes (se revocan en finally del generateDocuments)
+    }
+
+    // Registrar en el controller HTMX
+    window.HelpdeskPage.page('admin_documents', { init, destroy });
 })();
