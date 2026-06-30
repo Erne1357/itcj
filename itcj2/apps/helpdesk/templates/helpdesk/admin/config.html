@@ -928,35 +928,4 @@
 {% endblock %}
 
 
-{% block extra_js %}
-{# CDN SortableJS — necesario para drag-drop en categories_tab y field_template_builder #}
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-
-{# Entry point (router de tabs + hash sync) #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/config_main.js') }}?v={{ sv('helpdesk', 'js/admin/config/config_main.js') }}"></script>
-
-{# Field builder: debe cargarse antes de categories_tab porque categories_tab llama FieldTemplateBuilder.open #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/field_template_builder.js') }}?v={{ sv('helpdesk', 'js/admin/config/field_template_builder.js') }}"></script>
-
-{# Tab: categorías de tickets #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/categories_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/categories_tab.js') }}"></script>
-
-{# Tab: categorías de inventario #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/inventory_categories_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/inventory_categories_tab.js') }}"></script>
-
-{# Tab: prioridades y SLA #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/priorities_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/priorities_tab.js') }}"></script>
-
-{# Tab: estados y flujo (Fase 4) #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/statuses_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/statuses_tab.js') }}"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/transitions_matrix.js') }}?v={{ sv('helpdesk', 'js/admin/config/transitions_matrix.js') }}"></script>
-
-{# Tab: áreas de servicio (Fase 5) #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/areas_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/areas_tab.js') }}"></script>
-
-{# Tab: auditoría de cambios (Fase 7) #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/audit_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/audit_tab.js') }}"></script>
-
-{# Tab: plantillas de notificación (Fase 6) #}
-<script src="{{ url_for('static', filename='helpdesk/js/admin/config/notifications_tab.js') }}?v={{ sv('helpdesk', 'js/admin/config/notifications_tab.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

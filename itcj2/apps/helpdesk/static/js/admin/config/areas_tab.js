@@ -51,7 +51,18 @@
         return areas.find(function (a) { return a.id === id; }) || null;
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized = false;
+        if (sortableInstance) {
+            try { sortableInstance.destroy(); } catch (_) {}
+            sortableInstance = null;
+        }
+        areas        = [];
+        showInactive = false;
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#areas') {
             if (!initialized) {
@@ -61,16 +72,8 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '';
-        if (hash === '#areas') {
-            if (!initialized) {
-                initialized = true;
-                initAreasSection();
-            }
-        }
-        bindEditModal();
-    });
+    // Bind modal una sola vez al evaluar el IIFE (guard dataset.areaListenerBound)
+    bindEditModal();
 
     function initAreasSection() {
         renderShell();

@@ -138,7 +138,17 @@
         };
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized      = false;
+        templates        = [];
+        showInactive     = false;
+        editingTemplate  = null;
+        editHasChanges   = false;
+        clearPreviewDebounce();
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#notif') {
             if (!initialized) {
@@ -148,17 +158,9 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '';
-        if (hash === '#notif') {
-            if (!initialized) {
-                initialized = true;
-                initNotifTab();
-            }
-        }
-        bindEditModal();
-        bindPreviewModal();
-    });
+    // Bind modales una sola vez al evaluar el IIFE (guards dataset.*Bound)
+    bindEditModal();
+    bindPreviewModal();
 
     function initNotifTab() {
         renderShell();

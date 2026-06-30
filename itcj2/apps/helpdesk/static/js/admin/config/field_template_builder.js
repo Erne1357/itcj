@@ -54,20 +54,27 @@
         return JSON.parse(JSON.stringify(obj));
     }
 
-    // === INICIALIZACIÓN ===
-    document.addEventListener('DOMContentLoaded', function () {
+    // === TEARDOWN (morph-safe: se ejecuta al navegar away) ===
+    document.addEventListener('config:teardown', function () {
+        cleanupSortable();
+        // Cerrar modal si está abierto
         const modalEl = document.getElementById('modal-field-builder');
-        if (!modalEl) return;
-
-        modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: 'static', keyboard: false });
-
-        // Prevenir memory leaks: re-usar la instancia
-        modalEl.addEventListener('hidden.bs.modal', function () {
-            cleanupSortable();
-        });
-
-        bindModalControls(modalEl);
+        if (modalEl) {
+            const inst = bootstrap.Modal.getInstance(modalEl);
+            if (inst) { try { inst.hide(); } catch (_) {} }
+        }
+        // Resetear estado de edición
+        currentCategoryId   = null;
+        currentCategoryName = '';
+        currentArea         = '';
+        fields              = [];
+        editingFieldIdx     = null;
+        modalInstance       = null;
     });
+
+    // === INICIALIZACIÓN (lazy: al abrir el modal se crea la instancia) ===
+    // Los controles del modal se enlazan la primera vez que open() se llama
+    // gracias al guard dataset.builderBound en bindModalControls().
 
     function bindModalControls(modalEl) {
         if (modalEl.dataset.builderBound) return;
@@ -140,7 +147,16 @@
 
         if (!modalInstance) {
             modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: 'static', keyboard: false });
+            // Prevenir memory leaks: re-usar la instancia; cleanup sortable al cerrar
+            if (!modalEl.dataset.builderHiddenBound) {
+                modalEl.dataset.builderHiddenBound = '1';
+                modalEl.addEventListener('hidden.bs.modal', function () {
+                    cleanupSortable();
+                });
+            }
         }
+        // Enlazar controles del modal la primera vez (guard dataset.builderBound)
+        bindModalControls(modalEl);
         modalInstance.show();
 
         // Cargar plantilla existente

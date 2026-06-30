@@ -34,7 +34,13 @@
         }
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized = false;
+        categories  = [];
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#inv-cat') {
             if (!initialized) {
@@ -310,10 +316,8 @@
         preview.className = escapeHtml(iconInput.value) + ' fa-lg';
     }
 
-    // === BIND MODAL (una sola vez al cargar DOM) ===
-    document.addEventListener('DOMContentLoaded', function () {
-        bindInvCatModal();
-    });
+    // === BIND MODAL (una sola vez al evaluar el IIFE; guard dataset.listenerBound) ===
+    bindInvCatModal();
 
     function bindInvCatModal() {
         const modal = document.getElementById('modal-inv-cat');

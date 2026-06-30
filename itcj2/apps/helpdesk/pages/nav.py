@@ -36,6 +36,19 @@ HTMX_BOOST_ENABLED = True
 #     sv(); las URLs http(s):// (CDN: Chart, ApexCharts, Sortable, Shepherd) se
 #     pasan tal cual. Orden = orden de carga (deps CDN antes que el módulo app).
 HD_PAGE_MODULES: dict[str, list[str]] = {
+    "admin_config": [
+        "https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js",
+        "js/admin/config/field_template_builder.js",
+        "js/admin/config/categories_tab.js",
+        "js/admin/config/inventory_categories_tab.js",
+        "js/admin/config/priorities_tab.js",
+        "js/admin/config/statuses_tab.js",
+        "js/admin/config/transitions_matrix.js",
+        "js/admin/config/areas_tab.js",
+        "js/admin/config/audit_tab.js",
+        "js/admin/config/notifications_tab.js",
+        "js/admin/config/config_main.js",
+    ],
     "admin_stats": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "js/admin/stats.js"],
     "admin_analysis": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js", "js/admin/analysis.js"],
     "admin_documents": ["js/admin/documents.js"],
@@ -100,6 +113,7 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
 # link del nav apunta a una página migrada (y por tanto debe boostearse). El
 # valor es el hd_page (clave única por template) de la página destino.
 ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
+    "helpdesk_pages.admin_pages.config": "admin_config",
     "helpdesk_pages.admin_pages.stats": "admin_stats",
     "helpdesk_pages.admin_pages.analysis": "admin_analysis",
     "helpdesk_pages.admin_pages.documents": "admin_documents",

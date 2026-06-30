@@ -192,7 +192,16 @@
         return params;
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized   = false;
+        currentPage   = 1;
+        totalPages    = 1;
+        totalLogs     = 0;
+        activeFilters = {};
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#audit') {
             if (!initialized) {
@@ -202,16 +211,8 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '';
-        if (hash === '#audit') {
-            if (!initialized) {
-                initialized = true;
-                initAuditTab();
-            }
-        }
-        bindDetailModal();
-    });
+    // Bind modal una sola vez al evaluar el IIFE (guard dataset.auditBound)
+    bindDetailModal();
 
     function initAuditTab() {
         renderShell();
