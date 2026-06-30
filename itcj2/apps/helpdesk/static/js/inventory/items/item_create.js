@@ -20,6 +20,10 @@
     let predecessorDebounce = null;
     const COMPUTER_CATEGORY_CODE = 'computer';
 
+    // Handler de document click para el combo de usuarios (módulo-level para poder
+    // removerlo en destroy() y evitar listeners huérfanos en cada revisita morph).
+    let _comboDocClickHandler = null;
+
     // Variables de datos desde data-*
     let BULK_MODE = false;
 
@@ -76,6 +80,12 @@
         try { $('#progressModal').modal('dispose'); } catch (_) {}
         try { $('#predecessorSearchModal').modal('dispose'); } catch (_) {}
         try { $('#createInactiveUserModal').modal('dispose'); } catch (_) {}
+
+        // Limpiar handler de document click del combo de usuarios
+        if (_comboDocClickHandler) {
+            document.removeEventListener('click', _comboDocClickHandler);
+            _comboDocClickHandler = null;
+        }
 
         // Limpiar globals
         delete window.switchMode;
@@ -342,9 +352,18 @@
                 comboInput.dataset.comboInit = '1';
                 comboInput.addEventListener('input', () => renderUserCombo(comboInput.value.trim()));
                 comboInput.addEventListener('focus', () => renderUserCombo(comboInput.value.trim()));
-                document.addEventListener('click', (e) => {
-                    if (!e.target.closest('.user-combo')) dropdown.classList.add('d-none');
-                });
+                // Remover handler previo antes de registrar uno nuevo para evitar
+                // listeners huérfanos en revisitas morph (el input es un nodo fresco
+                // sin el flag, pero el document listener del ciclo anterior persiste).
+                if (_comboDocClickHandler) {
+                    document.removeEventListener('click', _comboDocClickHandler);
+                }
+                _comboDocClickHandler = function (e) {
+                    // Re-query el dropdown por id para no capturar un nodo descartado.
+                    var dd = document.getElementById('user-combo-dropdown');
+                    if (dd && !e.target.closest('.user-combo')) dd.classList.add('d-none');
+                };
+                document.addEventListener('click', _comboDocClickHandler);
                 clearBtn.addEventListener('click', () => {
                     select.value = '';
                     comboInput.value = '';

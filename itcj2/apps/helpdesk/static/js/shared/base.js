@@ -96,7 +96,8 @@ $(document).ready(function() {
     // sobre <body>, idiomorph difea contra la respuesta del server (sin FAB) y lo
     // eliminaría en la 1ª navegación boosteada. Cancelamos su remoción.
     // (En iframe el FAB se autosuprime, así que esto solo aplica standalone.)
-    if (window.Idiomorph && Idiomorph.defaults && Idiomorph.defaults.callbacks) {
+    if (window.Idiomorph && Idiomorph.defaults && Idiomorph.defaults.callbacks &&
+            !Idiomorph.defaults.callbacks._hdFabPatched) {
         var _hdPrevBeforeRemoved = Idiomorph.defaults.callbacks.beforeNodeRemoved;
         Idiomorph.defaults.callbacks.beforeNodeRemoved = function (node) {
             if (node && node.nodeType === 1 && node.id && /^notif(Fab|Panel)-/.test(node.id)) {
@@ -104,6 +105,7 @@ $(document).ready(function() {
             }
             if (typeof _hdPrevBeforeRemoved === 'function') return _hdPrevBeforeRemoved(node);
         };
+        Idiomorph.defaults.callbacks._hdFabPatched = true;
     }
 
     var registry = {};

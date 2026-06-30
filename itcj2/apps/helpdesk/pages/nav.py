@@ -145,6 +145,7 @@ ENDPOINT_TO_ACTIVE_PAGE: dict[str, str] = {
     "helpdesk_pages.inventory_pages.retirement_requests_list": "inventory_retirement_retirement_requests_list",
     "helpdesk_pages.inventory_pages.items_list": "inventory_items_items_list",
     "helpdesk_pages.inventory_pages.item_create": "inventory_items_item_create",
+    "helpdesk_pages.inventory_pages.bulk_register": "inventory_items_item_create",
     "helpdesk_pages.inventory_pages.pending_items": "inventory_items_pending_items",
     "helpdesk_pages.inventory_pages.groups_list": "inventory_groups_groups_list",
     "helpdesk_pages.inventory_pages.dashboard": "inventory_dashboard",
