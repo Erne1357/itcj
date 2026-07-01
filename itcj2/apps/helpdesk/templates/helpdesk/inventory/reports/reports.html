@@ -118,12 +118,12 @@
             <!-- Resultados -->
             <div class="card shadow">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-primary small">
+                    <h6 class="m-0 fw-bold text-primary small">
                         <i class="fas fa-table"></i> Resultados
                         <span class="badge bg-secondary ms-1" id="eq-total">0</span>
                     </h6>
                     <div class="d-flex align-items-center gap-2">
-                        <select class="form-select form-select-sm" id="eq-per-page" style="width: auto;" onchange="loadEquipmentReport()">
+                        <select class="form-select form-select-sm w-auto" id="eq-per-page" onchange="loadEquipmentReport()">
                             <option value="25">25</option>
                             <option value="50" selected>50</option>
                             <option value="100">100</option>
@@ -155,7 +155,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="card-footer py-2" id="eq-pagination-container" style="display: none;">
+                <div class="card-footer py-2 d-none" id="eq-pagination-container">
                     <nav>
                         <ul class="pagination pagination-sm mb-0 justify-content-center" id="eq-pagination"></ul>
                     </nav>
@@ -241,11 +241,11 @@
             <!-- Resultados -->
             <div class="card shadow">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-primary small">
+                    <h6 class="m-0 fw-bold text-primary small">
                         <i class="fas fa-history"></i> Movimientos
                         <span class="badge bg-secondary ms-1" id="mv-total">0</span>
                     </h6>
-                    <select class="form-select form-select-sm" id="mv-per-page" style="width: auto;" onchange="loadMovementsReport()">
+                    <select class="form-select form-select-sm w-auto" id="mv-per-page" onchange="loadMovementsReport()">
                         <option value="25">25</option>
                         <option value="50" selected>50</option>
                         <option value="100">100</option>
@@ -256,7 +256,7 @@
                         <table class="table table-hover table-sm mb-0" id="mv-table">
                             <thead class="table-light">
                                 <tr>
-                                    <th style="width: 140px;">Fecha</th>
+                                    <th class="text-nowrap">Fecha</th>
                                     <th>Evento</th>
                                     <th>Equipo</th>
                                     <th class="d-none d-md-table-cell">Realizado por</th>
@@ -274,7 +274,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="card-footer py-2" id="mv-pagination-container" style="display: none;">
+                <div class="card-footer py-2 d-none" id="mv-pagination-container">
                     <nav>
                         <ul class="pagination pagination-sm mb-0 justify-content-center" id="mv-pagination"></ul>
                     </nav>
@@ -287,34 +287,34 @@
             <!-- Cards resumen -->
             <div class="row g-2 mb-3" id="warranty-stats">
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-success shadow h-100 py-1">
+                    <div class="card border-start border-4 border-success shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size: 0.65rem;">Con Garant&iacute;a</div>
-                            <div class="h5 mb-0 font-weight-bold" id="w-under-warranty"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-success text-uppercase mb-1">Con Garant&iacute;a</div>
+                            <div class="h5 mb-0 fw-bold" id="w-under-warranty"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-warning shadow h-100 py-1">
+                    <div class="card border-start border-4 border-warning shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">Vence 30 d&iacute;as</div>
-                            <div class="h5 mb-0 font-weight-bold" id="w-expiring-30"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-warning text-uppercase mb-1">Vence 30 d&iacute;as</div>
+                            <div class="h5 mb-0 fw-bold" id="w-expiring-30"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-danger shadow h-100 py-1">
+                    <div class="card border-start border-4 border-danger shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1" style="font-size: 0.65rem;">Vencida</div>
-                            <div class="h5 mb-0 font-weight-bold" id="w-expired"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-danger text-uppercase mb-1">Vencida</div>
+                            <div class="h5 mb-0 fw-bold" id="w-expired"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-secondary shadow h-100 py-1">
+                    <div class="card border-start border-4 border-secondary shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-secondary text-uppercase mb-1" style="font-size: 0.65rem;">Sin Info</div>
-                            <div class="h5 mb-0 font-weight-bold" id="w-no-info"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-secondary text-uppercase mb-1">Sin Info</div>
+                            <div class="h5 mb-0 fw-bold" id="w-no-info"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
@@ -323,7 +323,7 @@
             <!-- Tabla de items que vencen pronto -->
             <div class="card shadow">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-warning small">
+                    <h6 class="m-0 fw-bold text-warning small">
                         <i class="fas fa-exclamation-triangle"></i> Equipos con garant&iacute;a por vencer
                     </h6>
                 </div>
@@ -357,26 +357,26 @@
             <!-- Cards resumen -->
             <div class="row g-2 mb-3">
                 <div class="col-6 col-md-4">
-                    <div class="card border-left-danger shadow h-100 py-1">
+                    <div class="card border-start border-4 border-danger shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1" style="font-size: 0.65rem;">Vencidos</div>
-                            <div class="h5 mb-0 font-weight-bold" id="m-overdue"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-danger text-uppercase mb-1">Vencidos</div>
+                            <div class="h5 mb-0 fw-bold" id="m-overdue"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-4">
-                    <div class="card border-left-warning shadow h-100 py-1">
+                    <div class="card border-start border-4 border-warning shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">Pr&oacute;ximos 30 d&iacute;as</div>
-                            <div class="h5 mb-0 font-weight-bold" id="m-upcoming"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-warning text-uppercase mb-1">Pr&oacute;ximos 30 d&iacute;as</div>
+                            <div class="h5 mb-0 fw-bold" id="m-upcoming"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-12 col-md-4">
-                    <div class="card border-left-secondary shadow h-100 py-1">
+                    <div class="card border-start border-4 border-secondary shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-secondary text-uppercase mb-1" style="font-size: 0.65rem;">Sin mant. reciente (&gt;6m)</div>
-                            <div class="h5 mb-0 font-weight-bold" id="m-no-recent"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-secondary text-uppercase mb-1">Sin mant. reciente (&gt;6m)</div>
+                            <div class="h5 mb-0 fw-bold" id="m-no-recent"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
@@ -384,7 +384,7 @@
 
             <div class="card shadow">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-danger small">
+                    <h6 class="m-0 fw-bold text-danger small">
                         <i class="fas fa-exclamation-circle"></i> Mantenimiento vencido o pr&oacute;ximo
                     </h6>
                 </div>
@@ -419,26 +419,26 @@
             <!-- Cards resumen -->
             <div class="row g-2 mb-3">
                 <div class="col-4">
-                    <div class="card border-left-danger shadow h-100 py-1">
+                    <div class="card border-start border-4 border-danger shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1" style="font-size: 0.65rem;">&gt; 5 a&ntilde;os</div>
-                            <div class="h5 mb-0 font-weight-bold" id="lc-old"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-danger text-uppercase mb-1">&gt; 5 a&ntilde;os</div>
+                            <div class="h5 mb-0 fw-bold" id="lc-old"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-4">
-                    <div class="card border-left-warning shadow h-100 py-1">
+                    <div class="card border-start border-4 border-warning shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">3-5 a&ntilde;os</div>
-                            <div class="h5 mb-0 font-weight-bold" id="lc-mid"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-warning text-uppercase mb-1">3-5 a&ntilde;os</div>
+                            <div class="h5 mb-0 fw-bold" id="lc-mid"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-4">
-                    <div class="card border-left-success shadow h-100 py-1">
+                    <div class="card border-start border-4 border-success shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size: 0.65rem;">&lt; 1 a&ntilde;o</div>
-                            <div class="h5 mb-0 font-weight-bold" id="lc-new"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-success text-uppercase mb-1">&lt; 1 a&ntilde;o</div>
+                            <div class="h5 mb-0 fw-bold" id="lc-new"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
@@ -446,7 +446,7 @@
 
             <div class="card shadow">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-danger small">
+                    <h6 class="m-0 fw-bold text-danger small">
                         <i class="fas fa-clock"></i> Equipos con m&aacute;s de 5 a&ntilde;os (considerar reemplazo)
                     </h6>
                 </div>
@@ -510,34 +510,34 @@
             <!-- Cards de resumen -->
             <div class="row g-2 mb-3" id="vr-stats">
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-primary shadow h-100 py-1">
+                    <div class="card border-start border-4 border-primary shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1" style="font-size: 0.65rem;">Total Equipos</div>
-                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-total"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-primary text-uppercase mb-1">Total Equipos</div>
+                            <div class="h5 mb-0 fw-bold" id="vr-stat-total"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-success shadow h-100 py-1">
+                    <div class="card border-start border-4 border-success shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size: 0.65rem;">Recientes (&lt;30 d&iacute;as)</div>
-                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-recent"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-success text-uppercase mb-1">Recientes (&lt;30 d&iacute;as)</div>
+                            <div class="h5 mb-0 fw-bold" id="vr-stat-recent"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-warning shadow h-100 py-1">
+                    <div class="card border-start border-4 border-warning shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">Vencidos (30-90 d&iacute;as)</div>
-                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-outdated"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-warning text-uppercase mb-1">Vencidos (30-90 d&iacute;as)</div>
+                            <div class="h5 mb-0 fw-bold" id="vr-stat-outdated"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">
-                    <div class="card border-left-danger shadow h-100 py-1">
+                    <div class="card border-start border-4 border-danger shadow h-100 py-1">
                         <div class="card-body py-2">
-                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1" style="font-size: 0.65rem;">Cr&iacute;ticos / Sin verificar</div>
-                            <div class="h5 mb-0 font-weight-bold" id="vr-stat-critical"><i class="fas fa-spinner fa-spin"></i></div>
+                            <div class="text-xs fw-bold text-danger text-uppercase mb-1">Cr&iacute;ticos / Sin verificar</div>
+                            <div class="h5 mb-0 fw-bold" id="vr-stat-critical"><i class="fas fa-spinner fa-spin"></i></div>
                         </div>
                     </div>
                 </div>
@@ -546,11 +546,11 @@
             <!-- Tabla de equipos con estado de verificación -->
             <div class="card shadow">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-primary small">
+                    <h6 class="m-0 fw-bold text-primary small">
                         <i class="fas fa-clipboard-check"></i> Estado de verificaci&oacute;n
                         <span class="badge bg-secondary ms-1" id="vr-total">0</span>
                     </h6>
-                    <a href="/help-desk/inventory/verification" class="btn btn-sm btn-outline-primary">
+                    <a href="/help-desk/inventory/verification" class="btn btn-sm btn-outline-primary" {{ hd_boost('/help-desk/inventory/verification') }}>
                         <i class="fas fa-external-link-alt"></i>
                         <span class="d-none d-sm-inline"> Ir a Verificar</span>
                     </a>

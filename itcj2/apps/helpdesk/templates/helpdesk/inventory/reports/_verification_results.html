@@ -1,0 +1,95 @@
+{#
+  Fragmento de resultados de la verificación física de inventario. Devuelto por
+  GET /help-desk/inventory/verification cuando llega HX-Request (no boost) —
+  filtros y paginación. Reemplaza el innerHTML de #hd-verif-results y actualiza,
+  vía hx-swap-oob, las tarjetas de resumen y el contador del header. NO extiende base.
+
+  Contexto esperado: items (list de dicts to_dict + verification_status), total,
+  current_page, total_pages, vr_stats, vr_count_unverified, vr_urgent, oob (bool).
+  El color es siempre clase de Bootstrap; estructura/escala vienen de tokens.
+#}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% set VS_INFO = {
+  'recent':   {'label': 'Reciente',      'color': 'success',   'row': 'row-recent'},
+  'outdated': {'label': 'Vencido',       'color': 'warning',   'row': 'row-outdated'},
+  'critical': {'label': 'Crítico',       'color': 'danger',    'row': 'row-critical'},
+  'never':    {'label': 'Sin verificar', 'color': 'secondary', 'row': 'row-never'}
+} %}
+
+{% if oob %}
+  {# Tarjetas de resumen + contador del header, actualizados fuera del target. #}
+  <span id="stat-total" hx-swap-oob="true">{{ vr_stats.total }}</span>
+  <span id="stat-recent" hx-swap-oob="true">{{ vr_stats.recent }}</span>
+  <span id="stat-outdated" hx-swap-oob="true">{{ vr_stats.outdated }}</span>
+  <span id="stat-critical" hx-swap-oob="true">{{ vr_stats.critical + vr_stats.never }}</span>
+  <span id="table-count-label" class="text-muted" hx-swap-oob="true">{% if total %} ({{ total }} equipo{{ '' if total == 1 else 's' }}){% endif %}</span>
+  <span id="badge-unverified" class="badge {{ 'bg-danger text-white' if vr_urgent > 10 else 'bg-warning text-dark' }}" hx-swap-oob="true">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    <span id="count-unverified">{{ vr_count_unverified }}</span> sin verificar
+  </span>
+{% endif %}
+
+{% if items %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0" id="verif-table">
+      <thead class="table-light">
+        <tr>
+          <th class="hd-verif-col-check"><input type="checkbox" class="form-check-input" id="verif-select-all"></th>
+          <th class="text-nowrap">N° Inventario</th>
+          <th class="d-none d-md-table-cell">Equipo</th>
+          <th class="d-none d-lg-table-cell">Departamento</th>
+          <th class="d-none d-md-table-cell">Ubicación</th>
+          <th>Última verificación</th>
+          <th class="d-none d-sm-table-cell">Verificado por</th>
+          <th>Estado</th>
+          <th class="text-center">Acción</th>
+        </tr>
+      </thead>
+      <tbody id="verif-tbody">
+        {% for item in items %}
+          {% set info = VS_INFO.get(item.verification_status) or VS_INFO['never'] %}
+          {% set equip = [item.brand, item.model] | select | join(' ') %}
+          {% set baja_url = '/help-desk/inventory/retirement-requests/create?item_id=' ~ item.id %}
+          <tr class="{{ info.row }}" data-item-id="{{ item.id }}">
+            <td><input type="checkbox" class="form-check-input verif-checkbox" data-item-id="{{ item.id }}"></td>
+            <td class="text-nowrap fw-bold">{{ item.inventory_number }}</td>
+            <td class="d-none d-md-table-cell">{{ equip or '—' }}</td>
+            <td class="d-none d-lg-table-cell">{{ item.department.name if item.department else '—' }}</td>
+            <td class="d-none d-md-table-cell small text-muted">{{ item.location_detail or '—' }}</td>
+            <td class="small text-nowrap">{{ (item.last_verified_at | hd_date) or '—' }}</td>
+            <td class="d-none d-sm-table-cell small">{{ item.last_verified_by.full_name if item.last_verified_by else '—' }}</td>
+            <td><span class="badge bg-{{ info.color }}{{ ' text-dark' if info.color == 'warning' }}">{{ info.label }}</span></td>
+            <td class="text-center text-nowrap">
+              <button class="btn btn-success btn-sm me-1" data-action="verify" data-item-id="{{ item.id }}" title="Verificar equipo">
+                <i class="fas fa-clipboard-check"></i>
+              </button>
+              <button class="btn btn-outline-secondary btn-sm me-1" data-action="history" data-item-id="{{ item.id }}"
+                      data-item-name="{{ item.inventory_number }}" title="Ver historial de verificaciones">
+                <i class="fas fa-history"></i>
+              </button>
+              <a class="btn btn-outline-danger btn-sm me-1" href="{{ baja_url }}" {{ hd_boost(baja_url) }} title="Solicitar Baja">
+                <i class="fas fa-file-alt"></i>
+              </a>
+              <button class="btn btn-outline-warning btn-sm" data-action="limbo" data-item-id="{{ item.id }}" title="Enviar al Limbo">
+                <i class="fas fa-inbox"></i>
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top flex-wrap gap-2">
+    <span class="small text-muted">
+      {% if total %}Mostrando {{ showing_from }}-{{ showing_to }} de {{ total }}{% endif %}
+    </span>
+    {% if total_pages > 1 %}
+      {{ pagination(current_page, total_pages, '/help-desk/inventory/verification', target='#hd-verif-results', include='#hd-filter-form') }}
+    {% endif %}
+  </div>
+{% else %}
+  {{ empty_state('fa-clipboard-check', 'Sin equipos', 'No hay equipos que coincidan con los filtros aplicados.') }}
+{% endif %}

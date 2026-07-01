@@ -73,13 +73,11 @@
 
             container.innerHTML = alerts.map(alert => `
             <div class="alert alert-${alert.type} alert-dismissible fade show" role="alert">
-                <i class="${alert.icon} mr-2"></i>
+                <i class="${alert.icon} me-2"></i>
                 <strong>${alert.title}</strong><br>
                 <small>${alert.message}</small>
                 ${alert.action ? `<br><a href="${alert.action}" class="alert-link">Ver detalles →</a>` : ''}
-                <button type="button" class="close" data-dismiss="alert">
-                    <span>&times;</span>
-                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
             </div>
         `).join('');
 
@@ -261,7 +259,7 @@
                         <small class="text-muted">${dateStr}</small>
                     </td>
                     <td>
-                        <span class="badge badge-${eventBadge.color}">
+                        <span class="badge bg-${eventBadge.color}">
                             ${activity.event_description}
                         </span>
                     </td>

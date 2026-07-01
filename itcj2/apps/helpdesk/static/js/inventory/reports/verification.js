@@ -1,50 +1,32 @@
 /**
- * Verificación de Inventario
- * Carga la tabla de equipos con su estado de verificación,
- * permite abrir el modal para verificar un equipo y
- * actualiza la fila en tiempo real sin recargar la página.
+ * Verificación de Inventario — migrada a componentes server-side + HTMX (BS5).
+ * La tabla, los filtros, la paginación y las tarjetas de resumen los rinde el
+ * servidor (ver _verification_results.html + pages/inventory.py). Este módulo
+ * conserva SOLO la lógica genuinamente de cliente: los modales de verificación /
+ * historial / transferencia masiva (BS5, sin jQuery), la selección masiva por
+ * checkbox (delegada) y las acciones que, al terminar, recargan el fragmento HTMX.
  */
 (function () {
     'use strict';
 
     /* ═══════════════════════════════ Estado ═══════════════════════════════ */
     const state = {
-        items: [],
-        currentPage: 1,
-        perPage: 50,
-        totalItems: 0,
-        totalPages: 1,
         currentItemId: null,
         currentItemData: null,
     };
 
-    /* ═══════════════════════════════ DOM refs ══════════════════════════════ */
-    // Populated inside init() — declared here as module-level for use across functions
     let el = {};
-
     let VERIF_CONFIG = {};
 
-    /* ═══════════════════════════════ searchTimer ═══════════════════════════ */
-    let searchTimer = null;
-
-    /* ═══════════════════════════ Verificación status ══════════════════════ */
-    const VERIF_LABELS = {
-        recent:   { text: 'Reciente',      cls: 'badge-verif-recent',   row: 'row-recent'   },
-        outdated: { text: 'Vencido',       cls: 'badge-verif-outdated', row: 'row-outdated' },
-        critical: { text: 'Crítico',       cls: 'badge-verif-critical', row: 'row-critical' },
-        never:    { text: 'Sin verificar', cls: 'badge-verif-never',    row: 'row-never'    },
-    };
-
-    function verifBadgeHtml(status) {
-        const info = VERIF_LABELS[status] || VERIF_LABELS.never;
-        return `<span class="badge ${info.cls}">${info.text}</span>`;
-    }
+    // Teardown refs
+    let _resultsClickDelegate = null;
+    let _resultsChangeDelegate = null;
+    let _afterSettleHandler = null;
+    const _boundBtns = [];   // {el, ev, fn}
 
     /* ═════════════════════════════ Utilidades ══════════════════════════════ */
-    function fmtDate(iso) {
-        if (!iso) return '—';
-        const d = new Date(iso);
-        return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+    function bsModal(elem) {
+        return bootstrap.Modal.getOrCreateInstance(elem);
     }
 
     function fmtDateTime(iso) {
@@ -65,200 +47,53 @@
         console.warn('showToast fallback:', msg);
     }
 
-    function setLoading(on) {
-        el.loading.classList.toggle('d-none', !on);
-        el.tableWrapper.classList.toggle('d-none', on);
-        el.empty.classList.add('d-none');
-    }
-
-    /* ═════════════════════════════ Carga de datos ══════════════════════════ */
-    async function loadItems() {
-        setLoading(true);
-
-        const params = new URLSearchParams();
-        params.set('page',     state.currentPage);
-        params.set('per_page', state.perPage);
-
-        if (el.filterDept && el.filterDept.value)
-            params.set('department_id', el.filterDept.value);
-
-        const verifFilter = el.filterVerif ? el.filterVerif.value : 'all';
-        if (verifFilter !== 'all')
-            params.set('status_filter', verifFilter);
-
-        const search = el.filterSearch.value.trim();
-        if (search) params.set('search', search);
-
-        try {
-            const resp = await fetch(
-                `${VERIF_CONFIG.apiBase}/status?${params.toString()}`,
-                { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
-            );
-            const json = await resp.json();
-
-            if (!json.success) throw new Error(json.error || 'Error de servidor');
-
-            state.items      = json.data || [];
-            state.totalItems = json.pagination.total;
-            state.totalPages = json.pagination.pages;
-
-            updateStats(json.stats || {});
-            renderTable();
-
-        } catch (err) {
-            console.error(err);
-            showToast('No se pudo cargar la lista de equipos.', 'error');
-            setLoading(false);
-        }
-    }
-
-    function updateStats(stats) {
-        el.statTotal.textContent    = stats.total    ?? 0;
-        el.statRecent.textContent   = stats.recent   ?? 0;
-        el.statOutdated.textContent = stats.outdated ?? 0;
-
-        const criticalAndNever = (stats.critical ?? 0) + (stats.never ?? 0);
-        el.statCritical.textContent = criticalAndNever;
-        el.countUnverified.textContent = (stats.never ?? 0) + (stats.outdated ?? 0);
-
-        const urgent = (stats.never ?? 0) + (stats.outdated ?? 0) + (stats.critical ?? 0);
-        el.badgeUnverified.classList.toggle('bg-danger',   urgent > 10);
-        el.badgeUnverified.classList.toggle('text-white',  urgent > 10);
-        el.badgeUnverified.classList.toggle('bg-warning',  urgent <= 10);
-        el.badgeUnverified.classList.toggle('text-dark',   urgent <= 10);
-    }
-
-    function applyFilters() {
-        state.currentPage = 1;
-        loadItems();
-    }
-
-    /* ═════════════════════════════ Renderizado ═════════════════════════════ */
-    function renderTable() {
-        const total = state.totalItems;
-
-        if (state.items.length === 0) {
-            el.tableWrapper.classList.add('d-none');
-            el.empty.classList.remove('d-none');
-            el.loading.classList.add('d-none');
-            el.tableCountLabel.textContent = '';
-            el.paginationInfo.textContent  = '';
-            el.paginationCtrl.innerHTML    = '';
-            return;
-        }
-
-        el.empty.classList.add('d-none');
-        el.loading.classList.add('d-none');
-        el.tableWrapper.classList.remove('d-none');
-
-        el.tableCountLabel.textContent = ` (${total} equipo${total !== 1 ? 's' : ''})`;
-        el.tbody.innerHTML = state.items.map(item => buildRow(item)).join('');
-        const verifSelAll = document.getElementById('verif-select-all');
-        if (verifSelAll) verifSelAll.checked = false;
-        updateVerifBulkBar();
-
-        const start = (state.currentPage - 1) * state.perPage + 1;
-        const end   = Math.min(state.currentPage * state.perPage, total);
-        el.paginationInfo.textContent = `Mostrando ${start}-${end} de ${total}`;
-        renderPagination(state.totalPages);
-    }
-
-    function buildRow(item) {
-        const vs     = item.verification_status || 'never';
-        const info   = VERIF_LABELS[vs] || VERIF_LABELS.never;
-        const deptName = item.department ? item.department.name : '—';
-        const lastVerif = item.last_verified_at ? fmtDate(item.last_verified_at) : '—';
-        const verifiedBy = item.last_verified_by ? item.last_verified_by.full_name : '—';
-        const loc = item.location_detail || '—';
-        const equip = [item.brand, item.model].filter(Boolean).join(' ') || '—';
-
-        return `<tr class="${info.row}" data-item-id="${item.id}">
-            <td><input type="checkbox" class="verif-checkbox" data-item-id="${item.id}"
-                       onchange="updateVerifBulkBar()"></td>
-            <td class="text-nowrap font-weight-bold">${escHtml(item.inventory_number)}</td>
-            <td class="d-none d-md-table-cell">${escHtml(equip)}</td>
-            <td class="d-none d-lg-table-cell">${escHtml(deptName)}</td>
-            <td class="d-none d-md-table-cell small">${escHtml(loc)}</td>
-            <td class="small text-nowrap">${lastVerif}</td>
-            <td class="d-none d-sm-table-cell small">${escHtml(verifiedBy)}</td>
-            <td>${verifBadgeHtml(vs)}</td>
-            <td class="text-center text-nowrap">
-                <button class="btn btn-success btn-xs btn-verify mr-1"
-                        data-item-id="${item.id}"
-                        title="Verificar equipo">
-                    <i class="fas fa-clipboard-check"></i>
-                </button>
-                <button class="btn btn-outline-secondary btn-xs btn-history mr-1"
-                        data-item-id="${item.id}"
-                        data-item-name="${escAttr(item.inventory_number)}"
-                        title="Ver historial de verificaciones">
-                    <i class="fas fa-history"></i>
-                </button>
-                <a class="btn btn-outline-danger btn-xs btn-baja mr-1"
-                   href="/help-desk/inventory/retirement-requests/create?item_id=${item.id}"
-                   title="Solicitar Baja">
-                    <i class="fas fa-file-alt"></i>
-                </a>
-                <button class="btn btn-outline-warning btn-xs btn-limbo"
-                        data-item-id="${item.id}"
-                        title="Enviar al Limbo">
-                    <i class="fas fa-inbox"></i>
-                </button>
-            </td>
-        </tr>`;
-    }
-
-    function renderPagination(pages) {
-        if (pages <= 1) {
-            el.paginationCtrl.innerHTML = '';
-            return;
-        }
-        const cur = state.currentPage;
-
-        const show = new Set([1, pages]);
-        for (let i = Math.max(1, cur - 2); i <= Math.min(pages, cur + 2); i++) show.add(i);
-        const sorted = [...show].sort((a, b) => a - b);
-
-        let html = `<button class="btn btn-outline-secondary${cur===1?' disabled':''}" data-page="${cur-1}">&laquo;</button>`;
-
-        let prev = 0;
-        for (const p of sorted) {
-            if (p - prev > 1) html += `<button class="btn btn-outline-secondary disabled">…</button>`;
-            html += `<button class="btn btn-outline-secondary${p===cur?' active':''}" data-page="${p}">${p}</button>`;
-            prev = p;
-        }
-
-        html += `<button class="btn btn-outline-secondary${cur===pages?' disabled':''}" data-page="${cur+1}">&raquo;</button>`;
-        el.paginationCtrl.innerHTML = html;
-    }
-
     function escHtml(str) {
-        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
     function escAttr(str) {
-        return String(str || '').replace(/"/g,'&quot;');
+        return String(str || '').replace(/"/g, '&quot;');
+    }
+
+    // Recarga el fragmento server-side (tabla + stats OOB) vía HTMX.
+    function refreshList() {
+        const form = document.getElementById('hd-filter-form');
+        if (form && window.htmx) window.htmx.trigger(form, 'refresh');
     }
 
     /* ═════════════════════════════ Modal Verificar ═════════════════════════ */
-    function openVerifyModal(itemId) {
-        const item = state.items.find(i => i.id == itemId);
-        if (!item) return;
+    async function openVerifyModal(itemId) {
+        // El fragmento es server-side, así que no tenemos el array de items en el
+        // cliente: pedimos el equipo completo al abrir el modal (incluye category
+        // con spec_template, specifications, grupo, etc.).
+        let item;
+        try {
+            const resp = await fetch(`/api/help-desk/v2/inventory/items/${itemId}`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            const json = await resp.json();
+            if (!resp.ok || !json.success) throw new Error((json.detail && json.detail.error) || json.error || 'No se pudo cargar el equipo');
+            item = json.data;
+        } catch (err) {
+            console.error(err);
+            showToast(err.message || 'No se pudo cargar el equipo.', 'error');
+            return;
+        }
 
-        state.currentItemId   = itemId;
+        state.currentItemId = itemId;
         state.currentItemData = item;
 
         el.verifItemNumber.textContent = item.inventory_number;
-        el.verifItemName.textContent   = [item.brand, item.model].filter(Boolean).join(' ') || '—';
-        el.verifItemDept.textContent   = item.department ? item.department.name : '—';
+        el.verifItemName.textContent = [item.brand, item.model].filter(Boolean).join(' ') || '—';
+        el.verifItemDept.textContent = item.department ? item.department.name : '—';
 
         el.verifLocation.value = item.location_detail || '';
-        el.verifStatus.value   = item.status || 'ACTIVE';
-        el.verifBrand.value    = item.brand  || '';
-        el.verifModel.value    = item.model  || '';
+        el.verifStatus.value = item.status || 'ACTIVE';
+        el.verifBrand.value = item.brand || '';
+        el.verifModel.value = item.model || '';
         if (el.verifSupplierSerial) el.verifSupplierSerial.value = item.supplier_serial || '';
         if (el.verifItcjSerial) el.verifItcjSerial.value = item.itcj_serial || '';
-        if (el.verifIdTecnm) el.verifIdTecnm.value       = item.id_tecnm || '';
-        el.verifObs.value      = '';
+        if (el.verifIdTecnm) el.verifIdTecnm.value = item.id_tecnm || '';
+        el.verifObs.value = '';
 
         el.changesAlert.classList.add('d-none');
         el.btnVerifyLabel.textContent = 'Registrar Verificación';
@@ -272,7 +107,7 @@
 
         renderSpecFields(item);
 
-        if (window.jQuery) window.jQuery(el.modalVerify).modal('show');
+        bsModal(el.modalVerify).show();
 
         loadGroupsForModal(item);
     }
@@ -327,7 +162,7 @@
         }
 
         if (!template || typeof template !== 'object' || Array.isArray(template) ||
-                Object.keys(template).length === 0) {
+            Object.keys(template).length === 0) {
             el.specsSection.classList.add('d-none');
             el.specsContainer.innerHTML = '';
             return;
@@ -337,9 +172,9 @@
 
         el.specsContainer.innerHTML = Object.entries(template).map(([key, def]) => {
             if (!def || typeof def !== 'object') return '';
-            const val   = specs[key];
+            const val = specs[key];
             const label = def.label || key;
-            const id    = `spec-field-${key}`;
+            const id = `spec-field-${key}`;
 
             if (def.type === 'boolean') {
                 const checked = (val === true || val === 'true') ? 'checked' : '';
@@ -347,7 +182,7 @@
                     <div class="form-check mt-2">
                         <input class="form-check-input spec-field" type="checkbox"
                                id="${id}" data-spec-key="${key}" data-spec-type="boolean" ${checked}>
-                        <label class="form-check-label small font-weight-bold" for="${id}">${escHtml(label)}</label>
+                        <label class="form-check-label small fw-bold" for="${id}">${escHtml(label)}</label>
                     </div>
                 </div>`;
             }
@@ -357,8 +192,8 @@
                     `<option value="${escAttr(String(opt))}"${String(val) === String(opt) ? ' selected' : ''}>${escHtml(String(opt))}</option>`
                 ).join('');
                 return `<div class="col-12 col-md-6 mb-2">
-                    <label class="small font-weight-bold" for="${id}">${escHtml(label)}</label>
-                    <select class="form-control form-control-sm spec-field"
+                    <label class="small fw-bold" for="${id}">${escHtml(label)}</label>
+                    <select class="form-select form-select-sm spec-field"
                             id="${id}" data-spec-key="${key}" data-spec-type="select">
                         <option value="">— seleccionar —</option>${opts}
                     </select>
@@ -366,9 +201,9 @@
             }
 
             const inputType = def.type === 'number' ? 'number' : 'text';
-            const valStr    = (val !== undefined && val !== null) ? escAttr(String(val)) : '';
+            const valStr = (val !== undefined && val !== null) ? escAttr(String(val)) : '';
             return `<div class="col-12 col-md-6 mb-2">
-                <label class="small font-weight-bold" for="${id}">${escHtml(label)}</label>
+                <label class="small fw-bold" for="${id}">${escHtml(label)}</label>
                 <input type="${inputType}" class="form-control form-control-sm spec-field"
                        id="${id}" data-spec-key="${key}" data-spec-type="${inputType}"
                        value="${valStr}">
@@ -385,23 +220,25 @@
 
         el.specsContainer.querySelectorAll('.spec-field').forEach(f => {
             f.addEventListener('change', detectChanges);
-            f.addEventListener('input',  detectChanges);
+            f.addEventListener('input', detectChanges);
         });
     }
 
     function bindSpecsToggle() {
         const btn = document.getElementById('btn-toggle-specs');
         if (!btn) return;
-        btn.addEventListener('click', () => {
+        const fn = () => {
             const hidden = el.specsCollapse.classList.toggle('d-none');
             const toggleText = document.getElementById('specs-toggle-text');
             const toggleIcon = document.getElementById('specs-toggle-icon');
             if (toggleText) toggleText.textContent = hidden ? 'Mostrar' : 'Ocultar';
             if (toggleIcon) {
                 toggleIcon.classList.toggle('fa-chevron-down', hidden);
-                toggleIcon.classList.toggle('fa-chevron-up',   !hidden);
+                toggleIcon.classList.toggle('fa-chevron-up', !hidden);
             }
-        });
+        };
+        btn.addEventListener('click', fn);
+        _boundBtns.push({ el: btn, ev: 'click', fn });
     }
 
     function detectChanges() {
@@ -409,28 +246,20 @@
         if (!item) return;
 
         const changes = [];
-        if (el.verifLocation.value !== (item.location_detail || ''))
-            changes.push('ubicación');
-        if (el.verifStatus.value !== item.status)
-            changes.push('estado');
+        if (el.verifLocation.value !== (item.location_detail || '')) changes.push('ubicación');
+        if (el.verifStatus.value !== item.status) changes.push('estado');
         if (el.verifGroup && !el.verifGroup.disabled) {
             const currentGroupId = item.group_id || (item.group && item.group.id) || null;
             const selectedGroupId = el.verifGroup.value ? parseInt(el.verifGroup.value, 10) : null;
             if (selectedGroupId !== currentGroupId) changes.push('grupo');
         }
-        if (el.verifBrand.value !== (item.brand || ''))
-            changes.push('marca');
-        if (el.verifModel.value !== (item.model || ''))
-            changes.push('modelo');
-        if (el.verifSupplierSerial && el.verifSupplierSerial.value !== (item.supplier_serial || ''))
-            changes.push('serial proveedor');
-        if (el.verifItcjSerial && el.verifItcjSerial.value !== (item.itcj_serial || ''))
-            changes.push('serial ITCJ');
-        if (el.verifIdTecnm && el.verifIdTecnm.value !== (item.id_tecnm || ''))
-            changes.push('ID TecNM');
+        if (el.verifBrand.value !== (item.brand || '')) changes.push('marca');
+        if (el.verifModel.value !== (item.model || '')) changes.push('modelo');
+        if (el.verifSupplierSerial && el.verifSupplierSerial.value !== (item.supplier_serial || '')) changes.push('serial proveedor');
+        if (el.verifItcjSerial && el.verifItcjSerial.value !== (item.itcj_serial || '')) changes.push('serial ITCJ');
+        if (el.verifIdTecnm && el.verifIdTecnm.value !== (item.id_tecnm || '')) changes.push('ID TecNM');
 
-        const specFields = el.specsContainer
-            ? el.specsContainer.querySelectorAll('.spec-field') : [];
+        const specFields = el.specsContainer ? el.specsContainer.querySelectorAll('.spec-field') : [];
         if (specFields.length > 0) {
             const currentSpecs = item.specifications || {};
             let specsChanged = false;
@@ -469,23 +298,22 @@
         el.btnVerifyLabel.textContent = 'Guardando…';
 
         const payload = {
-            location_detail:    el.verifLocation.value.trim() || null,
-            status:             el.verifStatus.value,
-            brand:              el.verifBrand.value.trim()  || null,
-            model:              el.verifModel.value.trim()  || null,
-            supplier_serial:    el.verifSupplierSerial ? el.verifSupplierSerial.value.trim() || null : undefined,
-            itcj_serial:        el.verifItcjSerial ? el.verifItcjSerial.value.trim() || null : undefined,
-            id_tecnm:           el.verifIdTecnm    ? el.verifIdTecnm.value.trim()    || null : undefined,
+            location_detail: el.verifLocation.value.trim() || null,
+            status: el.verifStatus.value,
+            brand: el.verifBrand.value.trim() || null,
+            model: el.verifModel.value.trim() || null,
+            supplier_serial: el.verifSupplierSerial ? el.verifSupplierSerial.value.trim() || null : undefined,
+            itcj_serial: el.verifItcjSerial ? el.verifItcjSerial.value.trim() || null : undefined,
+            id_tecnm: el.verifIdTecnm ? el.verifIdTecnm.value.trim() || null : undefined,
             location_confirmed: el.verifLocation.value.trim() || null,
-            observations:       el.verifObs.value.trim()    || null,
+            observations: el.verifObs.value.trim() || null,
         };
 
         if (el.verifGroup && !el.verifGroup.disabled) {
             payload.group_id = el.verifGroup.value ? parseInt(el.verifGroup.value, 10) : null;
         }
 
-        const specFields = el.specsContainer
-            ? el.specsContainer.querySelectorAll('.spec-field') : [];
+        const specFields = el.specsContainer ? el.specsContainer.querySelectorAll('.spec-field') : [];
         if (specFields.length > 0) {
             const specs = {};
             specFields.forEach(field => {
@@ -514,13 +342,10 @@
                 }
             );
             const json = await resp.json();
-
             if (!json.success) throw new Error(json.error || 'Error al guardar');
 
-            if (window.jQuery) window.jQuery(el.modalVerify).modal('hide');
-
-            loadItems();
-
+            bsModal(el.modalVerify).hide();
+            refreshList();
             showToast('Verificación registrada correctamente.', 'success');
 
         } catch (err) {
@@ -539,7 +364,7 @@
         el.historyList.innerHTML = '';
         el.historyItemName.textContent = itemName || '';
 
-        if (window.jQuery) window.jQuery(el.modalHistory).modal('show');
+        bsModal(el.modalHistory).show();
 
         try {
             const resp = await fetch(
@@ -569,8 +394,8 @@
 
     function buildHistoryItem(v) {
         const verifier = v.verified_by ? v.verified_by.full_name : '—';
-        const dt       = fmtDateTime(v.verified_at);
-        const obs      = v.observations ? escHtml(v.observations) : '<em class="text-muted">Sin observaciones</em>';
+        const dt = fmtDateTime(v.verified_at);
+        const obs = v.observations ? escHtml(v.observations) : '<em class="text-muted">Sin observaciones</em>';
         const hasChanges = v.changes_applied && Object.keys(v.changes_applied).length > 0;
 
         let changesHtml = '';
@@ -579,14 +404,14 @@
                 `<li>${escHtml(field)}: <span class="text-muted">${escHtml(String(change.old || '—'))}</span>
                  → <strong>${escHtml(String(change.new || '—'))}</strong></li>`
             ).join('');
-            changesHtml = `<ul class="mb-0 pl-3 small text-muted">${items}</ul>`;
+            changesHtml = `<ul class="mb-0 ps-3 small text-muted">${items}</ul>`;
         }
 
         return `<li class="list-group-item">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <strong class="small">${escHtml(verifier)}</strong>
-                    <span class="text-muted small ml-2">${dt}</span>
+                    <span class="text-muted small ms-2">${dt}</span>
                 </div>
                 ${hasChanges ? '<span class="badge bg-info text-dark">Con cambios</span>' : ''}
             </div>
@@ -595,95 +420,10 @@
         </li>`;
     }
 
-    /* ═════════════════════════════ Event listeners ═════════════════════════ */
-    function bindEvents() {
-        bindSpecsToggle();
-
-        el.filterSearch.addEventListener('input', () => {
-            clearTimeout(searchTimer);
-            searchTimer = setTimeout(applyFilters, 300);
-        });
-
-        if (el.filterVerif) el.filterVerif.addEventListener('change', applyFilters);
-        if (el.filterDept)  el.filterDept.addEventListener('change',  applyFilters);
-
-        el.btnRefresh.addEventListener('click', loadItems);
-
-        el.tbody.addEventListener('click', (e) => {
-            const btnVerify  = e.target.closest('.btn-verify');
-            const btnHistory = e.target.closest('.btn-history');
-            const btnLimbo   = e.target.closest('.btn-limbo');
-
-            if (btnVerify) {
-                openVerifyModal(parseInt(btnVerify.dataset.itemId, 10));
-            } else if (btnHistory) {
-                openHistoryModal(
-                    parseInt(btnHistory.dataset.itemId, 10),
-                    btnHistory.dataset.itemName
-                );
-            } else if (btnLimbo) {
-                sendVerifSingleToLimbo(parseInt(btnLimbo.dataset.itemId, 10));
-            }
-        });
-
-        el.paginationCtrl.addEventListener('click', (e) => {
-            const btn = e.target.closest('[data-page]');
-            if (!btn || btn.classList.contains('disabled') || btn.classList.contains('active')) return;
-            const newPage = parseInt(btn.dataset.page, 10);
-            if (newPage < 1 || newPage > state.totalPages) return;
-            state.currentPage = newPage;
-            loadItems();
-        });
-
-        [el.verifLocation, el.verifStatus, el.verifBrand, el.verifModel,
-         el.verifSupplierSerial, el.verifItcjSerial, el.verifIdTecnm].forEach(input => {
-            if (input) input.addEventListener('input', detectChanges);
-        });
-        if (el.verifGroup) el.verifGroup.addEventListener('change', detectChanges);
-
-        el.btnConfirm.addEventListener('click', submitVerification);
-
-        const verifSelectAll = document.getElementById('verif-select-all');
-        if (verifSelectAll) {
-            verifSelectAll.addEventListener('change', function () {
-                document.querySelectorAll('.verif-checkbox').forEach(cb => cb.checked = this.checked);
-                updateVerifBulkBar();
-            });
-        }
-
-        const btnVerifBulkTransfer = document.getElementById('btn-verif-bulk-transfer');
-        if (btnVerifBulkTransfer) btnVerifBulkTransfer.addEventListener('click', () => {
-            const ids = getVerifSelectedIds();
-            if (!ids.length) return;
-            const cnt = document.getElementById('verif-bulk-transfer-count');
-            if (cnt) cnt.textContent = ids.length;
-            if (window.jQuery) window.jQuery('#modal-verif-bulk-transfer').modal('show');
-        });
-
-        const btnVerifBulkDeselect = document.getElementById('btn-verif-bulk-deselect');
-        if (btnVerifBulkDeselect) btnVerifBulkDeselect.addEventListener('click', () => {
-            document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => cb.checked = false);
-            updateVerifBulkBar();
-        });
-
-        const btnConfirmVerifBulk = document.getElementById('btn-confirm-verif-bulk-transfer');
-        if (btnConfirmVerifBulk) btnConfirmVerifBulk.addEventListener('click', executeVerifBulkTransfer);
-
-        const btnVerifBulkBaja = document.getElementById('btn-verif-bulk-baja');
-        if (btnVerifBulkBaja) btnVerifBulkBaja.addEventListener('click', () => {
-            const ids = getVerifSelectedIds();
-            if (!ids.length) return;
-            window.location.href = `/help-desk/inventory/retirement-requests/create?item_ids=${ids.join(',')}`;
-        });
-
-        const btnVerifBulkLimbo = document.getElementById('btn-verif-bulk-limbo');
-        if (btnVerifBulkLimbo) btnVerifBulkLimbo.addEventListener('click', executeVerifBulkLimbo);
-    }
-
     /* ═════════════════════════ Selección masiva ════════════════════════════ */
     function getVerifSelectedIds() {
         return Array.from(document.querySelectorAll('.verif-checkbox:checked'))
-            .map(cb => parseInt(cb.dataset.itemId));
+            .map(cb => parseInt(cb.dataset.itemId, 10));
     }
 
     function updateVerifBulkBar() {
@@ -691,17 +431,19 @@
         const bar = document.getElementById('verif-bulk-bar');
         const cnt = document.getElementById('verif-bulk-count');
         if (!bar) return;
-        if (ids.length > 0) {
-            bar.style.display = '';
-            if (cnt) cnt.textContent = ids.length;
-        } else {
-            bar.style.display = 'none';
-        }
+        bar.classList.toggle('d-none', ids.length === 0);
+        if (cnt) cnt.textContent = ids.length;
+    }
+
+    function clearSelection() {
+        document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => { cb.checked = false; });
+        updateVerifBulkBar();
     }
 
     async function executeVerifBulkTransfer() {
         const ids = getVerifSelectedIds();
-        const deptId = parseInt(document.getElementById('verif-bulk-transfer-dept').value);
+        const deptEl = document.getElementById('verif-bulk-transfer-dept');
+        const deptId = parseInt(deptEl.value, 10);
         if (!deptId) { showToast('Selecciona un departamento destino', 'error'); return; }
 
         const btn = document.getElementById('btn-confirm-verif-bulk-transfer');
@@ -716,13 +458,12 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Error al transferir');
 
-            if (window.jQuery) window.jQuery('#modal-verif-bulk-transfer').modal('hide');
-            document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => cb.checked = false);
-            updateVerifBulkBar();
+            bsModal(document.getElementById('modal-verif-bulk-transfer')).hide();
+            clearSelection();
 
             const transferred = data.transferred_ids ? data.transferred_ids.length : 0;
             showToast(`${transferred} equipo(s) transferido(s) correctamente.`, transferred > 0 ? 'success' : 'error');
-            loadItems();
+            refreshList();
 
         } catch (err) {
             showToast('Error: ' + err.message, 'error');
@@ -748,12 +489,10 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
 
-            document.querySelectorAll('.verif-checkbox, #verif-select-all').forEach(cb => cb.checked = false);
-            updateVerifBulkBar();
-
+            clearSelection();
             const sent = data.sent_ids ? data.sent_ids.length : 0;
             showToast(`${sent} equipo(s) enviado(s) al limbo.`, sent > 0 ? 'success' : 'error');
-            loadItems();
+            refreshList();
 
         } catch (err) {
             showToast('Error: ' + err.message, 'error');
@@ -774,104 +513,147 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Error al enviar al limbo');
             showToast('Equipo enviado al limbo correctamente.', 'success');
-            loadItems();
+            refreshList();
         } catch (err) {
             showToast('Error: ' + err.message, 'error');
         }
     }
 
+    /* ═════════════════════════════ Event binding ═══════════════════════════ */
+    function bindBtn(id, ev, fn) {
+        const node = document.getElementById(id);
+        if (!node) return;
+        node.addEventListener(ev, fn);
+        _boundBtns.push({ el: node, ev, fn });
+    }
+
+    function bindEvents() {
+        bindSpecsToggle();
+
+        // Delegación sobre el contenedor de resultados (sobrevive a los swaps HTMX).
+        const results = document.getElementById('hd-verif-results');
+        if (results) {
+            _resultsClickDelegate = function (e) {
+                const btn = e.target.closest('[data-action]');
+                if (!btn) return;
+                const action = btn.dataset.action;
+                const itemId = parseInt(btn.dataset.itemId, 10);
+                if (action === 'verify') openVerifyModal(itemId);
+                else if (action === 'history') openHistoryModal(itemId, btn.dataset.itemName);
+                else if (action === 'limbo') sendVerifSingleToLimbo(itemId);
+            };
+            results.addEventListener('click', _resultsClickDelegate);
+
+            _resultsChangeDelegate = function (e) {
+                if (e.target.id === 'verif-select-all') {
+                    results.querySelectorAll('.verif-checkbox').forEach(cb => { cb.checked = e.target.checked; });
+                    updateVerifBulkBar();
+                } else if (e.target.classList.contains('verif-checkbox')) {
+                    updateVerifBulkBar();
+                }
+            };
+            results.addEventListener('change', _resultsChangeDelegate);
+        }
+
+        // Al recargar el fragmento (filtro/paginación) la selección se reinicia.
+        _afterSettleHandler = function () { updateVerifBulkBar(); };
+        document.body.addEventListener('htmx:afterSettle', _afterSettleHandler);
+
+        // Modal verificar: inputs → detectChanges; confirmar → submit.
+        [el.verifLocation, el.verifStatus, el.verifBrand, el.verifModel,
+         el.verifSupplierSerial, el.verifItcjSerial, el.verifIdTecnm].forEach(input => {
+            if (input) {
+                input.addEventListener('input', detectChanges);
+                _boundBtns.push({ el: input, ev: 'input', fn: detectChanges });
+            }
+        });
+        if (el.verifGroup) {
+            el.verifGroup.addEventListener('change', detectChanges);
+            _boundBtns.push({ el: el.verifGroup, ev: 'change', fn: detectChanges });
+        }
+        bindBtn('btn-confirm-verify', 'click', submitVerification);
+
+        // Barra de acciones masivas (fuera del fragmento → estable).
+        bindBtn('btn-verif-bulk-transfer', 'click', () => {
+            const ids = getVerifSelectedIds();
+            if (!ids.length) return;
+            const cnt = document.getElementById('verif-bulk-transfer-count');
+            if (cnt) cnt.textContent = ids.length;
+            bsModal(document.getElementById('modal-verif-bulk-transfer')).show();
+        });
+        bindBtn('btn-confirm-verif-bulk-transfer', 'click', executeVerifBulkTransfer);
+        bindBtn('btn-verif-bulk-deselect', 'click', clearSelection);
+        bindBtn('btn-verif-bulk-baja', 'click', () => {
+            const ids = getVerifSelectedIds();
+            if (!ids.length) return;
+            const url = `/help-desk/inventory/retirement-requests/create?item_ids=${ids.join(',')}`;
+            if (window.HelpdeskPage && window.HelpdeskPage.navigate) window.HelpdeskPage.navigate(url);
+            else window.location.href = url;
+        });
+        bindBtn('btn-verif-bulk-limbo', 'click', executeVerifBulkLimbo);
+    }
+
     /* ═════════════════════════════ Init / Destroy ══════════════════════════ */
     function init() {
-        // Leer config del servidor desde data-* del main
-        const root = document.querySelector('[data-hd-page]');
-        VERIF_CONFIG = {
-            canViewAll: root && root.dataset.canViewAll === 'true',
-            apiBase: '/api/help-desk/v2/inventory/verification',
-        };
+        VERIF_CONFIG = { apiBase: '/api/help-desk/v2/inventory/verification' };
 
-        // Cache DOM refs DENTRO de init()
         const qs = (sel) => document.querySelector(sel);
         el = {
-            loading:         qs('#loading-state'),
-            empty:           qs('#empty-state'),
-            tableWrapper:    qs('#table-wrapper'),
-            tbody:           qs('#verif-tbody'),
-            tableCountLabel: qs('#table-count-label'),
-            paginationInfo:  qs('#pagination-info'),
-            paginationCtrl:  qs('#pagination-controls'),
-            countUnverified: qs('#count-unverified'),
-            badgeUnverified: qs('#badge-unverified'),
-            statTotal:       qs('#stat-total'),
-            statRecent:      qs('#stat-recent'),
-            statOutdated:    qs('#stat-outdated'),
-            statCritical:    qs('#stat-critical'),
-            filterSearch:    qs('#filter-search'),
-            filterDept:      qs('#filter-department'),
-            filterVerif:     qs('#filter-verif-status'),
-            btnRefresh:      qs('#btn-refresh'),
-            modalVerify:     qs('#modal-verify'),
+            modalVerify: qs('#modal-verify'),
             verifItemNumber: qs('#verif-item-number'),
-            verifItemName:   qs('#verif-item-name'),
-            verifItemDept:   qs('#verif-item-dept'),
-            verifLocation:   qs('#verif-location'),
-            verifStatus:     qs('#verif-status'),
-            verifBrand:      qs('#verif-brand'),
-            verifModel:      qs('#verif-model'),
+            verifItemName: qs('#verif-item-name'),
+            verifItemDept: qs('#verif-item-dept'),
+            verifLocation: qs('#verif-location'),
+            verifStatus: qs('#verif-status'),
+            verifBrand: qs('#verif-brand'),
+            verifModel: qs('#verif-model'),
             verifSupplierSerial: qs('#verif-supplier-serial'),
-            verifItcjSerial:    qs('#verif-itcj-serial'),
-            verifIdTecnm:       qs('#verif-id-tecnm'),
-            verifObs:        qs('#verif-observations'),
-            verifGroup:      qs('#verif-group'),
-            verifGroupHint:  qs('#verif-group-hint'),
-            specsSection:    qs('#specs-section'),
-            specsContainer:  qs('#specs-fields-container'),
-            specsCollapse:   qs('#specs-collapse'),
-            changesAlert:    qs('#changes-alert'),
-            changesMsg:      qs('#changes-msg'),
-            btnConfirm:      qs('#btn-confirm-verify'),
-            btnVerifyLabel:  qs('#btn-verify-label'),
-            modalHistory:    qs('#modal-history'),
-            historyLoading:  qs('#history-loading'),
-            historyEmpty:    qs('#history-empty'),
-            historyList:     qs('#history-list'),
+            verifItcjSerial: qs('#verif-itcj-serial'),
+            verifIdTecnm: qs('#verif-id-tecnm'),
+            verifObs: qs('#verif-observations'),
+            verifGroup: qs('#verif-group'),
+            verifGroupHint: qs('#verif-group-hint'),
+            specsSection: qs('#specs-section'),
+            specsContainer: qs('#specs-fields-container'),
+            specsCollapse: qs('#specs-collapse'),
+            changesAlert: qs('#changes-alert'),
+            changesMsg: qs('#changes-msg'),
+            btnConfirm: qs('#btn-confirm-verify'),
+            btnVerifyLabel: qs('#btn-verify-label'),
+            modalHistory: qs('#modal-history'),
+            historyLoading: qs('#history-loading'),
+            historyEmpty: qs('#history-empty'),
+            historyList: qs('#history-list'),
             historyItemName: qs('#history-item-name'),
         };
 
-        // updateVerifBulkBar must be on window for inline onchange handlers
-        window.updateVerifBulkBar = updateVerifBulkBar;
-
         bindEvents();
-        loadItems();
+        updateVerifBulkBar();
     }
 
     function destroy() {
-        // Cancel pending debounce
-        if (searchTimer !== null) {
-            clearTimeout(searchTimer);
-            searchTimer = null;
+        const results = document.getElementById('hd-verif-results');
+        if (results) {
+            if (_resultsClickDelegate) results.removeEventListener('click', _resultsClickDelegate);
+            if (_resultsChangeDelegate) results.removeEventListener('change', _resultsChangeDelegate);
         }
+        if (_afterSettleHandler) document.body.removeEventListener('htmx:afterSettle', _afterSettleHandler);
+        _boundBtns.forEach(b => { try { b.el.removeEventListener(b.ev, b.fn); } catch (e) { /* ignore */ } });
+        _boundBtns.length = 0;
 
-        // Dispose the 3 Bootstrap-4 jQuery modals
+        // Dispose los modales BS5.
         ['#modal-verif-bulk-transfer', '#modal-verify', '#modal-history'].forEach(function (sel) {
             try {
                 const modalEl = document.querySelector(sel);
-                if (modalEl && window.jQuery) {
-                    window.jQuery(modalEl).modal('hide');
-                    window.jQuery(modalEl).modal('dispose');
-                }
+                if (modalEl) bootstrap.Modal.getInstance(modalEl)?.dispose();
             } catch (e) { /* ignore */ }
         });
 
-        delete window.updateVerifBulkBar;
-
-        // Reset state
-        state.items = [];
-        state.currentPage = 1;
-        state.totalItems = 0;
-        state.totalPages = 1;
+        _resultsClickDelegate = null;
+        _resultsChangeDelegate = null;
+        _afterSettleHandler = null;
         state.currentItemId = null;
         state.currentItemData = null;
-
         el = {};
         VERIF_CONFIG = {};
     }

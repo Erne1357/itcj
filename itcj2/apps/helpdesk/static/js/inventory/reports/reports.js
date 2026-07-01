@@ -56,6 +56,41 @@
         'LOST': 'Extraviado'
     };
 
+    // Color de badge por estado/evento → clases de Bootstrap (paleta de la app),
+    // NUNCA hex. Reemplaza los badge-status-*/badge-event-* con hex de SB-Admin.
+    const STATUS_BADGE = {
+        'ACTIVE': 'bg-success',
+        'PENDING_ASSIGNMENT': 'bg-warning text-dark',
+        'MAINTENANCE': 'bg-info text-dark',
+        'DAMAGED': 'bg-danger',
+        'RETIRED': 'bg-secondary',
+        'LOST': 'bg-dark'
+    };
+
+    const EVENT_BADGE = {
+        'REGISTERED': 'bg-success',
+        'REACTIVATED': 'bg-success',
+        'ASSIGNED_TO_DEPT': 'bg-primary',
+        'ASSIGNED_TO_USER': 'bg-primary',
+        'CAMPAIGN_VALIDATED': 'bg-primary',
+        'STATUS_CHANGED': 'bg-primary',
+        'LOCATION_CHANGED': 'bg-primary',
+        'UNASSIGNED': 'bg-warning text-dark',
+        'REASSIGNED': 'bg-warning text-dark',
+        'SPECS_UPDATED': 'bg-warning text-dark',
+        'ITEM_UNLOCKED': 'bg-warning text-dark',
+        'TRANSFERRED': 'bg-info text-dark',
+        'VERIFIED': 'bg-info text-dark',
+        'VERSION_LINKED': 'bg-info text-dark',
+        'VERSION_UNLINKED': 'bg-info text-dark',
+        'MAINTENANCE_SCHEDULED': 'bg-success',
+        'MAINTENANCE_COMPLETED': 'bg-success',
+        'DEACTIVATED': 'bg-danger',
+        'LOCKED_FIELD_MODIFIED': 'bg-danger',
+        'CAMPAIGN_ASSIGNED': 'bg-secondary',
+        'CAMPAIGN_UNASSIGNED': 'bg-secondary'
+    };
+
     // ==================== INIT / DESTROY ====================
 
     function init() {
@@ -266,7 +301,7 @@
                 <td class="d-none d-lg-table-cell"><small class="text-muted">${escapeHtml(item.supplier_serial || item.itcj_serial || '-')}</small></td>
                 <td><small>${escapeHtml(dept.name || 'Sin asignar')}</small></td>
                 <td class="d-none d-md-table-cell"><small>${escapeHtml(user.full_name || 'Global')}</small></td>
-                <td><span class="badge badge-status badge-status-${item.status}">${STATUS_LABELS[item.status] || item.status}</span></td>
+                <td><span class="badge ${STATUS_BADGE[item.status] || 'bg-secondary'}">${STATUS_LABELS[item.status] || item.status}</span></td>
             </tr>`;
         }).join('');
     }
@@ -335,7 +370,7 @@
 
             return `<tr>
                 <td><small>${timestamp}</small></td>
-                <td><span class="badge badge-event badge-event-${eventType}">${EVENT_LABELS[eventType] || eventType}</span></td>
+                <td><span class="badge ${EVENT_BADGE[eventType] || 'bg-secondary'}">${EVENT_LABELS[eventType] || eventType}</span></td>
                 <td><a href="/help-desk/inventory/items/${event.item_id}" target="_blank" class="text-decoration-none"><small>${escapeHtml(String(event.item_id))}</small></a></td>
                 <td class="d-none d-md-table-cell"><small>${escapeHtml(performedBy.full_name || '')}</small></td>
                 <td class="d-none d-lg-table-cell"><small class="text-muted">${escapeHtml(event.notes || '-')}</small></td>
@@ -441,7 +476,7 @@
                 const exp = new Date(item.warranty_expiration);
                 const diff = Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
                 daysLeft = diff;
-                daysClass = diff <= 15 ? 'days-danger' : diff <= 30 ? 'days-warning' : 'days-success';
+                daysClass = diff <= 15 ? 'text-danger fw-bold' : diff <= 30 ? 'text-warning fw-bold' : 'text-success';
             }
 
             return `<tr class="clickable-row" onclick="window.open('/help-desk/inventory/items/${item.id}', '_blank')">
@@ -552,7 +587,7 @@
                 <td>${escapeHtml(item.brand || '')} ${escapeHtml(item.model || '')}</td>
                 <td class="d-none d-md-table-cell"><small>${escapeHtml((item.department || {}).name || '')}</small></td>
                 <td><small>${item.acquisition_date || '-'}</small></td>
-                <td><span class="days-danger">${years} años</span></td>
+                <td><span class="text-danger fw-bold">${years} años</span></td>
             </tr>`;
         }).join('');
     }
@@ -560,10 +595,10 @@
     // ==================== VERIFICACIÓN ====================
 
     const VERIF_LABELS = {
-        recent:   { text: 'Reciente',      cls: 'badge-verif-recent'   },
-        outdated: { text: 'Vencido',       cls: 'badge-verif-outdated' },
-        critical: { text: 'Crítico',       cls: 'badge-verif-critical' },
-        never:    { text: 'Sin verificar', cls: 'badge-verif-never'    }
+        recent:   { text: 'Reciente',      cls: 'bg-success'           },
+        outdated: { text: 'Vencido',       cls: 'bg-warning text-dark' },
+        critical: { text: 'Crítico',       cls: 'bg-danger'            },
+        never:    { text: 'Sin verificar', cls: 'bg-secondary'         }
     };
 
     async function loadVerificationReport() {
@@ -742,11 +777,11 @@
         const pagination = document.getElementById(paginationId);
 
         if (totalPages <= 1) {
-            container.style.display = 'none';
+            container.classList.add('d-none');
             return;
         }
 
-        container.style.display = 'block';
+        container.classList.remove('d-none');
         let html = '';
 
         html += `<li class="page-item ${currentPage <= 1 ? 'disabled' : ''}">

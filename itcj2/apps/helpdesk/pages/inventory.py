@@ -1195,25 +1195,109 @@ async def retirement_request_detail(
     })
 
 
-@router.get("/verification", name="helpdesk.pages.inventory.verification")
-async def verification(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.verification"])),
-):
-    """
-    Página de verificación física de inventario.
-    Solo Admin y Secretaría del Centro de Cómputo.
-    """
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+# Estado de verificación (fuente única para el filtro server-side). El color de
+# cada estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_VERIFICATION_STATUS_OPTIONS = [
+    ("all", "Todos"),
+    ("recent", "Reciente (<30 días)"),
+    ("outdated", "Vencido (30-90 días)"),
+    ("critical", "Crítico (>90 días)"),
+    ("never", "Sin verificar"),
+]
 
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
+
+def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta los equipos con su estado de verificación para la vista.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/department/status_filter) server-side y
+    pagina. Replica EXACTAMENTE la lógica del endpoint API
+    ``GET /inventory/verification/status`` (mismo cálculo de estado por umbral de
+    días y mismas stats globales), para que la tabla, las tarjetas de resumen y la
+    paginación se rindan desde el servidor sin JS.
+    """
+    from sqlalchemy import or_
+    from sqlalchemy.orm import joinedload
+
+    from itcj2.apps.helpdesk.api.inventory.verification import _verification_status
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    from itcj2.core.models.department import Department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    status_filter = (p.get("status_filter", "") or "").strip() or "all"
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 50
 
     _db = SessionLocal()
     try:
         can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-        from itcj2.core.models.department import Department
+
+        base_filters = [InventoryItem.is_active.is_(True)]
+        if dept_param and dept_param.isdigit():
+            base_filters.append(InventoryItem.department_id == int(dept_param))
+        if search:
+            term = f"%{search}%"
+            base_filters.append(or_(
+                InventoryItem.inventory_number.ilike(term),
+                InventoryItem.brand.ilike(term),
+                InventoryItem.model.ilike(term),
+            ))
+
+        light_rows = (
+            _db.query(InventoryItem.id, InventoryItem.last_verified_at)
+            .filter(*base_filters)
+            .order_by(
+                InventoryItem.last_verified_at.asc().nullsfirst(),
+                InventoryItem.inventory_number,
+            )
+            .all()
+        )
+
+        stats = {"total": 0, "recent": 0, "outdated": 0, "critical": 0, "never": 0}
+        filtered = []
+        for item_id, lva in light_rows:
+            vs = _verification_status(lva)
+            stats["total"] += 1
+            stats[vs] += 1
+            if status_filter == "all" or vs == status_filter:
+                filtered.append((item_id, vs))
+
+        total = len(filtered)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        page_rows = filtered[(page - 1) * per_page:(page - 1) * per_page + per_page]
+        page_ids = [r[0] for r in page_rows]
+        vs_map = {r[0]: r[1] for r in page_rows}
+
+        items_data = []
+        if page_ids:
+            items = (
+                _db.query(InventoryItem)
+                .filter(InventoryItem.id.in_(page_ids))
+                .options(
+                    joinedload(InventoryItem.category),
+                    joinedload(InventoryItem.department),
+                    joinedload(InventoryItem.last_verified_by),
+                    joinedload(InventoryItem.group),
+                )
+                .all()
+            )
+            item_map = {i.id: i for i in items}
+            for iid in page_ids:
+                it = item_map.get(iid)
+                if not it:
+                    continue
+                d = it.to_dict(include_relations=True)
+                d["verification_status"] = vs_map[iid]
+                items_data.append(d)
+
         departments = (
             _db.query(Department)
             .filter_by(is_active=True)
@@ -1224,9 +1308,75 @@ async def verification(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/reports/verification.html", {
-        "user_roles": user_roles,
+    # count-unverified (badge del header) = sin verificar + vencidos; urgencia para
+    # el color del badge = never + outdated + critical.
+    count_unverified = stats["never"] + stats["outdated"]
+    urgent = stats["never"] + stats["outdated"] + stats["critical"]
+
+    return {
+        "items": items_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "showing_from": (page - 1) * per_page + 1 if total else 0,
+        "showing_to": min(page * per_page, total),
+        "vr_stats": stats,
+        "vr_count_unverified": count_unverified,
+        "vr_urgent": urgent,
         "can_view_all": can_view_all,
         "departments": departments_data,
-        "active_page": "inventory_verification",
+        "f_search": search or "",
+        "f_department": dept_param or "",
+        "f_status_filter": status_filter,
+    }
+
+
+@router.get("/verification", name="helpdesk.pages.inventory.verification")
+async def verification(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.verification"])),
+):
+    """
+    Página de verificación física de inventario.
+    Solo Admin y Secretaría del Centro de Cómputo.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-verif-results) + tarjetas de resumen OOB.
+    """
+    from itcj2.templates import render
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+    ctx = _query_verification_ctx(request, user_id, user_roles)
+
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/reports/_verification_results.html", ctx)
+
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    filter_fields = []
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-3", "selected": ctx["f_department"], "options": dept_options,
+        })
+    filter_fields.append({
+        "name": "status_filter", "label": "Verificación", "icon": "fa-clipboard-check",
+        "col": "col-6 col-md-3", "selected": ctx["f_status_filter"],
+        "options": _VERIFICATION_STATUS_OPTIONS,
     })
+
+    ctx.update({
+        "user_roles": user_roles,
+        "active_page": "inventory_verification",
+        "filter_fields": filter_fields,
+    })
+    return render_helpdesk(request, "helpdesk/inventory/reports/verification.html", ctx)
