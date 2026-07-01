@@ -1,56 +1,12 @@
-.filter-chip {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    margin: 0.25rem;
-    background: #e9ecef;
-    border-radius: 1rem;
-    font-size: 0.875rem;
-}
-.filter-chip .close {
-    margin-left: 0.5rem;
-    cursor: pointer;
-    opacity: 0.6;
-}
-.filter-chip .close:hover {
-    opacity: 1;
-}
-.table-actions {
-    white-space: nowrap;
-}
-.status-badge {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-}
-.badge.bg-success {
-    background-color: #28a745 !important;
-}
-.badge.bg-warning {
-    background-color: #ffc107 !important;
-}
-.badge.bg-danger {
-    background-color: #dc3545 !important;
-}
-.badge.bg-secondary {
-    background-color: #6c757d !important;
-}
-.badge.bg-dark {
-    background-color: #343a40 !important;
-}
-.badge.text-white {
-    color: #fff !important;
-}
-.item-thumbnail {
-    width: 40px;
-    height: 40px;
-    object-fit: contain;
-}
-.warranty-indicator {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 5px;
-}
-.warranty-indicator.active { background: #28a745; }
-.warranty-indicator.expiring { background: #ffc107; }
-.warranty-indicator.expired { background: #dc3545; }
+/* Inventario de Equipos — helpers estructurales (tokens; sin hex, sin color).
+   El color semántico (estado/garantía) lo dan clases de Bootstrap en el fragmento
+   (_items_list_results.html). El render/paginación/filtros son server-side. */
+
+/* Columna del checkbox de selección masiva. */
+.hd-col-check { width: 3rem; }
+
+/* Celda de seriales: trunca cada identificador. */
+.hd-serial { max-width: 8rem; }
+
+/* Punto de estado de garantía (el color = clase text-* de Bootstrap). */
+.hd-dot { font-size: 0.55rem; vertical-align: middle; }

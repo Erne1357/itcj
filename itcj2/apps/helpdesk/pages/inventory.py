@@ -61,29 +61,200 @@ async def dashboard(
     })
 
 
+# Estados de equipo (fuente única para el filtro server-side). El color de cada
+# estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_ITEM_STATUS_OPTIONS = [
+    ("", "Todos"),
+    ("ACTIVE", "Activo"),
+    ("MAINTENANCE", "Mantenim."),
+    ("DAMAGED", "Dañado"),
+    ("LOST", "Extraviado"),
+]
+_ITEM_ASSIGNED_OPTIONS = [
+    ("", "Todos"),
+    ("yes", "Asignados"),
+    ("no", "Globales"),
+]
+
+
+def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de equipos del inventario para la vista.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/category/status/assigned/department)
+    server-side y pagina. El scope replica EXACTAMENTE el del endpoint API
+    ``GET /inventory/items``: acceso completo = admin / técnicos / secretaría CC /
+    usuario del Centro de Cómputo; jefe de depto = solo su departamento; el resto
+    solo ve los equipos que tiene asignados (o un depto explícito).
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
+    from itcj2.apps.helpdesk.utils.inventory_access import (
+        has_full_inventory_access,
+        is_comp_center_user,
+    )
+    from itcj2.core.models.department import Department
+    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    category = (p.get("category", "") or "").strip() or None
+    status = (p.get("status", "") or "").strip() or None
+    assigned = (p.get("assigned", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        can_view_all = (
+            has_full_inventory_access(_db, user_id, user_roles)
+            or is_comp_center_user(_db, user_id)
+        )
+        user_dept = get_user_department(_db, user_id)
+        user_dept_id = user_dept.id if user_dept else None
+
+        q = _db.query(InventoryItem).filter_by(is_active=True)
+        if can_view_all:
+            if dept_param and dept_param.isdigit():
+                q = q.filter(InventoryItem.department_id == int(dept_param))
+        elif "department_head" in user_roles:
+            q = q.filter(InventoryItem.department_id == (user_dept_id or -1))
+        elif dept_param and dept_param.isdigit():
+            q = q.filter(InventoryItem.department_id == int(dept_param))
+        else:
+            q = q.filter(InventoryItem.assigned_to_user_id == user_id)
+
+        if category and category.isdigit():
+            q = q.filter(InventoryItem.category_id == int(category))
+        if status:
+            q = q.filter(InventoryItem.status == status.upper())
+        if assigned == "yes":
+            q = q.filter(InventoryItem.assigned_to_user_id.isnot(None))
+        elif assigned == "no":
+            q = q.filter(InventoryItem.assigned_to_user_id.is_(None))
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryItem.inventory_number.ilike(like),
+                InventoryItem.brand.ilike(like),
+                InventoryItem.model.ilike(like),
+                InventoryItem.supplier_serial.ilike(like),
+                InventoryItem.itcj_serial.ilike(like),
+                InventoryItem.id_tecnm.ilike(like),
+            ))
+
+        q = q.order_by(InventoryItem.id.asc())
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        items = (
+            q.offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        items_data = [i.to_dict(include_relations=True) for i in items]
+
+        categories = (
+            _db.query(InventoryCategory)
+            .filter_by(is_active=True)
+            .order_by(InventoryCategory.name)
+            .all()
+        )
+        categories_data = [{"id": c.id, "name": c.name} for c in categories]
+
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+            departments_data = [{"id": d.id, "name": d.name} for d in departments]
+        else:
+            departments_data = []
+    finally:
+        _db.close()
+
+    return {
+        "items": items_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "per_page": per_page,
+        "showing_from": (page - 1) * per_page + 1 if total else 0,
+        "showing_to": min(page * per_page, total),
+        "can_view_all": can_view_all,
+        "categories": categories_data,
+        "departments": departments_data,
+        "f_search": search or "",
+        "f_category": category or "",
+        "f_status": status or "",
+        "f_assigned": assigned or "",
+        "f_department": dept_param or "",
+    }
+
+
 @router.get("/items", name="helpdesk.pages.inventory.items_list")
 async def items_list(
     request: Request,
     user: dict = Depends(_require_helpdesk),
 ):
-    """Lista de equipos del inventario (admin/secretaría: todos; jefe depto: su depto)."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    """Lista de equipos del inventario (admin/secretaría: todos; jefe depto: su depto).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-items-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_items_ctx(request, user_id, user_roles)
 
-    _db = SessionLocal()
-    try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-    finally:
-        _db.close()
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/items/_items_list_results.html", ctx)
 
-    return render_helpdesk(request, "helpdesk/inventory/items/items_list.html", {
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    category_options = [("", "Todas")] + [
+        (str(c["id"]), c["name"]) for c in ctx["categories"]
+    ]
+    filter_fields = [{
+        "name": "category", "label": "Categoría", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_category"], "options": category_options,
+    }, {
+        "name": "status", "label": "Estado", "icon": "fa-toggle-on",
+        "col": "col-6 col-md-2", "selected": ctx["f_status"], "options": _ITEM_STATUS_OPTIONS,
+    }, {
+        "name": "assigned", "label": "Asignación", "icon": "fa-user",
+        "col": "col-6 col-md-2", "selected": ctx["f_assigned"], "options": _ITEM_ASSIGNED_OPTIONS,
+    }]
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-2", "selected": ctx["f_department"], "options": dept_options,
+        })
+
+    ctx.update({
         "user_roles": user_roles,
-        "can_view_all": can_view_all,
         "active_page": "inventory_items",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/items/items_list.html", ctx)
 
 
 @router.get("/items/create", name="helpdesk.pages.inventory.item_create")
@@ -351,19 +522,156 @@ async def group_detail(
     })
 
 
+_PENDING_SORT_OPTIONS = [
+    ("newest", "Más recientes"),
+    ("oldest", "Más antiguos"),
+    ("category", "Por categoría"),
+]
+
+
+def _query_pending_ctx(request: Request) -> dict:
+    """Consulta los equipos pendientes de asignación (limbo del Centro de Cómputo).
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/category/sort) server-side y pagina.
+    El scope (equipos en estado PENDING_ASSIGNMENT del depto Centro de Cómputo)
+    replica el del endpoint API de pendientes.
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
+    from itcj2.core.models.department import Department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    category = (p.get("category", "") or "").strip() or None
+    sort = (p.get("sort", "") or "").strip() or "newest"
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        cc_department = _db.query(Department).filter_by(code="comp_center").first()
+        cc_dept_id = cc_department.id if cc_department else -1
+
+        q = _db.query(InventoryItem).filter(
+            InventoryItem.status == "PENDING_ASSIGNMENT",
+            InventoryItem.department_id == cc_dept_id,
+            InventoryItem.is_active.is_(True),
+        )
+        if category and category.isdigit():
+            q = q.filter(InventoryItem.category_id == int(category))
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryItem.inventory_number.ilike(like),
+                InventoryItem.brand.ilike(like),
+                InventoryItem.model.ilike(like),
+                InventoryItem.supplier_serial.ilike(like),
+                InventoryItem.itcj_serial.ilike(like),
+            ))
+
+        if sort == "oldest":
+            q = q.order_by(InventoryItem.created_at.asc())
+        elif sort == "category":
+            q = q.join(InventoryCategory, InventoryItem.category_id == InventoryCategory.id).order_by(
+                InventoryCategory.name.asc(), InventoryItem.created_at.desc()
+            )
+        else:
+            q = q.order_by(InventoryItem.created_at.desc())
+
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        items = (
+            q.offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        items_data = [i.to_dict(include_relations=True) for i in items]
+
+        # Total global (sin filtros) y nº de categorías, para las tarjetas de stats.
+        stat_total = _db.query(InventoryItem).filter(
+            InventoryItem.status == "PENDING_ASSIGNMENT",
+            InventoryItem.department_id == cc_dept_id,
+            InventoryItem.is_active.is_(True),
+        ).count()
+        stat_categories = _db.query(InventoryItem.category_id).filter(
+            InventoryItem.status == "PENDING_ASSIGNMENT",
+            InventoryItem.department_id == cc_dept_id,
+            InventoryItem.is_active.is_(True),
+        ).distinct().count()
+
+        categories = (
+            _db.query(InventoryCategory)
+            .filter_by(is_active=True)
+            .order_by(InventoryCategory.name)
+            .all()
+        )
+        categories_data = [{"id": c.id, "name": c.name} for c in categories]
+    finally:
+        _db.close()
+
+    return {
+        "items": items_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "stat_total": stat_total,
+        "stat_categories": stat_categories,
+        "categories": categories_data,
+        "f_search": search or "",
+        "f_category": category or "",
+        "f_sort": sort,
+    }
+
+
 @router.get("/pending", name="helpdesk.pages.inventory.pending_items")
 async def pending_items(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.pending"])),
 ):
-    """Equipos pendientes de asignación (limbo del Centro de Cómputo)."""
+    """Equipos pendientes de asignación (limbo del Centro de Cómputo).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-pending-results) + contadores OOB.
+    """
+    from itcj2.templates import render
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_pending_ctx(request)
 
-    return render_helpdesk(request, "helpdesk/inventory/items/pending_items.html", {
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/items/_pending_items_results.html", ctx)
+
+    category_options = [("", "Todas las categorías")] + [
+        (str(c["id"]), c["name"]) for c in ctx["categories"]
+    ]
+    filter_fields = [{
+        "name": "category", "label": "Categoría", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_category"], "options": category_options,
+    }, {
+        "name": "sort", "label": "Orden", "icon": "fa-sort",
+        "col": "col-6 col-md-2", "selected": ctx["f_sort"], "options": _PENDING_SORT_OPTIONS,
+    }]
+
+    ctx.update({
         "user_roles": user_roles,
         "active_page": "inventory_pending",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/items/pending_items.html", ctx)
 
 
 @router.get("/bulk-register", name="helpdesk.pages.inventory.bulk_register")

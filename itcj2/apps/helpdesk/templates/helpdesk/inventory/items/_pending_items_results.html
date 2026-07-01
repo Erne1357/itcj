@@ -1,0 +1,89 @@
+{#
+  Fragmento de la lista de equipos pendientes (limbo del Centro de Cómputo).
+  Devuelto por GET /help-desk/inventory/pending con HX-Request (no boost).
+  Reemplaza el innerHTML de #hd-pending-results + contadores OOB.
+
+  Bulk-select con Alpine (regla de zonas §4.2): el Set vive en el PADRE
+  (pending_items.html); los checkboxes hacen toggle(id) y :checked="sel.has(id)".
+
+  Contexto: items, total, current_page, total_pages, stat_total,
+  stat_categories, oob (bool).
+#}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob %}
+<span hx-swap-oob="innerHTML:#pending-count">{{ stat_total }}</span>
+<span hx-swap-oob="innerHTML:#stat-total">{{ stat_total }}</span>
+<span hx-swap-oob="innerHTML:#stat-categories">{{ stat_categories }}</span>
+{% endif %}
+
+{% if items %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="hd-col-check">
+            <input class="form-check-input" type="checkbox" id="select-all"
+                   @change="toggleAll($event.target.checked)" aria-label="Seleccionar todos">
+          </th>
+          <th>N° Inventario</th>
+          <th>Categoría</th>
+          <th>Equipo</th>
+          <th>Serie</th>
+          <th>Registrado</th>
+          <th>Registrado Por</th>
+          <th class="text-center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          {% set detail_url = '/help-desk/inventory/items/' ~ item.id %}
+          <tr>
+            <td>
+              <input class="form-check-input hd-item-cb" type="checkbox" value="{{ item.id }}"
+                     :checked="sel.has({{ item.id }})" @change="toggle({{ item.id }}, $event.target.checked)"
+                     aria-label="Seleccionar equipo {{ item.inventory_number }}">
+            </td>
+            <td>
+              <span class="fw-bold">{{ item.inventory_number }}</span><br>
+              <span class="badge bg-warning text-dark">
+                <i class="fas fa-hourglass-half"></i> Limbo
+              </span>
+            </td>
+            <td>
+              <i class="{{ item.category.icon if item.category else 'fas fa-box' }} me-1"></i>
+              <small>{{ item.category.name if item.category else 'N/A' }}</small>
+            </td>
+            <td>
+              <div class="fw-bold">{{ item.brand or 'N/A' }}</div>
+              <small class="text-muted">{{ item.model or '' }}</small>
+            </td>
+            <td><small>{{ item.supplier_serial or item.itcj_serial or 'N/A' }}</small></td>
+            <td><small>{{ item.created_at | hd_datetime }}</small></td>
+            <td><small>{{ item.registered_by.full_name if item.registered_by else 'N/A' }}</small></td>
+            <td class="text-center text-nowrap">
+              <div class="btn-group btn-group-sm">
+                <button type="button" class="btn btn-success" data-action="assign-item" data-item-id="{{ item.id }}"
+                        data-item-number="{{ item.inventory_number }}" title="Asignar a departamento">
+                  <i class="fas fa-building"></i>
+                </button>
+                <a href="{{ detail_url }}" class="btn btn-outline-primary" title="Ver detalle" {{ hd_boost(detail_url) }}>
+                  <i class="fas fa-eye"></i>
+                </a>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      {{ pagination(current_page, total_pages, '/help-desk/inventory/pending', target='#hd-pending-results', include='#hd-filter-form') }}
+    </div>
+  {% endif %}
+{% else %}
+  {{ empty_state('fa-check-circle', '¡Todo asignado!', 'No hay equipos pendientes de asignación con los filtros aplicados.') }}
+{% endif %}

@@ -6,6 +6,17 @@
 (function () {
     'use strict';
 
+    // ==================== BS5 MODAL HELPERS (sin jQuery) ====================
+    function modalShow(id) { bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show(); }
+    function modalHide(id) {
+        const el = document.getElementById(id);
+        if (el) { try { bootstrap.Modal.getInstance(el)?.hide(); } catch (_) { /* ignore */ } }
+    }
+    function modalDispose(id) {
+        const el = document.getElementById(id);
+        if (el) { try { bootstrap.Modal.getInstance(el)?.dispose(); } catch (_) { /* ignore */ } }
+    }
+
     // ==================== ESTADO DEL MÓDULO ====================
     let currentItem = null;
     let itemHistory = [];
@@ -72,14 +83,14 @@
         if (predecessorDebounce) { clearTimeout(predecessorDebounce); predecessorDebounce = null; }
 
         // Dispose modales
-        try { $('#editBasicInfoModal').modal('dispose'); } catch (_) {}
-        try { $('#editSpecsModal').modal('dispose'); } catch (_) {}
-        try { $('#assignUserModal').modal('dispose'); } catch (_) {}
-        try { $('#changeStatusModal').modal('dispose'); } catch (_) {}
-        try { $('#deactivateModal').modal('dispose'); } catch (_) {}
-        try { $('#editLockedFieldModal').modal('dispose'); } catch (_) {}
-        try { $('#unlockItemModal').modal('dispose'); } catch (_) {}
-        try { $('#linkPredecessorModal').modal('dispose'); } catch (_) {}
+        modalDispose('editBasicInfoModal');
+        modalDispose('editSpecsModal');
+        modalDispose('assignUserModal');
+        modalDispose('changeStatusModal');
+        modalDispose('deactivateModal');
+        modalDispose('editLockedFieldModal');
+        modalDispose('unlockItemModal');
+        modalDispose('linkPredecessorModal');
 
         // Reset estado
         currentItem = null;
@@ -184,7 +195,7 @@
         const statusInfo = getStatusInfo(item.status);
 
         const lockBadge = item.is_locked
-            ? `<span class="badge bg-warning text-dark badge-lg px-3 py-2 ml-2" style="font-size:0.9rem;"
+            ? `<span class="badge bg-warning text-dark badge-lg px-3 py-2 ms-2" style="font-size:0.9rem;"
                    title="Bloqueado por campaña validada${item.validated_at ? ' el ' + formatDate(item.validated_at) : ''}">
                    <i class="fas fa-lock"></i> Bloqueado
                </span>`
@@ -258,7 +269,7 @@
 
     function _lockedFieldBtn(field, label, currentVal) {
         if (!IS_ADMIN || !currentItem.is_locked) return '';
-        return `<button type="button" class="btn btn-xs btn-outline-warning ml-2 py-0 px-1"
+        return `<button type="button" class="btn btn-xs btn-outline-warning ms-2 py-0 px-1"
                     title="Editar campo bloqueado"
                     onclick="openEditLockedField('${field}','${label}','${(currentVal || '').replace(/'/g, "\\'")}')">
                     <i class="fas fa-lock-open" style="font-size:.7rem;"></i>
@@ -276,7 +287,7 @@
 
             <div class="info-label">Categoría</div>
             <div class="info-value">
-                <i class="${item.category?.icon || 'fas fa-box'} mr-2"></i>
+                <i class="${item.category?.icon || 'fas fa-box'} me-2"></i>
                 ${item.category?.name || 'N/A'}
             </div>
 
@@ -328,13 +339,13 @@
         container.innerHTML = `
             <div class="info-label">Departamento</div>
             <div class="info-value">
-                <i class="fas fa-building mr-2 text-primary"></i>
+                <i class="fas fa-building me-2 text-primary"></i>
                 ${item.department?.name || 'N/A'}
             </div>
 
             <div class="info-label">Ubicación Específica</div>
             <div class="info-value ${item.location_detail ? '' : 'empty'}">
-                <i class="fas fa-map-marker-alt mr-2 text-danger"></i>
+                <i class="fas fa-map-marker-alt me-2 text-danger"></i>
                 ${item.location_detail || 'No especificada'}
             </div>
 
@@ -342,7 +353,7 @@
             <div class="info-value">
                 ${item.is_assigned_to_user ? `
                     <div class="alert alert-info mb-0 py-2">
-                        <i class="fas fa-user-check mr-2"></i>
+                        <i class="fas fa-user-check me-2"></i>
                         <strong>Asignado a:</strong> ${item.assigned_to_user.full_name}
                         <br>
                         <small class="text-muted">
@@ -392,7 +403,7 @@
             }
             container.innerHTML = `
                 <div class="alert alert-${alertClass} mb-0">
-                    <i class="fas fa-${icon} fa-2x float-left mr-3"></i>
+                    <i class="fas fa-${icon} fa-2x float-start me-3"></i>
                     <div>
                         <strong>Garantía Vigente</strong><br>
                         <span class="h5 mb-0">${days} días restantes</span><br>
@@ -404,7 +415,7 @@
             card.classList.add('warranty-card', 'expired');
             container.innerHTML = `
                 <div class="alert alert-danger mb-0">
-                    <i class="fas fa-times-circle fa-2x float-left mr-3"></i>
+                    <i class="fas fa-times-circle fa-2x float-start me-3"></i>
                     <div>
                         <strong>Garantía Vencida</strong><br>
                         <small class="text-muted">Venció: ${formatDate(item.warranty_expiration)}</small>
@@ -449,7 +460,7 @@
                 <div class="info-label">Próximo Mantenimiento</div>
                 <div class="info-value">
                     <div class="alert alert-${isOverdue ? 'danger' : 'info'} mb-0 py-2">
-                        <i class="fas fa-${isOverdue ? 'exclamation-triangle' : 'calendar-alt'} mr-2"></i>
+                        <i class="fas fa-${isOverdue ? 'exclamation-triangle' : 'calendar-alt'} me-2"></i>
                         ${formatDate(item.next_maintenance_date)}
                         ${isOverdue ? '<br><small><strong>¡Vencido!</strong></small>' : ''}
                     </div>
@@ -739,7 +750,7 @@
                             <br>
                             <small class="text-muted">${formatDateTime(ticket.created_at)}</small>
                         </div>
-                        <div class="text-right">
+                        <div class="text-end">
                             <span class="badge bg-${statusBadge.color} text-white">${statusBadge.text}</span>
                             <span class="badge bg-${priorityBadge.color} text-white">${priorityBadge.text}</span>
                         </div>
@@ -762,7 +773,7 @@
         document.getElementById('edit-warranty').value = currentItem.warranty_expiration || '';
         document.getElementById('edit-maintenance-freq').value = currentItem.maintenance_frequency_days || '';
         document.getElementById('edit-notes').value = currentItem.notes || '';
-        $('#editBasicInfoModal').modal('show');
+        modalShow('editBasicInfoModal');
     }
 
     async function handleEditBasic(e) {
@@ -795,7 +806,7 @@
                 throw new Error(error.error || 'Error al actualizar');
             }
 
-            $('#editBasicInfoModal').modal('hide');
+            modalHide('editBasicInfoModal');
             showSuccess('Información actualizada correctamente');
             loadItemDetail();
         } catch (error) {
@@ -824,7 +835,7 @@
                 select.appendChild(option);
             });
 
-            $('#assignUserModal').modal('show');
+            modalShow('assignUserModal');
         } catch (error) {
             console.error('Error:', error);
             showError('No se pudieron cargar los usuarios');
@@ -860,7 +871,7 @@
                 throw new Error(error.error || 'Error al asignar');
             }
 
-            $('#assignUserModal').modal('hide');
+            modalHide('assignUserModal');
             showSuccess('Equipo asignado correctamente');
             loadItemDetail();
         } catch (error) {
@@ -898,7 +909,7 @@
     function openChangeStatusModal() {
         document.getElementById('new-status').value = '';
         document.getElementById('status-notes').value = '';
-        $('#changeStatusModal').modal('show');
+        modalShow('changeStatusModal');
     }
 
     async function handleChangeStatus(e) {
@@ -924,7 +935,7 @@
                 throw new Error(error.error || 'Error al cambiar estado');
             }
 
-            $('#changeStatusModal').modal('hide');
+            modalHide('changeStatusModal');
             showSuccess('Estado actualizado correctamente');
             loadItemDetail();
         } catch (error) {
@@ -959,7 +970,7 @@
                 throw new Error(error.error || 'Error al dar de baja');
             }
 
-            $('#deactivateModal').modal('hide');
+            modalHide('deactivateModal');
             showSuccess('Equipo dado de baja correctamente');
             setTimeout(() => { window.location.href = '/help-desk/inventory/items'; }, 2000);
         } catch (error) {
@@ -994,8 +1005,8 @@
             const versionBadge = document.getElementById('version-badge-placeholder');
             if (versionBadge) {
                 versionBadge.innerHTML = currentNode.is_latest
-                    ? '<span class="badge bg-success text-white ml-2"><i class="fas fa-check-circle"></i> Versión más reciente</span>'
-                    : `<span class="badge bg-secondary text-white ml-2"><i class="fas fa-history"></i> Reemplazado</span>`;
+                    ? '<span class="badge bg-success text-white ms-2"><i class="fas fa-check-circle"></i> Versión más reciente</span>'
+                    : `<span class="badge bg-secondary text-white ms-2"><i class="fas fa-history"></i> Reemplazado</span>`;
             }
         }
 
@@ -1015,15 +1026,15 @@
 
                 html += `
                 <div class="version-node ${isCurrent ? 'version-node--current' : ''} ${!isActive ? 'version-node--inactive' : ''}">
-                    <a href="/help-desk/inventory/items/${node.id}" ${isCurrent ? 'class="font-weight-bold"' : 'class="text-muted"'}>
-                        <i class="fas fa-${isActive ? 'desktop' : 'archive'} mr-1"></i>
+                    <a href="/help-desk/inventory/items/${node.id}" ${isCurrent ? 'class="fw-bold"' : 'class="text-muted"'}>
+                        <i class="fas fa-${isActive ? 'desktop' : 'archive'} me-1"></i>
                         ${node.inventory_number}
                     </a>
                     <div class="small text-muted">${node.brand || ''} ${node.model || ''}</div>
                     <div class="small text-muted">${year}</div>
-                    ${isCurrent ? '<span class="badge badge-primary badge-sm mt-1">Este equipo</span>' : ''}
-                    ${node.is_latest && !isCurrent ? '<span class="badge badge-success badge-sm mt-1">Más reciente</span>' : ''}
-                    ${!isActive ? '<span class="badge badge-secondary badge-sm mt-1">Dado de baja</span>' : ''}
+                    ${isCurrent ? '<span class="badge bg-primary mt-1">Este equipo</span>' : ''}
+                    ${node.is_latest && !isCurrent ? '<span class="badge bg-success mt-1">Más reciente</span>' : ''}
+                    ${!isActive ? '<span class="badge bg-secondary mt-1">Dado de baja</span>' : ''}
                 </div>`;
 
                 if (idx < chain.length - 1) {
@@ -1058,7 +1069,7 @@
         document.getElementById('predecessor-search-results').innerHTML =
             '<div class="text-center text-muted small py-3"><i class="fas fa-search"></i> Escribe para buscar</div>';
         document.getElementById('btn-confirm-predecessor').disabled = true;
-        $('#linkPredecessorModal').modal('show');
+        modalShow('linkPredecessorModal');
     }
 
     async function searchPredecessorItems(search) {
@@ -1089,9 +1100,9 @@
                      style="cursor:pointer;" data-id="${i.id}"
                      onclick="selectPredecessor(${i.id}, this)">
                     <strong>${i.inventory_number}</strong>
-                    <span class="text-muted small ml-1">${i.brand || ''} ${i.model || ''}</span>
-                    ${i.is_latest_version ? '' : '<span class="badge badge-warning badge-sm ml-1">Ya tiene sucesor</span>'}
-                    ${!i.is_active ? '<span class="badge badge-secondary badge-sm ml-1">Dado de baja</span>' : ''}
+                    <span class="text-muted small ms-1">${i.brand || ''} ${i.model || ''}</span>
+                    ${i.is_latest_version ? '' : '<span class="badge bg-warning text-dark ms-1">Ya tiene sucesor</span>'}
+                    ${!i.is_active ? '<span class="badge bg-secondary ms-1">Dado de baja</span>' : ''}
                 </div>`).join('');
         } catch (err) {
             results.innerHTML = `<div class="text-center text-danger small py-3">${err.message}</div>`;
@@ -1123,7 +1134,7 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Error al vincular');
 
-            $('#linkPredecessorModal').modal('hide');
+            modalHide('linkPredecessorModal');
             showSuccess('Equipo vinculado correctamente');
             loadItemDetail();
         } catch (err) {
@@ -1160,7 +1171,7 @@
         document.getElementById('locked-field-label').textContent = label;
         document.getElementById('locked-field-value').value = currentVal;
         document.getElementById('locked-field-justification').value = '';
-        $('#editLockedFieldModal').modal('show');
+        modalShow('editLockedFieldModal');
     }
 
     async function handleEditLockedField(e) {
@@ -1185,7 +1196,7 @@
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Error al actualizar');
 
-            $('#editLockedFieldModal').modal('hide');
+            modalHide('editLockedFieldModal');
             showSuccess('Campo actualizado. El cambio quedó registrado en el historial.');
             loadItemDetail();
         } catch (error) {
@@ -1197,7 +1208,7 @@
     // ==================== DESBLOQUEAR EQUIPO (ADMIN) ====================
     function openUnlockModal() {
         document.getElementById('unlock-justification').value = '';
-        $('#unlockItemModal').modal('show');
+        modalShow('unlockItemModal');
     }
 
     async function handleUnlockItem(e) {
@@ -1231,7 +1242,7 @@
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Error al desbloquear');
 
-            $('#unlockItemModal').modal('hide');
+            modalHide('unlockItemModal');
             showSuccess('Equipo desbloqueado. El cambio quedó registrado en el historial.');
             loadItemDetail();
         } catch (error) {
@@ -1255,7 +1266,7 @@
                     Esta categoría no tiene un template de especificaciones definido.
                 </div>
             `;
-            $('#editSpecsModal').modal('show');
+            modalShow('editSpecsModal');
             return;
         }
 
@@ -1300,7 +1311,7 @@
 
         html += '</div>';
         container.innerHTML = html;
-        $('#editSpecsModal').modal('show');
+        modalShow('editSpecsModal');
     }
 
     async function handleEditSpecs(e) {
@@ -1308,7 +1319,7 @@
 
         const specTemplate = currentItem.category?.spec_template;
         if (!specTemplate || Object.keys(specTemplate).length === 0) {
-            $('#editSpecsModal').modal('hide');
+            modalHide('editSpecsModal');
             return;
         }
 
@@ -1343,7 +1354,7 @@
                 throw new Error(error.error || 'Error al actualizar especificaciones');
             }
 
-            $('#editSpecsModal').modal('hide');
+            modalHide('editSpecsModal');
             showSuccess('Especificaciones actualizadas correctamente');
             loadItemDetail();
         } catch (error) {

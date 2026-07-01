@@ -1,29 +1,25 @@
+/* Equipos Pendientes — helpers estructurales (tokens / vars Bootstrap; sin hex de
+   marca). El render/paginación/filtros son server-side (_pending_items_results.html). */
+
+/* Encabezado decorativo: gradiente derivado de las variables de Bootstrap
+   (warning→danger), no hex de marca. El texto blanco se aplica con la clase
+   text-white en el markup si hace falta. */
 .pending-header {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    color: white;
-    padding: 2rem;
-    border-radius: 0.5rem;
-    margin-bottom: 2rem;
+    background: linear-gradient(135deg, var(--bs-warning, #ffc107) 0%, var(--bs-danger, #dc3545) 100%);
+    color: #fff;
+    padding: 1.5rem;
+    border-radius: var(--hd-r-md);
 }
-.pending-item {
-    transition: background-color 0.2s;
+
+/* Etiqueta pequeña de las tarjetas de estadística (solo estructura; el color lo
+   da text-warning/info/primary de Bootstrap). */
+.hd-stat-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.25rem;
 }
-.pending-item:hover {
-    background-color: #fff3cd;
-}
-.pending-item.selected {
-    background-color: #d1ecf1;
-}
-.limbo-badge {
-    animation: pulse 2s infinite;
-}
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
-}
-.quick-assign-btn {
-    transition: all 0.2s;
-}
-.quick-assign-btn:hover {
-    transform: scale(1.05);
-}
+
+/* Celda de columnas del checkbox (compartida con items_list). */
+.hd-col-check { width: 3rem; }

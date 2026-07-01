@@ -23,9 +23,22 @@
     // Handler de document click para el combo de usuarios (módulo-level para poder
     // removerlo en destroy() y evitar listeners huérfanos en cada revisita morph).
     let _comboDocClickHandler = null;
+    // Ref del listener shown.bs.modal del modal de predecesor (para teardown).
+    let _predShownHandler = null;
 
     // Variables de datos desde data-*
     let BULK_MODE = false;
+
+    // ==================== BS5 MODAL HELPERS (sin jQuery) ====================
+    function modalShow(id) { bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show(); }
+    function modalHide(id) {
+        const el = document.getElementById(id);
+        if (el) { try { bootstrap.Modal.getInstance(el)?.hide(); } catch (_) { /* ignore */ } }
+    }
+    function modalDispose(id) {
+        const el = document.getElementById(id);
+        if (el) { try { bootstrap.Modal.getInstance(el)?.dispose(); } catch (_) { /* ignore */ } }
+    }
 
     // ==================== ERROR HELPERS ====================
     function extractErrorMessage(data, fallback = 'Error desconocido') {
@@ -74,12 +87,19 @@
             predecessorDebounce = null;
         }
 
-        // Dispose modales
-        try { $('#successModal').modal('dispose'); } catch (_) {}
-        try { $('#bulkSuccessModal').modal('dispose'); } catch (_) {}
-        try { $('#progressModal').modal('dispose'); } catch (_) {}
-        try { $('#predecessorSearchModal').modal('dispose'); } catch (_) {}
-        try { $('#createInactiveUserModal').modal('dispose'); } catch (_) {}
+        // Remover listener shown.bs.modal del modal de predecesor
+        const predModalEl = document.getElementById('predecessorSearchModal');
+        if (predModalEl && _predShownHandler) {
+            predModalEl.removeEventListener('shown.bs.modal', _predShownHandler);
+            _predShownHandler = null;
+        }
+
+        // Dispose modales (BS5, sin jQuery)
+        modalDispose('successModal');
+        modalDispose('bulkSuccessModal');
+        modalDispose('progressModal');
+        modalDispose('predecessorSearchModal');
+        modalDispose('createInactiveUserModal');
 
         // Limpiar handler de document click del combo de usuarios
         if (_comboDocClickHandler) {
@@ -311,7 +331,7 @@
 
         if (select) { select.innerHTML = '<option value=""></option>'; select.value = ''; }
         if (comboInput) comboInput.value = '';
-        if (clearBtn) clearBtn.style.display = 'none';
+        if (clearBtn) clearBtn.classList.add('d-none');
         if (dropdown) { dropdown.classList.add('d-none'); dropdown.innerHTML = ''; }
 
         if (!departmentId) {
@@ -367,7 +387,7 @@
                 clearBtn.addEventListener('click', () => {
                     select.value = '';
                     comboInput.value = '';
-                    clearBtn.style.display = 'none';
+                    clearBtn.classList.add('d-none');
                     dropdown.classList.add('d-none');
                 });
             }
@@ -401,23 +421,21 @@
             const isInactive = u.is_active === false;
             const subtitle = [u.email, u.username, u.control_number].filter(Boolean).join(' · ');
             const badge = isInactive
-                ? '<span class="badge badge-warning text-dark ml-1">Cuenta inactiva</span>'
+                ? '<span class="badge bg-warning text-dark ms-1">Cuenta inactiva</span>'
                 : '';
             return `
-            <div class="user-combo-item px-3 py-2 border-bottom" style="cursor:pointer;"
+            <div class="user-combo-item px-3 py-2 border-bottom"
                  data-user-id="${u.id}" data-user-label="${escAttr(u.full_name)}">
                 <div class="d-flex justify-content-between align-items-center">
                     <strong class="small">${escAttr(u.full_name)}</strong>
                     ${badge}
                 </div>
-                <div class="text-muted" style="font-size:.78rem;">${escAttr(subtitle)}</div>
+                <div class="text-muted hd-combo-sub">${escAttr(subtitle)}</div>
             </div>
         `;
         }).join('');
 
         dropdown.querySelectorAll('.user-combo-item').forEach(el => {
-            el.addEventListener('mouseenter', () => el.style.background = '#f1f5f9');
-            el.addEventListener('mouseleave', () => el.style.background = '');
             el.addEventListener('click', () => selectUserCombo(el.dataset.userId, el.dataset.userLabel));
         });
         dropdown.classList.remove('d-none');
@@ -430,7 +448,7 @@
         const dd = document.getElementById('user-combo-dropdown');
         if (select) select.value = userId;
         if (input) input.value = label;
-        if (clear) clear.style.display = '';
+        if (clear) clear.classList.remove('d-none');
         if (dd) dd.classList.add('d-none');
     }
 
@@ -569,9 +587,9 @@
                     <option value="">Seleccionar...</option>${optionsHtml}</select></div>`;
             }
             case 'boolean':
-                return `<div class="form-group spec-field"><div class="custom-control custom-checkbox">
-                    <input type="checkbox" class="custom-control-input" id="${id}" name="spec_${key}">
-                    <label class="custom-control-label" for="${id}">${label}</label></div></div>`;
+                return `<div class="form-group spec-field"><div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="${id}" name="spec_${key}">
+                    <label class="form-check-label" for="${id}">${label}</label></div></div>`;
             case 'textarea':
                 return `<div class="form-group spec-field"><label for="${id}" class="${requiredClass}">${label}</label>
                     <textarea class="form-control" id="${id}" name="spec_${key}" rows="3"
@@ -700,14 +718,18 @@
         if (btnSearch) {
             btnSearch.addEventListener('click', () => {
                 _resetPredecessorModal();
-                $('#predecessorSearchModal').modal('show');
+                modalShow('predecessorSearchModal');
             });
         }
 
-        $('#predecessorSearchModal').on('shown.bs.modal', () => {
-            if (searchInput) searchInput.focus();
-            searchPredecessorItems('');
-        });
+        const predModalEl = document.getElementById('predecessorSearchModal');
+        if (predModalEl) {
+            _predShownHandler = () => {
+                if (searchInput) searchInput.focus();
+                searchPredecessorItems('');
+            };
+            predModalEl.addEventListener('shown.bs.modal', _predShownHandler);
+        }
 
         if (btnClear) btnClear.addEventListener('click', clearPredecessor);
 
@@ -771,14 +793,14 @@
                          onclick="showPredecessorDetail(${i.id})">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="overflow-hidden">
-                        <div class="font-weight-bold small text-truncate">
+                        <div class="fw-bold small text-truncate">
                             ${i.inventory_number}
-                            ${i.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Bloqueado"></i>' : ''}
+                            ${i.is_locked ? '<i class="fas fa-lock text-warning ms-1" title="Bloqueado"></i>' : ''}
                         </div>
-                        <div class="text-muted" style="font-size:.78rem;">${desc || '—'}</div>
-                        ${i.itcj_serial ? `<div class="text-muted" style="font-size:.72rem;">${i.itcj_serial}</div>` : ''}
+                        <div class="text-muted hd-combo-sub">${desc || '—'}</div>
+                        ${i.itcj_serial ? `<div class="text-muted hd-combo-sub">${i.itcj_serial}</div>` : ''}
                     </div>
-                    <span class="badge badge-${sc} ml-2 flex-shrink-0" style="font-size:.62rem;">${_STATUS_LABELS[i.status] || i.status}</span>
+                    <span class="badge bg-${sc} ms-2 flex-shrink-0">${_STATUS_LABELS[i.status] || i.status}</span>
                 </div>
             </div>`;
             }).join('');
@@ -833,8 +855,8 @@
                     <span>${v === true ? 'Sí' : v === false ? 'No' : v}</span>
                 </div>`).join('');
             specsHtml = `<div class="mt-3">
-                <div class="text-muted small font-weight-bold text-uppercase mb-2">
-                    <i class="fas fa-microchip mr-1"></i>Especificaciones</div>
+                <div class="text-muted small fw-bold text-uppercase mb-2">
+                    <i class="fas fa-microchip me-1"></i>Especificaciones</div>
                 <div class="pred-spec-grid">${specItems}</div></div>`;
         }
 
@@ -859,12 +881,12 @@
         panel.innerHTML = `
         <div class="d-flex justify-content-between align-items-start mb-2">
             <div>
-                <h5 class="mb-0 font-weight-bold">${item.inventory_number}</h5>
+                <h5 class="mb-0 fw-bold">${item.inventory_number}</h5>
                 <span class="text-muted">${[item.brand, item.model].filter(Boolean).join(' ') || '—'}</span>
             </div>
-            <div class="text-right flex-shrink-0 ml-2">
-                <span class="badge badge-${sc}">${_STATUS_LABELS[item.status] || item.status}</span>
-                ${item.is_locked ? '<br><span class="badge badge-warning mt-1"><i class="fas fa-lock mr-1"></i>Bloqueado</span>' : ''}
+            <div class="text-end flex-shrink-0 ms-2">
+                <span class="badge bg-${sc}">${_STATUS_LABELS[item.status] || item.status}</span>
+                ${item.is_locked ? '<br><span class="badge bg-warning text-dark mt-1"><i class="fas fa-lock me-1"></i>Bloqueado</span>' : ''}
             </div>
         </div><hr class="my-2">${infoHtml}${specsHtml}
         ${item.notes ? `<div class="mt-3"><small class="text-muted d-block">Notas</small><span class="small">${item.notes}</span></div>` : ''}`;
@@ -880,7 +902,7 @@
         document.getElementById('predecessor-display').value =
             desc.trim() ? `${invNumber} — ${desc}` : invNumber;
         document.getElementById('btn-clear-predecessor').classList.remove('d-none');
-        $('#predecessorSearchModal').modal('hide');
+        modalHide('predecessorSearchModal');
     }
 
     function clearPredecessor() {
@@ -994,7 +1016,7 @@
     function showSuccessModal(item) {
         document.getElementById('success-inventory-number').textContent = item.inventory_number;
         document.getElementById('view-item-link').href = `/help-desk/inventory/items/${item.id}`;
-        $('#successModal').modal('show');
+        modalShow('successModal');
     }
 
     // ==================== HELPERS ====================
@@ -1149,9 +1171,9 @@
                     <option value="">Seleccionar...</option>${optionsHtml}</select></div>`;
             }
             case 'boolean':
-                return `<div class="form-group spec-field"><div class="custom-control custom-checkbox">
-                    <input type="checkbox" class="custom-control-input" id="${id}" name="bulk_spec_${key}">
-                    <label class="custom-control-label" for="${id}">${label}</label></div></div>`;
+                return `<div class="form-group spec-field"><div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="${id}" name="bulk_spec_${key}">
+                    <label class="form-check-label" for="${id}">${label}</label></div></div>`;
             case 'textarea':
                 return `<div class="form-group spec-field"><label for="${id}" class="${requiredClass}">${label}</label>
                     <textarea class="form-control" id="${id}" name="bulk_spec_${key}" rows="3"
@@ -1306,11 +1328,11 @@
             }
 
             const result = await response.json();
-            $('#progressModal').modal('hide');
+            modalHide('progressModal');
             showBulkSuccessModal(result);
         } catch (error) {
             console.error('Error:', error);
-            $('#progressModal').modal('hide');
+            modalHide('progressModal');
             showError(`Error en registro masivo: ${error.message || 'Error desconocido'}`);
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fas fa-boxes"></i> Registrar <span id="bulk-btn-quantity">0</span> Equipos';
@@ -1408,18 +1430,18 @@
         document.getElementById('progress-current').textContent = '0';
         document.getElementById('progress-bar').style.width = '0%';
         document.getElementById('progress-text').textContent = '0%';
-        $('#progressModal').modal('show');
+        modalShow('progressModal');
     }
 
     function showBulkSuccessModal(result) {
         document.getElementById('bulk-success-count').textContent = result.items.length;
         const detailsHtml = result.items.map(item => `
         <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-            <span><i class="fas fa-check-circle text-success mr-2"></i>${item.inventory_number}</span>
+            <span><i class="fas fa-check-circle text-success me-2"></i>${item.inventory_number}</span>
             <small class="text-muted">${item.brand || ''} ${item.model || ''}</small>
         </div>`).join('');
         document.getElementById('bulk-success-details').innerHTML = detailsHtml;
-        $('#bulkSuccessModal').modal('show');
+        modalShow('bulkSuccessModal');
     }
 
     // ==================== CREAR USUARIO INACTIVO ====================
@@ -1459,7 +1481,7 @@
             document.getElementById('inactive-username').value = '';
             document.getElementById('inactive-email').value = '';
             document.getElementById('username-hint').textContent = 'Generado automáticamente. Puedes editarlo si hay conflicto.';
-            $('#createInactiveUserModal').modal('show');
+            modalShow('createInactiveUserModal');
         });
 
         ['inactive-first-name', 'inactive-last-name', 'inactive-middle-name'].forEach(id => {
@@ -1560,7 +1582,7 @@
             });
 
             selectUserCombo(newUser.id, newUser.full_name);
-            $('#createInactiveUserModal').modal('hide');
+            modalHide('createInactiveUserModal');
             showSuccess(`Usuario ${newUser.full_name} creado. Se seleccionó automáticamente.`);
         } catch (err) {
             showError(err.message);
