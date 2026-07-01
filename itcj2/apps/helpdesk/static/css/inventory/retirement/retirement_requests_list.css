@@ -1,8 +1,16 @@
-/* itcj2/apps/helpdesk/static/css/inventory/retirement_requests_list.css */
-.status-badge { font-size: 0.75rem; padding: 0.3em 0.6em; }
-.status-DRAFT     { background:#6c757d; color:#fff; }
-.status-PENDING   { background:#ffc107; color:#212529; }
-.status-APPROVED  { background:#28a745; color:#fff; }
-.status-REJECTED  { background:#dc3545; color:#fff; }
-.status-CANCELLED { background:#6c757d; color:#fff; }
-.folio-cell { font-family: monospace; font-weight: 600; }
+/* Lista de solicitudes de baja — tabla server-side (HTMX).
+   Color = clases de Bootstrap (badge bg-*, paleta azul); aquí solo medidas
+   locales. Sin hex ni estilos inline. */
+
+.hd-folio-cell {
+    font-family: var(--bs-font-monospace);
+    font-weight: 600;
+}
+
+.hd-reason-cell {
+    max-width: 12rem;
+}
+
+.hd-row-link {
+    cursor: pointer;
+}

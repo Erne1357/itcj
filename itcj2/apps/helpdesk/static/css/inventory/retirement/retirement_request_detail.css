@@ -1,15 +1,30 @@
-/* itcj2/apps/helpdesk/static/css/inventory/retirement/retirement_request_detail.css */
-.status-badge-lg { font-size: 0.9rem; padding: 0.4em 0.8em; border-radius: 0.35rem; }
-.status-DRAFT     { background:#6c757d; color:#fff; }
-.status-PENDING   { background:#ffc107; color:#212529; }
-.status-APPROVED  { background:#28a745; color:#fff; }
-.status-REJECTED  { background:#dc3545; color:#fff; }
-.status-CANCELLED { background:#6c757d; color:#fff; }
-.folio-display { font-family: monospace; font-size: 1.1rem; font-weight: 700; letter-spacing: 0.05em; }
+/* Detalle de solicitud de baja (isla de cliente, BS5).
+   Color de estados/badges = clases de Bootstrap (bg-*); aquí solo estructura y
+   escala. Sin hex ni estilos inline en la plantilla. */
+
+.status-badge-lg { font-size: 0.9rem; padding: 0.4em 0.8em; border-radius: var(--hd-r-sm); }
+.folio-display { font-family: var(--bs-font-monospace); font-size: 1.1rem; font-weight: 700; letter-spacing: 0.05em; }
+
 .timeline-item { display: flex; gap: 0.75rem; padding-bottom: 0.75rem; align-items: flex-start; }
 .timeline-icon { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
 /* Timeline de firmas multi-paso */
-#signatures-timeline-body .timeline-item:last-child { padding-bottom: 0; }
-#signatures-timeline-body .timeline-item { padding: 0.5rem 0.5rem; border-bottom: 1px solid #f0f0f0; }
-#signatures-timeline-body .timeline-item:last-child { border-bottom: none; }
+#signatures-timeline-body .timeline-item { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--bs-border-color); }
+#signatures-timeline-body .timeline-item:last-child { padding-bottom: 0; border-bottom: none; }
+
+/* Escala tipográfica de encabezados/cuerpos de la isla. */
+.hd-panel-title { font-size: 0.85rem; }
+.hd-panel-body { font-size: 0.875rem; }
+.hd-note-sm { font-size: 0.8rem; }
+.hd-prewrap { white-space: pre-wrap; }
+
+/* Dropdown de resultados de búsqueda "Agregar equipo" (lo muestra/oculta el JS). */
+#add-item-results {
+    display: none;
+    z-index: 1000;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-top: none;
+    border-radius: 0 0 var(--hd-r-sm) var(--hd-r-sm);
+}

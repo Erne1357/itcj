@@ -139,8 +139,8 @@
                    </button>`
                 : '';
             return `<tr>
-                <td class="pl-3">
-                    <span class="font-weight-bold">${escapeHtml(item.inventory_number || '—')}</span>
+                <td class="ps-3">
+                    <span class="fw-bold">${escapeHtml(item.inventory_number || '—')}</span>
                     <br><small class="text-muted">${escapeHtml(item.brand || '')} ${escapeHtml(item.model || '')}</small>
                 </td>
                 <td class="d-none d-md-table-cell"><small>${escapeHtml(item.supplier_serial || '—')}</small></td>
@@ -283,7 +283,7 @@
                     <i class="fas ${s.icon} fa-sm"></i>
                 </div>
                 <div>
-                    <div class="font-weight-bold">${escapeHtml(s.label)}</div>
+                    <div class="fw-bold">${escapeHtml(s.label)}</div>
                     ${s.status === r.status && r.updated_at
                         ? `<small class="text-muted">${fmtDate(r.updated_at)}</small>` : ''}
                 </div>
@@ -422,9 +422,9 @@
                 const serial = item.itcj_serial || item.supplier_serial || '—';
                 return `<div class="search-result-item" data-id="${item.id}"
                              data-number="${escapeHtml(item.inventory_number)}" style="cursor:pointer; padding:.4rem .75rem; border-bottom:1px solid #f0f0f0;">
-                    <span class="font-weight-bold">${escapeHtml(item.inventory_number)}</span>
-                    <span class="text-muted small ml-1">${escapeHtml(item.brand || '')} ${escapeHtml(item.model || '')}</span>
-                    <span class="float-right text-muted small">${escapeHtml(serial)}</span>
+                    <span class="fw-bold">${escapeHtml(item.inventory_number)}</span>
+                    <span class="text-muted small ms-1">${escapeHtml(item.brand || '')} ${escapeHtml(item.model || '')}</span>
+                    <span class="float-end text-muted small">${escapeHtml(serial)}</span>
                 </div>`;
             }).join('') || '<div class="p-2 text-muted small">Sin resultados</div>';
             el.addItemResults.style.display = 'block';
@@ -475,15 +475,11 @@
         el.confirmTitle.textContent = title;
         el.confirmBody.textContent  = body;
         el.confirmOk.onclick = onConfirm;
-        if (window.$ && $(el.confirmModal).modal) {
-            $(el.confirmModal).modal('show');
-        }
+        if (el.confirmModal) bootstrap.Modal.getOrCreateInstance(el.confirmModal).show();
     }
 
     function closeConfirmModal() {
-        if (window.$ && $(el.confirmModal).modal) {
-            $(el.confirmModal).modal('hide');
-        }
+        if (el.confirmModal) bootstrap.Modal.getInstance(el.confirmModal)?.hide();
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -609,7 +605,7 @@
                     if (el.addItemNotes)    el.addItemNotes.value   = '';
                     if (el.addItemSelected) el.addItemSelected.classList.add('d-none');
                     const panel = document.getElementById('add-item-panel');
-                    if (panel && window.$ && $(panel).collapse) $(panel).collapse('hide');
+                    if (panel) bootstrap.Collapse.getOrCreateInstance(panel).hide();
                     loadRequest();
                 } catch (err) { showToast(err.message, 'error'); }
             });
@@ -672,8 +668,8 @@
 
         // Dispose Bootstrap modal
         if (el.confirmModal) {
-            try { $(el.confirmModal).modal('hide'); } catch (_) {}
-            try { $(el.confirmModal).modal('dispose'); } catch (_) {}
+            try { bootstrap.Modal.getInstance(el.confirmModal)?.hide(); } catch (_) {}
+            try { bootstrap.Modal.getInstance(el.confirmModal)?.dispose(); } catch (_) {}
         }
 
         el = {};

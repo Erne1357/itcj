@@ -73,9 +73,9 @@
                 itcj_serial: item.itcj_serial,
                 department: item.department ? item.department.name : null,
             }).replace(/'/g, '&#39;')}'>
-                <span class="font-weight-bold">${item.inventory_number}</span>
-                <span class="text-muted small ml-1">${item.brand || ''} ${item.model || ''}</span>
-                <span class="float-right text-muted small">${serial}</span>
+                <span class="fw-bold">${item.inventory_number}</span>
+                <span class="text-muted small ms-1">${item.brand || ''} ${item.model || ''}</span>
+                <span class="float-end text-muted small">${serial}</span>
             </div>`;
         }).join('') || `<div class="search-result-item text-muted small">Todos los resultados ya están seleccionados</div>`;
         el.searchResults.style.display = 'block';
@@ -125,12 +125,12 @@
             return `<div class="item-row" data-id="${item.id}">
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
-                        <span class="font-weight-bold">${item.inventory_number}</span>
-                        <span class="text-muted small ml-2">${item.brand || ''} ${item.model || ''}</span>
+                        <span class="fw-bold">${item.inventory_number}</span>
+                        <span class="text-muted small ms-2">${item.brand || ''} ${item.model || ''}</span>
                         <br>
                         <small class="text-muted">Serial: ${serial} &bull; Depto: ${dept}</small>
                     </div>
-                    <span class="remove-btn ml-2" data-remove="${item.id}" title="Quitar">
+                    <span class="remove-btn ms-2" data-remove="${item.id}" title="Quitar">
                         <i class="fas fa-times-circle"></i>
                     </span>
                 </div>
@@ -283,7 +283,7 @@
                 }
             }
 
-            window.location.href = `/help-desk/inventory/retirement-requests/${reqId}`;
+            window.HelpdeskPage.navigate(`/help-desk/inventory/retirement-requests/${reqId}`);
 
         } catch (err) {
             window.HelpdeskUtils.showToast('Error: ' + err.message, 'danger');

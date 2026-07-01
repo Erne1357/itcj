@@ -1,9 +1,48 @@
-/* itcj2/apps/helpdesk/static/css/inventory/retirement_request_create.css */
-.item-row { border: 1px solid #e3e6f0; border-radius: 0.35rem; padding: 0.75rem; margin-bottom: 0.5rem; background: #fff; }
-.item-row:hover { background: #f8f9fc; }
-.item-row .remove-btn { cursor: pointer; color: #dc3545; }
-.search-result-item { cursor: pointer; padding: 0.5rem 0.75rem; border-bottom: 1px solid #f0f0f0; }
-.search-result-item:hover { background: #f8f9fc; }
+/* Nueva solicitud de baja (isla de cliente, BS5).
+   Color vía variables de Bootstrap; sin hex ni estilos inline en la plantilla. */
+
+.item-row {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--hd-r-sm);
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    background: var(--bs-body-bg);
+}
+.item-row:hover { background: var(--bs-secondary-bg); }
+.item-row .remove-btn { cursor: pointer; color: var(--bs-danger); }
+
+.search-result-item {
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+.search-result-item:hover { background: var(--bs-secondary-bg); }
 .search-result-item:last-child { border-bottom: none; }
-#items-search-results { max-height: 280px; overflow-y: auto; border: 1px solid #e3e6f0; border-radius: 0 0 0.35rem 0.35rem; border-top: none; }
-#selected-items-list:empty::after { content: 'No hay equipos seleccionados aún.'; color: #6c757d; font-size: 0.875rem; font-style: italic; }
+
+#items-search-results {
+    display: none;
+    z-index: 1000;
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-top: none;
+    border-radius: 0 0 var(--hd-r-sm) var(--hd-r-sm);
+}
+
+#selected-items-list:empty::after {
+    content: 'No hay equipos seleccionados aún.';
+    color: var(--bs-secondary-color);
+    font-size: 0.875rem;
+    font-style: italic;
+}
+
+/* Wrapper del input de archivo (se muestra solo con la opción "Documento"). */
+#doc-upload-wrapper { display: none; }
+
+/* Panel lateral de resumen: pegado al hacer scroll. */
+.hd-sticky-summary { position: sticky; top: 1rem; }
+
+/* Escala tipográfica de los encabezados de las tarjetas de la isla. */
+.hd-panel-title { font-size: 0.85rem; }
+.hd-summary-dl { font-size: 0.875rem; }
+.hd-note-sm { font-size: 0.8rem; }

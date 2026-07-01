@@ -559,31 +559,163 @@ async def campaign_detail(
     })
 
 
+# Estados de solicitud de baja (fuente única para el filtro server-side). El color
+# de cada estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_RETIREMENT_STATUS_OPTIONS = [
+    ("", "Todos"),
+    ("DRAFT", "Borrador"),
+    ("PENDING", "Pendiente de envío"),
+    ("AWAITING_RECURSOS_MATERIALES", "Firma — Rec. Materiales"),
+    ("AWAITING_SUBDIRECTOR", "Firma — Subdirector"),
+    ("AWAITING_DIRECTOR", "Firma — Director"),
+    ("AWAITING_COMP_CENTER", "Autorización — Jefe CC"),
+    ("APPROVED", "Aprobada"),
+    ("REJECTED", "Rechazada"),
+    ("CANCELLED", "Cancelada"),
+]
+_RETIREMENT_SCOPE_OPTIONS = [("all", "Todas"), ("mine", "Mis solicitudes")]
+
+
+def _query_retirement_ctx(request: Request, user_id: int) -> dict:
+    """Consulta las solicitudes de baja para la vista de inventario.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/status/scope) server-side y pagina.
+    El scope (todas vs. solo las propias) replica el del endpoint API de bajas:
+    acceso completo (`_is_admin`) = admin / secretaría CC / usuario del Centro de
+    Cómputo; el resto solo ve las suyas.
+    """
+    from sqlalchemy import func, or_
+
+    from itcj2.apps.helpdesk.api.inventory.retirement_requests import _is_admin
+    from itcj2.apps.helpdesk.models.inventory_retirement_request import (
+        InventoryRetirementRequest,
+        InventoryRetirementRequestItem,
+    )
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    status = (p.get("status", "") or "").strip() or None
+    scope = (p.get("scope", "") or "").strip() or "all"
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        can_view_all = _is_admin(_db, user_id)
+
+        q = _db.query(InventoryRetirementRequest)
+        if not can_view_all:
+            q = q.filter(InventoryRetirementRequest.requested_by_id == user_id)
+            scope = "mine"
+        elif scope == "mine":
+            q = q.filter(InventoryRetirementRequest.requested_by_id == user_id)
+
+        if status:
+            q = q.filter(InventoryRetirementRequest.status == status.upper())
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryRetirementRequest.folio.ilike(like),
+                InventoryRetirementRequest.reason.ilike(like),
+            ))
+
+        q = q.order_by(InventoryRetirementRequest.created_at.desc())
+
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        rows = (
+            q.offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+
+        # Conteo de equipos por solicitud (una sola consulta agrupada para la página).
+        req_ids = [r.id for r in rows]
+        counts = {}
+        if req_ids:
+            counts = dict(
+                _db.query(
+                    InventoryRetirementRequestItem.request_id,
+                    func.count(InventoryRetirementRequestItem.id),
+                )
+                .filter(InventoryRetirementRequestItem.request_id.in_(req_ids))
+                .group_by(InventoryRetirementRequestItem.request_id)
+                .all()
+            )
+
+        requests_data = [{
+            "id": r.id,
+            "folio": r.folio,
+            "status": r.status,
+            "reason": r.reason,
+            "items_count": counts.get(r.id, 0),
+            "requested_by_name": r.requested_by.full_name if r.requested_by else "—",
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows]
+    finally:
+        _db.close()
+
+    return {
+        "requests": requests_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "can_view_all": can_view_all,
+        "f_search": search or "",
+        "f_status": status or "",
+        "f_scope": scope,
+    }
+
+
 @router.get("/retirement-requests", name="helpdesk.pages.inventory.retirement_requests_list")
 async def retirement_requests_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.list"])),
 ):
-    """Lista de solicitudes de baja del inventario."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    """Lista de solicitudes de baja del inventario.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-retirement-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_retirement_ctx(request, user_id)
 
-    _db = SessionLocal()
-    try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-        can_approve = "admin" in user_roles
-    finally:
-        _db.close()
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/retirement/_retirement_requests_list_results.html", ctx)
 
-    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_requests_list.html", {
+    # Campos de la barra de filtros (macro filter_bar). El de visibilidad solo
+    # aparece si el usuario ve todas las solicitudes (no solo las suyas).
+    filter_fields = [{
+        "name": "status", "label": "Estado", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_status"], "options": _RETIREMENT_STATUS_OPTIONS,
+    }]
+    if ctx["can_view_all"]:
+        filter_fields.append({
+            "name": "scope", "label": "Visibilidad", "icon": "fa-eye",
+            "col": "col-6 col-md-3", "selected": ctx["f_scope"], "options": _RETIREMENT_SCOPE_OPTIONS,
+        })
+
+    ctx.update({
         "user_roles": user_roles,
-        "can_view_all": can_view_all,
-        "can_approve": can_approve,
+        "can_approve": "admin" in user_roles,
         "active_page": "inventory_retirement_requests",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_requests_list.html", ctx)
 
 
 @router.get("/retirement-requests/create", name="helpdesk.pages.inventory.retirement_request_create")
