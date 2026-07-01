@@ -274,11 +274,11 @@
 
     // ==================== ACTIONS ====================
     function createTicket() {
-        window.location.href = '/help-desk/user/create';
+        window.HelpdeskPage.navigate('/help-desk/user/create');
     }
 
     function viewInventoryItem(itemId) {
-        window.location.href = `/help-desk/inventory/items/${itemId}`;
+        window.HelpdeskPage.navigate(`/help-desk/inventory/items/${itemId}`);
     }
 
     // ==================== REGISTER MODULE ====================

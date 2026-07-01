@@ -31,7 +31,7 @@
 
     // Antes inline en home.html (onclick del botón "Reporte Tickets").
     window.generateTicketsReport = function () {
-        window.location.href = '/help-desk/admin/stats';
+        window.HelpdeskPage.navigate('/help-desk/admin/stats');
     };
 
     window.HelpdeskPage.page('admin_home', { init: loadDashboardStats });

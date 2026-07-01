@@ -1034,7 +1034,7 @@
 
     // ==================== QUICK VIEW ====================
     function showTicketQuickView(ticketId) {
-        window.location.href = `/help-desk/user/tickets/${ticketId}`;
+        window.HelpdeskPage.navigate(`/help-desk/user/tickets/${ticketId}`);
     }
 
     // ==================== WEBSOCKET REAL-TIME UPDATES ====================

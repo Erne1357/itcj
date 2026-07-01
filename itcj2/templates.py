@@ -70,8 +70,37 @@ def hd_date(value, fmt: str = "%d/%m/%Y") -> str:
     return d.strftime(fmt) if d else ""
 
 
+import markupsafe  # noqa: E402
+
+_HD_BOOST_ATTR = markupsafe.Markup('hx-boost="true"')
+_HD_BOOST_EMPTY = markupsafe.Markup("")
+
+
+def hd_boost(url) -> markupsafe.Markup:
+    """Devuelve ``hx-boost="true"`` si ``url`` apunta a una página de Help-Desk
+    migrada (morph-navegable), o cadena vacía si no.
+
+    Uso en templates: ``<a href="{{ url }}" {{ hd_boost(url) }}>`` (los enlaces de
+    CONTENIDO helpdesk→helpdesk navegan con morph, igual que la navbar). Reusa la
+    MISMA lógica que decide el boost del nav (``is_boostable_url`` en
+    ``pages/nav.py``); import perezoso para evitar el import circular (nav.py
+    importa de este módulo), igual que ``hd_datetime`` se registra aquí.
+    """
+    try:
+        from itcj2.apps.helpdesk.pages.nav import is_boostable_url
+
+        if is_boostable_url(url):
+            return _HD_BOOST_ATTR
+    except Exception:  # pragma: no cover - defensivo: nunca romper el render
+        logger.debug("hd_boost no pudo resolver %r", url, exc_info=True)
+    return _HD_BOOST_EMPTY
+
+
 templates.env.filters["hd_datetime"] = hd_datetime
 templates.env.filters["hd_date"] = hd_date
+# Registrado como global (uso `{{ hd_boost(url) }}`) y como filtro (`{{ url | hd_boost }}`).
+templates.env.globals["hd_boost"] = hd_boost
+templates.env.filters["hd_boost"] = hd_boost
 
 # ---------------------------------------------------------------------------
 # Static versioning

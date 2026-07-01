@@ -7,7 +7,13 @@
    Ver docs/auditoria_ui_helpdesk.md.
    ========================================================================== */
 :root {
-    /* Acento = el primary de Bootstrap que ya usa la app (azul por defecto). */
+    /* Acento = el primary de Bootstrap que ya usa la app (azul por defecto).
+       DECISIÓN 2026-07-01 (usuario): la paleta de Help-Desk es ÚNICA = AZUL de
+       Bootstrap (#0d6efd) vía --bs-primary. El color semántico SIEMPRE se aplica
+       con clases de Bootstrap (btn-primary/text-primary/bg-*/badge bg-*), NUNCA
+       con hex ni verde. inventory/ (SB-Admin) converge a estas clases/azul al
+       migrarlo. No cambiar el VALOR de --hd-primary; para un rebrand futuro se
+       cambia --bs-primary en un solo lugar. Ver docs/auditoria_ui_helpdesk.md §8.7. */
     --hd-primary: var(--bs-primary, #0d6efd);
 
     /* Neutrales de superficie/texto/borde */

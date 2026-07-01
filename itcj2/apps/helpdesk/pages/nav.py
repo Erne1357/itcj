@@ -8,6 +8,7 @@ Helpers de navegación y renderizado para páginas de Help-Desk.
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -169,6 +170,86 @@ def _endpoint_is_boostable(endpoint: str | None) -> bool:
     if not HTMX_BOOST_ENABLED or not endpoint:
         return False
     return _is_migrated(ENDPOINT_TO_ACTIVE_PAGE.get(endpoint))
+
+
+# ---------------------------------------------------------------------------
+# Boost por URL (para enlaces de CONTENIDO helpdesk→helpdesk, no del nav).
+# Contraparte por-URL de _endpoint_is_boostable: dado el `href` final de un <a>
+# (la URL que ya tiene el template, no un endpoint Flask), decide si esa página
+# está migrada (registrada en HD_PAGE_MODULES) y debe navegar con morph.
+# La usa el filtro Jinja hd_boost(url) (itcj2/templates.py).
+# ---------------------------------------------------------------------------
+
+# Rutas de páginas migradas que NO son endpoints de navegación (nunca aparecen
+# como link del navbar, así que no viven en ENDPOINT_TO_ACTIVE_PAGE) pero SÍ son
+# páginas registradas en HD_PAGE_MODULES a las que se navega desde botones de
+# CONTENIDO (ticket_card → detalle, quick-view → detalle de item/campaña…).
+# Se listan aquí para que is_boostable_url() (y hd_boost) las reconozca. El valor
+# es el hd_page destino (clave de HD_PAGE_MODULES); la URL usa placeholders {x}.
+_EXTRA_PAGE_URLS: dict[str, str] = {
+    "/help-desk/user/tickets/{ticket_id}": "user_ticket_detail",
+    "/help-desk/inventory/items/{item_id}": "inventory_items_item_detail",
+    "/help-desk/inventory/campaigns/{campaign_id}": "inventory_campaigns_campaign_detail",
+    "/help-desk/inventory/campaigns/{campaign_id}/validate": "inventory_campaigns_campaign_validate",
+    "/help-desk/inventory/retirement-requests/{request_id}": "inventory_retirement_retirement_request_detail",
+    "/help-desk/inventory/groups/{group_id}": "inventory_groups_group_detail",
+}
+
+
+def _url_template_to_regex(template: str) -> "re.Pattern[str]":
+    """Convierte una plantilla de URL con placeholders {x} en un regex que matchea
+    una URL concreta (sin query/fragment): '/a/{id}' -> ^/a/[^/]+$."""
+    parts = re.split(r"\{[^}]+\}", template)
+    body = "[^/]+".join(re.escape(p) for p in parts)
+    return re.compile("^" + body + "$")
+
+
+_BOOSTABLE_URL_PATTERNS: list[tuple["re.Pattern[str]", str]] | None = None
+
+
+def _boostable_url_patterns() -> list[tuple["re.Pattern[str]", str]]:
+    """(regex_url, hd_page) de las páginas migradas, construida perezosamente
+    reutilizando ENDPOINT_TO_ACTIVE_PAGE (+ ENDPOINT_MAP para la URL) y
+    _EXTRA_PAGE_URLS. Ordena las URLs literales antes que las de placeholder
+    (match exacto gana) y, dentro de cada grupo, las más específicas primero."""
+    global _BOOSTABLE_URL_PATTERNS
+    if _BOOSTABLE_URL_PATTERNS is None:
+        pairs: dict[str, str] = {}
+        for endpoint, hd_page in ENDPOINT_TO_ACTIVE_PAGE.items():
+            url_tmpl = ENDPOINT_MAP.get(endpoint)
+            if url_tmpl and url_tmpl != "#":
+                pairs.setdefault(url_tmpl, hd_page)
+        for url_tmpl, hd_page in _EXTRA_PAGE_URLS.items():
+            pairs.setdefault(url_tmpl, hd_page)
+        ordered = sorted(pairs.items(), key=lambda kv: ("{" in kv[0], -kv[0].count("/")))
+        _BOOSTABLE_URL_PATTERNS = [(_url_template_to_regex(u), p) for u, p in ordered]
+    return _BOOSTABLE_URL_PATTERNS
+
+
+def _url_to_hd_page(url: str) -> str | None:
+    """Resuelve una URL helpdesk concreta → su hd_page (o None). Ignora query y
+    fragment. Contraparte por-URL de ENDPOINT_TO_ACTIVE_PAGE.get(endpoint)."""
+    if not url:
+        return None
+    path = url.split("#", 1)[0].split("?", 1)[0]
+    for pattern, hd_page in _boostable_url_patterns():
+        if pattern.match(path):
+            return hd_page
+    return None
+
+
+def is_boostable_url(url: str) -> bool:
+    """True si ``url`` apunta a una página de Help-Desk migrada (registrada en
+    HD_PAGE_MODULES) y el boost está activo.
+
+    Contraparte por-URL de ``_endpoint_is_boostable`` (mismo criterio
+    ``_is_migrated``, misma data: ENDPOINT_TO_ACTIVE_PAGE + HD_PAGE_MODULES +
+    ENDPOINT_MAP para resolver la URL). Pura e importable; la usa el filtro Jinja
+    ``hd_boost(url)`` para decidir si un <a href> de contenido lleva hx-boost.
+    """
+    if not HTMX_BOOST_ENABLED or not url:
+        return False
+    return _is_migrated(_url_to_hd_page(url))
 
 
 def _module_url(path: str) -> str:

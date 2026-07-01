@@ -1369,7 +1369,7 @@
                         if (error.error === 'ticket_creation_restricted') {
                             HelpdeskUtils.showToast(error.message, 'error');
                             setTimeout(() => {
-                                window.location.href = '/help-desk/user/my-tickets';
+                                window.HelpdeskPage.navigate('/help-desk/user/my-tickets');
                             }, 3000);
                             return;
                         }
@@ -1382,7 +1382,7 @@
                     );
 
                     setTimeout(() => {
-                        window.location.href = '/help-desk/user/my-tickets';
+                        window.HelpdeskPage.navigate('/help-desk/user/my-tickets');
                     }, 2000);
 
                 } else {
@@ -1398,7 +1398,7 @@
                     );
 
                     setTimeout(() => {
-                        window.location.href = '/help-desk/user/my-tickets';
+                        window.HelpdeskPage.navigate('/help-desk/user/my-tickets');
                     }, 2000);
                 }
             } catch (error) {

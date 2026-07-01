@@ -39,6 +39,6 @@
 {% else %}
   {{ empty_state('fa-inbox', 'No hay tickets', 'Aún no has creado ningún ticket.') }}
   <div class="text-center pb-4">
-    <a href="/help-desk/user/create" class="btn btn-primary"><i class="fas fa-plus me-2"></i>Crear mi primer ticket</a>
+    <a href="/help-desk/user/create" {{ hd_boost('/help-desk/user/create') }} class="btn btn-primary"><i class="fas fa-plus me-2"></i>Crear mi primer ticket</a>
   </div>
 {% endif %}

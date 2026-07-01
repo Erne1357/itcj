@@ -23,7 +23,7 @@
 {% from "helpdesk/_components/badges.html" import status_badge, priority_badge, area_badge, category_badge, star_rating %}
 
 {% macro ticket_card(ticket, href=None, show_people=true, show_assigned=true, show_description=true, show_location=false, show_resolution=false, show_rating=false, actions=None) %}
-<{{ 'a' if href else 'div' }} class="hd-ticket-card" data-status="{{ ticket.status }}"{% if href %} href="{{ href }}"{% endif %}>
+<{{ 'a' if href else 'div' }} class="hd-ticket-card" data-status="{{ ticket.status }}"{% if href %} href="{{ href }}" {{ hd_boost(href) }}{% endif %}>
   <div class="row g-3">
     <div class="col-md-{{ 6 if show_people else 9 }}">
       <div class="d-flex align-items-center flex-wrap gap-2 mb-1">

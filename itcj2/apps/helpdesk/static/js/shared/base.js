@@ -193,6 +193,66 @@ $(document).ready(function() {
     }
     function navEnd() { document.body.classList.remove('hd-navigating'); }
 
+    // --- Navegación morph desde JS (contraparte de hx-boost en templates) ---
+    // Los enlaces internos viven en templates con {{ hd_boost(url) }}; cuando la
+    // navegación se dispara desde JS (redirects tras guardar, quick-view, botones
+    // "generar reporte"…) se usa HelpdeskPage.navigate(url) para morfear igual que
+    // la navbar en vez de recargar. Whitelist de cliente que espeja las páginas
+    // /help-desk/ migradas (todas registradas en este controller).
+    function isBoostableClient(url) {
+        if (!url) return false;
+        try {
+            var u = new URL(url, window.location.origin);
+            if (u.origin !== window.location.origin) return false;   // cross-app → recarga
+            return /^\/help-desk\//.test(u.pathname);                // página helpdesk migrada
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // navigate(url): morfea hacia una página helpdesk migrada (como el boost del
+    // nav) o recarga si no es boosteable / falta htmx.
+    //
+    // History: se delega ENTERAMENTE en htmx montando una fuente efímera DENTRO
+    // de <body> con hx-push-url="true". Así htmx (1) hereda hx-ext="morph,
+    // head-support" del <body> (getExtensions() resuelve la extensión de swap
+    // desde el elemento fuente → el morph y el merge de <head> funcionan), y
+    // (2) hace el pushState con marcador htmx + snapshot de la página saliente en
+    // cache ANTES del swap → back/forward funcionan por su popstate SIN pushState
+    // manual (= sin doble push). HX-Boosted:true fuerza al endpoint a devolver la
+    // PÁGINA completa (no el fragmento de la rama HX-Request). El morph elimina la
+    // fuente al swappear (igual que a los enlaces del nav); un finally la limpia
+    // si la petición falla y no hubo swap.
+    function navigate(url) {
+        if (!url) return;
+        var htmx = window.htmx;
+        if (!isBoostableClient(url) || !htmx || typeof htmx.ajax !== 'function') {
+            window.location.href = url;      // fallback: cross-app / no migrada / sin htmx
+            return;
+        }
+        var src = document.createElement('span');
+        src.setAttribute('hx-push-url', 'true');
+        src.style.display = 'none';
+        document.body.appendChild(src);
+        var cleanup = function () { if (src.parentNode) src.parentNode.removeChild(src); };
+        try {
+            var done = htmx.ajax('GET', url, {
+                source: src,
+                target: 'body',
+                swap: 'morph:innerHTML',
+                headers: { 'HX-Boosted': 'true' }
+            });
+            if (done && typeof done.finally === 'function') {
+                done.finally(cleanup);
+            } else {
+                setTimeout(cleanup, 5000);
+            }
+        } catch (e) {
+            cleanup();
+            window.location.href = url;      // fallback duro si htmx.ajax lanza
+        }
+    }
+
     function boot() { bindSidebar(); activate(); }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);
@@ -207,5 +267,5 @@ $(document).ready(function() {
     document.body.addEventListener('htmx:beforeRequest', navStart);
     document.body.addEventListener('htmx:afterRequest', navEnd);
 
-    window.HelpdeskPage = { register: register, page: register };
+    window.HelpdeskPage = { register: register, page: register, navigate: navigate };
 })();

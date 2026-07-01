@@ -405,7 +405,13 @@ function goToTicketDetail(ticketId, fromPage = null) {
         `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
         `/help-desk/user/tickets/${ticketId}`;
 
-    window.location.href = url;
+    // Navegación morph (como la navbar) hacia el detalle. Guard defensivo porque
+    // helpdesk-utils.js se carga antes que shared/base.js; en runtime siempre existe.
+    if (window.HelpdeskPage && typeof window.HelpdeskPage.navigate === 'function') {
+        window.HelpdeskPage.navigate(url);
+    } else {
+        window.location.href = url;
+    }
 }
 
 function goToTicketDetailNewTab(ticketId, fromPage = null) {
