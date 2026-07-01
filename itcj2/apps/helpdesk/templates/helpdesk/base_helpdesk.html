@@ -203,7 +203,8 @@
          Sin esto, el CSS del bloque extra_css de la pagina destino NO se aplica
          hasta una recarga completa, porque hx-target="body" no toca el head. -->
     <script src="https://unpkg.com/htmx-ext-head-support@2.0.4/head-support.js" integrity="sha384-alEpTwaoXBHw9xh1d3fDZ4lNnOqQYkcIaRQTSQXgSZnAhcnj1H4F27lOZ1Eci1Sp" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <!-- jQuery eliminado (cierre bloque E-G): inventory ya usa bootstrap.Modal (BS5) y
+         ningún JS de helpdesk depende de $/jQuery. Ver docs/auditoria_ui_helpdesk.md §8.4. -->
     <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
 
     <!-- WebSocket - Socket.IO + Helpdesk Client -->

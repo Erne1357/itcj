@@ -43,42 +43,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// Compatibilidad de cierre de modales en iframe
-$(document).ready(function() {
-    // Detectar si estamos en iframe
-    const inIframe = window.self !== window.top;
-
-    // Configurar modales para cerrar correctamente
-    $('.modal').each(function() {
-        const $modal = $(this);
-
-        // Botones de cerrar
-        $modal.find('[data-dismiss="modal"], .close').on('click', function(e) {
-            e.preventDefault();
-            $modal.modal('hide');
-        });
-
-        // Cerrar con ESC
-        $modal.on('shown.bs.modal', function() {
-            $(document).on('keydown.modal', function(e) {
-                if (e.key === 'Escape') {
-                    $modal.modal('hide');
-                }
-            });
-        });
-
-        $modal.on('hidden.bs.modal', function() {
-            $(document).off('keydown.modal');
-        });
-
-        // Click en backdrop
-        $modal.on('click', function(e) {
-            if (e.target === this) {
-                $modal.modal('hide');
-            }
-        });
-    });
-});
+// Nota: el shim jQuery de cierre de modales (BS4) se eliminó en el cierre del
+// bloque E-G. Bootstrap 5 maneja data-bs-dismiss, tecla ESC y click en backdrop
+// de forma nativa, así que este bloque era no-op. Ver docs/auditoria_ui_helpdesk.md §8.4.
 
 /* ===========================================================================
    HelpdeskPage — controller de navegación HTMX (hx-boost + idiomorph morph).

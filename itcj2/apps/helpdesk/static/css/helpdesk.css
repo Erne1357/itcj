@@ -1,23 +1,27 @@
 /* Help-Desk - Centro de Cómputo ITCJ */
 /* Nota: Las variables y clases CSS mantienen el prefijo "sitec" por compatibilidad */
 
-/* App-level color vars (extracted from base_helpdesk.html) */
+/* ── Paleta ÚNICA = AZUL Bootstrap (decisión 2026-07-01, cierre bloque E-G) ────
+   Los tokens legacy --app-*/--sitec- (antes verde SITEC #059669) quedan como
+   ALIAS de los canónicos: color = Bootstrap --bs-*, neutrales = helpdesk-tokens
+   --hd-*. Así el CSS viejo que aún los referencia (62 usos en 7 archivos) converge
+   al tema azul sin editar cada archivo. Los dos bloques :root previos se unieron
+   en uno. Ver docs/auditoria_ui_helpdesk.md §8.5. */
 :root {
-    --app-primary: #059669;
-    --app-primary-dark: #047857;
-    --app-primary-light: #ecfdf5;
-}
-
-:root {
-  --sitec-primary: #059669;
-  --sitec-secondary: #10b981;
-  --sitec-accent: #0891b2;
-  --sitec-danger: #dc2626;
-  --sitec-warning: #f59e0b;
-  --sitec-success: #10b981;
-  --sitec-light: #f1f5f9;
-  --sitec-dark: #374151;
-  --sitec-muted: #6b7280;
+  /* Marca (verde legacy → azul Bootstrap) */
+  --app-primary: var(--bs-primary, #0d6efd);
+  --app-primary-dark: #0a58ca;
+  --app-primary-light: #cfe2ff;
+  --sitec-primary: var(--bs-primary, #0d6efd);
+  --sitec-secondary: #0a58ca;
+  --sitec-accent: var(--bs-info, #0dcaf0);
+  --sitec-danger: var(--bs-danger, #dc3545);
+  --sitec-warning: var(--bs-warning, #ffc107);
+  --sitec-success: var(--bs-success, #198754);
+  /* Neutrales (alias directo de --hd-*; mismo valor, sin cambio visual) */
+  --sitec-light: var(--hd-surface-2, #f8fafc);
+  --sitec-dark: var(--hd-dark, #374151);
+  --sitec-muted: var(--hd-muted, #6b7280);
 }
 
 body {
@@ -65,16 +69,8 @@ body {
     }
 }
 
-/* Nav tabs scrollable wrapper */
-.nav-tabs-wrapper {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-
-.nav-tabs-wrapper::-webkit-scrollbar {
-    display: none;
-}
+/* Nav tabs scrollable wrapper — scrollbar-hide en la utilidad .hd-scrollbar-hide
+   de helpdesk-components.css (dedup; incluye .nav-tabs-wrapper y .nav-tabs). */
 
 /* Background gradient */
 .sitec-bg {
@@ -654,17 +650,10 @@ body {
         bottom: 1rem !important;
     }
 
-    /* Nav tabs - Scrollable on mobile */
+    /* Nav tabs - Scrollable on mobile (scrollbar-hide en .hd-scrollbar-hide utility) */
     .nav-tabs {
         flex-wrap: nowrap;
         overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .nav-tabs::-webkit-scrollbar {
-        display: none;
     }
 
     .nav-tabs .nav-link {
@@ -840,18 +829,8 @@ body {
     }
 }
 
-/* ── Compatibilidad de clases badge Bootstrap 4 → Bootstrap 5 ────────────
-   El proyecto usa BS5 pero varios módulos JS generan clases BS4
-   (badge-success, badge-warning, etc.) que BS5 no incluye.
-   ─────────────────────────────────────────────────────────────────────── */
-.badge-primary   { background-color: #4e73df; color: #fff; }
-.badge-success   { background-color: #1cc88a; color: #fff; }
-.badge-warning   { background-color: #f6c23e; color: #212529; }
-.badge-danger    { background-color: #e74a3b; color: #fff; }
-.badge-info      { background-color: #36b9cc; color: #fff; }
-.badge-secondary { background-color: #858796; color: #fff; }
-.badge-dark      { background-color: #5a5c69; color: #fff; }
-.badge-light     { background-color: #f8f9fc; color: #5a5c69; border: 1px solid #e3e6f0; }
+/* Shim BS4 .badge-* eliminado (cierre bloque E-G): inventory ya usa `badge bg-*`
+   (BS5). Grep confirmó 0 usos de badge-* sin bg- en templates/JS. */
 
 /* === Barra de progreso de navegación HTMX (hx-boost) === */
 body.hd-navigating::after {

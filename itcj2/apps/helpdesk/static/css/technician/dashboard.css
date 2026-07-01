@@ -15,15 +15,8 @@
     font-weight: 600;
 }
 
-/* Wrapper de pestañas con scroll horizontal (sin scrollbar visible) */
-.nav-tabs-wrapper {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-.nav-tabs-wrapper::-webkit-scrollbar {
-    display: none;
-}
+/* Wrapper de pestañas con scroll horizontal: scrollbar-hide en la utilidad
+   .hd-scrollbar-hide de helpdesk-components.css (dedup). */
 
 /* ==================== MOBILE / TABLET ==================== */
 @media (max-width: 576px) {

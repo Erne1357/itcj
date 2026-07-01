@@ -73,3 +73,26 @@
     transition: background var(--hd-transition);
 }
 .hd-doc-row:hover { background: var(--hd-surface-2); }
+
+/* ---------- SCROLLBAR-HIDE — utilidad única (dedup de helpdesk.css + technician) ----
+   Oculta la barra de scroll sin perder el scroll (pestañas con overflow horizontal).
+   Los selectores legacy .nav-tabs-wrapper/.nav-tabs se incluyen para que el markup
+   existente siga funcionando sin editar cada template. En desktop .nav-tabs no
+   desborda (flex-wrap) → ocultar su scrollbar inexistente = sin cambio visual. */
+.hd-scrollbar-hide,
+.nav-tabs-wrapper,
+.nav-tabs {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.hd-scrollbar-hide::-webkit-scrollbar,
+.nav-tabs-wrapper::-webkit-scrollbar,
+.nav-tabs::-webkit-scrollbar { display: none; }
+
+/* ---------- @keyframes slideInFromLeft — definido UNA vez (dedup) ----------
+   Antes duplicado en user/ticket_detail.css y secretary/dashboard.css. */
+@keyframes slideInFromLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
