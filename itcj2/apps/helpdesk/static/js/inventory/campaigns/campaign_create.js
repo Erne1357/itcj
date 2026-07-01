@@ -60,7 +60,7 @@
             });
             const data = await res.json();
             if (!data.success) throw new Error(data.error || 'Error al crear la campaña');
-            window.location = `/help-desk/inventory/campaigns/${data.data.id}`;
+            window.HelpdeskPage.navigate(`/help-desk/inventory/campaigns/${data.data.id}`);
         } catch (err) {
             showError(err.message);
             el.submit.disabled = false;

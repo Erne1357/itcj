@@ -1,0 +1,80 @@
+{#
+  Fragmento de resultados de la lista de campañas de inventario. Devuelto por
+  GET /help-desk/inventory/campaigns cuando llega HX-Request (no boost) — filtros
+  y paginación. Reemplaza el innerHTML de #hd-campaigns-results. NO extiende base.
+
+  Contexto esperado: campaigns (list de dicts to_dict include_relations), total,
+  current_page, total_pages, oob (bool). El color de cada estado es siempre clase
+  de Bootstrap (badge bg-*); la estructura/escala vienen de tokens (.hd-* en
+  campaigns.css / components).
+#}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% set STATUS_INFO = {
+  'OPEN':               {'label': 'Abierta',              'cls': 'bg-primary'},
+  'PENDING_VALIDATION': {'label': 'Pendiente validación', 'cls': 'bg-warning text-dark'},
+  'VALIDATED':          {'label': 'Validada',             'cls': 'bg-success'},
+  'REJECTED':           {'label': 'Rechazada',            'cls': 'bg-danger'}
+} %}
+
+{% if oob %}
+<span id="total-count" class="badge bg-secondary" hx-swap-oob="true">{{ total }}</span>
+{% endif %}
+
+{% if campaigns %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Folio</th>
+              <th>Estado</th>
+              <th class="d-none d-md-table-cell">Departamento</th>
+              <th class="d-none d-sm-table-cell text-center">Items</th>
+              <th class="d-none d-lg-table-cell">Inicio</th>
+              <th class="d-none d-lg-table-cell">Cierre</th>
+              <th class="text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in campaigns %}
+              {% set si = STATUS_INFO.get(c.status) or {'label': c.status, 'cls': 'bg-light text-dark'} %}
+              {% set detail_url = '/help-desk/inventory/campaigns/' ~ c.id %}
+              {% set validate_url = detail_url ~ '/validate' %}
+              <tr class="hd-row-link" data-href="{{ detail_url }}" role="button" tabindex="0">
+                <td class="ps-3 hd-folio-cell">{{ c.folio }}</td>
+                <td><span class="badge {{ si.cls }}">{{ si.label }}</span></td>
+                <td class="d-none d-md-table-cell">{{ c.department.name if c.department else '—' }}</td>
+                <td class="d-none d-sm-table-cell text-center">{{ c.items_count }}</td>
+                <td class="d-none d-lg-table-cell">{{ (c.started_at | hd_date) or '—' }}</td>
+                <td class="d-none d-lg-table-cell">{{ (c.closed_at | hd_date) or '—' }}</td>
+                <td class="text-center">
+                  <a href="{{ detail_url }}" class="btn btn-sm btn-outline-primary py-0 px-1"
+                     title="Ver detalle" {{ hd_boost(detail_url) }}>
+                    <i class="fas fa-eye"></i>
+                  </a>
+                  {% if c.status == 'PENDING_VALIDATION' %}
+                  <a href="{{ validate_url }}" class="btn btn-sm btn-outline-warning py-0 px-1 ms-1"
+                     title="Validar" {{ hd_boost(validate_url) }}>
+                    <i class="fas fa-clipboard-check"></i>
+                  </a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {% if total_pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      {{ pagination(current_page, total_pages, '/help-desk/inventory/campaigns', target='#hd-campaigns-results', include='#hd-filter-form') }}
+    </div>
+  {% endif %}
+{% else %}
+  {{ empty_state('fa-clipboard-list', 'Sin campañas', 'No hay campañas que coincidan con los filtros aplicados.') }}
+{% endif %}

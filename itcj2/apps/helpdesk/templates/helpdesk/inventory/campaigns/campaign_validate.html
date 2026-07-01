@@ -19,7 +19,7 @@
             <p class="text-muted mb-0 small" id="campaign-subtitle"></p>
         </div>
         <a href="{{ url_for('helpdesk_pages.inventory_pages.campaign_detail', campaign_id=campaign_id) }}"
-           class="btn btn-outline-secondary btn-sm">
+           class="btn btn-outline-secondary btn-sm" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.campaign_detail', campaign_id=campaign_id)) }}>
             <i class="fas fa-arrow-left"></i> Ver detalle
         </a>
     </div>
@@ -29,10 +29,10 @@
         <div class="col-6 col-md-3 mb-2">
             <div class="card border-left-primary shadow-sm h-100 py-2">
                 <div class="card-body p-3">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Nuevos</div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="count-new">—</div>
+                    <div class="row g-0 align-items-center">
+                        <div class="col me-2">
+                            <div class="text-xs fw-bold text-primary text-uppercase mb-1">Nuevos</div>
+                            <div class="h5 mb-0 fw-bold text-gray-800" id="count-new">—</div>
                         </div>
                         <div class="col-auto"><i class="fas fa-plus-circle fa-2x text-primary opacity-25"></i></div>
                     </div>
@@ -42,10 +42,10 @@
         <div class="col-6 col-md-3 mb-2">
             <div class="card border-left-info shadow-sm h-100 py-2">
                 <div class="card-body p-3">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Pre-existentes</div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="count-existing">—</div>
+                    <div class="row g-0 align-items-center">
+                        <div class="col me-2">
+                            <div class="text-xs fw-bold text-info text-uppercase mb-1">Pre-existentes</div>
+                            <div class="h5 mb-0 fw-bold text-gray-800" id="count-existing">—</div>
                         </div>
                         <div class="col-auto"><i class="fas fa-database fa-2x text-info opacity-25"></i></div>
                     </div>
@@ -55,10 +55,10 @@
         <div class="col-6 col-md-3 mb-2">
             <div class="card border-left-warning shadow-sm h-100 py-2">
                 <div class="card-body p-3">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Con predecesor</div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="count-with-predecessor">—</div>
+                    <div class="row g-0 align-items-center">
+                        <div class="col me-2">
+                            <div class="text-xs fw-bold text-warning text-uppercase mb-1">Con predecesor</div>
+                            <div class="h5 mb-0 fw-bold text-gray-800" id="count-with-predecessor">—</div>
                         </div>
                         <div class="col-auto"><i class="fas fa-exchange-alt fa-2x text-warning opacity-25"></i></div>
                     </div>
@@ -68,10 +68,10 @@
         <div class="col-6 col-md-3 mb-2">
             <div class="card border-left-danger shadow-sm h-100 py-2">
                 <div class="card-body p-3">
-                    <div class="row no-gutters align-items-center">
-                        <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-danger text-uppercase mb-1">Reemplazados</div>
-                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="count-replaced">—</div>
+                    <div class="row g-0 align-items-center">
+                        <div class="col me-2">
+                            <div class="text-xs fw-bold text-danger text-uppercase mb-1">Reemplazados</div>
+                            <div class="h5 mb-0 fw-bold text-gray-800" id="count-replaced">—</div>
                         </div>
                         <div class="col-auto"><i class="fas fa-archive fa-2x text-danger opacity-25"></i></div>
                     </div>
@@ -81,12 +81,12 @@
     </div>
 
     <!-- Sección: pares de reemplazo (viejo → nuevo) -->
-    <div id="replacements-section" style="display:none;" class="mb-4">
+    <div id="replacements-section" class="mb-4 d-none">
         <div class="d-flex align-items-center justify-content-between mb-2">
-            <h6 class="mb-0 font-weight-bold text-warning">
-                <i class="fas fa-exchange-alt mr-1"></i>
+            <h6 class="mb-0 fw-bold text-warning">
+                <i class="fas fa-exchange-alt me-1"></i>
                 Reemplazos — equipo anterior → equipo nuevo
-                <span class="badge badge-warning ml-1" id="replacements-count">0</span>
+                <span class="badge bg-warning text-dark ms-1" id="replacements-count">0</span>
             </h6>
             <button class="btn btn-sm btn-link text-muted p-0" onclick="toggleReplacementsSection()">
                 <i class="fas fa-chevron-up" id="replacements-chevron"></i>
@@ -115,12 +115,12 @@
         <div class="col-12 col-lg-6 mb-3" id="col-new-items">
             <div class="card shadow h-100">
                 <div class="card-header py-2 bg-primary text-white">
-                    <h6 class="m-0 font-weight-bold" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold hd-card-title">
                         <i class="fas fa-plus-circle"></i> Items NUEVOS
-                        <span class="badge bg-white text-primary ml-1" id="badge-new">0</span>
+                        <span class="badge bg-white text-primary ms-1" id="badge-new">0</span>
                     </h6>
                 </div>
-                <div class="card-body p-2" id="new-items-list" style="max-height:600px; overflow-y:auto;">
+                <div class="card-body p-2 hd-scroll-600" id="new-items-list">
                     <div class="text-center text-muted py-4">
                         <i class="fas fa-spinner fa-spin"></i> Cargando...
                     </div>
@@ -132,12 +132,12 @@
         <div class="col-12 col-lg-6 mb-3" id="col-existing-items">
             <div class="card shadow h-100">
                 <div class="card-header py-2 bg-info text-white">
-                    <h6 class="m-0 font-weight-bold" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold hd-card-title">
                         <i class="fas fa-database"></i> Items PRE-EXISTENTES
-                        <span class="badge bg-white text-info ml-1" id="badge-existing">0</span>
+                        <span class="badge bg-white text-info ms-1" id="badge-existing">0</span>
                     </h6>
                 </div>
-                <div class="card-body p-2" id="existing-items-list" style="max-height:600px; overflow-y:auto;">
+                <div class="card-body p-2 hd-scroll-600" id="existing-items-list">
                     <div class="text-center text-muted py-4">
                         <i class="fas fa-spinner fa-spin"></i> Cargando...
                     </div>
@@ -150,9 +150,9 @@
     <!-- Sección: Grupos / Salones del Departamento -->
     <div class="card shadow mb-4" id="groups-validation-card">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
-            <h6 class="m-0 font-weight-bold text-primary" style="font-size:.9rem;">
+            <h6 class="m-0 fw-bold text-primary hd-card-title">
                 <i class="fas fa-door-open"></i> Grupos / Salones del Departamento
-                <span class="badge badge-secondary ml-1" id="groups-validation-count">0</span>
+                <span class="badge bg-secondary ms-1" id="groups-validation-count">0</span>
             </h6>
             <div class="small text-muted" id="groups-validation-summary">
                 <span class="text-success"><i class="fas fa-plus"></i> <span id="groups-summary-added">0</span> agregados</span>
@@ -174,9 +174,9 @@
         <div class="card-body p-3">
             <div class="row align-items-center">
                 <div class="col-12 col-md-7 mb-3 mb-md-0">
-                    <label class="form-label font-weight-bold small mb-1">
+                    <label class="form-label fw-bold small mb-1">
                         <i class="fas fa-comment-alt"></i> Observaciones
-                        <span class="text-muted font-weight-normal">(requerido al rechazar, opcional al aprobar)</span>
+                        <span class="text-muted fw-normal">(requerido al rechazar, opcional al aprobar)</span>
                     </label>
                     <textarea class="form-control form-control-sm" id="decision-notes" rows="2"
                               placeholder="Agrega tus observaciones sobre el inventario presentado..."></textarea>
@@ -201,7 +201,7 @@
         <div class="modal-content">
             <div class="modal-header py-3">
                 <h5 class="modal-title" id="modal-item-title">Detalle del Equipo</h5>
-                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body" id="modal-item-body">
                 <div class="text-center py-4">
@@ -218,7 +218,7 @@
         <div class="modal-content">
             <div class="modal-header py-3 bg-success text-white">
                 <h5 class="modal-title"><i class="fas fa-check-circle"></i> Confirmar Aprobación</h5>
-                <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
                 <p>
@@ -227,13 +227,13 @@
                 </p>
                 <div class="form-check mt-3">
                     <input class="form-check-input" type="checkbox" id="confirm-checkbox">
-                    <label class="form-check-label font-weight-bold" for="confirm-checkbox">
+                    <label class="form-check-label fw-bold" for="confirm-checkbox">
                         Confirmo que el inventario listado es correcto
                     </label>
                 </div>
             </div>
             <div class="modal-footer py-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-success btn-sm" id="btn-confirm-approve" disabled>
                     <i class="fas fa-check-circle"></i> Aprobar
                 </button>

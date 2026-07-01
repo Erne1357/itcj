@@ -12,6 +12,13 @@
     let _redirectTimer1 = null;
     let _redirectTimer2 = null;
 
+    // ── Helpers de modal (BS5, sin jQuery) ─────────────────────────────────────
+
+    function modalInstance(id) {
+        const elx = document.getElementById(id);
+        return elx ? bootstrap.Modal.getOrCreateInstance(elx) : null;
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     const ITEM_STATUS_LABELS = {
@@ -24,19 +31,19 @@
     };
 
     const ITEM_STATUS_COLORS = {
-        ACTIVE:             'badge-success',
-        PENDING_ASSIGNMENT: 'badge-warning',
-        MAINTENANCE:        'badge-info',
-        DAMAGED:            'badge-danger',
-        RETIRED:            'badge-secondary',
-        LOST:               'badge-dark',
+        ACTIVE:             'bg-success',
+        PENDING_ASSIGNMENT: 'bg-warning text-dark',
+        MAINTENANCE:        'bg-info',
+        DAMAGED:            'bg-danger',
+        RETIRED:            'bg-secondary',
+        LOST:               'bg-dark',
     };
 
-    function itemStatusBadge(status, extraStyle) {
+    function itemStatusBadge(status, extraClass) {
         const label = ITEM_STATUS_LABELS[status] || status;
-        const cls   = ITEM_STATUS_COLORS[status] || 'badge-secondary';
-        const style = extraStyle ? ` style="${extraStyle}"` : '';
-        return `<span class="badge ${cls}"${style}>${label}</span>`;
+        const cls   = ITEM_STATUS_COLORS[status] || 'bg-secondary';
+        const extra = extraClass ? ` ${extraClass}` : '';
+        return `<span class="badge ${cls}${extra}">${label}</span>`;
     }
 
     function fmtDate(iso) {
@@ -85,8 +92,6 @@
         renderColumns();
     }
 
-    // ── Renderizado de columnas ───────────────────────────────────────────────
-
     // ── Sección de reemplazos ─────────────────────────────────────────────────
 
     function renderReplacements() {
@@ -96,13 +101,13 @@
         const countEl  = el('replacements-count');
 
         if (pairs.length === 0) {
-            section.style.display = 'none';
+            section.classList.add('d-none');
             return;
         }
 
         countEl.textContent = pairs.length;
         listEl.innerHTML = pairs.map(buildReplacementPair).join('');
-        section.style.display = 'block';
+        section.classList.remove('d-none');
     }
 
     function buildReplacementPair(newItem) {
@@ -111,12 +116,12 @@
         const hasChanges = Object.keys(changes).length > 0;
 
         const arrowLabel = hasChanges
-            ? '<span style="color:#c0392b;">Con cambios</span>'
-            : '<span style="color:#1a7a4a;">Sin cambios</span>';
+            ? '<span class="text-danger">Con cambios</span>'
+            : '<span class="text-success">Sin cambios</span>';
 
         const diffHtml = hasChanges
             ? buildDiffTable(changes)
-            : '<div class="small text-success mt-1"><i class="fas fa-check-circle mr-1"></i>Campos críticos sin cambios</div>';
+            : '<div class="small text-success mt-1"><i class="fas fa-check-circle me-1"></i>Campos críticos sin cambios</div>';
 
         function sideFields(item) {
             return `
@@ -124,7 +129,7 @@
                     ${item.itcj_serial   ? `<div><span class="text-muted">Serial ITCJ:</span> ${item.itcj_serial}</div>` : ''}
                     ${item.supplier_serial ? `<div><span class="text-muted">Serial prov.:</span> ${item.supplier_serial}</div>` : ''}
                     ${item.id_tecnm      ? `<div><span class="text-muted">ID TecNM:</span> ${item.id_tecnm}</div>` : ''}
-                    ${item.status        ? `<div><span class="text-muted">Estado:</span> ${itemStatusBadge(item.status, 'font-size:.65rem;')}</div>` : ''}
+                    ${item.status        ? `<div><span class="text-muted">Estado:</span> ${itemStatusBadge(item.status, 'hd-badge-xs')}</div>` : ''}
                     ${item.acquisition_date ? `<div><span class="text-muted">Adquisición:</span> ${item.acquisition_date}</div>` : ''}
                 </div>
                 <div class="mt-2">
@@ -136,13 +141,13 @@
 
         return `
         <div class="replacement-pair-card mb-3 shadow-sm">
-            <div class="row no-gutters">
+            <div class="row g-0">
 
                 <!-- Lado izquierdo: equipo ANTIGUO -->
                 <div class="col-12 col-md-5 replacement-side-old p-3">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <span class="badge badge-danger mb-1" style="font-size:.65rem;">ANTERIOR</span>
+                            <span class="badge bg-danger mb-1 hd-badge-xs">ANTERIOR</span>
                             <div class="replacement-inv-old">${old.inventory_number}</div>
                             <div class="text-muted small">${[old.brand, old.model].filter(Boolean).join(' ') || '—'}</div>
                         </div>
@@ -161,7 +166,7 @@
                 <div class="col-12 col-md-5 replacement-side-new p-3">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <span class="badge badge-success mb-1" style="font-size:.65rem;">NUEVO</span>
+                            <span class="badge bg-success mb-1 hd-badge-xs">NUEVO</span>
                             <div class="replacement-inv-new">${newItem.inventory_number}</div>
                             <div class="text-muted small">${[newItem.brand, newItem.model].filter(Boolean).join(' ') || '—'}</div>
                         </div>
@@ -177,10 +182,12 @@
     window.toggleReplacementsSection = function () {
         const list    = el('replacements-list');
         const chevron = el('replacements-chevron');
-        const hidden  = list.style.display === 'none';
-        list.style.display = hidden ? 'block' : 'none';
-        chevron.className  = hidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+        const hidden  = list.classList.contains('d-none');
+        list.classList.toggle('d-none', !hidden);
+        chevron.className = hidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
     };
+
+    // ── Renderizado de columnas ───────────────────────────────────────────────
 
     function renderColumns() {
         const d = validationData;
@@ -245,14 +252,14 @@
             <div class="item-card-header" onclick="toggleCard(this)">
                 <div>
                     <strong>${item.inventory_number}</strong>
-                    <span class="text-muted ml-1 small">${item.brand || ''} ${item.model || ''}</span>
+                    <span class="text-muted ms-1 small">${item.brand || ''} ${item.model || ''}</span>
                 </div>
                 <div>
-                    ${hasPred ? '<span class="badge badge-warning badge-sm">Con predecesor</span>' : '<span class="badge badge-info badge-sm">Nuevo</span>'}
-                    <i class="fas fa-chevron-down ml-1 small"></i>
+                    ${hasPred ? '<span class="badge bg-warning text-dark">Con predecesor</span>' : '<span class="badge bg-info">Nuevo</span>'}
+                    <i class="fas fa-chevron-down ms-1 small"></i>
                 </div>
             </div>
-            <div class="item-card-body" style="display:none;">
+            <div class="item-card-body d-none">
                 <div class="row mb-1">
                     <div class="col-6"><small class="text-muted">Serial ITCJ</small><br>${item.itcj_serial || '—'}</div>
                     <div class="col-6"><small class="text-muted">Serial proveedor</small><br>${item.supplier_serial || '—'}</div>
@@ -285,16 +292,16 @@
             <div class="item-card-header" onclick="toggleCard(this)">
                 <div>
                     <strong>${item.inventory_number}</strong>
-                    <span class="text-muted ml-1 small">${item.brand || ''} ${item.model || ''}</span>
+                    <span class="text-muted ms-1 small">${item.brand || ''} ${item.model || ''}</span>
                 </div>
                 <div>
                     ${isReplaced
-                        ? '<span class="badge badge-danger badge-sm">Reemplazado</span>'
-                        : '<span class="badge badge-success badge-sm">Sin cambios</span>'}
-                    <i class="fas fa-chevron-down ml-1 small"></i>
+                        ? '<span class="badge bg-danger">Reemplazado</span>'
+                        : '<span class="badge bg-success">Sin cambios</span>'}
+                    <i class="fas fa-chevron-down ms-1 small"></i>
                 </div>
             </div>
-            <div class="item-card-body" style="display:none;">
+            <div class="item-card-body d-none">
                 <div class="row mb-1">
                     <div class="col-6"><small class="text-muted">Serial ITCJ</small><br>${item.itcj_serial || '—'}</div>
                     <div class="col-6"><small class="text-muted">Serial proveedor</small><br>${item.supplier_serial || '—'}</div>
@@ -332,24 +339,23 @@
     window.toggleCard = function (header) {
         const body = header.nextElementSibling;
         const icon = header.querySelector('.fa-chevron-down, .fa-chevron-up');
-        if (body.style.display === 'none') {
-            body.style.display = 'block';
-            if (icon) { icon.classList.remove('fa-chevron-down'); icon.classList.add('fa-chevron-up'); }
-        } else {
-            body.style.display = 'none';
-            if (icon) { icon.classList.remove('fa-chevron-up'); icon.classList.add('fa-chevron-down'); }
+        const hidden = body.classList.contains('d-none');
+        body.classList.toggle('d-none', !hidden);
+        if (icon) {
+            icon.classList.toggle('fa-chevron-up', hidden);
+            icon.classList.toggle('fa-chevron-down', !hidden);
         }
     };
 
     // ── Modal detalle de item ─────────────────────────────────────────────────
 
     window.showItemModal = async function (itemId) {
-        const modal = document.getElementById('modal-item-detail');
         const title = el('modal-item-title');
         const body  = el('modal-item-body');
         title.textContent = 'Cargando...';
         body.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-primary fa-2x"></i></div>';
-        $(modal).modal('show');
+        const inst = modalInstance('modal-item-detail');
+        if (inst) inst.show();
 
         try {
             const res = await fetch(`/api/help-desk/v2/inventory/items/${itemId}`);
@@ -407,7 +413,8 @@
             btnApprove.addEventListener('click', () => {
                 if (confirmCheck) confirmCheck.checked = false;
                 if (btnConfirmApprove) btnConfirmApprove.disabled = true;
-                $('#modal-confirm-approve').modal('show');
+                const inst = modalInstance('modal-confirm-approve');
+                if (inst) inst.show();
             });
         }
 
@@ -434,9 +441,12 @@
             });
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
-            $('#modal-confirm-approve').modal('hide');
+            const inst = modalInstance('modal-confirm-approve');
+            if (inst) inst.hide();
             HelpdeskUtils.showToast(data.message, 'success');
-            _redirectTimer1 = setTimeout(() => { window.location = `/help-desk/inventory/campaigns/${CAMPAIGN_ID}`; }, 1500);
+            _redirectTimer1 = setTimeout(() => {
+                window.HelpdeskPage.navigate(`/help-desk/inventory/campaigns/${CAMPAIGN_ID}`);
+            }, 1500);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -472,7 +482,9 @@
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast(data.message, 'success');
-            _redirectTimer2 = setTimeout(() => { window.location = `/help-desk/inventory/campaigns/${CAMPAIGN_ID}`; }, 1500);
+            _redirectTimer2 = setTimeout(() => {
+                window.HelpdeskPage.navigate(`/help-desk/inventory/campaigns/${CAMPAIGN_ID}`);
+            }, 1500);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -511,12 +523,12 @@
     function destroy() {
         if (_redirectTimer1 !== null) { clearTimeout(_redirectTimer1); _redirectTimer1 = null; }
         if (_redirectTimer2 !== null) { clearTimeout(_redirectTimer2); _redirectTimer2 = null; }
-        // Dispose Bootstrap modals
+        // Dispose Bootstrap modals (BS5, sin jQuery)
         ['modal-item-detail', 'modal-confirm-approve'].forEach(id => {
             const modalEl = document.getElementById(id);
             if (modalEl) {
-                try { $(modalEl).modal('hide'); } catch (_) {}
-                try { $(modalEl).modal('dispose'); } catch (_) {}
+                try { bootstrap.Modal.getInstance(modalEl)?.hide(); } catch (_) {}
+                try { bootstrap.Modal.getInstance(modalEl)?.dispose(); } catch (_) {}
             }
         });
         // Clear window globals
@@ -573,10 +585,10 @@
 
     function renderGroupCard(g, showDiff) {
         const newBadge = g.new_group
-            ? '<span class="badge badge-success ml-2" title="Grupo creado durante la campaña"><i class="fas fa-star"></i> Nuevo</span>'
+            ? '<span class="badge bg-success ms-2" title="Grupo creado durante la campaña"><i class="fas fa-star"></i> Nuevo</span>'
             : '';
         const deletedBadge = g.deleted
-            ? '<span class="badge badge-danger ml-2"><i class="fas fa-trash"></i> Eliminado</span>'
+            ? '<span class="badge bg-danger ms-2"><i class="fas fa-trash"></i> Eliminado</span>'
             : '';
         const meta = [g.code, g.group_type].filter(Boolean).join(' · ');
         const locBits = [g.building, g.floor ? 'P' + g.floor : null].filter(Boolean).join(', ');
@@ -589,8 +601,8 @@
                 <span>
                     <strong>${escHtml(it.inventory_number)}</strong>
                     <span class="text-muted">${escHtml(it.brand || '')} ${escHtml(it.model || '')}</span>
-                    ${it.in_current_campaign ? '<span class="badge badge-primary ml-1">Campaña actual</span>' : ''}
-                    ${it.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Bloqueado"></i>' : ''}
+                    ${it.in_current_campaign ? '<span class="badge bg-primary ms-1">Campaña actual</span>' : ''}
+                    ${it.is_locked ? '<i class="fas fa-lock text-warning ms-1" title="Bloqueado"></i>' : ''}
                 </span>
             </div>
         `).join('') || '<p class="text-muted small mb-0">Sin equipos.</p>';
@@ -619,13 +631,13 @@
         const diffBlock = showDiff && (itemsAdded || itemsRemoved) ? `
             <div class="mt-2">
                 ${g.added_count > 0 ? `
-                    <div class="small font-weight-bold text-success mb-1">
+                    <div class="small fw-bold text-success mb-1">
                         <i class="fas fa-plus"></i> Agregados durante la campaña (${g.added_count})
                     </div>
                     ${itemsAdded}
                 ` : ''}
                 ${g.removed_count > 0 ? `
-                    <div class="small font-weight-bold text-danger mt-2 mb-1">
+                    <div class="small fw-bold text-danger mt-2 mb-1">
                         <i class="fas fa-minus"></i> Salieron del grupo (${g.removed_count})
                     </div>
                     ${itemsRemoved}
@@ -644,15 +656,15 @@
                         </div>
                     </div>
                     ${showDiff ? `
-                        <div class="text-right small">
-                            <span class="badge badge-light">${g.kept_count} sin cambio</span>
-                            ${g.added_count > 0 ? `<span class="badge badge-success">+${g.added_count}</span>` : ''}
-                            ${g.removed_count > 0 ? `<span class="badge badge-danger">-${g.removed_count}</span>` : ''}
+                        <div class="text-end small">
+                            <span class="badge bg-light text-dark">${g.kept_count} sin cambio</span>
+                            ${g.added_count > 0 ? `<span class="badge bg-success">+${g.added_count}</span>` : ''}
+                            ${g.removed_count > 0 ? `<span class="badge bg-danger">-${g.removed_count}</span>` : ''}
                         </div>
                     ` : ''}
                 </div>
                 <div class="card-body py-2">
-                    <div class="small font-weight-bold mb-1">
+                    <div class="small fw-bold mb-1">
                         <i class="fas fa-list"></i> Equipos actuales (${(g.items_current || []).length})
                     </div>
                     ${itemsCurrent}

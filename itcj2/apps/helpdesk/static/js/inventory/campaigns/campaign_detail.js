@@ -9,27 +9,34 @@
 
     let API_BASE = null;
 
+    // ── Helpers de modal (BS5, sin jQuery) ─────────────────────────────────────
+
+    function modalInstance(id) {
+        const elx = document.getElementById(id);
+        return elx ? bootstrap.Modal.getOrCreateInstance(elx) : null;
+    }
+
     // ── Estado ────────────────────────────────────────────────────────────────
 
     const STATUS_LABELS = {
-        OPEN:               { label: 'Abierta',              cls: 'badge-primary' },
-        PENDING_VALIDATION: { label: 'Pendiente validación', cls: 'badge-warning' },
-        VALIDATED:          { label: 'Validada',             cls: 'badge-success' },
-        REJECTED:           { label: 'Rechazada',            cls: 'badge-danger' },
+        OPEN:               { label: 'Abierta',              cls: 'bg-primary' },
+        PENDING_VALIDATION: { label: 'Pendiente validación', cls: 'bg-warning text-dark' },
+        VALIDATED:          { label: 'Validada',             cls: 'bg-success' },
+        REJECTED:           { label: 'Rechazada',            cls: 'bg-danger' },
     };
 
     // Estatus de equipo
     const ITEM_STATUS_LABELS = {
-        ACTIVE:             { label: 'Activo',         cls: 'badge-success'   },
-        PENDING_ASSIGNMENT: { label: 'Pendiente',      cls: 'badge-warning'   },
-        MAINTENANCE:        { label: 'Mantenimiento',  cls: 'badge-info'      },
-        DAMAGED:            { label: 'Dañado',         cls: 'badge-danger'    },
-        RETIRED:            { label: 'Retirado',       cls: 'badge-secondary' },
-        LOST:               { label: 'Extraviado',     cls: 'badge-dark'      },
+        ACTIVE:             { label: 'Activo',         cls: 'bg-success'   },
+        PENDING_ASSIGNMENT: { label: 'Pendiente',      cls: 'bg-warning text-dark' },
+        MAINTENANCE:        { label: 'Mantenimiento',  cls: 'bg-info'      },
+        DAMAGED:            { label: 'Dañado',         cls: 'bg-danger'    },
+        RETIRED:            { label: 'Retirado',       cls: 'bg-secondary' },
+        LOST:               { label: 'Extraviado',     cls: 'bg-dark'      },
     };
 
     function itemStatusBadge(status) {
-        const s = ITEM_STATUS_LABELS[status] || { label: status, cls: 'badge-secondary' };
+        const s = ITEM_STATUS_LABELS[status] || { label: status, cls: 'bg-secondary' };
         return `<span class="badge ${s.cls}">${s.label}</span>`;
     }
 
@@ -49,8 +56,8 @@
     }
 
     function statusBadge(status) {
-        const s = STATUS_LABELS[status] || { label: status, cls: 'badge-secondary' };
-        return `<span class="badge ${s.cls} campaign-status-badge">${s.label}</span>`;
+        const s = STATUS_LABELS[status] || { label: status, cls: 'bg-secondary' };
+        return `<span class="badge ${s.cls}">${s.label}</span>`;
     }
 
     function el(id) { return document.getElementById(id); }
@@ -85,7 +92,7 @@
 
         if (c.notes) {
             el('meta-notes').textContent = c.notes;
-            el('meta-notes-row').style.removeProperty('display');
+            el('meta-notes-row').classList.remove('d-none');
         }
 
         // Alertas de estado
@@ -193,7 +200,7 @@
             : (CAN_MANAGE ? '<td></td>' : '');
 
         return `<tr>
-            <td class="pl-3">
+            <td class="ps-3">
                 <a href="/help-desk/inventory/items/${item.id}" target="_blank">
                     ${item.inventory_number}
                 </a>
@@ -208,15 +215,10 @@
 
     // ── Historial de validaciones ─────────────────────────────────────────────
 
-    async function renderValidationHistory() {
+    function renderValidationHistory() {
         const list = el('validation-history');
-        try {
-            const res = await fetch(`${API_BASE}/comparison`);
-            const data = await res.json();
-            // El historial viene en el detalle de la campaña, ya lo tenemos
-        } catch (_) {}
 
-        // Cargar historial directamente de los datos ya cargados
+        // El historial viene en el detalle de la campaña, ya lo tenemos.
         if (!campaignData || !campaignData.validation_history) return;
         const history = campaignData.validation_history || [];
         if (history.length === 0) return;
@@ -229,7 +231,7 @@
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         ${icon}
-                        <strong class="ml-1">${v.action === 'APPROVED' ? 'Aprobada' : 'Rechazada'}</strong>
+                        <strong class="ms-1">${v.action === 'APPROVED' ? 'Aprobada' : 'Rechazada'}</strong>
                         <div class="small text-muted">${v.performed_by ? v.performed_by.full_name : '—'}</div>
                         ${v.notes ? `<div class="small mt-1">${v.notes}</div>` : ''}
                     </div>
@@ -326,15 +328,20 @@
             // Poner spinner inmediatamente para que no se vea contenido viejo
             el('bulk-items-list').innerHTML =
                 '<div class="text-center py-3"><i class="fas fa-spinner fa-spin text-primary"></i></div>';
-            $('#modal-bulk-assign').modal('show');
+            const inst = modalInstance('modal-bulk-assign');
+            if (inst) inst.show();
         });
 
-        // Cargar items + grupos cuando el modal terminó de abrirse
-        $('#modal-bulk-assign').on('shown.bs.modal', async () => {
-            await loadGroupFilterOptions();
-            const searchInput = el('bulk-search-input');
-            searchAvailableItems(searchInput ? searchInput.value.trim() : '');
-        });
+        // Cargar items + grupos cuando el modal terminó de abrirse (evento nativo BS5).
+        const bulkModalEl = document.getElementById('modal-bulk-assign');
+        if (bulkModalEl && bulkModalEl.dataset.hdShownBound !== '1') {
+            bulkModalEl.dataset.hdShownBound = '1';
+            bulkModalEl.addEventListener('shown.bs.modal', async () => {
+                await loadGroupFilterOptions();
+                const searchInput = el('bulk-search-input');
+                searchAvailableItems(searchInput ? searchInput.value.trim() : '');
+            });
+        }
 
         const searchInput = el('bulk-search-input');
         if (searchInput) {
@@ -430,7 +437,7 @@
             if (globals.length > 0) {
                 sections.push(`
                     <div class="bulk-section-header py-1 px-2 bg-light small fw-bold border-bottom">
-                        🌐 Globales (sin grupo) <span class="badge badge-secondary ml-1">${globals.length}</span>
+                        🌐 Globales (sin grupo) <span class="badge bg-secondary ms-1">${globals.length}</span>
                     </div>
                     ${globals.map(_buildBulkCard).join('')}
                 `);
@@ -439,7 +446,7 @@
                 const gName = bulkGroupsCache[gid] || `Grupo ${gid}`;
                 sections.push(`
                     <div class="bulk-section-header py-1 px-2 bg-info bg-opacity-10 small fw-bold border-bottom mt-2">
-                        🏫 ${gName} <span class="badge badge-info ml-1">${byGroup[gid].length}</span>
+                        🏫 ${gName} <span class="badge bg-info ms-1">${byGroup[gid].length}</span>
                     </div>
                     ${byGroup[gid].map(_buildBulkCard).join('')}
                 `);
@@ -457,25 +464,25 @@
         const desc = [item.brand, item.model].filter(Boolean).join(' ') +
                      (item.itcj_serial ? ' · ' + item.itcj_serial : '');
         const groupBadge = item.group_id
-            ? `<span class="badge badge-info ml-1" title="Pertenece al grupo">
+            ? `<span class="badge bg-info ms-1" title="Pertenece al grupo">
                    🏫 ${bulkGroupsCache[item.group_id] || 'Grupo'}
                </span>`
-            : `<span class="badge badge-secondary ml-1" title="Equipo global sin grupo">
+            : `<span class="badge bg-secondary ms-1" title="Equipo global sin grupo">
                    🌐 Global
                </span>`;
         return `
         <div class="bulk-item-card${sel ? ' selected' : ''}" data-id="${item.id}"
              onclick="toggleBulkItem(${item.id})">
             <div class="d-flex align-items-center px-3 py-2">
-                <div class="bulk-item-icon mr-3">
+                <div class="bulk-item-icon me-3">
                     <i class="fas ${sel ? 'fa-check-circle' : 'fa-circle'}"></i>
                 </div>
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="d-flex align-items-center flex-wrap">
-                        <strong class="mr-2">${item.inventory_number}</strong>
+                        <strong class="me-2">${item.inventory_number}</strong>
                         ${itemStatusBadge(item.status)}
                         ${groupBadge}
-                        ${item.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Bloqueado"></i>' : ''}
+                        ${item.is_locked ? '<i class="fas fa-lock text-warning ms-1" title="Bloqueado"></i>' : ''}
                     </div>
                     ${desc ? `<div class="small text-muted text-truncate">${desc}</div>` : ''}
                 </div>
@@ -515,7 +522,8 @@
             });
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
-            $('#modal-bulk-assign').modal('hide');
+            const inst = modalInstance('modal-bulk-assign');
+            if (inst) inst.hide();
             HelpdeskUtils.showToast(data.message, 'success');
             loadItems();
             loadGroupsView();
@@ -553,13 +561,13 @@
         if (_reloadTimer2 !== null) { clearTimeout(_reloadTimer2); _reloadTimer2 = null; }
         // Clear bulk debounce
         if (bulkDebounce !== null) { clearTimeout(bulkDebounce); bulkDebounce = null; }
-        // Dispose Bootstrap modals
+        // Dispose Bootstrap modals (BS5, sin jQuery)
         const modalIds = ['modal-new-group', 'modal-move-item', 'modal-bulk-assign'];
         modalIds.forEach(id => {
             const modalEl = document.getElementById(id);
             if (modalEl) {
-                try { $(modalEl).modal('hide'); } catch (_) {}
-                try { $(modalEl).modal('dispose'); } catch (_) {}
+                try { bootstrap.Modal.getInstance(modalEl)?.hide(); } catch (_) {}
+                try { bootstrap.Modal.getInstance(modalEl)?.dispose(); } catch (_) {}
             }
         });
         // Clear window globals
@@ -622,8 +630,8 @@
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
                     <div>
                         <strong class="small">${escGroup(g.name)}</strong>
-                        <span class="text-muted small ml-2">${escGroup(g.code)} · ${escGroup(g.group_type)}</span>
-                        ${g.building ? `<span class="badge bg-light text-dark ml-1">${escGroup(g.building)}${g.floor ? ' P'+escGroup(g.floor) : ''}</span>` : ''}
+                        <span class="text-muted small ms-2">${escGroup(g.code)} · ${escGroup(g.group_type)}</span>
+                        ${g.building ? `<span class="badge bg-light text-dark ms-1">${escGroup(g.building)}${g.floor ? ' P'+escGroup(g.floor) : ''}</span>` : ''}
                     </div>
                     <span class="badge bg-info text-white">${g.items_count} equipos${inCamp ? ' · ' + inCamp + ' en campaña' : ''}</span>
                 </div>
@@ -638,15 +646,15 @@
 
     function renderItemRow(item, groupId, canEdit) {
         const badge = item.in_current_campaign
-            ? '<span class="badge bg-primary text-white ml-1">Campaña actual</span>'
+            ? '<span class="badge bg-primary text-white ms-1">Campaña actual</span>'
             : '';
-        const lockedBadge = item.is_locked ? '<i class="fas fa-lock text-warning ml-1" title="Validado/Bloqueado"></i>' : '';
+        const lockedBadge = item.is_locked ? '<i class="fas fa-lock text-warning ms-1" title="Validado/Bloqueado"></i>' : '';
         const actionBtns = canEdit && CAN_MANAGE
-            ? `<button class="btn btn-sm btn-link p-0 ml-2 btn-move-item"
+            ? `<button class="btn btn-sm btn-link p-0 ms-2 btn-move-item"
                        data-item-id="${item.id}"
                        data-item-label="${escGroup(item.inventory_number)} - ${escGroup(item.brand || '')} ${escGroup(item.model || '')}">
                    <i class="fas fa-arrows-alt"></i>
-               </button>${groupId ? `<button class="btn btn-sm btn-link p-0 ml-1 text-danger btn-remove-from-group"
+               </button>${groupId ? `<button class="btn btn-sm btn-link p-0 ms-1 text-danger btn-remove-from-group"
                        data-item-id="${item.id}" data-group-id="${groupId}" title="Quitar del grupo">
                    <i class="fas fa-times"></i>
                </button>` : ''}`
@@ -668,7 +676,8 @@
         if (btnNewGroup) {
             btnNewGroup.addEventListener('click', () => {
                 el('form-new-group').reset();
-                $('#modal-new-group').modal('show');
+                const inst = modalInstance('modal-new-group');
+                if (inst) inst.show();
             });
         }
 
@@ -692,7 +701,8 @@
                     const data = await res.json();
                     if (!data.success) throw new Error(data.error || data.detail?.error || 'Error');
                     HelpdeskUtils.showToast('Grupo creado', 'success');
-                    $('#modal-new-group').modal('hide');
+                    const inst = modalInstance('modal-new-group');
+                    if (inst) inst.hide();
                     loadGroupsView();
                 } catch (err) {
                     HelpdeskUtils.showToast(err.message, 'danger');
@@ -748,7 +758,8 @@
                         const item = findItemAcrossGroups(itemId);
                         if (!item || !item.group_id) {
                             HelpdeskUtils.showToast('No tiene grupo asignado', 'info');
-                            $('#modal-move-item').modal('hide');
+                            const inst = modalInstance('modal-move-item');
+                            if (inst) inst.hide();
                             return;
                         }
                         res = await fetch(`${API_BASE}/groups/${item.group_id}/items/${itemId}`, {method: 'DELETE'});
@@ -756,7 +767,8 @@
                     data = await res.json();
                     if (!data.success) throw new Error(data.error || data.detail?.error || 'Error');
                     HelpdeskUtils.showToast('Equipo movido', 'success');
-                    $('#modal-move-item').modal('hide');
+                    const inst = modalInstance('modal-move-item');
+                    if (inst) inst.hide();
                     loadGroupsView();
                 } catch (err) {
                     HelpdeskUtils.showToast(err.message, 'danger');
@@ -781,7 +793,8 @@
             groupsData.map(g => `<option value="${g.id}">${escGroup(g.name)}</option>`).join('');
         const btn = el('btn-confirm-move-item');
         btn.dataset.itemId = itemId;
-        $('#modal-move-item').modal('show');
+        const inst = modalInstance('modal-move-item');
+        if (inst) inst.show();
     }
 
     // Exponer recarga manual de grupos

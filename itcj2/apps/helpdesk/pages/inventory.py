@@ -442,33 +442,145 @@ async def verification_report(
     return RedirectResponse("/help-desk/inventory/reports?tab=verificacion", status_code=302)
 
 
+# Estados de campaña (fuente única para el filtro server-side). El color de cada
+# estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_CAMPAIGN_STATUS_OPTIONS = [
+    ("", "Todos"),
+    ("OPEN", "Abierta"),
+    ("PENDING_VALIDATION", "Pendiente validación"),
+    ("VALIDATED", "Validada"),
+    ("REJECTED", "Rechazada"),
+]
+
+
+def _query_campaigns_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de campañas de inventario para la vista.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search=folio/status/department) server-side y
+    pagina. El scope replica el del endpoint API de campañas: los jefes de
+    departamento que NO son admin/Centro de Cómputo ven solo su departamento; el
+    resto (admin/CC/técnicos/secretaría CC) ve todas y puede filtrar por depto.
+    """
+    from itcj2.apps.helpdesk.services.campaign_service import CampaignService
+    from itcj2.apps.helpdesk.utils.inventory_access import (
+        has_full_inventory_access,
+        is_comp_center_user,
+    )
+    from itcj2.core.models.department import Department
+    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    status = (p.get("status", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        full_access = has_full_inventory_access(_db, user_id, user_roles)
+        is_admin_or_cc = "admin" in user_roles or is_comp_center_user(_db, user_id)
+        # Solo el jefe de depto SIN acceso global queda acotado a su departamento.
+        is_dept_head_scoped = "department_head" in user_roles and not is_admin_or_cc
+        can_view_all = not is_dept_head_scoped
+
+        forced_dept_id = None
+        if is_dept_head_scoped:
+            user_dept = get_user_department(_db, user_id)
+            forced_dept_id = user_dept.id if user_dept else -1
+
+        filters = {
+            "folio": search,
+            "status": status,
+            "department_id": (
+                int(dept_param) if (can_view_all and dept_param and dept_param.isdigit()) else None
+            ),
+            "page": page,
+            "per_page": per_page,
+        }
+        result = CampaignService.get_campaigns(_db, filters=filters, department_id=forced_dept_id)
+        campaigns = result["campaigns"]
+        total = result["total"]
+        total_pages = max(1, result["total_pages"])
+
+        # Departamentos para el filtro (solo si el usuario ve todos).
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+            departments_data = [{"id": d.id, "name": d.name} for d in departments]
+        else:
+            departments_data = []
+    finally:
+        _db.close()
+
+    return {
+        "campaigns": campaigns,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "can_view_all": can_view_all,
+        "can_create": "admin" in user_roles or full_access,
+        "f_search": search or "",
+        "f_status": status or "",
+        "f_department": dept_param or "",
+        "departments": departments_data,
+    }
+
+
 @router.get("/campaigns", name="helpdesk.pages.inventory.campaigns_list")
 async def campaigns_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.campaign.page.list"])),
 ):
-    """Lista de campañas de inventario (CC/Admin/Jefe de dpto)."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
-    from itcj2.core.services.departments_service import get_user_department
+    """Lista de campañas de inventario (CC/Admin/Jefe de dpto).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-campaigns-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_campaigns_ctx(request, user_id, user_roles)
 
-    _db = SessionLocal()
-    try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-        user_dept = get_user_department(_db, user_id) if "department_head" in user_roles else None
-    finally:
-        _db.close()
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/campaigns/_campaigns_list_results.html", ctx)
 
-    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaigns_list.html", {
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    filter_fields = [{
+        "name": "status", "label": "Estado", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_status"], "options": _CAMPAIGN_STATUS_OPTIONS,
+    }]
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-3", "selected": ctx["f_department"], "options": dept_options,
+        })
+
+    ctx.update({
         "user_roles": user_roles,
-        "can_view_all": can_view_all,
-        "can_create": "admin" in user_roles or can_view_all,
-        "user_dept_id": user_dept.id if user_dept else None,
         "active_page": "inventory_campaigns",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaigns_list.html", ctx)
 
 
 @router.get("/campaigns/create", name="helpdesk.pages.inventory.campaign_create")

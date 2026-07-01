@@ -20,7 +20,7 @@
             </p>
         </div>
         <a href="{{ url_for('helpdesk_pages.inventory_pages.campaigns_list') }}"
-           class="btn btn-outline-secondary btn-sm">
+           class="btn btn-outline-secondary btn-sm" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.campaigns_list')) }}>
             <i class="fas fa-arrow-left"></i> Volver
         </a>
     </div>
@@ -29,7 +29,7 @@
         <div class="col-12 col-lg-7">
             <div class="card shadow">
                 <div class="card-header py-3">
-                    <h6 class="m-0 font-weight-bold text-primary">
+                    <h6 class="m-0 fw-bold text-primary">
                         <i class="fas fa-clipboard-list"></i> Datos de la Campaña
                     </h6>
                 </div>
@@ -38,7 +38,7 @@
 
                         <!-- Departamento -->
                         <div class="form-group mb-3">
-                            <label class="form-label font-weight-bold" for="department-select">
+                            <label class="form-label fw-bold" for="department-select">
                                 Departamento <span class="text-danger">*</span>
                             </label>
                             <select class="form-control" id="department-select" required>
@@ -55,7 +55,7 @@
 
                         <!-- Título -->
                         <div class="form-group mb-3">
-                            <label class="form-label font-weight-bold" for="title-input">
+                            <label class="form-label fw-bold" for="title-input">
                                 Título <span class="text-danger">*</span>
                             </label>
                             <input type="text" class="form-control" id="title-input"
@@ -67,7 +67,7 @@
                         <!-- Periodo académico -->
                         {% if periods %}
                         <div class="form-group mb-3">
-                            <label class="form-label font-weight-bold" for="period-select">
+                            <label class="form-label fw-bold" for="period-select">
                                 Periodo Académico
                             </label>
                             <select class="form-control" id="period-select">
@@ -81,8 +81,8 @@
 
                         <!-- Notas -->
                         <div class="form-group mb-4">
-                            <label class="form-label font-weight-bold" for="notes-input">
-                                Notas <span class="text-muted font-weight-normal">(opcional)</span>
+                            <label class="form-label fw-bold" for="notes-input">
+                                Notas <span class="text-muted fw-normal">(opcional)</span>
                             </label>
                             <textarea class="form-control" id="notes-input" rows="3"
                                       placeholder="Observaciones iniciales sobre este levantamiento..."></textarea>
@@ -92,7 +92,7 @@
 
                         <div class="d-flex gap-2 justify-content-end">
                             <a href="{{ url_for('helpdesk_pages.inventory_pages.campaigns_list') }}"
-                               class="btn btn-outline-secondary">
+                               class="btn btn-outline-secondary" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.campaigns_list')) }}>
                                 Cancelar
                             </a>
                             <button type="submit" class="btn btn-primary" id="btn-submit">
