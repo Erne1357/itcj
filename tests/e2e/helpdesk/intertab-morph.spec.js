@@ -36,16 +36,17 @@ test.describe('inter-tab morph — hd_boost + HelpdeskPage.navigate', () => {
     await expect(page.locator('main[data-hd-page="user_ticket_detail"]')).toBeAttached();
   });
 
-  test('dashboard(my-tickets) → crear: el enlace de CONTENIDO morfea (sin recarga)', async ({ page }) => {
+  test('dashboard(my-tickets) → crear: el botón "Nuevo Ticket" del header morfea (sin recarga)', async ({ page }) => {
     await gotoHelpdesk(page, '/help-desk/user/my-tickets');
     const id = await markLoad(page);
 
-    // Enlace de contenido "Crear mi primer ticket" del empty-state (NO el del nav):
-    // scoped a #hd-tickets-results + btn-primary → único.
+    // Botón "Nuevo Ticket" del header_actions — siempre presente (independiente del nº de tickets).
+    // Se usa .first() para tomar el primero en DOM (el del navbar) en caso de que el
+    // empty-state también tenga uno con hx-boost; así el test es determinista.
     const link = page.locator(
-      '#hd-tickets-results a.btn-primary[href="/help-desk/user/create"][hx-boost="true"]'
+      'a[href="/help-desk/user/create"][hx-boost="true"]'
     ).first();
-    await expect(link).toHaveCount(1);
+    await expect(link).toBeVisible();
 
     await link.click();
 

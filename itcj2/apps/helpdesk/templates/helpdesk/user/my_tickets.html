@@ -12,7 +12,7 @@
 {% block header_subtitle %}Seguimiento de mis Solicitudes{% endblock %}
 
 {% block header_actions %}
-<a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" class="btn btn-light btn-sm">
+<a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" {{ hd_boost(url_for('helpdesk_pages.user_pages.create_ticket')) }} class="btn btn-light btn-sm">
     <i class="fas fa-plus"></i><span class="d-none d-sm-inline ms-2">Nuevo Ticket</span>
 </a>
 {% endblock %}
