@@ -1,4 +1,5 @@
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
 
 {% block title %}Almacén - Productos{% endblock %}
 {% block header_title %}Productos{% endblock %}
@@ -12,58 +13,25 @@
 
 {% block content %}
 
-<!-- Filters -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2">
-        <div class="row g-2 align-items-end">
-            <div class="col-12 col-md-5">
-                <input type="text" class="form-control form-control-sm" id="searchInput"
-                    placeholder="Buscar por nombre o código...">
-            </div>
-            <div class="col-6 col-md-3">
-                <select class="form-select form-select-sm" id="categoryFilter">
-                    <option value="">Todas las categorías</option>
-                </select>
-            </div>
-            <div class="col-6 col-md-2">
-                <select class="form-select form-select-sm" id="stockFilter">
-                    <option value="">Todo el stock</option>
-                    <option value="low">Stock bajo</option>
-                    <option value="ok">Stock OK</option>
-                </select>
-            </div>
-            <div class="col-12 col-md-2 d-flex gap-2">
-                <button class="btn btn-primary btn-sm flex-fill" onclick="WarehouseProducts.load()">
-                    <i class="fas fa-search me-1"></i>Buscar
-                </button>
-                <button class="btn btn-outline-secondary btn-sm" onclick="WarehouseProducts.reset()">
-                    <i class="fas fa-undo"></i>
-                </button>
-            </div>
-        </div>
-    </div>
+<div class="d-flex align-items-center gap-2 mb-3">
+    <h1 class="h5 mb-0 text-gray-800"><i class="fas fa-cube fa-fw"></i> Productos</h1>
+    <span id="hd-products-count" class="badge bg-secondary">{{ total }} producto{{ '' if total == 1 else 's' }}</span>
 </div>
 
-<!-- Products Table -->
+<!-- Filtros: macro filter_bar (form HTMX → recarga #hd-products-results sin JS) -->
+{{ filter_bar(
+    '/help-desk/warehouse/products',
+    filter_fields,
+    target='#hd-products-results',
+    search_value=f_search,
+    search_placeholder='Buscar por nombre o código...'
+) }}
+
+<!-- Tabla de productos (render server-side; macros + HTMX partial) -->
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
-        <div id="productsContainer">
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="text-muted mt-2">Cargando productos...</p>
-            </div>
-        </div>
-        <!-- Pagination -->
-        <div id="pagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top d-none">
-            <span class="text-muted small" id="paginationInfo"></span>
-            <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="WarehouseProducts.prevPage()">
-                    <i class="fas fa-chevron-left"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="WarehouseProducts.nextPage()">
-                    <i class="fas fa-chevron-right"></i>
-                </button>
-            </div>
+        <div id="hd-products-results" class="hd-results">
+            {% include "helpdesk/warehouse/_products_results.html" %}
         </div>
     </div>
 </div>
@@ -71,7 +39,7 @@
 {% endblock %}
 
 {% block modals %}
-<!-- Product Detail / Create Modal -->
+<!-- Product Detail / Create Modal (isla de cliente; BS5) -->
 <div class="modal fade" id="productModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">

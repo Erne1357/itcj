@@ -5,7 +5,7 @@
 {% block header_subtitle %}Dashboard General{% endblock %}
 
 {% block header_actions %}
-<a href="{{ url_for('helpdesk_pages.warehouse_pages.entries') }}" class="btn btn-light btn-sm">
+<a href="{{ url_for('helpdesk_pages.warehouse_pages.entries') }}" class="btn btn-light btn-sm" {{ hd_boost(url_for('helpdesk_pages.warehouse_pages.entries')) }}>
     <i class="fas fa-plus me-1"></i><span class="d-none d-sm-inline">Nueva Entrada</span>
 </a>
 {% endblock %}
@@ -76,7 +76,7 @@
         <h5 class="mb-0 text-warning">
             <i class="fas fa-exclamation-triangle me-2"></i>Productos con Stock Bajo
         </h5>
-        <a href="{{ url_for('helpdesk_pages.warehouse_pages.products') }}" class="btn btn-sm btn-outline-primary">
+        <a href="{{ url_for('helpdesk_pages.warehouse_pages.products') }}" class="btn btn-sm btn-outline-primary" {{ hd_boost(url_for('helpdesk_pages.warehouse_pages.products')) }}>
             <i class="fas fa-list me-1"></i>Ver todos
         </a>
     </div>
