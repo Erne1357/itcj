@@ -1,38 +1,44 @@
+/* inventory/assignment/assign_equipment.css
+   Isla de asignación (dual-pane). Color semántico via clases de Bootstrap;
+   medidas/superficies via tokens --hd-* (helpdesk-tokens.css). Sin hex de marca. */
+
 .user-card {
-    border: 2px solid #e3e6f0;
-    border-radius: 0.5rem;
-    transition: all 0.3s ease;
+    border: 2px solid var(--hd-border);
+    border-radius: var(--hd-r-md);
+    transition: all var(--hd-transition);
     cursor: pointer;
 }
 .user-card:hover {
-    border-color: #4e73df;
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+    border-color: var(--hd-primary);
+    box-shadow: var(--hd-shadow-md);
     transform: translateY(-2px);
 }
 .user-card.selected {
-    border-color: #4e73df;
-    background: #f8f9fc;
+    border-color: var(--hd-primary);
+    background: var(--hd-surface-2);
 }
+
 .equipment-item {
-    border: 1px solid #e3e6f0;
-    border-radius: 0.35rem;
+    border: 1px solid var(--hd-border);
+    border-radius: var(--hd-r-sm);
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    background: white;
-    transition: all 0.2s ease;
+    background: var(--hd-surface);
+    transition: all var(--hd-transition);
 }
 .equipment-item:hover {
-    background: #f8f9fc;
-    border-color: #4e73df;
+    background: var(--hd-surface-2);
+    border-color: var(--hd-primary);
 }
 .equipment-item.assigned {
-    background: #e7f5ff;
-    border-color: #36b9cc;
+    background: var(--hd-surface-2);
+    border-color: var(--hd-primary);
 }
 .equipment-item.global {
-    background: #fff;
-    border-color: #e3e6f0;
+    background: var(--hd-surface);
+    border-color: var(--hd-border);
 }
+
 .equipment-badge {
     font-size: 0.75rem;
     padding: 0.25rem 0.5rem;
@@ -41,59 +47,74 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
 }
+
 .filter-section {
-    background: #f8f9fc;
-    border-radius: 0.35rem;
+    background: var(--hd-surface-2);
+    border-radius: var(--hd-r-sm);
     padding: 1rem;
     margin-bottom: 1rem;
 }
+
 .stats-card {
     text-align: center;
-    padding: 1rem;
-    border-radius: 0.35rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    padding: 0.75rem;
+    border-radius: var(--hd-r-sm);
+    background: var(--hd-gradient-accent);
+    color: #fff;
 }
 .stats-number {
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: bold;
 }
+
 .empty-state {
     text-align: center;
     padding: 3rem 1rem;
-    color: #858796;
+    color: var(--hd-muted);
 }
-.action-buttons {
-    position: sticky;
-    bottom: 1rem;
-    background: white;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-    z-index: 100;
+
+/* Utilidades de layout (reemplazan estilos inline del template) */
+.hd-dept-select {
+    min-width: 240px;
+}
+.hd-scroll-list {
+    max-height: 600px;
+    overflow-y: auto;
+}
+.hd-scroll-modal {
+    max-height: 400px;
+    overflow-y: auto;
+}
+.hd-user-avatar {
+    width: 45px;
+    height: 45px;
+    font-size: 1.2rem;
+}
+.hd-badge-xs {
+    font-size: 0.65rem;
 }
 
 /* Tabs personalizados */
 .nav-tabs {
-    border-bottom: 2px solid #dee2e6;
+    border-bottom: 2px solid var(--hd-border);
 }
 
 .nav-tabs .nav-link {
     border: none;
-    color: #6c757d;
+    color: var(--hd-muted);
     font-weight: 500;
     padding: 0.75rem 1.5rem;
-    transition: all 0.3s ease;
+    transition: all var(--hd-transition);
 }
 
 .nav-tabs .nav-link:hover {
-    color: #495057;
-    border-bottom: 2px solid #dee2e6;
+    color: var(--hd-dark);
+    border-bottom: 2px solid var(--hd-border);
 }
 
 .nav-tabs .nav-link.active {
-    color: #007bff;
-    border-bottom: 3px solid #007bff;
+    color: var(--hd-primary);
+    border-bottom: 3px solid var(--hd-primary);
     background: transparent;
 }
 
@@ -105,25 +126,25 @@
 /* Group items */
 .group-item {
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all var(--hd-transition);
     border-left: 4px solid transparent;
 }
 
 .group-item:hover {
-    border-left-color: #17a2b8;
-    background: #f8f9fa;
+    border-left-color: var(--hd-primary);
+    background: var(--hd-surface-2);
     transform: translateX(5px);
 }
 
 /* Selectable items en modal */
 .selectable-item {
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--hd-transition);
 }
 
 .selectable-item:hover {
-    background: #f0f8ff;
-    border-color: #007bff;
+    background: var(--hd-surface-2);
+    border-color: var(--hd-primary);
     transform: translateX(3px);
 }
 

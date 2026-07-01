@@ -1,18 +1,22 @@
-/* itcj2/apps/helpdesk/static/css/inventory/my_equipment.css */
+/* inventory/assignment/my_equipment.css
+   Color semántico via clases de Bootstrap; medidas/superficies via tokens
+   --hd-* (helpdesk-tokens.css). Los indicadores de garantía usan las variables
+   de estado de Bootstrap (--bs-success/warning/danger). */
+
 .equipment-card {
     transition: transform 0.2s, box-shadow 0.2s;
     cursor: pointer;
-    border-left: 4px solid #4e73df;
+    border-left: 4px solid var(--hd-primary);
 }
 
 .equipment-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    box-shadow: var(--hd-shadow-md) !important;
 }
 
 .equipment-icon {
     font-size: 3rem;
-    color: #4e73df;
+    color: var(--hd-primary);
     margin-bottom: 1rem;
 }
 
@@ -25,16 +29,16 @@
 }
 
 .warranty-indicator.active {
-    background-color: #1cc88a;
+    background-color: var(--bs-success);
 }
 
 .warranty-indicator.expiring {
-    background-color: #f6c23e;
+    background-color: var(--bs-warning);
     animation: pulse 1.5s ease-in-out infinite;
 }
 
 .warranty-indicator.expired {
-    background-color: #e74a3b;
+    background-color: var(--bs-danger);
 }
 
 @keyframes pulse {
@@ -44,14 +48,14 @@
 
 .info-label {
     font-weight: 600;
-    color: #858796;
+    color: var(--hd-muted);
     font-size: 0.875rem;
     margin-bottom: 0.25rem;
 }
 
 .info-value {
     font-size: 1rem;
-    color: #5a5c69;
+    color: var(--hd-dark);
 }
 
 .empty-state {
@@ -61,12 +65,12 @@
 
 .empty-state-icon {
     font-size: 5rem;
-    color: #d1d3e2;
+    color: var(--hd-border);
     margin-bottom: 1.5rem;
 }
 
 .detail-row {
-    border-bottom: 1px solid #e3e6f0;
+    border-bottom: 1px solid var(--hd-border);
     padding: 0.75rem 0;
 }
 
@@ -79,9 +83,9 @@
 }
 
 .spec-item {
-    background-color: #f8f9fc;
+    background-color: var(--hd-surface-2);
     padding: 0.5rem;
-    border-radius: 0.25rem;
+    border-radius: var(--hd-r-sm);
     margin-bottom: 0.5rem;
 }
 
@@ -89,7 +93,7 @@
     position: relative;
     padding-left: 2rem;
     padding-bottom: 1.5rem;
-    border-left: 2px solid #e3e6f0;
+    border-left: 2px solid var(--hd-border);
 }
 
 .history-item:last-child {
@@ -99,8 +103,8 @@
 .history-icon {
     position: absolute;
     left: -0.75rem;
-    background-color: #fff;
-    border: 2px solid #4e73df;
+    background-color: var(--hd-surface);
+    border: 2px solid var(--hd-primary);
     border-radius: 50%;
     width: 1.5rem;
     height: 1.5rem;
@@ -108,5 +112,5 @@
     align-items: center;
     justify-content: center;
     font-size: 0.7rem;
-    color: #4e73df;
+    color: var(--hd-primary);
 }

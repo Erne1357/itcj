@@ -1,6 +1,8 @@
 /**
  * Gestión de Asignaciones de Equipos
- * Interfaz para Jefes de Departamento
+ * Interfaz para Jefes de Departamento.
+ * Isla de-jQuery-zada: modales via bootstrap.Modal (BS5), tabs nativos BS5,
+ * fetch nativo. Sin $()/window.jQuery. Registrada en el controller HelpdeskPage.
  */
 (function () {
     'use strict';
@@ -21,6 +23,30 @@
     let _handlers = {};
     let _deptSelectorHandler = null;
     let _active = false;
+
+    // ==================== HELPERS ====================
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        return String(text).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
+    }
+
+    function getModal(id) {
+        const el = document.getElementById(id);
+        return el ? bootstrap.Modal.getOrCreateInstance(el) : null;
+    }
+
+    function showModal(id) {
+        const m = getModal(id);
+        if (m) m.show();
+    }
+
+    function hideModal(id) {
+        const el = document.getElementById(id);
+        if (el) bootstrap.Modal.getInstance(el)?.hide();
+    }
+
+    function show(id) { document.getElementById(id)?.classList.remove('d-none'); }
+    function hide(id) { document.getElementById(id)?.classList.add('d-none'); }
 
     // ==================== INIT / DESTROY ====================
     function init() {
@@ -74,15 +100,15 @@
             unassignForm.removeEventListener('submit', _handlers.handleUnassign);
         }
 
-        // Dispose Bootstrap-4 modals
-        ['#assignModal', '#unassignModal'].forEach(function (sel) {
-            try {
-                const el = document.querySelector(sel);
-                if (el && window.jQuery) {
-                    window.jQuery(el).modal('hide');
-                    window.jQuery(el).modal('dispose');
-                }
-            } catch (e) { /* ignore */ }
+        // Dispose modales BS5
+        ['assignModal', 'unassignModal', 'selectGroupEquipmentModal'].forEach(function (id) {
+            const el = document.getElementById(id);
+            if (el) {
+                try {
+                    bootstrap.Modal.getInstance(el)?.hide();
+                    bootstrap.Modal.getInstance(el)?.dispose();
+                } catch (e) { /* ignore */ }
+            }
         });
 
         // Limpiar estado
@@ -122,21 +148,7 @@
         document.getElementById('search-group-equipment').addEventListener('input', _handlers.filterGroupModal);
         document.getElementById('assign-form').addEventListener('submit', _handlers.handleAssign);
         document.getElementById('unassign-form').addEventListener('submit', _handlers.handleUnassign);
-
-        setupTabs();
-    }
-
-    function setupTabs() {
-        if (window.jQuery) {
-            window.jQuery('#equipmentTabs a[data-toggle="tab"]').on('click', function (e) {
-                e.preventDefault();
-                const target = window.jQuery(this).attr('href');
-                window.jQuery('#equipmentTabs .nav-link').removeClass('active');
-                window.jQuery('.tab-pane').removeClass('show active');
-                window.jQuery(this).addClass('active');
-                window.jQuery(target).addClass('show active');
-            });
-        }
+        // Tabs de equipos/grupos: BS5 los maneja nativamente vía data-bs-toggle="tab".
     }
 
     // ==================== CARGAR DATOS ====================
@@ -186,7 +198,7 @@
             if (wrapper) wrapper.classList.remove('d-none');
             if (selector) {
                 selector.innerHTML = allDepartments
-                    .map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+                    .map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
 
                 const initialId = userScope.user_dept ? userScope.user_dept.id : (allDepartments[0]?.id || '');
                 selector.value = String(initialId);
@@ -389,28 +401,29 @@
         container.innerHTML = filteredUsers.map(user => {
             const userEquipment = departmentEquipment.filter(e => e.assigned_to_user_id === user.id);
             const isSelected = selectedUser && selectedUser.id === user.id;
+            const fullName = escapeHtml(user.full_name);
+            const initial = escapeHtml((user.full_name || '?').charAt(0).toUpperCase());
 
             return `
                 <div class="user-card ${isSelected ? 'selected' : ''} p-3 mb-2"
                      onclick="selectUser(${user.id})">
                     <div class="d-flex align-items-center">
-                        <div class="mr-3">
-                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center"
-                                 style="width: 45px; height: 45px; font-size: 1.2rem;">
-                                ${user.full_name.charAt(0).toUpperCase()}
+                        <div class="me-3">
+                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center hd-user-avatar">
+                                ${initial}
                             </div>
                         </div>
                         <div class="flex-grow-1">
-                            <div class="font-weight-bold">
-                                ${user.full_name}
-                                ${!user.is_active ? '<span class="badge badge-secondary ml-1" style="font-size:0.65rem;">Inactivo</span>' : ''}
+                            <div class="fw-bold">
+                                ${fullName}
+                                ${!user.is_active ? '<span class="badge bg-secondary ms-1 hd-badge-xs">Inactivo</span>' : ''}
                             </div>
                             <small class="text-muted">
-                                ${user.email || '<span class="font-italic">Sin correo registrado</span>'}
+                                ${user.email ? escapeHtml(user.email) : '<span class="fst-italic">Sin correo registrado</span>'}
                             </small>
                         </div>
-                        <div class="text-right">
-                            <span class="badge badge-${userEquipment.length > 0 ? 'info' : 'secondary'}">
+                        <div class="text-end">
+                            <span class="badge bg-${userEquipment.length > 0 ? 'info' : 'secondary'}">
                                 ${userEquipment.length} equipos
                             </span>
                         </div>
@@ -428,13 +441,15 @@
         document.querySelectorAll('.user-card').forEach(card => {
             card.classList.remove('selected');
         });
-        event.currentTarget.classList.add('selected');
+        if (typeof event !== 'undefined' && event.currentTarget) {
+            event.currentTarget.classList.add('selected');
+        }
 
-        document.getElementById('no-user-selected').style.display = 'none';
-        document.getElementById('user-equipment-section').style.display = 'block';
+        hide('no-user-selected');
+        show('user-equipment-section');
 
         document.getElementById('equipment-panel-title').innerHTML = `
-            <i class="fas fa-laptop"></i> Equipos de ${selectedUser.full_name}
+            <i class="fas fa-laptop"></i> Equipos de ${escapeHtml(selectedUser.full_name)}
         `;
 
         renderUserEquipment();
@@ -515,30 +530,32 @@
             };
 
             const icon = groupTypeIcons[group.group_type] || 'fa-door-open';
+            const groupName = escapeHtml(group.name);
+            const location = [group.building, group.floor ? `Piso ${group.floor}` : ''].filter(Boolean).join(' - ');
 
             return `
                 <div class="equipment-item group-item" onclick="openGroupModal(${group.id})">
                     <div class="d-flex align-items-center">
-                        <div class="mr-3">
+                        <div class="me-3">
                             <i class="fas ${icon} fa-2x text-info"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <div class="font-weight-bold">
-                                <i class="fas fa-layer-group mr-1"></i>
-                                ${group.name}
+                            <div class="fw-bold">
+                                <i class="fas fa-layer-group me-1"></i>
+                                ${groupName}
                             </div>
                             <small class="text-muted">
-                                ${group.description || 'Sin descripción'}
+                                ${group.description ? escapeHtml(group.description) : 'Sin descripción'}
                             </small>
                             <br>
                             <span class="badge bg-success text-white mt-1">
-                                <i class="fas fa-laptop mr-1"></i>
+                                <i class="fas fa-laptop me-1"></i>
                                 ${groupEquipment.length} equipos disponibles
                             </span>
-                            ${group.building || group.floor ? `
+                            ${location ? `
                                 <span class="badge bg-light text-dark mt-1">
-                                    <i class="fas fa-map-marker-alt mr-1"></i>
-                                    ${[group.building, group.floor ? `Piso ${group.floor}` : ''].filter(Boolean).join(' - ')}
+                                    <i class="fas fa-map-marker-alt me-1"></i>
+                                    ${escapeHtml(location)}
                                 </span>
                             ` : ''}
                         </div>
@@ -555,13 +572,13 @@
 
     function renderEquipmentItem(item, type) {
         const isAssigned = type === 'assigned';
-        const icon = item.category?.icon || 'fas fa-box';
+        const icon = escapeHtml(item.category?.icon || 'fas fa-box');
 
         let groupBadge = '';
         if (item.is_in_group && item.group) {
             groupBadge = `
                 <br><small class="badge bg-info text-white mt-1">
-                    <i class="fas fa-layer-group mr-1"></i>${item.group.name}
+                    <i class="fas fa-layer-group me-1"></i>${escapeHtml(item.group.name)}
                 </small>
             `;
         }
@@ -569,19 +586,19 @@
         return `
             <div class="equipment-item ${isAssigned ? 'assigned' : 'global'}">
                 <div class="d-flex align-items-center">
-                    <div class="mr-3">
+                    <div class="me-3">
                         <i class="${icon} fa-2x text-${isAssigned ? 'info' : 'secondary'}"></i>
                     </div>
                     <div class="flex-grow-1">
-                        <div class="font-weight-bold">
-                            ${item.inventory_number}
+                        <div class="fw-bold">
+                            ${escapeHtml(item.inventory_number)}
                         </div>
                         <small class="text-muted">
-                            ${item.brand || 'N/A'} ${item.model || ''}
+                            ${escapeHtml(item.brand || 'N/A')} ${escapeHtml(item.model || '')}
                         </small>
                         ${item.location_detail ? `
                             <br><small class="text-muted">
-                                <i class="fas fa-map-marker-alt"></i> ${item.location_detail}
+                                <i class="fas fa-map-marker-alt"></i> ${escapeHtml(item.location_detail)}
                             </small>
                         ` : ''}
                         ${groupBadge}
@@ -599,7 +616,7 @@
                             </button>
                         `}
                         <a href="/help-desk/inventory/items/${item.id}"
-                           class="btn btn-sm btn-outline-secondary quick-assign-btn ml-1"
+                           class="btn btn-sm btn-outline-secondary quick-assign-btn ms-1"
                            target="_blank"
                            onclick="event.stopPropagation();">
                             <i class="fas fa-external-link-alt"></i>
@@ -626,7 +643,7 @@
 
         document.getElementById('search-group-equipment').value = '';
 
-        if (window.jQuery) window.jQuery('#selectGroupEquipmentModal').modal('show');
+        showModal('selectGroupEquipmentModal');
 
         await loadGroupEquipment(groupId);
     }
@@ -692,24 +709,24 @@
         }
 
         container.innerHTML = filteredEquipment.map(item => {
-            const icon = item.category?.icon || 'fas fa-laptop';
+            const icon = escapeHtml(item.category?.icon || 'fas fa-laptop');
 
             return `
                 <div class="equipment-item selectable-item" onclick="quickAssignFromGroup(${item.id})">
                     <div class="d-flex align-items-center">
-                        <div class="mr-3">
+                        <div class="me-3">
                             <i class="${icon} fa-2x text-primary"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <div class="font-weight-bold">
-                                ${item.inventory_number}
+                            <div class="fw-bold">
+                                ${escapeHtml(item.inventory_number)}
                             </div>
                             <small class="text-muted">
-                                ${item.brand || 'N/A'} ${item.model || ''}
+                                ${escapeHtml(item.brand || 'N/A')} ${escapeHtml(item.model || '')}
                             </small>
                             ${item.location_detail ? `
                                 <br><small class="text-muted">
-                                    <i class="fas fa-map-marker-alt"></i> ${item.location_detail}
+                                    <i class="fas fa-map-marker-alt"></i> ${escapeHtml(item.location_detail)}
                                 </small>
                             ` : ''}
                         </div>
@@ -731,7 +748,7 @@
 
     async function quickAssignFromGroup(itemId) {
         if (!selectedUser) return;
-        if (window.jQuery) window.jQuery('#selectGroupEquipmentModal').modal('hide');
+        hideModal('selectGroupEquipmentModal');
         openAssignModal(itemId);
     }
 
@@ -748,8 +765,7 @@
     }
 
     function toggleFilters() {
-        const filters = document.getElementById('equipment-filters');
-        filters.style.display = filters.style.display === 'none' ? 'block' : 'none';
+        document.getElementById('equipment-filters')?.classList.toggle('d-none');
     }
 
     // ==================== ASIGNACIÓN ====================
@@ -769,7 +785,7 @@
         document.getElementById('assign-location').value = '';
         document.getElementById('assign-notes').value = '';
 
-        if (window.jQuery) window.jQuery('#assignModal').modal('show');
+        showModal('assignModal');
     }
 
     async function handleAssign(e) {
@@ -800,7 +816,7 @@
                 throw new Error(error.error || error.message || 'Error al asignar equipo');
             }
 
-            if (window.jQuery) window.jQuery('#assignModal').modal('hide');
+            hideModal('assignModal');
             showSuccess('Equipo asignado correctamente');
 
             await refreshData();
@@ -823,7 +839,7 @@
             item.assigned_to_user?.full_name || 'N/A';
         document.getElementById('unassign-notes').value = '';
 
-        if (window.jQuery) window.jQuery('#unassignModal').modal('show');
+        showModal('unassignModal');
     }
 
     async function handleUnassign(e) {
@@ -850,7 +866,7 @@
                 throw new Error(error.error || 'Error al liberar equipo');
             }
 
-            if (window.jQuery) window.jQuery('#unassignModal').modal('hide');
+            hideModal('unassignModal');
             showSuccess('Equipo liberado correctamente');
 
             await refreshData();
@@ -889,15 +905,15 @@
         }
     }
 
-    // ==================== HELPERS ====================
+    // ==================== HELPERS UI ====================
     function showLoading() {
-        document.getElementById('loading-state').style.display = 'block';
-        document.getElementById('main-content').style.display = 'none';
+        show('loading-state');
+        hide('main-content');
     }
 
     function hideLoading() {
-        document.getElementById('loading-state').style.display = 'none';
-        document.getElementById('main-content').style.display = 'block';
+        hide('loading-state');
+        show('main-content');
     }
 
     function showSuccess(message) {

@@ -1,10 +1,23 @@
 // my_equipment.js - Gestión de equipos asignados al usuario actual
+// Isla de-jQuery-zada: modal de detalle via bootstrap.Modal (BS5), tabs nativos
+// BS5, fetch nativo. Sin $()/window.jQuery.
 (function () {
     'use strict';
 
     const API_BASE = '/api/help-desk/v2/inventory';
     let myEquipment = [];
     let currentEquipment = null;
+
+    // ==================== HELPERS ====================
+    function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        return String(text).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
+    }
+
+    function getDetailModal() {
+        const el = document.getElementById('equipmentDetailModal');
+        return el ? bootstrap.Modal.getOrCreateInstance(el) : null;
+    }
 
     // ==================== INIT / DESTROY ====================
     function init() {
@@ -21,6 +34,14 @@
     function destroy() {
         if (window.MyEquipmentModal) {
             window.MyEquipmentModal.teardown();
+        }
+
+        const modalEl = document.getElementById('equipmentDetailModal');
+        if (modalEl) {
+            try {
+                bootstrap.Modal.getInstance(modalEl)?.hide();
+                bootstrap.Modal.getInstance(modalEl)?.dispose();
+            } catch (e) { /* ignore */ }
         }
 
         delete window.showEquipmentDetail;
@@ -79,15 +100,15 @@
         });
 
         hideLoading();
-        document.getElementById('empty-state').style.display = 'none';
-        container.style.display = 'flex';
+        document.getElementById('empty-state').classList.add('d-none');
+        container.classList.remove('d-none');
     }
 
     function createEquipmentCard(item) {
         const col = document.createElement('div');
         col.className = 'col-md-6 col-lg-4 mb-4';
 
-        const categoryIcon = getCategoryIcon(item.category?.icon);
+        const categoryIcon = escapeHtml(getCategoryIcon(item.category?.icon));
         const statusBadge = getStatusBadge(item.status);
         const warrantyInfo = getWarrantyInfo(item);
 
@@ -101,13 +122,13 @@
 
                     <!-- Número de Inventario -->
                     <h5 class="text-center mb-3">
-                        <strong>${item.inventory_number}</strong>
+                        <strong>${escapeHtml(item.inventory_number)}</strong>
                     </h5>
 
                     <!-- Estado -->
                     <div class="text-center mb-3">
-                        <span class="badge badge-${statusBadge.color} px-3 py-2">
-                            ${statusBadge.text}
+                        <span class="badge bg-${statusBadge.color} px-3 py-2">
+                            ${escapeHtml(statusBadge.text)}
                         </span>
                     </div>
 
@@ -115,39 +136,39 @@
                     <div class="detail-row">
                         <div class="info-label">Categoría</div>
                         <div class="info-value">
-                            <i class="${categoryIcon} mr-1"></i>
-                            ${item.category?.name || 'Sin categoría'}
+                            <i class="${categoryIcon} me-1"></i>
+                            ${escapeHtml(item.category?.name || 'Sin categoría')}
                         </div>
                     </div>
 
                     <div class="detail-row">
                         <div class="info-label">Marca / Modelo</div>
                         <div class="info-value">
-                            ${item.brand || '-'} ${item.model || ''}
+                            ${escapeHtml(item.brand || '-')} ${escapeHtml(item.model || '')}
                         </div>
                     </div>
 
                     ${item.supplier_serial ? `
                     <div class="detail-row">
                         <div class="info-label">Serial Proveedor</div>
-                        <div class="info-value"><code>${item.supplier_serial}</code></div>
+                        <div class="info-value"><code>${escapeHtml(item.supplier_serial)}</code></div>
                     </div>` : ''}
                     ${item.itcj_serial ? `
                     <div class="detail-row">
                         <div class="info-label">Serial ITCJ</div>
-                        <div class="info-value"><code>${item.itcj_serial}</code></div>
+                        <div class="info-value"><code>${escapeHtml(item.itcj_serial)}</code></div>
                     </div>` : ''}
                     ${item.id_tecnm ? `
                     <div class="detail-row">
                         <div class="info-label">ID TecNM</div>
-                        <div class="info-value"><code>${item.id_tecnm}</code></div>
+                        <div class="info-value"><code>${escapeHtml(item.id_tecnm)}</code></div>
                     </div>` : ''}
 
                     <div class="detail-row">
                         <div class="info-label">Ubicación</div>
                         <div class="info-value">
-                            <i class="fas fa-map-marker-alt mr-1"></i>
-                            ${item.location_detail || 'Sin especificar'}
+                            <i class="fas fa-map-marker-alt me-1"></i>
+                            ${escapeHtml(item.location_detail || 'Sin especificar')}
                         </div>
                     </div>
 
@@ -180,21 +201,11 @@
             return;
         }
 
-        document.getElementById('modal-loading').style.display = 'block';
-        document.getElementById('modal-content').style.display = 'none';
+        document.getElementById('modal-loading').classList.remove('d-none');
+        document.getElementById('modal-content').classList.add('d-none');
 
-        const $modal = window.jQuery ? window.jQuery('#equipmentDetailModal') : null;
-
-        const inIframe = window.self !== window.top;
-
-        if ($modal) {
-            $modal.modal({
-                backdrop: inIframe ? true : true,
-                keyboard: true,
-                focus: true
-            });
-            $modal.modal('show');
-        }
+        const modal = getDetailModal();
+        if (modal) modal.show();
 
         try {
             const response = await fetch(`${API_BASE}/items/${itemId}`, {
@@ -219,25 +230,26 @@
             loadHistory(itemId);
             loadRelatedTickets(itemId);
 
-            document.getElementById('modal-loading').style.display = 'none';
-            document.getElementById('modal-content').style.display = 'block';
+            document.getElementById('modal-loading').classList.add('d-none');
+            document.getElementById('modal-content').classList.remove('d-none');
 
             setTimeout(function () {
-                if (window.jQuery) window.jQuery('#equipmentTabs a[href="#info-content"]').tab('show');
+                const infoTab = document.getElementById('info-tab');
+                if (infoTab) bootstrap.Tab.getOrCreateInstance(infoTab).show();
             }, 100);
 
         } catch (error) {
             console.error('Error loading equipment detail:', error);
             const errorMessage = error.message || 'Error desconocido';
             showError(`Error al cargar los detalles del equipo: ${errorMessage}`);
-            if ($modal) $modal.modal('hide');
+            if (modal) modal.hide();
         }
     }
 
     function fillInfoTab(item) {
         const container = document.getElementById('info-container');
         const statusBadge = getStatusBadge(item.status);
-        const categoryIcon = getCategoryIcon(item.category?.icon);
+        const categoryIcon = escapeHtml(getCategoryIcon(item.category?.icon));
         const warrantyInfo = getWarrantyInfo(item);
 
         container.innerHTML = `
@@ -246,7 +258,7 @@
                     <div class="detail-row">
                         <div class="info-label">Número de Inventario</div>
                         <div class="info-value">
-                            <strong>${item.inventory_number}</strong>
+                            <strong>${escapeHtml(item.inventory_number)}</strong>
                         </div>
                     </div>
                 </div>
@@ -254,7 +266,7 @@
                     <div class="detail-row">
                         <div class="info-label">Estado</div>
                         <div class="info-value">
-                            <span class="badge badge-${statusBadge.color}">${statusBadge.text}</span>
+                            <span class="badge bg-${statusBadge.color}">${escapeHtml(statusBadge.text)}</span>
                         </div>
                     </div>
                 </div>
@@ -265,8 +277,8 @@
                     <div class="detail-row">
                         <div class="info-label">Categoría</div>
                         <div class="info-value">
-                            <i class="${categoryIcon} mr-1"></i>
-                            ${item.category?.name || 'Sin categoría'}
+                            <i class="${categoryIcon} me-1"></i>
+                            ${escapeHtml(item.category?.name || 'Sin categoría')}
                         </div>
                     </div>
                 </div>
@@ -274,8 +286,8 @@
                     <div class="detail-row">
                         <div class="info-label">Departamento</div>
                         <div class="info-value">
-                            <i class="fas fa-building mr-1"></i>
-                            ${item.department?.name || 'Sin departamento'}
+                            <i class="fas fa-building me-1"></i>
+                            ${escapeHtml(item.department?.name || 'Sin departamento')}
                         </div>
                     </div>
                 </div>
@@ -285,13 +297,13 @@
                 <div class="col-md-6">
                     <div class="detail-row">
                         <div class="info-label">Marca</div>
-                        <div class="info-value">${item.brand || 'No especificada'}</div>
+                        <div class="info-value">${escapeHtml(item.brand || 'No especificada')}</div>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="detail-row">
                         <div class="info-label">Modelo</div>
-                        <div class="info-value">${item.model || 'No especificado'}</div>
+                        <div class="info-value">${escapeHtml(item.model || 'No especificado')}</div>
                     </div>
                 </div>
             </div>
@@ -299,9 +311,9 @@
             ${(item.supplier_serial || item.itcj_serial || item.id_tecnm) ? `
             <div class="row mb-3">
                 <div class="col-12">
-                    ${item.supplier_serial ? `<div class="detail-row"><div class="info-label">Serial Proveedor</div><div class="info-value"><code>${item.supplier_serial}</code></div></div>` : ''}
-                    ${item.itcj_serial    ? `<div class="detail-row"><div class="info-label">Serial ITCJ</div><div class="info-value"><code>${item.itcj_serial}</code></div></div>` : ''}
-                    ${item.id_tecnm       ? `<div class="detail-row"><div class="info-label">ID TecNM</div><div class="info-value"><code>${item.id_tecnm}</code></div></div>` : ''}
+                    ${item.supplier_serial ? `<div class="detail-row"><div class="info-label">Serial Proveedor</div><div class="info-value"><code>${escapeHtml(item.supplier_serial)}</code></div></div>` : ''}
+                    ${item.itcj_serial    ? `<div class="detail-row"><div class="info-label">Serial ITCJ</div><div class="info-value"><code>${escapeHtml(item.itcj_serial)}</code></div></div>` : ''}
+                    ${item.id_tecnm       ? `<div class="detail-row"><div class="info-label">ID TecNM</div><div class="info-value"><code>${escapeHtml(item.id_tecnm)}</code></div></div>` : ''}
                 </div>
             </div>
             ` : ''}
@@ -311,8 +323,8 @@
                     <div class="detail-row">
                         <div class="info-label">Ubicación</div>
                         <div class="info-value">
-                            <i class="fas fa-map-marker-alt mr-1"></i>
-                            ${item.location_detail || 'Sin especificar'}
+                            <i class="fas fa-map-marker-alt me-1"></i>
+                            ${escapeHtml(item.location_detail || 'Sin especificar')}
                         </div>
                     </div>
                 </div>
@@ -342,8 +354,8 @@
                         <div class="info-label">Notas</div>
                         <div class="info-value">
                             <div class="alert alert-info mb-0">
-                                <i class="fas fa-sticky-note mr-1"></i>
-                                ${item.notes}
+                                <i class="fas fa-sticky-note me-1"></i>
+                                ${escapeHtml(item.notes)}
                             </div>
                         </div>
                     </div>
@@ -365,7 +377,7 @@
         for (const [key, value] of Object.entries(item.specs)) {
             specsHtml += `
                 <div class="spec-item">
-                    <strong>${formatSpecKey(key)}:</strong> ${value}
+                    <strong>${escapeHtml(formatSpecKey(key))}:</strong> ${escapeHtml(value)}
                 </div>
             `;
         }
@@ -399,7 +411,7 @@
 
             let historyHtml = '';
             history.forEach((entry) => {
-                const icon = getHistoryIcon(entry.action_type);
+                const icon = escapeHtml(getHistoryIcon(entry.action_type));
                 const date = new Date(entry.created_at).toLocaleString('es-MX');
 
                 historyHtml += `
@@ -408,16 +420,16 @@
                             <i class="${icon}"></i>
                         </div>
                         <div>
-                            <strong>${entry.action_type_display || entry.action_type}</strong>
-                            <div class="text-muted small">${date}</div>
+                            <strong>${escapeHtml(entry.action_type_display || entry.action_type)}</strong>
+                            <div class="text-muted small">${escapeHtml(date)}</div>
                             ${entry.performed_by ? `
                                 <div class="text-muted small">
-                                    Por: ${entry.performed_by.full_name}
+                                    Por: ${escapeHtml(entry.performed_by.full_name)}
                                 </div>
                             ` : ''}
                             ${entry.notes ? `
                                 <div class="mt-1">
-                                    <small>${entry.notes}</small>
+                                    <small>${escapeHtml(entry.notes)}</small>
                                 </div>
                             ` : ''}
                         </div>
@@ -430,7 +442,7 @@
         } catch (error) {
             console.error('Error loading history:', error);
             const errorMessage = error.message || 'Error desconocido';
-            container.innerHTML = `<p class="text-danger">Error al cargar el historial: ${errorMessage}</p>`;
+            container.innerHTML = `<p class="text-danger">Error al cargar el historial: ${escapeHtml(errorMessage)}</p>`;
         }
     }
 
@@ -467,15 +479,15 @@
                 const date = new Date(ticket.created_at).toLocaleDateString('es-MX');
 
                 ticketsHtml += `
-                    <a href="/helpdesk/user/tickets/${ticket.id}"
+                    <a href="/help-desk/user/tickets/${ticket.id}"
                        class="list-group-item list-group-item-action"
                        target="_blank">
                         <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1">#${ticket.ticket_number}</h6>
-                            <small class="badge badge-${statusClass}">${ticket.status}</small>
+                            <h6 class="mb-1">#${escapeHtml(ticket.ticket_number)}</h6>
+                            <small class="badge bg-${statusClass}">${escapeHtml(ticket.status)}</small>
                         </div>
-                        <p class="mb-1">${ticket.title}</p>
-                        <small class="text-muted">${date}</small>
+                        <p class="mb-1">${escapeHtml(ticket.title)}</p>
+                        <small class="text-muted">${escapeHtml(date)}</small>
                     </a>
                 `;
             });
@@ -486,7 +498,7 @@
         } catch (error) {
             console.error('Error loading related tickets:', error);
             const errorMessage = error.message || 'Error desconocido';
-            container.innerHTML = `<p class="text-danger">Error al cargar los tickets: ${errorMessage}</p>`;
+            container.innerHTML = `<p class="text-danger">Error al cargar los tickets: ${escapeHtml(errorMessage)}</p>`;
             countBadge.textContent = '0';
         }
     }
@@ -527,13 +539,13 @@
 
             return `
                 <span class="warranty-indicator ${indicatorClass}"></span>
-                <i class="fas ${icon} mr-1"></i>
+                <i class="fas ${icon} me-1"></i>
                 ${daysRemaining} días restantes
             `;
         } else {
             return `
                 <span class="warranty-indicator expired"></span>
-                <i class="fas fa-times-circle mr-1 text-danger"></i>
+                <i class="fas fa-times-circle me-1 text-danger"></i>
                 <span class="text-danger">Vencida</span>
             `;
         }
@@ -549,11 +561,11 @@
         const daysUntil = Math.ceil((nextDate - now) / (1000 * 60 * 60 * 24));
 
         if (daysUntil < 0) {
-            return `<span class="text-danger"><i class="fas fa-exclamation-circle mr-1"></i>Vencido</span>`;
+            return `<span class="text-danger"><i class="fas fa-exclamation-circle me-1"></i>Vencido</span>`;
         } else if (daysUntil <= 7) {
-            return `<span class="text-warning"><i class="fas fa-clock mr-1"></i>En ${daysUntil} días</span>`;
+            return `<span class="text-warning"><i class="fas fa-clock me-1"></i>En ${daysUntil} días</span>`;
         } else {
-            return `<span class="text-success"><i class="fas fa-calendar-check mr-1"></i>En ${daysUntil} días</span>`;
+            return `<span class="text-success"><i class="fas fa-calendar-check me-1"></i>En ${daysUntil} días</span>`;
         }
     }
 
@@ -589,19 +601,19 @@
     }
 
     function showLoading() {
-        document.getElementById('loading-state').style.display = 'block';
-        document.getElementById('empty-state').style.display = 'none';
-        document.getElementById('equipment-container').style.display = 'none';
+        document.getElementById('loading-state').classList.remove('d-none');
+        document.getElementById('empty-state').classList.add('d-none');
+        document.getElementById('equipment-container').classList.add('d-none');
     }
 
     function hideLoading() {
-        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('loading-state').classList.add('d-none');
     }
 
     function showEmptyState() {
         hideLoading();
-        document.getElementById('empty-state').style.display = 'block';
-        document.getElementById('equipment-container').style.display = 'none';
+        document.getElementById('empty-state').classList.remove('d-none');
+        document.getElementById('equipment-container').classList.add('d-none');
     }
 
     function showSuccess(message) {

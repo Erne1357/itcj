@@ -37,4 +37,10 @@
 
     /* Transición estándar */
     --hd-transition: 0.18s ease;
+
+    /* Gradiente de acento (paleta AZUL Bootstrap). Reemplaza los gradientes
+       hardcodeados (morado #667eea→#764ba2 y variantes) que vivían inline en
+       inventory/. Definido UNA vez aquí; deriva de --bs-primary para converger
+       al tema. Ver docs/auditoria_ui_helpdesk.md §8.5. */
+    --hd-gradient-accent: linear-gradient(135deg, var(--bs-primary, #0d6efd) 0%, #0a58ca 100%);
 }

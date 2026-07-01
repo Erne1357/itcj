@@ -20,15 +20,15 @@
         <div class="d-flex gap-2 flex-wrap align-items-center">
             <!-- Selector de departamento (visible solo con perm cross-dept) -->
             <div id="dept-selector-wrapper" class="d-none">
-                <label class="small mb-0 mr-1 text-muted">Departamento:</label>
-                <select id="dept-selector" class="form-control form-control-sm" style="min-width:240px;">
+                <label class="small mb-0 me-1 text-muted">Departamento:</label>
+                <select id="dept-selector" class="form-select form-select-sm hd-dept-select">
                     <option value="">Cargando...</option>
                 </select>
             </div>
             <button class="btn btn-outline-primary btn-sm" onclick="refreshData()">
                 <i class="fas fa-sync-alt"></i><span class="d-none d-sm-inline"> Actualizar</span>
             </button>
-            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" class="btn btn-outline-secondary btn-sm">
+            <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.items_list')) }} class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-list"></i><span class="d-none d-sm-inline"> Inventario</span>
             </a>
         </div>
@@ -41,31 +41,31 @@
     </div>
 
     <!-- Main Content -->
-    <div id="main-content" style="display: none;">
+    <div id="main-content" class="d-none">
 
         <!-- Estadísticas Rápidas -->
         <div class="row mb-3 mb-md-4 g-2">
             <div class="col-6 col-md-3">
-                <div class="stats-card" style="padding: 0.75rem;">
-                    <div class="stats-number" id="stat-total-users" style="font-size: 1.5rem;">0</div>
+                <div class="stats-card">
+                    <div class="stats-number" id="stat-total-users">0</div>
                     <div class="small">Usuarios</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
-                <div class="stats-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 0.75rem;">
-                    <div class="stats-number" id="stat-total-equipment" style="font-size: 1.5rem;">0</div>
+                <div class="stats-card">
+                    <div class="stats-number" id="stat-total-equipment">0</div>
                     <div class="small"><span class="d-none d-sm-inline">Equipos </span>Totales</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
-                <div class="stats-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 0.75rem;">
-                    <div class="stats-number" id="stat-assigned" style="font-size: 1.5rem;">0</div>
+                <div class="stats-card">
+                    <div class="stats-number" id="stat-assigned">0</div>
                     <div class="small">Asignados</div>
                 </div>
             </div>
             <div class="col-6 col-md-3">
-                <div class="stats-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 0.75rem;">
-                    <div class="stats-number" id="stat-available" style="font-size: 1.5rem;">0</div>
+                <div class="stats-card">
+                    <div class="stats-number" id="stat-available">0</div>
                     <div class="small">Disponibles</div>
                 </div>
             </div>
@@ -78,15 +78,15 @@
             <div class="col-lg-5 mb-4">
                 <div class="card shadow h-100">
                     <div class="card-header py-3 d-flex justify-content-between align-items-center flex-wrap gap-1">
-                        <h6 class="m-0 font-weight-bold text-primary">
+                        <h6 class="m-0 fw-bold text-primary">
                             <i class="fas fa-users"></i> Usuarios del Departamento
                         </h6>
                         <div class="d-flex align-items-center gap-2">
-                            <div class="custom-control custom-switch mb-0" title="Mostrar también cuentas inactivas (usuarios aux creados para inventario)">
-                                <input type="checkbox" class="custom-control-input" id="toggle-inactive-users"
+                            <div class="form-check form-switch mb-0" title="Mostrar también cuentas inactivas (usuarios aux creados para inventario)">
+                                <input type="checkbox" class="form-check-input" id="toggle-inactive-users"
                                        checked
                                        onchange="toggleInactiveUsers(this.checked)">
-                                <label class="custom-control-label small text-muted" for="toggle-inactive-users">
+                                <label class="form-check-label small text-muted" for="toggle-inactive-users">
                                     Incluir inactivos
                                 </label>
                             </div>
@@ -96,13 +96,13 @@
                     <div class="card-body">
 
                         <!-- Búsqueda de Usuarios -->
-                        <div class="form-group">
+                        <div class="mb-3">
                             <input type="text" class="form-control" id="search-users"
                                 placeholder="Buscar usuario por nombre o email...">
                         </div>
 
                         <!-- Lista de Usuarios -->
-                        <div id="users-list" style="max-height: 600px; overflow-y: auto;">
+                        <div id="users-list" class="hd-scroll-list">
                             <!-- Se llenará con JavaScript -->
                         </div>
 
@@ -114,7 +114,7 @@
             <div class="col-lg-7 mb-4">
                 <div class="card shadow h-100">
                     <div class="card-header py-3">
-                        <h6 class="m-0 font-weight-bold text-success" id="equipment-panel-title">
+                        <h6 class="m-0 fw-bold text-success" id="equipment-panel-title">
                             <i class="fas fa-laptop"></i> Seleccione un usuario
                         </h6>
                     </div>
@@ -128,7 +128,7 @@
                         </div>
 
                         <!-- Equipos del Usuario Seleccionado -->
-                        <div id="user-equipment-section" style="display: none;">
+                        <div id="user-equipment-section" class="d-none">
 
                             <!-- Equipos Asignados -->
                             <div class="mb-4">
@@ -136,7 +136,7 @@
                                     <h6 class="mb-0">
                                         <i class="fas fa-user-check text-info"></i>
                                         Equipos Asignados
-                                        <span class="badge bg-info text-dark ml-2" id="assigned-count">0</span>
+                                        <span class="badge bg-info text-dark ms-2" id="assigned-count">0</span>
                                     </h6>
                                 </div>
                                 <div id="assigned-equipment-list">
@@ -159,10 +159,10 @@
                                 </div>
 
                                 <!-- Filtros -->
-                                <div class="filter-section" id="equipment-filters" style="display: none;">
+                                <div class="filter-section d-none" id="equipment-filters">
                                     <div class="row">
                                         <div class="col-md-6">
-                                            <select class="form-control form-control-sm" id="filter-category">
+                                            <select class="form-select form-select-sm" id="filter-category">
                                                 <option value="">Todas las categorías</option>
                                                 <!-- Se llenará con JavaScript -->
                                             </select>
@@ -177,17 +177,17 @@
                                 <!-- Tabs de Equipos y Grupos -->
                                 <ul class="nav nav-tabs mt-3" id="equipmentTabs" role="tablist">
                                     <li class="nav-item">
-                                        <a class="nav-link active" id="individual-tab" data-toggle="tab"
+                                        <a class="nav-link active" id="individual-tab" data-bs-toggle="tab"
                                             href="#individual-equipment" role="tab">
                                             <i class="fas fa-laptop"></i> Equipos Individuales
-                                            <span class="badge bg-secondary text-white ml-1" id="individual-count">0</span>
+                                            <span class="badge bg-secondary text-white ms-1" id="individual-count">0</span>
                                         </a>
                                     </li>
                                     <li class="nav-item">
-                                        <a class="nav-link" id="groups-tab" data-toggle="tab" href="#groups-equipment"
+                                        <a class="nav-link" id="groups-tab" data-bs-toggle="tab" href="#groups-equipment"
                                             role="tab">
                                             <i class="fas fa-layer-group"></i> Grupos
-                                            <span class="badge bg-info text-dark ml-1" id="groups-count">0</span>
+                                            <span class="badge bg-info text-dark ms-1" id="groups-count">0</span>
                                         </a>
                                     </li>
                                 </ul>
@@ -227,9 +227,7 @@
                     <h5 class="modal-title">
                         <i class="fas fa-user-plus"></i> Confirmar Asignación
                     </h5>
-                    <button type="button" class="close" data-dismiss="modal">
-                        <span>&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <form id="assign-form">
                     <div class="modal-body">
@@ -241,21 +239,21 @@
                             <strong>Usuario:</strong> <span id="assign-user-name"></span>
                         </div>
 
-                        <div class="form-group">
-                            <label>Ubicación Específica</label>
+                        <div class="mb-3">
+                            <label class="form-label">Ubicación Específica</label>
                             <input type="text" class="form-control" id="assign-location"
                                 placeholder="Ej: Oficina 205, Cubículo 3...">
                             <small class="text-muted">Opcional: Especifica dónde estará el equipo</small>
                         </div>
 
-                        <div class="form-group">
-                            <label>Notas</label>
+                        <div class="mb-3">
+                            <label class="form-label">Notas</label>
                             <textarea class="form-control" id="assign-notes" rows="2"
                                 placeholder="Razón de la asignación (opcional)..."></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-success">
                             <i class="fas fa-check"></i> Confirmar Asignación
                         </button>
@@ -273,9 +271,7 @@
                     <h5 class="modal-title">
                         <i class="fas fa-user-times"></i> Confirmar Liberación
                     </h5>
-                    <button type="button" class="close" data-dismiss="modal">
-                        <span>&times;</span>
-                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <form id="unassign-form">
                     <div class="modal-body">
@@ -290,14 +286,14 @@
                         <p><strong>Equipo:</strong> <span id="unassign-item-name"></span></p>
                         <p><strong>Usuario actual:</strong> <span id="unassign-user-name"></span></p>
 
-                        <div class="form-group">
-                            <label>Razón de la liberación</label>
+                        <div class="mb-3">
+                            <label class="form-label">Razón de la liberación</label>
                             <textarea class="form-control" id="unassign-notes" rows="2"
                                 placeholder="Explique por qué se libera el equipo..."></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-warning">
                             <i class="fas fa-check"></i> Liberar Equipo
                         </button>
@@ -313,9 +309,7 @@
                     <h5 class="modal-title">
                         <i class="fas fa-layer-group"></i> Seleccionar Equipo del Grupo
                     </h5>
-                    <button type="button" class="close text-white" data-dismiss="modal">
-                        <span>&times;</span>
-                    </button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="selected-group-id">
@@ -323,22 +317,22 @@
                     <!-- Info del Grupo -->
                     <div class="alert alert-info mb-3">
                         <div class="d-flex align-items-center">
-                            <i class="fas fa-door-open fa-2x mr-3"></i>
+                            <i class="fas fa-door-open fa-2x me-3"></i>
                             <div>
-                                <h6 class="mb-0 font-weight-bold" id="group-modal-name">Nombre del Grupo</h6>
+                                <h6 class="mb-0 fw-bold" id="group-modal-name">Nombre del Grupo</h6>
                                 <small id="group-modal-description">Descripción</small>
                             </div>
                         </div>
                     </div>
 
                     <!-- Búsqueda en grupo -->
-                    <div class="form-group">
+                    <div class="mb-3">
                         <input type="text" class="form-control" id="search-group-equipment"
                             placeholder="Buscar en el grupo...">
                     </div>
 
                     <!-- Lista de equipos del grupo -->
-                    <div id="group-equipment-list" style="max-height: 400px; overflow-y: auto;">
+                    <div id="group-equipment-list" class="hd-scroll-modal">
                         <div class="text-center py-4">
                             <i class="fas fa-spinner fa-spin fa-2x text-info"></i>
                             <p class="text-muted mt-2">Cargando equipos...</p>
@@ -346,7 +340,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cerrar</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
                 </div>
             </div>
         </div>
