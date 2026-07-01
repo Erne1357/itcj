@@ -1,17 +1,19 @@
 /* Help-Desk - Centro de Cómputo ITCJ */
 /* Nota: Las variables y clases CSS mantienen el prefijo "sitec" por compatibilidad */
 
-/* ── Paleta (corregido 2026-07-01) ──────────────────────────────────────────
-   DOS ejes, no uno:
-   1) MARCA SITEC = VERDE (#059669/#10b981) → header de base_helpdesk, home_landing
-      y el gradiente .sitec-bg. Vive en --app-*/--sitec-* (los 62 usos legacy). Es
-      el look de marca que el usuario quiere conservar en verde.
-   2) PRIMARY de COMPONENTES = AZUL Bootstrap (--bs-primary) → lo usan las 7 vistas
-      de tickets + inventory + warehouse ya migrados vía CLASES Bootstrap (btn-primary,
-      badge bg-*), NO vía estos vars. Por eso restaurar el verde aquí NO afecta esas
-      vistas. Los dos bloques :root previos se unieron en uno. Ver §8.5. */
+/* Paleta (corregido 2026-07-01) - DOS ejes, no uno:
+   1) MARCA SITEC = VERDE (#059669 / #10b981): header de base_helpdesk, home_landing
+      y el gradiente .sitec-bg. Vive en los tokens legacy --app- y --sitec- (62 usos).
+      Es el look de marca que el usuario quiere conservar en verde.
+   2) PRIMARY de COMPONENTES = AZUL Bootstrap (--bs-primary): lo usan las 7 vistas de
+      tickets + inventory + warehouse ya migrados via CLASES Bootstrap (btn-primary,
+      badge bg-...), NO via estos vars. Por eso restaurar el verde aqui NO afecta esas
+      vistas. Los dos bloques :root previos se unieron en uno. Ver seccion 8.5.
+   NOTA: no escribir la secuencia de cierre-de-comentario dentro de un comentario
+   (p.ej. "app-" + "/" pegado a un asterisco) porque corta el comentario y rompe el
+   :root siguiente -> las variables quedan indefinidas y los verdes se ven blancos. */
 :root {
-  /* Marca SITEC = VERDE (restaurado; el barrido lo había aliaseado a azul por error) */
+  /* Marca SITEC = VERDE (restaurado; el barrido lo habia aliaseado a azul por error) */
   --app-primary: #059669;
   --app-primary-dark: #047857;
   --app-primary-light: #ecfdf5;
