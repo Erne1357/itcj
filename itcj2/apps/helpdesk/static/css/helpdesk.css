@@ -1,23 +1,26 @@
 /* Help-Desk - Centro de Cómputo ITCJ */
 /* Nota: Las variables y clases CSS mantienen el prefijo "sitec" por compatibilidad */
 
-/* ── Paleta ÚNICA = AZUL Bootstrap (decisión 2026-07-01, cierre bloque E-G) ────
-   Los tokens legacy --app-*/--sitec- (antes verde SITEC #059669) quedan como
-   ALIAS de los canónicos: color = Bootstrap --bs-*, neutrales = helpdesk-tokens
-   --hd-*. Así el CSS viejo que aún los referencia (62 usos en 7 archivos) converge
-   al tema azul sin editar cada archivo. Los dos bloques :root previos se unieron
-   en uno. Ver docs/auditoria_ui_helpdesk.md §8.5. */
+/* ── Paleta (corregido 2026-07-01) ──────────────────────────────────────────
+   DOS ejes, no uno:
+   1) MARCA SITEC = VERDE (#059669/#10b981) → header de base_helpdesk, home_landing
+      y el gradiente .sitec-bg. Vive en --app-*/--sitec-* (los 62 usos legacy). Es
+      el look de marca que el usuario quiere conservar en verde.
+   2) PRIMARY de COMPONENTES = AZUL Bootstrap (--bs-primary) → lo usan las 7 vistas
+      de tickets + inventory + warehouse ya migrados vía CLASES Bootstrap (btn-primary,
+      badge bg-*), NO vía estos vars. Por eso restaurar el verde aquí NO afecta esas
+      vistas. Los dos bloques :root previos se unieron en uno. Ver §8.5. */
 :root {
-  /* Marca (verde legacy → azul Bootstrap) */
-  --app-primary: var(--bs-primary, #0d6efd);
-  --app-primary-dark: #0a58ca;
-  --app-primary-light: #cfe2ff;
-  --sitec-primary: var(--bs-primary, #0d6efd);
-  --sitec-secondary: #0a58ca;
-  --sitec-accent: var(--bs-info, #0dcaf0);
-  --sitec-danger: var(--bs-danger, #dc3545);
-  --sitec-warning: var(--bs-warning, #ffc107);
-  --sitec-success: var(--bs-success, #198754);
+  /* Marca SITEC = VERDE (restaurado; el barrido lo había aliaseado a azul por error) */
+  --app-primary: #059669;
+  --app-primary-dark: #047857;
+  --app-primary-light: #ecfdf5;
+  --sitec-primary: #059669;
+  --sitec-secondary: #10b981;
+  --sitec-accent: #0891b2;
+  --sitec-danger: #dc2626;
+  --sitec-warning: #f59e0b;
+  --sitec-success: #10b981;
   /* Neutrales (alias directo de --hd-*; mismo valor, sin cambio visual) */
   --sitec-light: var(--hd-surface-2, #f8fafc);
   --sitec-dark: var(--hd-dark, #374151);
