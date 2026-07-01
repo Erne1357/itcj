@@ -1,6 +1,8 @@
 /**
- * Detalle de Grupo de Equipos
- * Visualización y gestión de equipos dentro de un grupo
+ * Detalle de Grupo de Equipos (isla de cliente).
+ * Migrado a BS5 (modales con bootstrap.Modal, sin jQuery) y a clases d-none en
+ * lugar de style.display inline. Sigue siendo render de cliente (isla §4.3): la
+ * tabla de equipos y las capacidades se pintan con fetch → innerHTML.
  */
 
 (function () {
@@ -20,7 +22,6 @@
     let _selectAllHandler = null;
     let _selectAllAvailableHandler = null;
     let _deleteRedirectHandle = null;
-    let _addEquipmentModal = null;
 
     // === HELPERS ===
     function debounce(func, wait) {
@@ -31,21 +32,41 @@
         };
     }
 
+    function show(id) { document.getElementById(id)?.classList.remove('d-none'); }
+    function hide(id) { document.getElementById(id)?.classList.add('d-none'); }
+
+    function getAddEquipmentModal() {
+        return bootstrap.Modal.getOrCreateInstance(document.getElementById('addEquipmentModal'));
+    }
+
+    function goToGroups(delayMs) {
+        const go = () => {
+            if (window.HelpdeskPage && typeof window.HelpdeskPage.navigate === 'function') {
+                window.HelpdeskPage.navigate('/help-desk/inventory/groups');
+            } else {
+                window.location.href = '/help-desk/inventory/groups';
+            }
+        };
+        if (delayMs) {
+            _deleteRedirectHandle = setTimeout(go, delayMs);
+        } else {
+            go();
+        }
+    }
+
     // ==================== CARGAR DATOS ====================
     async function loadGroupDetail() {
         showLoading();
 
         try {
             const response = await fetch(`/api/help-desk/v2/inventory/groups/${GROUP_ID}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                }
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
 
             if (!response.ok) {
                 if (response.status === 404) {
                     showError('Grupo no encontrado');
-                    _deleteRedirectHandle = setTimeout(() => window.location.href = '/help-desk/inventory/groups', 2000);
+                    goToGroups(2000);
                     return;
                 }
                 throw new Error('Error al cargar grupo');
@@ -54,8 +75,6 @@
             const result = await response.json();
             currentGroup = result.data;
 
-            console.log('Grupo cargado:', result);
-
             renderGroupHeader();
             renderStatistics();
             renderCapacities();
@@ -63,17 +82,14 @@
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`No se pudo cargar el grupo: ${errorMessage}`);
+            showError(`No se pudo cargar el grupo: ${error.message || 'Error desconocido'}`);
         }
     }
 
     async function loadCategories() {
         try {
             const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                }
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
 
             if (!response.ok) throw new Error('Error al cargar categorías');
@@ -85,6 +101,7 @@
             const filters = ['equipment-category-filter', 'available-category-filter'];
             filters.forEach(filterId => {
                 const select = document.getElementById(filterId);
+                if (!select) return;
                 select.innerHTML = '<option value="">Todas las categorías</option>';
                 allCategories.forEach(cat => {
                     const option = document.createElement('option');
@@ -100,15 +117,13 @@
     }
 
     async function loadGroupEquipment() {
-        document.getElementById('equipment-loading').style.display = 'block';
-        document.getElementById('equipment-table-container').style.display = 'none';
-        document.getElementById('equipment-empty').style.display = 'none';
+        show('equipment-loading');
+        hide('equipment-table-container');
+        hide('equipment-empty');
 
         try {
             const response = await fetch(`/api/help-desk/v2/inventory/selection/by-group/${GROUP_ID}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                }
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
 
             if (!response.ok) throw new Error('Error al cargar equipos');
@@ -120,19 +135,18 @@
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`No se pudieron cargar los equipos del grupo: ${errorMessage}`);
+            showError(`No se pudieron cargar los equipos del grupo: ${error.message || 'Error desconocido'}`);
         } finally {
-            document.getElementById('equipment-loading').style.display = 'none';
+            hide('equipment-loading');
         }
     }
 
     async function loadAvailableEquipment() {
         if (!currentGroup) return;
 
-        document.getElementById('available-equipment-loading').style.display = 'block';
-        document.getElementById('available-equipment-container').style.display = 'none';
-        document.getElementById('available-equipment-empty').style.display = 'none';
+        show('available-equipment-loading');
+        hide('available-equipment-container');
+        hide('available-equipment-empty');
 
         try {
             const params = new URLSearchParams({
@@ -147,9 +161,7 @@
             if (categoryId) params.append('category_id', categoryId);
 
             const response = await fetch(`/api/help-desk/v2/inventory/items?${params}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                }
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
 
             if (!response.ok) throw new Error('Error al cargar equipos disponibles');
@@ -161,22 +173,21 @@
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`No se pudieron cargar los equipos disponibles: ${errorMessage}`);
+            showError(`No se pudieron cargar los equipos disponibles: ${error.message || 'Error desconocido'}`);
         } finally {
-            document.getElementById('available-equipment-loading').style.display = 'none';
+            hide('available-equipment-loading');
         }
     }
 
     // ==================== RENDERIZADO ====================
     function renderGroupHeader() {
-        const typeInfo = getGroupTypeInfo(currentGroup.type);
+        const typeInfo = getGroupTypeInfo(currentGroup.group_type);
 
-        document.getElementById('group-icon').className = typeInfo.icon + ' mr-2';
+        document.getElementById('group-icon').className = typeInfo.icon + ' me-2';
         document.getElementById('group-name').textContent = currentGroup.name;
         document.getElementById('group-description').textContent = currentGroup.description || '';
         document.getElementById('group-type-badge').textContent = typeInfo.label;
-        document.getElementById('group-type-badge').className = `badge bg-${typeInfo.color} text-white mr-2`;
+        document.getElementById('group-type-badge').className = `badge bg-${typeInfo.color} text-white me-2`;
         document.getElementById('group-department').textContent = currentGroup.department?.name || 'N/A';
 
         // Ubicación
@@ -187,7 +198,7 @@
             if (currentGroup.location_notes) locationText += ` (${currentGroup.location_notes})`;
 
             document.getElementById('location-text').textContent = locationText;
-            document.getElementById('location-info').style.display = 'block';
+            show('location-info');
         }
 
         hideLoading();
@@ -223,7 +234,7 @@
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <div>
-                        <i class="${category?.icon || 'fas fa-box'} mr-2"></i>
+                        <i class="${category?.icon || 'fas fa-box'} me-2"></i>
                         <strong>${category?.name || 'N/A'}</strong>
                     </div>
                     <div>
@@ -250,11 +261,14 @@
         const tbody = document.querySelector('#equipment-table tbody');
 
         if (equipment.length === 0) {
-            document.getElementById('equipment-empty').style.display = 'block';
+            hide('equipment-table-container');
+            show('equipment-empty');
+            if (tbody) tbody.innerHTML = '';
             return;
         }
 
-        document.getElementById('equipment-table-container').style.display = 'block';
+        hide('equipment-empty');
+        show('equipment-table-container');
 
         tbody.innerHTML = equipment.map(item => {
             const statusBadge = getStatusBadge(item.status);
@@ -273,16 +287,16 @@
                     </td>
                 ` : ''}
                 <td>
-                    <a href="/help-desk/inventory/items/${item.id}" class="font-weight-bold">
+                    <a href="/help-desk/inventory/items/${item.id}" class="fw-bold">
                         ${item.inventory_number}
                     </a>
                 </td>
                 <td>
-                    <i class="${category?.icon || 'fas fa-box'} mr-1"></i>
+                    <i class="${category?.icon || 'fas fa-box'} me-1"></i>
                     <small>${category?.name || 'N/A'}</small>
                 </td>
                 <td>
-                    <div class="font-weight-bold">${item.brand || 'N/A'}</div>
+                    <div class="fw-bold">${item.brand || 'N/A'}</div>
                     <small class="text-muted">${item.model || ''}</small>
                 </td>
                 <td>
@@ -319,11 +333,14 @@
         const tbody = document.getElementById('available-equipment-tbody');
 
         if (equipment.length === 0) {
-            document.getElementById('available-equipment-empty').style.display = 'block';
+            hide('available-equipment-container');
+            show('available-equipment-empty');
+            if (tbody) tbody.innerHTML = '';
             return;
         }
 
-        document.getElementById('available-equipment-container').style.display = 'block';
+        hide('available-equipment-empty');
+        show('available-equipment-container');
 
         tbody.innerHTML = equipment.map(item => {
             const statusBadge = getStatusBadge(item.status);
@@ -341,14 +358,14 @@
                 </td>
                 <td>${item.inventory_number}</td>
                 <td>
-                    <i class="${category?.icon || 'fas fa-box'} mr-1"></i>
+                    <i class="${category?.icon || 'fas fa-box'} me-1"></i>
                     ${category?.name || 'N/A'}
                 </td>
                 <td>
                     ${item.brand || 'N/A'} ${item.model || ''}
                 </td>
                 <td>
-                    <span class="badge bg-${statusBadge.color} text-white ">
+                    <span class="badge bg-${statusBadge.color} text-white">
                         ${statusBadge.text}
                     </span>
                 </td>
@@ -387,7 +404,7 @@
     // ==================== ACCIONES ====================
     function openAddEquipmentModal() {
         loadAvailableEquipment();
-        $('#addEquipmentModal').modal('show');
+        getAddEquipmentModal().show();
     }
 
     async function addSelectedEquipment() {
@@ -411,20 +428,18 @@
             });
 
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Error al agregar equipos');
+                const error = await response.json().catch(() => ({}));
+                throw new Error((error.detail && error.detail.error) || error.error || 'Error al agregar equipos');
             }
 
-            $('#addEquipmentModal').modal('hide');
+            getAddEquipmentModal().hide();
             showSuccess(`${itemIds.length} equipo(s) agregado(s) al grupo`);
 
-            // Recargar
             loadGroupDetail();
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`Error al agregar equipos: ${errorMessage}`);
+            showError(`Error al agregar equipos: ${error.message || 'Error desconocido'}`);
         }
     }
 
@@ -434,13 +449,11 @@
         try {
             const response = await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                }
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
 
             if (!response.ok) {
-                const error = await response.json();
+                const error = await response.json().catch(() => ({}));
                 throw new Error(error.detail?.error || error.error || 'Error al remover equipo');
             }
 
@@ -449,8 +462,7 @@
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`Error al agregar equipos: ${errorMessage}`);
+            showError(`Error al remover equipo: ${error.message || 'Error desconocido'}`);
         }
     }
 
@@ -471,9 +483,7 @@
             for (const itemId of itemIds) {
                 await fetch(`/api/help-desk/v2/inventory/groups/unassign-item/${itemId}`, {
                     method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-                    }
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
                 });
             }
 
@@ -482,8 +492,7 @@
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`Error al remover equipos: ${errorMessage}`);
+            showError(`Error al remover equipos: ${error.message || 'Error desconocido'}`);
         }
     }
 
@@ -491,7 +500,7 @@
         const checked = document.querySelectorAll('.equipment-item-checkbox:checked').length;
         const btn = document.getElementById('remove-selected-btn');
         if (btn) {
-            btn.style.display = checked > 0 ? 'inline-block' : 'none';
+            btn.classList.toggle('d-none', checked === 0);
             btn.textContent = `Remover ${checked} Seleccionado(s)`;
         }
     }
@@ -502,7 +511,12 @@
     }
 
     function editGroup() {
-        window.location.href = `/help-desk/inventory/groups?edit=${GROUP_ID}`;
+        const url = `/help-desk/inventory/groups?edit=${GROUP_ID}`;
+        if (window.HelpdeskPage && typeof window.HelpdeskPage.navigate === 'function') {
+            window.HelpdeskPage.navigate(url);
+        } else {
+            window.location.href = url;
+        }
     }
 
     async function confirmDeleteGroup() {
@@ -518,17 +532,16 @@
             });
 
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Error al eliminar grupo');
+                const error = await response.json().catch(() => ({}));
+                throw new Error((error.detail && error.detail.error) || error.error || 'Error al eliminar grupo');
             }
 
             showSuccess('Grupo eliminado');
-            _deleteRedirectHandle = setTimeout(() => window.location.href = '/help-desk/inventory/groups', 1500);
+            goToGroups(1500);
 
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = error.message || 'Error desconocido';
-            showError(`Error al agregar equipos: ${errorMessage}`);
+            showError(`Error al eliminar grupo: ${error.message || 'Error desconocido'}`);
         }
     }
 
@@ -558,22 +571,17 @@
     }
 
     function showLoading() {
-        document.getElementById('loading-container').style.display = 'block';
-        document.getElementById('main-content').style.display = 'none';
+        show('loading-container');
+        hide('main-content');
     }
 
     function hideLoading() {
-        document.getElementById('loading-container').style.display = 'none';
-        document.getElementById('main-content').style.display = 'block';
+        hide('loading-container');
+        show('main-content');
     }
 
-    function showSuccess(message) {
-        showToast(message, 'success');
-    }
-
-    function showError(message) {
-        showToast(message, 'error');
-    }
+    function showSuccess(message) { showToast(message, 'success'); }
+    function showError(message) { showToast(message, 'error'); }
 
     // ==================== HTMX PAGE LIFECYCLE ====================
     window.HelpdeskPage.page('inventory_groups_group_detail', {
@@ -639,8 +647,6 @@
             window.removeEquipmentFromGroup = removeEquipmentFromGroup;
             window.updateRemoveButton = updateRemoveButton;
             window.updateSelectedCount = updateSelectedCount;
-
-            _addEquipmentModal = $('#addEquipmentModal');
         },
 
         destroy() {
@@ -662,9 +668,9 @@
             if (selectAllEl && _selectAllHandler) selectAllEl.removeEventListener('change', _selectAllHandler);
             if (selectAllAvailableEl && _selectAllAvailableHandler) selectAllAvailableEl.removeEventListener('change', _selectAllAvailableHandler);
 
-            if (_addEquipmentModal) {
-                try { _addEquipmentModal.modal('dispose'); } catch (_) {}
-                _addEquipmentModal = null;
+            const modalEl = document.getElementById('addEquipmentModal');
+            if (modalEl) {
+                try { bootstrap.Modal.getInstance(modalEl)?.dispose(); } catch (_) { /* ignore */ }
             }
 
             // Clean up window functions

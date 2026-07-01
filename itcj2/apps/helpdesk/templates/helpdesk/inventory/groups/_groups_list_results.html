@@ -1,0 +1,130 @@
+{#
+  Fragmento de resultados de la lista de grupos de inventario. Devuelto por
+  GET /help-desk/inventory/groups cuando llega HX-Request (no boost) — filtros y
+  paginación. Reemplaza el innerHTML de #hd-groups-results. NO extiende base.
+
+  Contexto esperado: groups (list de dicts to_dict), total, current_page,
+  total_pages, user_roles, oob (bool). El color es siempre clase de Bootstrap;
+  la estructura/escala vienen de tokens (.hd-* en groups_list.css / components).
+#}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% set TYPE_INFO = {
+  'CLASSROOM':    {'icon': 'fas fa-chalkboard-teacher', 'label': 'Salón', 'color': 'primary'},
+  'LABORATORY':   {'icon': 'fas fa-flask', 'label': 'Laboratorio', 'color': 'success'},
+  'OFFICE':       {'icon': 'fas fa-briefcase', 'label': 'Oficina', 'color': 'info'},
+  'MEETING_ROOM': {'icon': 'fas fa-users', 'label': 'Sala', 'color': 'warning'},
+  'WORKSHOP':     {'icon': 'fas fa-tools', 'label': 'Taller', 'color': 'danger'},
+  'OTHER':        {'icon': 'fas fa-folder', 'label': 'Otro', 'color': 'secondary'}
+} %}
+
+{% if oob %}
+<span id="groupsCount" class="badge bg-secondary" hx-swap-oob="true">{{ total }} grupo{{ '' if total == 1 else 's' }}</span>
+{% endif %}
+
+{% if groups %}
+  <div class="row">
+    {% for g in groups %}
+      {% set ti = TYPE_INFO.get(g.group_type) or TYPE_INFO['OTHER'] %}
+      {% set cap_total = g.total_capacity or 0 %}
+      {% set cap_used = g.total_assigned or 0 %}
+      {% set pct = ((cap_used / cap_total * 100) | round | int) if cap_total > 0 else 0 %}
+      {% set bar = 'success' if pct <= 50 else ('warning' if pct <= 80 else 'danger') %}
+      {% set detail_url = '/help-desk/inventory/groups/' ~ g.id %}
+      <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card shadow-sm h-100 hd-group-card position-relative">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <div>
+                <h5 class="card-title mb-1">
+                  <i class="{{ ti.icon }} text-primary me-2"></i>
+                  <a href="{{ detail_url }}" class="stretched-link text-decoration-none text-reset" {{ hd_boost(detail_url) }}>{{ g.name }}</a>
+                </h5>
+                <small class="text-muted">
+                  <i class="fas fa-building me-1"></i>{{ g.department.name if g.department else 'Sin departamento' }}
+                </small>
+              </div>
+              <span class="badge bg-{{ ti.color }}">{{ ti.label }}</span>
+            </div>
+
+            {% if g.description %}
+              <p class="card-text text-muted small mb-3">{{ g.description | truncate(120, true, '…') }}</p>
+            {% endif %}
+
+            {% if g.building or g.floor %}
+              <div class="mb-3">
+                <small class="text-muted">
+                  <i class="fas fa-map-marker-alt me-1"></i>
+                  {%- if g.building %}Edificio {{ g.building }}{% endif -%}
+                  {%- if g.floor %} - Piso {{ g.floor }}{% endif -%}
+                </small>
+              </div>
+            {% endif %}
+
+            <div class="d-flex justify-content-around text-center border-top pt-3">
+              <div>
+                <div class="fw-bold fs-5">{{ cap_used }}</div>
+                <div class="text-muted text-uppercase small">Equipos</div>
+              </div>
+              <div>
+                <div class="fw-bold fs-5">{{ cap_total }}</div>
+                <div class="text-muted text-uppercase small">Capacidad</div>
+              </div>
+              <div>
+                <div class="fw-bold fs-5 text-{{ bar }}">{{ pct }}%</div>
+                <div class="text-muted text-uppercase small">Ocupación</div>
+              </div>
+            </div>
+
+            <div class="progress hd-group-progress mt-2">
+              <div class="progress-bar bg-{{ bar }}" role="progressbar" data-hd-width="{{ pct }}"
+                   aria-valuenow="{{ pct }}" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+
+            {% if g.capacities %}
+              <div class="mt-3">
+                <small class="text-muted d-block mb-2">Capacidades:</small>
+                <div class="d-flex flex-wrap gap-1">
+                  {% for cap in g.capacities[:3] %}
+                    <span class="badge bg-light text-dark">
+                      <i class="{{ cap.category.icon if cap.category else 'fas fa-box' }} me-1"></i>
+                      {{ cap.category.name if cap.category else 'N/A' }}: {{ cap.current_count }}/{{ cap.max_capacity }}
+                    </span>
+                  {% endfor %}
+                  {% if g.capacities | length > 3 %}
+                    <span class="badge bg-secondary">+{{ g.capacities | length - 3 }} más</span>
+                  {% endif %}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="card-footer bg-transparent border-top-0">
+            <div class="d-flex justify-content-between align-items-center">
+              <small class="text-muted"><i class="fas fa-calendar me-1"></i>{{ g.created_at | hd_date }}</small>
+              <div class="btn-group btn-group-sm hd-group-actions">
+                <a href="{{ detail_url }}" class="btn btn-outline-primary" title="Ver detalle" {{ hd_boost(detail_url) }}>
+                  <i class="fas fa-eye"></i>
+                </a>
+                {% if 'admin' in user_roles or 'department_head' in user_roles %}
+                <button type="button" class="btn btn-outline-secondary" data-action="edit-group" data-group-id="{{ g.id }}" title="Editar">
+                  <i class="fas fa-edit"></i>
+                </button>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if total_pages > 1 %}
+    <div class="d-flex justify-content-center py-3">
+      {{ pagination(current_page, total_pages, '/help-desk/inventory/groups', target='#hd-groups-results', include='#hd-filter-form') }}
+    </div>
+  {% endif %}
+{% else %}
+  {{ empty_state('fa-layer-group', 'No hay grupos', 'No hay grupos que coincidan con los filtros aplicados.') }}
+{% endif %}

@@ -1,31 +1,23 @@
-.group-card {
-    transition: transform 0.2s, box-shadow 0.2s;
-    cursor: pointer;
+/* Grupos de inventario — grid server-side.
+   Color = clases de Bootstrap (paleta azul); estructura/escala = tokens --hd-*.
+   Sin hex, sin estilos inline: las tarjetas/badges/paginación son componentes
+   de Bootstrap y heredan el tema de la app. */
+
+.hd-group-card {
+    transition: transform var(--hd-transition), box-shadow var(--hd-transition);
 }
-.group-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15) !important;
+.hd-group-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--hd-shadow-md);
 }
-.capacity-badge {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
+
+/* La btn-group de acciones debe quedar por encima del stretched-link de la tarjeta. */
+.hd-group-actions {
+    position: relative;
+    z-index: 2;
 }
-.group-stats {
-    display: flex;
-    justify-content: space-around;
-    padding: 1rem 0;
-    border-top: 1px solid #e3e6f0;
-}
-.group-stat {
-    text-align: center;
-}
-.group-stat-value {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #5a5c69;
-}
-.group-stat-label {
-    font-size: 0.75rem;
-    color: #858796;
-    text-transform: uppercase;
+
+/* Barra de ocupación (el ancho lo aplica el JS a partir de data-hd-width). */
+.hd-group-progress {
+    height: 6px;
 }

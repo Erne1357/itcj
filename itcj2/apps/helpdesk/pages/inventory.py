@@ -172,32 +172,156 @@ async def assign_equipment(
     })
 
 
+# Tipos de grupo (fuente única, reusada por el filtro server-side). Los colores
+# son clases semánticas de Bootstrap (paleta azul; el color lo dan las clases,
+# nunca hex). El fragmento _groups_list_results.html tiene su propio mapa de
+# icono/etiqueta para pintar cada tarjeta.
+_GROUP_TYPE_OPTIONS = [
+    ("", "Todos tipos"),
+    ("CLASSROOM", "Salón"),
+    ("LABORATORY", "Laboratorio"),
+    ("OFFICE", "Oficina"),
+    ("MEETING_ROOM", "Sala"),
+    ("WORKSHOP", "Taller"),
+    ("OTHER", "Otro"),
+]
+
+
+def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de grupos para la vista de inventario.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/type/department) server-side y pagina.
+    El scope (todos los grupos vs. solo los del depto del usuario) replica el del
+    endpoint API de grupos: acceso completo = admin/técnicos/secretaría CC.
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryGroup
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    from itcj2.core.models.department import Department
+    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    gtype = (p.get("type", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 24
+
+    _db = SessionLocal()
+    try:
+        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+        user_dept = get_user_department(_db, user_id)
+        user_dept_id = user_dept.id if user_dept else None
+
+        q = _db.query(InventoryGroup).filter_by(is_active=True)
+        if can_view_all:
+            if dept_param and dept_param.isdigit():
+                q = q.filter(InventoryGroup.department_id == int(dept_param))
+        else:
+            # Sin acceso global: solo grupos de su departamento (o ninguno).
+            q = q.filter(InventoryGroup.department_id == (user_dept_id or -1))
+
+        if gtype:
+            q = q.filter(InventoryGroup.group_type == gtype)
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryGroup.name.ilike(like),
+                InventoryGroup.code.ilike(like),
+                InventoryGroup.description.ilike(like),
+            ))
+
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        groups = (
+            q.order_by(InventoryGroup.name)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        groups_data = [g.to_dict(include_capacities=True) for g in groups]
+
+        # Departamentos: para el filtro (solo si ve todos) y para el select del modal.
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+        else:
+            departments = [user_dept] if user_dept else []
+        departments_data = [{"id": d.id, "name": d.name} for d in departments]
+    finally:
+        _db.close()
+
+    return {
+        "groups": groups_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "can_view_all": can_view_all,
+        "department_id": user_dept_id,
+        "departments": departments_data,
+        "f_search": search or "",
+        "f_type": gtype or "",
+        "f_department": dept_param or "",
+    }
+
+
 @router.get("/groups", name="helpdesk.pages.inventory.groups_list")
 async def groups_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_groups.page.list"])),
 ):
-    """Lista de grupos de equipos (salones, laboratorios)."""
-    from itcj2.core.services.departments_service import get_user_department
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    """Lista de grupos de equipos (salones, laboratorios).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (grid server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-groups-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
-    _db = SessionLocal()
-    try:
-        user_dept = get_user_department(_db, user_id)
-        department_id = user_dept.id if user_dept else None
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-    finally:
-        _db.close()
+    ctx = _query_groups_ctx(request, user_id, user_roles)
 
-    return render_helpdesk(request, "helpdesk/inventory/groups/groups_list.html", {
-        "user_roles": user_roles,
-        "can_view_all": can_view_all,
-        "department_id": department_id,
-        "active_page": "inventory_groups",
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/groups/_groups_list_results.html", ctx)
+
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    filter_fields = []
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-3", "selected": ctx["f_department"], "options": dept_options,
+        })
+    filter_fields.append({
+        "name": "type", "label": "Tipo", "icon": "fa-layer-group",
+        "col": "col-6 col-md-3", "selected": ctx["f_type"], "options": _GROUP_TYPE_OPTIONS,
     })
+
+    ctx.update({
+        "user_roles": user_roles,
+        "active_page": "inventory_groups",
+        "filter_fields": filter_fields,
+    })
+    return render_helpdesk(request, "helpdesk/inventory/groups/groups_list.html", ctx)
 
 
 @router.get("/groups/{group_id}", name="helpdesk.pages.inventory.group_detail")

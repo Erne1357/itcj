@@ -10,7 +10,7 @@
 <div class="container-fluid">
     <!-- Botón Volver -->
     <div class="mb-2 mb-md-3">
-        <a href="{{ url_for('helpdesk_pages.inventory_pages.groups_list') }}" class="btn btn-outline-secondary btn-sm">
+        <a href="{{ url_for('helpdesk_pages.inventory_pages.groups_list') }}" class="btn btn-outline-secondary btn-sm" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.groups_list')) }}>
             <i class="fas fa-arrow-left"></i><span class="d-none d-sm-inline"> Volver</span>
         </a>
     </div>
@@ -22,21 +22,21 @@
     </div>
 
     <!-- Contenido Principal -->
-    <div id="main-content" style="display: none;">
-        
+    <div id="main-content" class="d-none">
+
         <!-- Header del Grupo -->
-        <div class="group-header shadow mb-3 mb-md-4">
+        <div class="bg-primary text-white p-3 p-md-4 rounded shadow-sm mb-3 mb-md-4">
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                 <div>
                     <h1 class="h4 h3-md mb-1 mb-md-2">
-                        <i id="group-icon" class="fas fa-layer-group mr-2"></i>
+                        <i id="group-icon" class="fas fa-layer-group me-2"></i>
                         <span id="group-name">Cargando...</span>
                     </h1>
                     <p class="mb-0 opacity-75 small d-none d-sm-block" id="group-description"></p>
                     <div class="mt-2">
-                        <span class="badge bg-light text-dark badge-sm mr-2" id="group-type-badge"></span>
+                        <span class="badge bg-light text-dark me-2" id="group-type-badge"></span>
                         <span class="text-white-50 small">
-                            <i class="fas fa-building mr-1"></i>
+                            <i class="fas fa-building me-1"></i>
                             <span id="group-department"></span>
                         </span>
                     </div>
@@ -54,9 +54,9 @@
             </div>
 
             <!-- Ubicación -->
-            <div class="mt-2 mt-md-3" id="location-info" style="display: none;">
+            <div class="mt-2 mt-md-3 d-none" id="location-info">
                 <small>
-                    <i class="fas fa-map-marker-alt mr-1"></i>
+                    <i class="fas fa-map-marker-alt me-1"></i>
                     <span id="location-text"></span>
                 </small>
             </div>
@@ -65,17 +65,17 @@
         <!-- Estadísticas -->
         <div class="row mb-3 mb-md-4 g-2">
             <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-                <div class="card stat-card shadow h-100">
+                <div class="card border-start border-primary border-4 shadow-sm h-100">
                     <div class="card-body py-2 py-md-3">
                         <div class="d-flex align-items-center">
-                            <div class="mr-2 mr-md-3 d-none d-sm-block">
+                            <div class="me-2 me-md-3 d-none d-sm-block">
                                 <i class="fas fa-boxes fa-lg fa-md-2x text-primary"></i>
                             </div>
                             <div>
-                                <div class="text-xs font-weight-bold text-primary text-uppercase mb-1" style="font-size: 0.65rem;">
+                                <div class="text-xs fw-bold text-primary text-uppercase mb-1 hd-stat-label">
                                     <span class="d-none d-md-inline">Equipos </span>Totales
                                 </div>
-                                <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-total">0</div>
+                                <div class="h5 mb-0 fw-bold text-gray-800" id="stat-total">0</div>
                             </div>
                         </div>
                     </div>
@@ -83,17 +83,17 @@
             </div>
 
             <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-                <div class="card stat-card shadow h-100">
+                <div class="card border-start border-primary border-4 shadow-sm h-100">
                     <div class="card-body py-2 py-md-3">
                         <div class="d-flex align-items-center">
-                            <div class="mr-2 mr-md-3 d-none d-sm-block">
+                            <div class="me-2 me-md-3 d-none d-sm-block">
                                 <i class="fas fa-layer-group fa-lg fa-md-2x text-success"></i>
                             </div>
                             <div>
-                                <div class="text-xs font-weight-bold text-success text-uppercase mb-1" style="font-size: 0.65rem;">
+                                <div class="text-xs fw-bold text-success text-uppercase mb-1 hd-stat-label">
                                     <span class="d-none d-md-inline">Capacidad </span>Total
                                 </div>
-                                <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-capacity">0</div>
+                                <div class="h5 mb-0 fw-bold text-gray-800" id="stat-capacity">0</div>
                             </div>
                         </div>
                     </div>
@@ -101,17 +101,17 @@
             </div>
 
             <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-                <div class="card stat-card shadow h-100">
+                <div class="card border-start border-primary border-4 shadow-sm h-100">
                     <div class="card-body py-2 py-md-3">
                         <div class="d-flex align-items-center">
-                            <div class="mr-2 mr-md-3 d-none d-sm-block">
+                            <div class="me-2 me-md-3 d-none d-sm-block">
                                 <i class="fas fa-chart-pie fa-lg fa-md-2x text-warning"></i>
                             </div>
                             <div>
-                                <div class="text-xs font-weight-bold text-warning text-uppercase mb-1" style="font-size: 0.65rem;">
+                                <div class="text-xs fw-bold text-warning text-uppercase mb-1 hd-stat-label">
                                     Ocupación
                                 </div>
-                                <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-occupancy">0%</div>
+                                <div class="h5 mb-0 fw-bold text-gray-800" id="stat-occupancy">0%</div>
                             </div>
                         </div>
                     </div>
@@ -119,17 +119,17 @@
             </div>
 
             <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-                <div class="card stat-card shadow h-100">
+                <div class="card border-start border-primary border-4 shadow-sm h-100">
                     <div class="card-body py-2 py-md-3">
                         <div class="d-flex align-items-center">
-                            <div class="mr-2 mr-md-3 d-none d-sm-block">
+                            <div class="me-2 me-md-3 d-none d-sm-block">
                                 <i class="fas fa-tags fa-lg fa-md-2x text-info"></i>
                             </div>
                             <div>
-                                <div class="text-xs font-weight-bold text-info text-uppercase mb-1" style="font-size: 0.65rem;">
+                                <div class="text-xs fw-bold text-info text-uppercase mb-1 hd-stat-label">
                                     Categorías
                                 </div>
-                                <div class="h5 mb-0 font-weight-bold text-gray-800" id="stat-categories">0</div>
+                                <div class="h5 mb-0 fw-bold text-gray-800" id="stat-categories">0</div>
                             </div>
                         </div>
                     </div>
@@ -138,9 +138,9 @@
         </div>
 
         <!-- Capacidades por Categoría -->
-        <div class="card shadow mb-3 mb-md-4">
+        <div class="card shadow-sm mb-3 mb-md-4">
             <div class="card-header py-2 py-md-3">
-                <h6 class="m-0 font-weight-bold text-primary small">
+                <h6 class="m-0 fw-bold text-primary small">
                     <i class="fas fa-sliders-h"></i> <span class="d-none d-sm-inline">Capacidades por </span>Categoría
                 </h6>
             </div>
@@ -152,9 +152,9 @@
         </div>
 
         <!-- Equipos del Grupo -->
-        <div class="card shadow mb-3 mb-md-4">
+        <div class="card shadow-sm mb-3 mb-md-4">
             <div class="card-header py-2 py-md-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <h6 class="m-0 font-weight-bold text-primary small">
+                <h6 class="m-0 fw-bold text-primary small">
                     <i class="fas fa-boxes"></i> Equipos<span class="d-none d-sm-inline"> en este Grupo</span>
                 </h6>
                 <div>
@@ -162,7 +162,7 @@
                     <button class="btn btn-sm btn-success" onclick="openAddEquipmentModal()">
                         <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Agregar</span>
                     </button>
-                    <button class="btn btn-sm btn-danger" id="remove-selected-btn" style="display: none;" onclick="removeSelectedEquipment()">
+                    <button class="btn btn-sm btn-danger d-none" id="remove-selected-btn" onclick="removeSelectedEquipment()">
                         <i class="fas fa-trash"></i><span class="d-none d-sm-inline"> Remover</span>
                     </button>
                     {% endif %}
@@ -172,20 +172,20 @@
                 <!-- Filtros rápidos -->
                 <div class="row mb-2 mb-md-3 g-2">
                     <div class="col-12 col-md-4">
-                        <input 
-                            type="text" 
-                            class="form-control form-control-sm" 
-                            id="equipment-search" 
+                        <input
+                            type="text"
+                            class="form-control form-control-sm"
+                            id="equipment-search"
                             placeholder="Buscar equipos..."
                         >
                     </div>
                     <div class="col-6 col-md-3">
-                        <select class="form-control form-control-sm" id="equipment-category-filter">
+                        <select class="form-select form-select-sm" id="equipment-category-filter">
                             <option value="">Todas categorías</option>
                         </select>
                     </div>
                     <div class="col-6 col-md-3">
-                        <select class="form-control form-control-sm" id="equipment-status-filter">
+                        <select class="form-select form-select-sm" id="equipment-status-filter">
                             <option value="">Todos estados</option>
                             <option value="ACTIVE">Activo</option>
                             <option value="MAINTENANCE">Mantenimiento</option>
@@ -199,13 +199,13 @@
                     <i class="fas fa-spinner fa-spin"></i> Cargando equipos...
                 </div>
 
-                <div id="equipment-table-container" style="display: none;">
+                <div id="equipment-table-container" class="d-none">
                     <div class="table-responsive">
                         <table class="table table-hover" id="equipment-table">
                             <thead>
                                 <tr>
                                     {% if 'admin' in user_roles or 'department_head' in user_roles %}
-                                    <th style="width: 40px;">
+                                    <th class="hd-th-check">
                                         <input type="checkbox" id="select-all-equipment" class="equipment-checkbox">
                                     </th>
                                     {% endif %}
@@ -224,7 +224,7 @@
                     </div>
                 </div>
 
-                <div id="equipment-empty" style="display: none;" class="text-center py-3 py-md-5">
+                <div id="equipment-empty" class="d-none text-center py-3 py-md-5">
                     <i class="fas fa-inbox fa-2x fa-md-3x text-muted mb-2 mb-md-3"></i>
                     <p class="text-muted small">No hay equipos en este grupo</p>
                     {% if 'admin' in user_roles or 'department_head' in user_roles %}
@@ -247,23 +247,21 @@
                 <h5 class="modal-title h6">
                     <i class="fas fa-plus-circle"></i> Agregar Equipos<span class="d-none d-sm-inline"> al Grupo</span>
                 </h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body py-2 py-md-3">
                 <!-- Filtros -->
                 <div class="row mb-2 mb-md-3 g-2">
                     <div class="col-12 col-md-4">
-                        <input 
-                            type="text" 
-                            class="form-control form-control-sm" 
-                            id="available-search" 
+                        <input
+                            type="text"
+                            class="form-control form-control-sm"
+                            id="available-search"
                             placeholder="Buscar equipos..."
                         >
                     </div>
                     <div class="col-6 col-md-4">
-                        <select class="form-control form-control-sm" id="available-category-filter">
+                        <select class="form-select form-select-sm" id="available-category-filter">
                             <option value="">Categorías</option>
                         </select>
                     </div>
@@ -279,12 +277,12 @@
                     <i class="fas fa-spinner fa-spin"></i> Cargando equipos disponibles...
                 </div>
 
-                <div id="available-equipment-container" style="display: none;">
-                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <div id="available-equipment-container" class="d-none">
+                    <div class="table-responsive hd-available-scroll">
                         <table class="table table-sm table-hover">
-                            <thead class="thead-light sticky-top">
+                            <thead class="table-light sticky-top">
                                 <tr>
-                                    <th style="width: 40px;">
+                                    <th class="hd-th-check">
                                         <input type="checkbox" id="select-all-available" class="equipment-checkbox">
                                     </th>
                                     <th>N° Inventario</th>
@@ -305,12 +303,12 @@
                     </div>
                 </div>
 
-                <div id="available-equipment-empty" style="display: none;" class="text-center py-3">
+                <div id="available-equipment-empty" class="d-none text-center py-3">
                     <p class="text-muted small">No hay equipos disponibles para este grupo</p>
                 </div>
             </div>
             <div class="modal-footer py-2">
-                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary btn-sm" onclick="addSelectedEquipment()">
                     <i class="fas fa-plus"></i><span class="d-none d-sm-inline"> Agregar Seleccionados</span>
                 </button>
