@@ -17,6 +17,30 @@ from sqlalchemy.orm import sessionmaker
 import itcj2.models  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _clear_authz_cache():
+    """Limpia el caché de authz en Redis ANTES de cada test.
+
+    Muchos tests parchean get_user_permissions_for_app / user_roles_in_app /
+    has_any_assignment esperando que se llamen. Pero cached_* leen Redis primero;
+    si un test previo dejó una entrada (kind, app, user), el patch se saltea por un
+    HIT stale y el test falla de forma no-determinista. Vaciar authz:v1:* antes de
+    cada test hace que cada uno vea un MISS y ejecute la función parcheada.
+
+    Best-effort: si Redis no está disponible, no rompe el test (fail-open).
+    """
+    try:
+        from itcj2.core.utils.redis_conn import get_redis
+        r = get_redis()
+        if r is not None:
+            keys = list(r.scan_iter(match="authz:v1:*", count=1000))
+            if keys:
+                r.delete(*keys)
+    except Exception:
+        pass
+    yield
+
+
 _DIRECT_PG_URL = "postgresql+psycopg2://postgres:password@postgres:5432/itcj"
 
 

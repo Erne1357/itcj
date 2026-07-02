@@ -32,6 +32,23 @@ CurrentUser = Annotated[dict, Depends(get_current_user)]
 OptionalUser = Annotated[dict | None, Depends(get_current_user_optional)]
 
 
+def is_global_admin(user: dict | None) -> bool:
+    """True si el JWT marca al usuario como admin global.
+
+    Tolera ambas formas del claim ``role``: string (login) y lista (tokens
+    refrescados por el bug histórico del middleware). Centralizar aquí evita que
+    los ~20 checks ``user.get("role") == "admin"`` diverjan.
+    """
+    if not user:
+        return False
+    role = user.get("role")
+    if isinstance(role, str):
+        return role == "admin"
+    if isinstance(role, (list, tuple, set)):
+        return "admin" in role
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Page dependencies (redirigen en lugar de retornar JSON de error)
 # ---------------------------------------------------------------------------
@@ -185,7 +202,7 @@ def require_perms(app_key: str, perms: list[str], *, allow_global_admin: bool = 
             raise HTTPException(status_code=401, detail="No autenticado")
 
         # Admin global por rol del JWT
-        if allow_global_admin and user.get("role") == "admin":
+        if allow_global_admin and is_global_admin(user):
             return user
 
         from itcj2.core.services.authz_cache import cached_has_assignment, cached_perms

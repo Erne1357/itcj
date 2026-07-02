@@ -69,19 +69,23 @@ class JWTMiddleware(BaseHTTPMiddleware):
 
         # Refrescar cookie si es necesario (misma lógica que Flask)
         if needs_refresh and data:
-            from itcj2.core.services.authz_service import user_roles_in_app
+            from itcj2.core.models.user import User
             from itcj2.database import SessionLocal
 
-            _refresh_roles: list[str] = []
+            # El claim `role` debe conservar el ROL GLOBAL string (como en login),
+            # no la lista de roles de la app 'itcj'. Muchos checks hacen
+            # `user.get("role") == "admin"`; una lista los rompía a mitad de sesión.
+            _global_role: str | None = None
+            _user_active = False
             _db = SessionLocal()
             try:
-                _refresh_roles = list(user_roles_in_app(_db, int(data["sub"]), "itcj"))
-                # Read-only path: release implicit BEGIN explicitly so pgbouncer
-                # no deja la conexión en "idle in transaction" si la tarea es
-                # cancelada por desconexión del cliente.
+                _u = _db.get(User, int(data["sub"]))
+                if _u is not None:
+                    _user_active = bool(_u.is_active)
+                    _global_role = _u.role.name if _u.role else None
                 _db.rollback()
             except Exception as e:
-                logger.warning("JWT refresh roles query failed: %s", e)
+                logger.warning("JWT refresh user query failed: %s", e)
                 try:
                     _db.rollback()
                 except Exception:
@@ -92,14 +96,14 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 except Exception:
                     pass
 
-            if not _refresh_roles:
-                # Si la consulta falló, no rotamos cookie. Mejor renovar en próximo request.
+            if not _user_active:
+                # Usuario inexistente/inactivo o consulta fallida: no rotamos.
                 return response
 
             new_token = _encode_jwt(
                 {
                     "sub": data["sub"],
-                    "role": _refresh_roles,
+                    "role": _global_role,
                     "cn": data.get("cn"),
                     "name": data.get("name"),
                 },

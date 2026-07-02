@@ -170,6 +170,8 @@ def delete_app(
 
     db.delete(a)
     db.commit()
+    from itcj2.core.services.authz_cache import invalidate_all
+    invalidate_all()  # el cascade quita grants; sin esto el caché sirve stale hasta TTL
     logger.info(f"App '{app_key}' eliminada por usuario {int(user['sub'])}")
 
 
@@ -229,6 +231,8 @@ def delete_role(
 
     db.delete(r)
     db.commit()
+    from itcj2.core.services.authz_cache import invalidate_all
+    invalidate_all()  # el cascade quita grants del rol; evita servir stale hasta TTL
     logger.info(f"Rol '{role_name}' eliminado por usuario {int(user['sub'])}")
 
 
@@ -290,6 +294,8 @@ def delete_perm(
 
     db.delete(perm)
     db.commit()
+    from itcj2.core.services.authz_cache import invalidate_all
+    invalidate_all()  # el cascade quita el perm de roles/usuarios/puestos
 
 
 # ── Role ⇄ Permission (por App) ───────────────────────────────────────────────
