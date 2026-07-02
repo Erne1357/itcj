@@ -61,7 +61,11 @@ def get_department(db: Session, dept_id: int):
     return db.get(Department, dept_id)
 
 
-def create_department(db: Session, code: str, name: str, description=None, parent_id=None, icon_class=None):
+def create_department(db: Session, code: str, name: str, description=None, parent_id=None,
+                      icon_class=None, is_official: bool = False):
+    """Crea un departamento. `is_official` False por defecto: lo creado en runtime por la
+    UI es un sub-departamento tuyo; los oficiales vienen del seed (todos True por migración).
+    Un admin puede pasar is_official=True para dar de alta uno oficial."""
     if db.query(Department).filter_by(code=code).first():
         raise ValueError("department_code_exists")
 
@@ -71,6 +75,7 @@ def create_department(db: Session, code: str, name: str, description=None, paren
         description=description,
         parent_id=parent_id,
         icon_class=icon_class,
+        is_official=is_official,
     )
     db.add(dept)
     db.commit()

@@ -17,6 +17,10 @@ class Department(Base):
     icon_class = Column(String(50), nullable=True)
     parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    # True = parte del organigrama OFICIAL del ITCJ (seed). False = sub-departamento
+    # creado por un admin desde la UI. No afecta el scope (que camina parent_id);
+    # sirve para que config distinga lo oficial (read-only) de lo tuyo (editable).
+    is_official = Column(Boolean, default=True, server_default=text("TRUE"), nullable=False, index=True)
     created_at = Column(DateTime, default=func.now(), server_default=text("NOW()"), nullable=False)
     updated_at = Column(DateTime, server_default=text("NOW()"), onupdate=func.now(), nullable=True)
 
@@ -78,6 +82,7 @@ class Department(Base):
             "description": self.description,
             "icon_class": self.icon_class or "bi-building",
             "is_active": self.is_active,
+            "is_official": self.is_official,
             "is_subdirection": self.is_subdirection(),
             "parent_id": self.parent_id,
             "positions_count": self.positions.filter_by(is_active=True).count(),

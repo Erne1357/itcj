@@ -21,12 +21,14 @@ class DepartmentCreateBody(BaseModel):
     description: Optional[str] = None
     parent_id: Optional[int] = None
     icon_class: Optional[str] = None
+    is_official: bool = False  # UI crea sub-departamentos tuyos; admin puede marcar oficial
 
 
 class DepartmentUpdateBody(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_official: Optional[bool] = None  # promover/degradar a oficial
     parent_id: Optional[int] = None
     icon_class: Optional[str] = None
 
@@ -175,6 +177,7 @@ def create_department(
             body.description.strip() if body.description else None,
             body.parent_id,
             body.icon_class.strip() if body.icon_class else None,
+            is_official=body.is_official,
         )
         logger.info(f"Departamento '{name}' creado por usuario {int(user['sub'])}")
         return {"status": "ok", "data": dept.to_dict()}
