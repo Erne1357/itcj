@@ -179,7 +179,7 @@ async def ticket_detail(
     ticket_id: int,
     user: dict = Depends(require_page_app(
         "helpdesk",
-        perms=["helpdesk.tickets.api.read.own", "helpdesk.tickets.api.read.all"],
+        perms=["helpdesk.tickets.api.read.own", "helpdesk.tickets.api.read.all", "helpdesk.tickets.api.read.subtree"],
     )),
 ):
     """Vista de detalle de un ticket específico."""

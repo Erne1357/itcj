@@ -336,19 +336,26 @@ def list_tickets(
         pass
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         pass
-    elif 'department_head' in user_roles:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=user_id,
-            is_active=True
-        ).first()
-
-        if user_position and user_position.position:
-            query = query.filter(Ticket.requester_department_id == user_position.position.department_id)
-        else:
-            query = query.filter(Ticket.id == -1)
     else:
-        query = query.filter(Ticket.requester_id == user_id)
+        # Scope departamental/subárbol: jefe de depto (su depto) + cualquiera que
+        # tenga helpdesk.tickets.api.read.subtree (su depto + sub-departamentos, por
+        # procedencia). Aditivo: sin .subtree, el jefe de depto ve su depto como antes.
+        from itcj2.core.services.departments_service import get_primary_user_department
+        from itcj2.core.services.scope_service import subtree_scope_for
+
+        dept_ids: set[int] = set()
+        if 'department_head' in user_roles:
+            _dept = get_primary_user_department(db, user_id)
+            if _dept:
+                dept_ids.add(_dept.id)
+        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+
+        if dept_ids:
+            query = query.filter(Ticket.requester_department_id.in_(dept_ids))
+        elif 'department_head' in user_roles:
+            query = query.filter(Ticket.id == -1)   # jefe sin depto resuelto → nada
+        else:
+            query = query.filter(Ticket.requester_id == user_id)   # dueño
 
     if status:
         if isinstance(status, list):
@@ -719,16 +726,19 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     if ticket.assigned_to_user_id == user_id:
         return True
 
-    if 'department_head' in user_roles:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=user_id,
-            is_active=True
-        ).first()
+    # Scope departamental/subárbol (debe seguir en sync con list_tickets).
+    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.scope_service import subtree_scope_for
 
-        if user_position and user_position.position:
-            if ticket.requester_department_id == user_position.position.department_id:
-                return True
+    dept_ids: set[int] = set()
+    if 'department_head' in user_roles:
+        _dept = get_primary_user_department(db, user_id)
+        if _dept:
+            dept_ids.add(_dept.id)
+    dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+
+    if ticket.requester_department_id in dept_ids:
+        return True
 
     return False
 
