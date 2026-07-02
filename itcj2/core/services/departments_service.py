@@ -73,6 +73,15 @@ def update_department(db: Session, dept_id: int, **kwargs):
     if not dept:
         raise ValueError("not_found")
 
+    if "parent_id" in kwargs and kwargs["parent_id"] is not None:
+        new_parent = kwargs["parent_id"]
+        if new_parent == dept_id:
+            raise ValueError("cycle_detected")
+        # No permitir anclar el dept bajo uno de sus propios descendientes.
+        from itcj2.core.services.hierarchy_service import descendant_department_ids
+        if new_parent in descendant_department_ids(db, dept_id, include_self=False):
+            raise ValueError("cycle_detected")
+
     for key, value in kwargs.items():
         if hasattr(dept, key):
             setattr(dept, key, value)

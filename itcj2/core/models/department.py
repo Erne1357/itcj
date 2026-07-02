@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text,
+)
 from sqlalchemy.orm import relationship, object_session
 from sqlalchemy.sql import func, text
 
@@ -13,9 +15,13 @@ class Department(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text)
     icon_class = Column(String(50), nullable=True)
-    parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True)
+    parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=func.now(), server_default=text("NOW()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_departments_no_self_parent"),
+    )
 
     positions = relationship("Position", back_populates="department", lazy="dynamic")
     parent = relationship("Department", remote_side=[id], backref="subdepartments")

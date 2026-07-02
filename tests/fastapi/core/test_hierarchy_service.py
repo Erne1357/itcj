@@ -32,11 +32,15 @@ def test_descendants_skip_inactive(db_session):
 
 
 def test_descendants_cycle_safe(db_session):
-    a = _mk(db_session, "hs_cyc")
-    a.parent_id = a.id
+    # El CHECK de BD ya impide self-parent; probamos un ciclo de 2 nodos (A->B->A)
+    # armado directo por ORM (evitando la validación del service). El depth-cap del
+    # CTE debe evitar el loop infinito y devolver un set acotado.
+    a = _mk(db_session, "hs_cyc_a")
+    b = _mk(db_session, "hs_cyc_b", parent=a.id)
+    a.parent_id = b.id  # cierra el ciclo (permitido por el CHECK: b != a)
     db_session.commit()
-    # No debe colgarse; incluye al menos el propio nodo.
-    assert a.id in hs.descendant_department_ids(db_session, a.id)
+    ids = hs.descendant_department_ids(db_session, a.id)  # no debe colgarse
+    assert a.id in ids and b.id in ids
 
 
 def test_leaf_returns_self(db_session):
