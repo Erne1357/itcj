@@ -385,7 +385,12 @@ def list_tickets(
         query = query.filter(Ticket.requester_id == user_id)
 
     if department_id:
-        query = query.filter(Ticket.requester_department_id == department_id)
+        # Filtro por departamento = su SUBÁRBOL (depto + sub-departamentos), coherente
+        # con el scope jerárquico. Un depto sin hijos = sólo él (comportamiento previo).
+        from itcj2.core.services.hierarchy_service import descendant_department_ids
+        query = query.filter(
+            Ticket.requester_department_id.in_(descendant_department_ids(db, department_id, include_self=True))
+        )
 
     if search:
         search_term = f"%{search}%"
