@@ -509,7 +509,17 @@ def add_user_perm(
         raise HTTPException(400, detail={"status": "error", "error": "code_required"})
 
     changed = svc.grant_perm(db, user_id, app_key, code, allow=body.allow)
-    return {"status": "ok", "data": {"updated": bool(changed)}}
+    resp = {"status": "ok", "data": {"updated": bool(changed)}}
+
+    # Guardrail: un perm de scope departamental (.subtree) sin puesto que lo respalde
+    # no tiene ancla → no surte efecto (fail-closed). Avisamos para no dejar un
+    # permiso muerto silencioso. Ver spec org-scoped-authz §3.6.
+    if body.allow and code.endswith(".subtree"):
+        from itcj2.core.services.scope_service import granting_departments
+        if not granting_departments(db, user_id, app_key, code):
+            resp["warning"] = "scope_departamental_sin_puesto"
+
+    return resp
 
 
 @router.delete("/apps/{app_key}/users/{user_id}/perms/{code}", status_code=204)
