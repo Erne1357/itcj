@@ -56,6 +56,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         token = request.cookies.get("itcj_token")
         data = _decode_jwt(token)
+
+        # Revocación de sesión: si el token trae claim `sv` y no coincide con la
+        # versión vigente del usuario, está revocado (logout/desactivación/cambio de
+        # rol). Tokens viejos sin `sv` no se revisan (compat). Fail-open si Redis cae.
+        if data and "sv" in data:
+            try:
+                from itcj2.core.services.session_service import current_version
+                if int(data.get("sv", 0)) != current_version(int(data["sub"])):
+                    data = None
+            except Exception:
+                pass
+
         request.state.current_user = data
 
         # Detectar si el token necesita refresh
@@ -100,12 +112,14 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 # Usuario inexistente/inactivo o consulta fallida: no rotamos.
                 return response
 
+            from itcj2.core.services.session_service import current_version
             new_token = _encode_jwt(
                 {
                     "sub": data["sub"],
                     "role": _global_role,
                     "cn": data.get("cn"),
                     "name": data.get("name"),
+                    "sv": current_version(int(data["sub"])),
                 },
                 hours=_settings.JWT_EXPIRES_HOURS,
             )

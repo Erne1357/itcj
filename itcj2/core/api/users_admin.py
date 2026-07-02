@@ -405,6 +405,14 @@ def toggle_user_status(
     u.is_active = not u.is_active
     db.commit()
 
+    if not u.is_active:
+        # Revocar sesiones del usuario desactivado (invalida sus tokens al instante).
+        try:
+            from itcj2.core.services.session_service import bump_version
+            bump_version(u.id)
+        except Exception:
+            pass
+
     action = "activada" if u.is_active else "desactivada"
     logger.info(f"Cuenta de usuario {user_id} {action} por {int(current_user['sub'])}")
     return {"status": "ok", "data": {"user_id": u.id, "is_active": u.is_active, "message": f"Cuenta {action}"}}

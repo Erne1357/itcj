@@ -44,12 +44,14 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbSessio
 
     rate_limit.reset_login_failures(client_ip, raw_id)
 
+    from itcj2.core.services.session_service import current_version
     token = _encode_jwt(
         {
             "sub": str(user["id"]),
             "role": user["role"],
             "cn": user.get("control_number"),
             "name": user["full_name"],
+            "sv": current_version(user["id"]),
         },
         hours=_settings.JWT_EXPIRES_HOURS,
     )
@@ -88,7 +90,12 @@ def me(user: CurrentUser):
 
 @router.post("/logout", status_code=204)
 def logout(user: CurrentUser, response: Response):
-    """Cierra la sesión eliminando la cookie JWT."""
+    """Cierra la sesión: elimina la cookie y revoca todos los tokens del usuario."""
+    from itcj2.core.services.session_service import bump_version
+    try:
+        bump_version(int(user["sub"]))
+    except Exception:
+        pass
     response.delete_cookie(
         "itcj_token",
         httponly=True,
