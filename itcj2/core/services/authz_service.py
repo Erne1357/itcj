@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable, Optional, Tuple, Set, Dict
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import union
+from sqlalchemy import and_, or_, func, union
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
@@ -16,6 +16,19 @@ from itcj2.core.models.user_app_perm import UserAppPerm
 from itcj2.core.models.position import Position, UserPosition, PositionAppRole, PositionAppPerm
 
 logger = logging.getLogger(__name__)
+
+
+def _active_position_filter():
+    """Cláusula canónica de puesto VIGENTE: activo y dentro de [start_date, end_date].
+
+    Reemplaza el patrón disperso ``UserPosition.is_active == True`` que ignoraba
+    end_date/start_date (permitía accesos vencidos o futuros). Ver spec §7.
+    """
+    return and_(
+        UserPosition.is_active == True,  # noqa: E712
+        or_(UserPosition.end_date.is_(None), UserPosition.end_date >= func.current_date()),
+        UserPosition.start_date <= func.current_date(),
+    )
 
 
 def _bust_user_app(user_id: int, app_key: str) -> None:
@@ -142,7 +155,7 @@ def user_roles_via_positions(db: Session, user_id: int, app_key: str) -> Set[str
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             PositionAppRole.app_id == app.id
         )
         .all()
@@ -158,7 +171,7 @@ def user_perms_via_positions_direct(db: Session, user_id: int, app_key: str) -> 
         .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             PositionAppPerm.app_id == app.id,
             PositionAppPerm.allow == True,
             Permission.app_id == app.id
@@ -177,7 +190,7 @@ def user_perms_via_position_roles(db: Session, user_id: int, app_key: str) -> Se
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             PositionAppRole.app_id == app.id,
             Permission.app_id == app.id
         )
@@ -219,7 +232,7 @@ def _get_users_with_roles_in_app(db: Session, app_key: str, role_names: list[str
             .join(Role, PositionAppRole.role_id == Role.id)
             .filter(
                 User.is_active == True,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 PositionAppRole.app_id == app.id,
                 Role.name.in_(role_names)
             )
@@ -250,7 +263,7 @@ def _get_users_with_position(db: Session, position_codes: list[str]) -> list[int
             .join(Position, UserPosition.position_id == Position.id)
             .filter(
                 User.is_active == True,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 Position.is_active == True,
                 Position.code.in_(position_codes)
             )
@@ -370,7 +383,7 @@ def denied_perms_in_app(db: Session, user_id: int, app_key: str, include_positio
             .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
             .filter(
                 UserPosition.user_id == user_id,
-                UserPosition.is_active == True,  # noqa: E712
+                _active_position_filter(),
                 PositionAppPerm.app_id == app.id,
                 PositionAppPerm.allow == False,  # noqa: E712
                 Permission.app_id == app.id,
@@ -454,7 +467,7 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
             .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
             .filter(
                 UserPosition.user_id == user_id,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 PositionAppRole.app_id == app.id
             )
             .count() > 0
@@ -464,7 +477,7 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
             .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
             .filter(
                 UserPosition.user_id == user_id,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 PositionAppPerm.app_id == app.id,
                 PositionAppPerm.allow == True
             )
@@ -490,7 +503,7 @@ def get_user_active_positions(db: Session, user_id: int) -> list[dict]:
         .join(UserPosition, UserPosition.position_id == Position.id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             Position.is_active == True
         )
         .all()
@@ -515,7 +528,7 @@ def user_has_position(db: Session, user_id: int, position_codes: list[str]) -> b
         .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             Position.code.in_(position_codes),
             Position.is_active == True
         )
