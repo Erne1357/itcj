@@ -119,6 +119,49 @@ def cached_has_assignment(db: Session, user_id: int, app_key: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Mapa de descendientes de departamentos (global, no por usuario)
+# ---------------------------------------------------------------------------
+_DEPTMAP_KEY = f"{_PREFIX}:deptmap"
+
+
+def cached_descendants_map(db: Session) -> dict[int, set]:
+    """Mapa {dept_id -> set(descendientes incl. self)} cacheado global.
+
+    El árbol de departamentos cambia rara vez; cachear el mapa evita recomputar
+    la expansión recursiva en cada resolución de scope. Fail-open a la BD.
+    """
+    from itcj2.core.services.hierarchy_service import department_descendants_map
+    r = _redis()
+    if r is not None:
+        try:
+            cached = r.get(_DEPTMAP_KEY)
+            if cached is not None:
+                return {int(k): set(v) for k, v in json.loads(cached).items()}
+        except Exception as e:
+            logger.warning("authz_cache: error leyendo deptmap (%s); fallback a BD", e)
+            r = None
+
+    raw = department_descendants_map(db)  # {int: set[int]}
+    if r is not None:
+        try:
+            r.setex(_DEPTMAP_KEY, _ttl(), json.dumps({str(k): sorted(v) for k, v in raw.items()}))
+        except Exception as e:
+            logger.warning("authz_cache: error escribiendo deptmap (%s)", e)
+    return raw
+
+
+def invalidate_dept_map() -> None:
+    """Borra el cache del mapa de descendientes (create/update/deactivate de dept)."""
+    r = _redis()
+    if r is None:
+        return
+    try:
+        r.delete(_DEPTMAP_KEY)
+    except Exception as e:
+        logger.warning("authz_cache: invalidate_dept_map err (%s)", e)
+
+
+# ---------------------------------------------------------------------------
 # Invalidación
 # ---------------------------------------------------------------------------
 def invalidate_user_app(user_id: int, app_key: str) -> None:

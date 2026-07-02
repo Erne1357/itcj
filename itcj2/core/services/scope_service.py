@@ -73,10 +73,19 @@ def granting_departments(db: Session, user_id: int, app_key: str, perm_code: str
 
 
 def subtree_scope_for(db: Session, user_id: int, app_key: str, perm_code: str) -> set[int]:
-    """Set de departamentos VISIBLES = subtree (nodo + descendientes) de cada ancla."""
+    """Set de departamentos VISIBLES = subtree (nodo + descendientes) de cada ancla.
+
+    Usa el mapa de descendientes cacheado (el árbol cambia rara vez) para evitar un
+    CTE por ancla en el hot path.
+    """
+    anchors = granting_departments(db, user_id, app_key, perm_code)
+    if not anchors:
+        return set()
+    from itcj2.core.services.authz_cache import cached_descendants_map
+    dmap = cached_descendants_map(db)
     out: set[int] = set()
-    for anchor in granting_departments(db, user_id, app_key, perm_code):
-        out |= hierarchy_service.descendant_department_ids(db, anchor, include_self=True)
+    for anchor in anchors:
+        out |= dmap.get(anchor, {anchor})
     return out
 
 

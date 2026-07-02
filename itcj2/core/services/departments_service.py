@@ -4,6 +4,15 @@ from sqlalchemy.sql import func
 from itcj2.core.models.department import Department
 
 
+def _bust_dept_map() -> None:
+    """Invalida el cache del mapa de descendientes tras mutar el árbol. Best-effort."""
+    try:
+        from itcj2.core.services.authz_cache import invalidate_dept_map
+        invalidate_dept_map()
+    except Exception:
+        pass
+
+
 def get_direction(db: Session):
     return db.query(Department).filter_by(code='direction', is_active=True).first()
 
@@ -65,6 +74,7 @@ def create_department(db: Session, code: str, name: str, description=None, paren
     )
     db.add(dept)
     db.commit()
+    _bust_dept_map()
     return dept
 
 
@@ -87,6 +97,7 @@ def update_department(db: Session, dept_id: int, **kwargs):
             setattr(dept, key, value)
 
     db.commit()
+    _bust_dept_map()
     return dept
 
 
