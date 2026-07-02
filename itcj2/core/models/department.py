@@ -30,6 +30,16 @@ class Department(Base):
         parent = db.get(Department, self.parent_id)
         return parent and parent.parent_id is None
 
+    def depth(self):
+        """Profundidad en el árbol (raíz = 0). Genérico para cualquier nivel.
+
+        Preferir esto sobre is_direction()/is_subdirection() para lógica que
+        dependa del nivel: esos helpers están fijos a 2 niveles por compat.
+        """
+        from itcj2.core.services.hierarchy_service import ancestor_department_ids
+        db = object_session(self)
+        return len(ancestor_department_ids(db, self.id, include_self=False))
+
     def get_children_count(self):
         db = object_session(self)
         return db.query(Department).filter_by(parent_id=self.id, is_active=True).count()
@@ -69,7 +79,9 @@ class Department(Base):
             if head_user
             else None,
         }
-        if include_children and (self.is_direction() or self.is_subdirection()):
+        # Recurse a cualquier nivel (antes truncaba salvo direction/subdirection,
+        # ocultando subdptos de nivel 3+). Los hijos activos se expanden siempre.
+        if include_children:
             data["children"] = [
                 child.to_dict()
                 for child in db.query(Department).filter_by(
