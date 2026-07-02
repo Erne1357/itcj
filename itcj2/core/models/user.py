@@ -15,6 +15,7 @@ class User(Base):
         Integer,
         ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="RESTRICT"),
         nullable=True,
+        index=True,
     )
     username = Column(Text, unique=True)
     control_number = Column(Text, unique=True)

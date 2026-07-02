@@ -16,7 +16,7 @@ class Notification(Base):
     __tablename__ = "core_notifications"
 
     id = Column(BigInteger, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey("core_users.id", ondelete="CASCADE"), nullable=False, index=True)
     app_name = Column(String(50), nullable=False, index=True)
     type = Column(String(100), nullable=False, index=True)
     title = Column(String(200), nullable=False)

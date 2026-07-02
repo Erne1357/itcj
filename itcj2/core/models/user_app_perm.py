@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Boolean, ForeignKey, Index
+from sqlalchemy import BigInteger, Column, Integer, Boolean, ForeignKey, Index
 
 from itcj2.models.base import Base
 
@@ -6,7 +6,7 @@ from itcj2.models.base import Base
 class UserAppPerm(Base):
     __tablename__ = "core_user_app_perms"
 
-    user_id = Column(Integer, ForeignKey("core_users.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("core_users.id", ondelete="CASCADE"), primary_key=True)
     app_id  = Column(Integer, ForeignKey("core_apps.id",  ondelete="CASCADE"), primary_key=True)
     perm_id = Column(Integer, ForeignKey("core_permissions.id", ondelete="CASCADE"), primary_key=True)
     allow   = Column(Boolean, nullable=False, default=True)

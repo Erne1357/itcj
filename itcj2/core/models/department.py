@@ -18,6 +18,7 @@ class Department(Base):
     parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=func.now(), server_default=text("NOW()"), nullable=False)
+    updated_at = Column(DateTime, server_default=text("NOW()"), onupdate=func.now(), nullable=True)
 
     __table_args__ = (
         CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_departments_no_self_parent"),

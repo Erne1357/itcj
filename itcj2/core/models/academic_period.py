@@ -30,7 +30,7 @@ class AcademicPeriod(Base):
     )
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
-    created_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    created_by_id = Column(BigInteger, ForeignKey("core_users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     agendatec_config = relationship(
         "AgendaTecPeriodConfig",

@@ -10,7 +10,9 @@ class Role(Base):
     id = Column(Integer, primary_key=True)
     name = Column(Text, unique=True, nullable=False)
 
-    users = relationship("User", back_populates="role", cascade="all, delete", passive_deletes=True)
+    # NO cascade de borrado: borrar un rol NUNCA debe borrar usuarios. La BD
+    # protege con ON DELETE RESTRICT en core_users.role_id.
+    users = relationship("User", back_populates="role", cascade="save-update, merge", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Role {self.name}>"

@@ -19,7 +19,7 @@ class Position(Base):
     title = Column(String(120), nullable=False)
     description = Column(Text)
     email = Column(String(150), nullable=True, unique=True, index=True)
-    department_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True)
+    department_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -48,13 +48,16 @@ class UserPosition(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
 
     user = relationship("User", backref="position_assignments")
     position = relationship("Position", back_populates="user_assignments")
 
     __table_args__ = (
         Index("ix_user_positions_active", "user_id", "position_id", "is_active"),
-        UniqueConstraint("user_id", "position_id", "is_active", name="uq_active_user_position"),
+        # Unicidad "un puesto activo por (user, position)" vía índice parcial
+        # (ix uq_active_user_position_new WHERE is_active) creado en migración;
+        # el UniqueConstraint de 3 columnas rompía el ciclo asignar/quitar/reasignar.
     )
 
 
