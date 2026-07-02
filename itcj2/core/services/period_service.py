@@ -56,12 +56,13 @@ def is_day_enabled(db: Session, day: date, period_id: Optional[int] = None) -> b
 
 
 def activate_period(db: Session, period_id: int, user_id: Optional[int] = None) -> AcademicPeriod:
-    db.query(AcademicPeriod).update({"status": "INACTIVE"})
-
+    # Validar ANTES del bulk update: si el target no existe, no dejar todos los
+    # períodos en INACTIVE (antes se hacía el UPDATE y luego se validaba).
     period = get_period_by_id(db, period_id)
     if not period:
         raise ValueError(f"Período con ID {period_id} no encontrado")
 
+    db.query(AcademicPeriod).update({"status": "INACTIVE"})
     period.status = "ACTIVE"
     period.updated_at = datetime.now(_get_tz())
     db.commit()

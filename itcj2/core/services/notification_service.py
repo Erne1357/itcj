@@ -123,6 +123,7 @@ class NotificationService:
 
         notification.is_read = True
         notification.read_at = datetime.now()
+        db.commit()  # commit-in-service (antes dependía de que el endpoint commiteara)
 
         return True
 
@@ -151,6 +152,7 @@ class NotificationService:
             },
             synchronize_session=False
         )
+        db.commit()  # commit-in-service
 
         return count
 
@@ -265,4 +267,5 @@ class NotificationService:
             return False
 
         db.delete(notification)
+        db.commit()  # commit-in-service
         return True
