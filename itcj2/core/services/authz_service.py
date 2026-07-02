@@ -342,20 +342,65 @@ def perms_via_roles(db: Session, user_id: int, app_key: str, include_positions: 
 
     return perms
 
+def denied_perms_in_app(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Set[str]:
+    """Permisos EXPLÍCITAMENTE denegados (allow=False), a usuario o a sus puestos.
+
+    Un deny remueve el permiso aunque se otorgue por otra vía (rol/puesto).
+    Precedencia: deny gana (RBAC "explicit deny wins"). Ver spec org-scoped-authz §7.
+    """
+    app = get_or_404_app(db, app_key)
+
+    user_denied = (
+        db.query(Permission.code)
+        .join(UserAppPerm, UserAppPerm.perm_id == Permission.id)
+        .filter(
+            UserAppPerm.user_id == user_id,
+            UserAppPerm.app_id == app.id,
+            UserAppPerm.allow == False,  # noqa: E712
+            Permission.app_id == app.id,
+        )
+        .all()
+    )
+    denied = {r[0] for r in user_denied}
+
+    if include_positions:
+        pos_denied = (
+            db.query(Permission.code)
+            .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
+            .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
+            .filter(
+                UserPosition.user_id == user_id,
+                UserPosition.is_active == True,  # noqa: E712
+                PositionAppPerm.app_id == app.id,
+                PositionAppPerm.allow == False,  # noqa: E712
+                Permission.app_id == app.id,
+            )
+            .all()
+        )
+        denied |= {r[0] for r in pos_denied}
+
+    return denied
+
+
 def effective_perms(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Dict[str, Iterable[str]]:
     """
-    Retorna detallado: roles, direct_perms, via_roles y union.
+    Retorna detallado: roles, direct_perms, via_roles, denied y union.
     Por defecto incluye todo lo heredado de puestos.
+
+    ``effective = (direct | via_roles) - denied`` — un deny explícito (allow=False)
+    gana sobre cualquier otorgamiento.
     """
     roles = user_roles_in_app(db, user_id, app_key, include_positions)
     direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
     via = perms_via_roles(db, user_id, app_key, include_positions)
-    effective = direct | via
+    denied = denied_perms_in_app(db, user_id, app_key, include_positions)
+    effective = (direct | via) - denied
 
     result = {
         "roles": sorted(list(roles)),
         "direct_perms": sorted(list(direct)),
         "via_roles": sorted(list(via)),
+        "denied": sorted(list(denied)),
         "effective": sorted(list(effective)),
     }
 
