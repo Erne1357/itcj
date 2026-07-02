@@ -5,7 +5,12 @@ from sqlalchemy.orm import Session
 
 from itcj2.core.models.role import Role
 from itcj2.core.models.user import User
-from itcj2.core.utils.security import verify_nip
+from itcj2.core.utils.security import verify_nip, hash_nip
+
+# Hash señuelo calculado una vez. Cuando el usuario no existe verificamos contra él
+# para que el path "usuario inexistente" tarde ~lo mismo que "usuario válido" y no se
+# pueda enumerar cuentas por tiempo de respuesta.
+_DUMMY_HASH = hash_nip("itcj-timing-safe-dummy")
 
 
 def authenticate(db: Session, control_number: str, nip: str):
@@ -18,6 +23,7 @@ def authenticate(db: Session, control_number: str, nip: str):
         .first()
     )
     if not user or not user.password_hash:
+        verify_nip(nip, _DUMMY_HASH)  # trabajo constante anti-enumeración por tiempo
         return None
 
     if not verify_nip(nip, user.password_hash):
@@ -37,7 +43,8 @@ def authenticate(db: Session, control_number: str, nip: str):
 
 def authenticate_by_username(db: Session, username: str, nip: str):
     u = db.query(User).filter_by(username=username, is_active=True).first()
-    if not u:
+    if not u or not u.password_hash:
+        verify_nip(nip, _DUMMY_HASH)  # trabajo constante anti-enumeración por tiempo
         return None
     if not verify_nip(nip, u.password_hash):
         return None

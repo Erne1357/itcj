@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # Vacío = fail-closed (rechaza todo) hasta configurarlo.
     DEPLOY_SECRET: str = ""
 
+    # Rate limit de login (contador de FALLOS por IP y por cuenta en ventana móvil).
+    LOGIN_FAIL_WINDOW: int = 300          # segundos
+    LOGIN_FAIL_MAX_IP: int = 30           # fallos por IP antes de 429
+    LOGIN_FAIL_MAX_ACCOUNT: int = 8       # fallos por cuenta antes de 429
+
     # Environment
     FLASK_ENV: str = "production"
     APP_TZ: str = "America/Ciudad_Juarez"

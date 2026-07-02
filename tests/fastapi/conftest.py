@@ -34,6 +34,7 @@ def _clear_authz_cache():
         r = get_redis()
         if r is not None:
             keys = list(r.scan_iter(match="authz:v1:*", count=1000))
+            keys += list(r.scan_iter(match="rl:*", count=1000))
             if keys:
                 r.delete(*keys)
     except Exception:
