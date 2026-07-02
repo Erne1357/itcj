@@ -488,13 +488,26 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
 
     return False
 
+def effective_perm_set(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Set[str]:
+    """Set de permisos efectivos (hot path), SIN computar roles ni el breakdown.
+
+    ``(directos | por_rol) - denegados`` — idéntico a ``effective_perms(...)["effective"]``
+    pero evita el set de roles y las 3 queries de desglose que ``effective_perms`` calcula
+    y luego descarta. Es lo que consume ``cached_perms`` en cada request protegido.
+    """
+    direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
+    via = perms_via_roles(db, user_id, app_key, include_positions)
+    denied = denied_perms_in_app(db, user_id, app_key, include_positions)
+    return (direct | via) - denied
+
+
 def get_user_permissions_for_app(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> set[str]:
     """
     Obtiene el conjunto de todos los códigos de permiso efectivos
     para un usuario en una app específica.
     Por defecto incluye permisos heredados de puestos.
     """
-    return set(effective_perms(db, user_id, app_key, include_positions)["effective"])
+    return effective_perm_set(db, user_id, app_key, include_positions)
 
 def get_user_active_positions(db: Session, user_id: int) -> list[dict]:
     """Obtiene los puestos activos del usuario"""
