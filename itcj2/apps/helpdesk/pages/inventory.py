@@ -113,10 +113,11 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
 
     _db = SessionLocal()
     try:
-        can_view_all = (
-            has_full_inventory_access(_db, user_id, user_roles)
-            or is_comp_center_user(_db, user_id)
-        )
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
+        # visible: None = ve todo; set = deptos visibles (su depto ∪ subárbol jerárquico).
+        visible = visible_department_ids(_db, _user)
+        can_view_all = visible is None
         user_dept = get_user_department(_db, user_id)
         user_dept_id = user_dept.id if user_dept else None
 
@@ -124,8 +125,12 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         if can_view_all:
             if dept_param and dept_param.isdigit():
                 q = q.filter(InventoryItem.department_id == int(dept_param))
+        elif visible:
+            # Scope departamental/subárbol (jefe de depto y/o .read.subtree).
+            q = q.filter(InventoryItem.department_id.in_(visible))
         elif "department_head" in user_roles:
-            q = q.filter(InventoryItem.department_id == (user_dept_id or -1))
+            # Jefe de depto sin departamento resuelto → no ve nada (comportamiento previo).
+            q = q.filter(InventoryItem.department_id == -1)
         elif dept_param and dept_param.isdigit():
             q = q.filter(InventoryItem.department_id == int(dept_param))
         else:
@@ -386,7 +391,10 @@ def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
 
     _db = SessionLocal()
     try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
+        visible = visible_department_ids(_db, _user)   # None = ve todo
+        can_view_all = visible is None
         user_dept = get_user_department(_db, user_id)
         user_dept_id = user_dept.id if user_dept else None
 
@@ -395,8 +403,8 @@ def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
             if dept_param and dept_param.isdigit():
                 q = q.filter(InventoryGroup.department_id == int(dept_param))
         else:
-            # Sin acceso global: solo grupos de su departamento (o ninguno).
-            q = q.filter(InventoryGroup.department_id == (user_dept_id or -1))
+            # Sin acceso global: grupos de su departamento y su subárbol (o ninguno).
+            q = q.filter(InventoryGroup.department_id.in_(visible or {-1}))
 
         if gtype:
             q = q.filter(InventoryGroup.group_type == gtype)
@@ -424,6 +432,13 @@ def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
             departments = (
                 _db.query(Department)
                 .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+        elif visible:
+            departments = (
+                _db.query(Department)
+                .filter(Department.id.in_(visible), Department.is_active == True)  # noqa: E712
                 .order_by(Department.name)
                 .all()
             )
