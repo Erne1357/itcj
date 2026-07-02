@@ -53,11 +53,9 @@ def register_system_namespace(sio_server):
     async def on_connect(sid, environ):
         user = current_user_from_environ(environ)
         if not user:
-            # Permitir conexión pero no contar si no es un usuario autenticado
-            # O rechazar: return False
-            # El dashboard index.html requiere usuario autenticado para ver,
-            # asi que asumimos que si conecta es alguien valido.
-            return True
+            # Rechazar handshakes anónimos (consistente con /maint). Evita que un
+            # cliente sin sesión reciba los broadcasts de active_users.
+            return False
 
         uid = user["sub"]
         role = user.get("role")

@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
 
+    # Secreto del endpoint interno /static-update. Antes NO era campo de Settings
+    # y extra="ignore" lo descartaba → el guard nunca disparaba (endpoint abierto).
+    # Vacío = fail-closed (rechaza todo) hasta configurarlo.
+    DEPLOY_SECRET: str = ""
+
     # Environment
     FLASK_ENV: str = "production"
     APP_TZ: str = "America/Ciudad_Juarez"
