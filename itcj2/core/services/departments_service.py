@@ -98,14 +98,73 @@ def get_department_positions(db: Session, dept_id: int):
     return positions_service.list_positions(db, department=department)
 
 
-def get_user_department(db: Session, user_id: int):
+def _active_position_window():
+    """Filtro canónico de puesto vigente: activo y dentro de [start_date, end_date].
+
+    Reemplaza el patrón disperso ``is_active == True`` que ignoraba end_date/start_date.
+    """
+    from sqlalchemy import and_, or_
     from itcj2.core.models.position import UserPosition
-    user_position = (
-        db.query(UserPosition)
-        .filter_by(user_id=user_id, is_active=True)
-        .order_by(UserPosition.start_date.asc())
+    return and_(
+        UserPosition.is_active == True,  # noqa: E712
+        or_(UserPosition.end_date.is_(None), UserPosition.end_date >= func.current_date()),
+        UserPosition.start_date <= func.current_date(),
+    )
+
+
+def get_user_departments(db: Session, user_id: int) -> list:
+    """TODOS los departamentos donde el usuario tiene un puesto vigente (deduped).
+
+    Resolver canónico multi-puesto. Antes había 3 implementaciones divergentes
+    (User.get_current_position sin orden, este por start_date, helpdesk por .first());
+    todas deben delegar aquí.
+    """
+    from itcj2.core.models.position import Position, UserPosition
+    rows = (
+        db.query(Position.department_id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            _active_position_window(),
+            UserPosition.user_id == user_id,
+            Position.department_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    dept_ids = [r[0] for r in rows]
+    if not dept_ids:
+        return []
+    return (
+        db.query(Department)
+        .filter(Department.id.in_(dept_ids))
+        .order_by(Department.name)
+        .all()
+    )
+
+
+def get_primary_user_department(db: Session, user_id: int):
+    """Departamento 'primario' con tiebreak determinista (start_date ASC, position_id ASC).
+
+    Para consumidores que necesitan UN solo departamento (el patrón viejo). Prefiere
+    ``get_user_departments`` cuando el scope es multi-depto.
+    """
+    from itcj2.core.models.position import Position, UserPosition
+    row = (
+        db.query(Position.department_id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            _active_position_window(),
+            UserPosition.user_id == user_id,
+            Position.department_id.isnot(None),
+        )
+        .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
         .first()
     )
-    if user_position and user_position.position and user_position.position.department_id:
-        return db.get(Department, user_position.position.department_id)
-    return None
+    if not row:
+        return None
+    return db.get(Department, row[0])
+
+
+def get_user_department(db: Session, user_id: int):
+    """Compat: delega en el resolver primario canónico."""
+    return get_primary_user_department(db, user_id)
