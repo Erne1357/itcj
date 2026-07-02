@@ -64,10 +64,16 @@ def _apply_visibility(query, user_id: int, user_roles: list, db: Session):
         # D-G/H3: técnico ve ASIGNADOS a él, PROPIOS, o de categorías de sus áreas.
         return query.filter(_tech_maint_visibility_cond(db, user_id))
 
-    if DEPT_ACCESS_ROLES & roles:
-        # H5: multi-depto (antes _resolve_dept_id usaba .first() → un depto aleatorio).
-        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
-        dept_ids = [d["id"] for d in _resolve_user_departments(db, user_id)]
+    # Scope departamental/subárbol (en sync con ticket_service.list_tickets).
+    from itcj2.core.services.scope_service import subtree_scope_for
+    _subtree = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
+    if (DEPT_ACCESS_ROLES & roles) or _subtree:
+        dept_ids: set[int] = set()
+        if DEPT_ACCESS_ROLES & roles:
+            # H5: multi-depto (antes _resolve_dept_id usaba .first() → un depto aleatorio).
+            from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+            dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
+        dept_ids |= _subtree
         if dept_ids:
             return query.filter(MaintTicket.requester_department_id.in_(dept_ids))
         # Sin departamento resuelto → retornar nada (seguro)

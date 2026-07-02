@@ -256,21 +256,27 @@ def list_tickets(
             cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
             conds.append(MaintTicket.category_id.in_(cat_subq))
         query = query.filter(or_(*conds))
-    elif DEPT_ACCESS_ROLES & set(user_roles):
-        # H5: el usuario puede tener >1 puesto activo en >1 departamento. Resolver
-        # TODOS y filtrar con .in_() (antes .first() devolvía un depto ALEATORIO, o
-        # filter(id==-1) si el puesto no tenía department_id).
-        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
-        dept_ids = [d["id"] for d in _resolve_user_departments(db, user_id)]
-        if department_id is not None:
-            # Solo puede acotar a uno de SUS departamentos.
-            dept_ids = [department_id] if department_id in dept_ids else [-1]
-        if dept_ids:
-            query = query.filter(MaintTicket.requester_department_id.in_(dept_ids))
-        else:
-            query = query.filter(MaintTicket.id == -1)
     else:
-        query = query.filter(MaintTicket.requester_id == user_id)
+        # H5: el usuario puede tener >1 puesto activo en >1 departamento (dept_head/
+        # secretary → sus departamentos). ADITIVO: unir el subárbol jerárquico por
+        # procedencia (maint.tickets.api.read.subtree) para quien lo tenga.
+        from itcj2.core.services.scope_service import subtree_scope_for
+        _subtree = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
+        if (DEPT_ACCESS_ROLES & set(user_roles)) or _subtree:
+            dept_ids: set[int] = set()
+            if DEPT_ACCESS_ROLES & set(user_roles):
+                from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+                dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
+            dept_ids |= _subtree
+            if department_id is not None:
+                # Solo puede acotar a uno de SUS departamentos.
+                dept_ids = {department_id} if department_id in dept_ids else {-1}
+            if dept_ids:
+                query = query.filter(MaintTicket.requester_department_id.in_(dept_ids))
+            else:
+                query = query.filter(MaintTicket.id == -1)
+        else:
+            query = query.filter(MaintTicket.requester_id == user_id)
 
     if status:
         if isinstance(status, list):
@@ -752,15 +758,21 @@ def can_user_view_ticket(db: Session, ticket: MaintTicket, user_id: int) -> bool
         if ticket.category and ticket.category.code in area_codes:
             return True
 
-    # Jefe/secretaria de departamento
+    # Jefe/secretaria de departamento + scope por subárbol (en sync con list_tickets).
+    dept_ids: set[int] = set()
     if roles & {'department_head', 'secretary'}:
         try:
-            from itcj2.core.models.position import UserPosition
-            up = db.query(UserPosition).filter_by(user_id=user_id, is_active=True).first()
-            if up and up.position and ticket.requester_department_id == up.position.department_id:
-                return True
+            from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+            dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
         except Exception:
             pass
+    try:
+        from itcj2.core.services.scope_service import subtree_scope_for
+        dept_ids |= subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
+    except Exception:
+        pass
+    if ticket.requester_department_id in dept_ids:
+        return True
 
     return False
 
