@@ -167,14 +167,10 @@ def create_periodic(
     from itcj2.core.models.task_models import PeriodicTask, TaskDefinition
 
     if db.query(PeriodicTask).filter_by(name=body.name).first():
-        raise HTTPException(
-            409, detail={"status": "error", "error": "name_already_exists"}
-        )
+        raise HTTPException(409, detail="Ya existe una tarea programada con ese nombre")
 
     if not db.query(TaskDefinition).filter_by(task_name=body.task_name).first():
-        raise HTTPException(
-            404, detail={"status": "error", "error": "task_definition_not_found"}
-        )
+        raise HTTPException(404, detail="Definición de tarea no encontrada")
 
     pt = PeriodicTask(
         name=body.name,
@@ -208,16 +204,12 @@ def update_periodic(
 
     pt = db.get(PeriodicTask, task_id)
     if not pt:
-        raise HTTPException(
-            404, detail={"status": "error", "error": "not_found"}
-        )
+        raise HTTPException(404, detail="Tarea programada no encontrada")
 
     if body.name is not None:
         name = body.name.strip()
         if name != pt.name and db.query(PeriodicTask).filter_by(name=name).first():
-            raise HTTPException(
-                409, detail={"status": "error", "error": "name_already_exists"}
-            )
+            raise HTTPException(409, detail="Ya existe una tarea programada con ese nombre")
         pt.name = name
 
     if body.cron_expression is not None:
@@ -251,9 +243,7 @@ def toggle_periodic(
 
     pt = db.get(PeriodicTask, task_id)
     if not pt:
-        raise HTTPException(
-            404, detail={"status": "error", "error": "not_found"}
-        )
+        raise HTTPException(404, detail="Tarea programada no encontrada")
 
     pt.is_active = not pt.is_active
     db.commit()
@@ -276,9 +266,7 @@ def delete_periodic(
 
     pt = db.get(PeriodicTask, task_id)
     if not pt:
-        raise HTTPException(
-            404, detail={"status": "error", "error": "not_found"}
-        )
+        raise HTTPException(404, detail="Tarea programada no encontrada")
 
     db.delete(pt)
     db.commit()
@@ -358,9 +346,7 @@ def get_run(
 
     run = db.get(TaskRun, run_id)
     if not run:
-        raise HTTPException(
-            404, detail={"status": "error", "error": "not_found"}
-        )
+        raise HTTPException(404, detail="Ejecución no encontrada")
 
     return {"status": "ok", "data": run.to_dict()}
 
@@ -380,14 +366,10 @@ def dispatch_task(
 
     defn = db.query(TaskDefinition).filter_by(task_name=body.task_name).first()
     if not defn:
-        raise HTTPException(
-            404, detail={"status": "error", "error": "task_definition_not_found"}
-        )
+        raise HTTPException(404, detail="Definición de tarea no encontrada")
 
     if not defn.is_active:
-        raise HTTPException(
-            409, detail={"status": "error", "error": "task_is_inactive"}
-        )
+        raise HTTPException(409, detail="La tarea está inactiva")
 
     celery_id = str(uuid.uuid4())
     user_id = int(user["sub"])
@@ -431,18 +413,11 @@ def revoke_run(
 
     run = db.get(TaskRun, run_id)
     if not run:
-        raise HTTPException(
-            404, detail={"status": "error", "error": "not_found"}
-        )
+        raise HTTPException(404, detail="Ejecución no encontrada")
 
     if run.status not in ("PENDING", "RUNNING"):
         raise HTTPException(
-            409,
-            detail={
-                "status": "error",
-                "error": "cannot_revoke",
-                "detail": f"La tarea está en estado {run.status}",
-            },
+            409, detail=f"No se puede cancelar: la tarea está en estado {run.status}"
         )
 
     if run.celery_task_id:

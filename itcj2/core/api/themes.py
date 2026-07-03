@@ -84,7 +84,7 @@ def get_theme(
 
     theme = svc.get_theme(db, theme_id)
     if not theme:
-        raise HTTPException(404, detail={"status": "error", "error": "theme_not_found"})
+        raise HTTPException(404, detail="Temática no encontrada")
     return {"status": "ok", "data": theme.to_dict(include_full=True)}
 
 
@@ -100,7 +100,7 @@ async def create_theme(
     payload = body.model_dump()
     name = (payload.get("name") or "").strip()
     if not name:
-        raise HTTPException(400, detail={"status": "error", "error": "name_required"})
+        raise HTTPException(400, detail="El nombre es requerido")
 
     try:
         user_id = int(user["sub"])
@@ -108,7 +108,7 @@ async def create_theme(
         logger.info(f"Tema '{name}' creado por usuario {user_id}")
         return {"status": "ok", "data": theme.to_dict(include_full=True)}
     except ValueError as e:
-        raise HTTPException(409, detail={"status": "error", "error": str(e)})
+        raise HTTPException(409, detail=str(e))
 
 
 @router.patch("/{theme_id}")
@@ -129,7 +129,7 @@ async def update_theme(
     except ValueError as e:
         error_msg = str(e)
         status = 404 if ("no encontrada" in error_msg.lower() or "not found" in error_msg.lower()) else 409
-        raise HTTPException(status, detail={"status": "error", "error": error_msg})
+        raise HTTPException(status, detail=error_msg)
 
 
 @router.post("/{theme_id}/toggle")
@@ -146,7 +146,7 @@ def toggle_theme(
         theme = svc.toggle_theme_manual(db, theme_id, body.active)
         return {"status": "ok", "data": theme.to_dict()}
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
 
 
 @router.post("/{theme_id}/enable")
@@ -163,7 +163,7 @@ def toggle_theme_enabled(
         theme = svc.toggle_theme_enabled(db, theme_id, body.enabled)
         return {"status": "ok", "data": theme.to_dict()}
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
 
 
 @router.delete("/{theme_id}", status_code=204)
@@ -179,4 +179,4 @@ def delete_theme(
         svc.delete_theme(db, theme_id)
         logger.info(f"Tema {theme_id} eliminado por usuario {int(user['sub'])}")
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
