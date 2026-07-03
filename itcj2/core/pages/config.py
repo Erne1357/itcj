@@ -16,8 +16,7 @@ Rutas:
   GET  /itcj/config/email                        → Gestión de cuentas de correo
   GET  /itcj/config/email/auth/login             → Iniciar OAuth con Microsoft
   GET  /itcj/config/email/auth/callback          → Callback OAuth de Microsoft
-  POST /itcj/config/email/auth/logout            → Desconectar cuenta de correo (AJAX)
-  GET  /itcj/config/email/auth/status            → Estado de conexión de correo (AJAX)
+  (Los AJAX status/logout viven en /api/core/v2/email — ver itcj2/core/api/email.py)
   GET  /itcj/config/system/tasks                 → Tareas programadas
 
 Autorización (F1a core-config-revamp): todas las páginas usan
@@ -27,7 +26,7 @@ claim JWT NO bypasea. El guard en-handler legacy (ver historial git) se eliminó
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy import or_
 
 from itcj2.dependencies import DbSession, require_page_roles
@@ -375,22 +374,6 @@ async def email_auth_callback(
     return RedirectResponse("/itcj/config/email", status_code=302)
 
 
-@router.post("/config/email/auth/logout", name="core.pages.config.email_auth_logout")
-async def email_auth_logout(
-    request: Request,
-    app: str = Query("", description="App key a desconectar"),
-    user: dict = _ADMIN_PAGE,
-):
-    """Desconecta la cuenta de correo de una app (endpoint AJAX)."""
-    if not app:
-        return JSONResponse({"ok": False, "error": "Falta parámetro 'app'"}, status_code=400)
-
-    from itcj2.core.utils import msgraph_mail
-
-    msgraph_mail.clear_account_and_cache(app)
-    return JSONResponse({"ok": True})
-
-
 @router.get("/config/system/tasks", name="core.pages.config.tasks_management")
 async def tasks_management(
     request: Request,
@@ -400,20 +383,3 @@ async def tasks_management(
     from itcj2.templates import render
 
     return render(request, "core/config/system/tasks.html")
-
-
-@router.get("/config/email/auth/status", name="core.pages.config.email_auth_status")
-async def email_auth_status(
-    request: Request,
-    app: str = Query("", description="App key a consultar"),
-    user: dict = _ADMIN_PAGE,
-):
-    """Retorna el estado de conexión de correo de una app (endpoint AJAX)."""
-    if not app:
-        return JSONResponse({"connected": False, "error": "Falta parámetro 'app'"}, status_code=400)
-
-    from itcj2.core.utils import msgraph_mail
-
-    token = msgraph_mail.acquire_token_silent(app)
-    acct = msgraph_mail.read_account_info(app)
-    return JSONResponse({"connected": bool(token), "account": acct})

@@ -18,13 +18,13 @@
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Desconectando...';
 
-            fetch('/itcj/config/email/auth/logout?app=' + encodeURIComponent(appKey), {
+            fetch('/api/core/v2/email/logout?app=' + encodeURIComponent(appKey), {
                 method: 'POST',
                 credentials: 'include'
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (data.ok) {
+                if (data.success) {
                     updateCardDisconnected(appKey);
                     showSuccess('Correo desconectado de ' + appKey);
                 } else {
@@ -51,13 +51,14 @@
     });
 
     function refreshStatus(appKey) {
-        fetch('/itcj/config/email/auth/status?app=' + encodeURIComponent(appKey), {
+        fetch('/api/core/v2/email/status?app=' + encodeURIComponent(appKey), {
             credentials: 'include'
         })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-            if (data.connected) {
-                updateCardConnected(appKey, (data.account || {}).name, (data.account || {}).username);
+            var st = (data && data.data) || {};
+            if (st.connected) {
+                updateCardConnected(appKey, (st.account || {}).name, (st.account || {}).username);
             } else {
                 updateCardDisconnected(appKey);
             }
