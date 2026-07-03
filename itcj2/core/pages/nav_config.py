@@ -37,6 +37,7 @@ CONFIG_PAGE_MODULES: dict[str, list[str]] = {
         "https://cdn.socket.io/4.7.5/socket.io.min.js",
         "js/config/active-users.js",
     ],
+    "roles": ["js/config/system/roles.js"],
 }
 
 # Patrón de URL -> page_key. Cubre las 12 páginas HTML de core/pages/config.py
