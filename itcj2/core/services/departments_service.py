@@ -184,3 +184,90 @@ def get_primary_user_department(db: Session, user_id: int):
 def get_user_department(db: Session, user_id: int):
     """Compat: delega en el resolver primario canónico."""
     return get_primary_user_department(db, user_id)
+
+
+def build_tree(db: Session) -> list[dict]:
+    """Árbol completo de departamentos ACTIVOS en 3 queries (sin N+1). Contrato C3.
+
+    La serialización del organigrama vive AQUÍ (no en Department.to_dict, que se
+    queda plano/1-nivel por compat con el drill-down clásico — spec §3.2).
+
+    DeptNode = {id, name, code, icon, is_official, is_active, depth,
+                positions_count, head: {"id", "name"} | None, children: [DeptNode]}
+
+    - depth: 0 en raíces; un nodo cuyo parent está inactivo/ausente se trata
+      como raíz (no se pierde).
+    - head: usuario del puesto ``head_{code}`` con asignación VIGENTE
+      (_active_position_window, no solo is_active — decisión F1b-D5).
+    - Ciclos en datos corruptos: se cortan con set ``seen``; nodos de un ciclo
+      sin raíz alcanzable simplemente no aparecen.
+    - children ordenados por nombre (la query base ya ordena).
+    """
+    from itcj2.core.models.position import Position, UserPosition
+    from itcj2.core.models.user import User
+
+    rows = (
+        db.query(Department)
+        .filter(Department.is_active.is_(True))
+        .order_by(Department.name)
+        .all()
+    )
+    by_id = {d.id: d for d in rows}
+
+    # Agregado 1: conteo de puestos activos por departamento (1 query, sin N+1)
+    pos_counts = dict(
+        db.query(Position.department_id, func.count(Position.id))
+        .filter(Position.is_active.is_(True), Position.department_id.isnot(None))
+        .group_by(Position.department_id)
+        .all()
+    )
+
+    # Agregado 2: jefe por departamento (1 query). Determinista: primera
+    # asignación por start_date/position_id si hubiera múltiples.
+    heads: dict[int, dict] = {}
+    head_rows = (
+        db.query(Department.id, User)
+        .select_from(Department)
+        .join(Position, Position.department_id == Department.id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .join(User, User.id == UserPosition.user_id)
+        .filter(
+            Department.is_active.is_(True),
+            Position.code == func.concat("head_", Department.code),
+            Position.is_active.is_(True),
+            _active_position_window(),
+        )
+        .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
+        .all()
+    )
+    for dept_id, head_user in head_rows:
+        heads.setdefault(dept_id, {"id": head_user.id, "name": head_user.full_name})
+
+    children_map: dict = {}
+    for d in rows:
+        parent_key = d.parent_id if d.parent_id in by_id else None
+        children_map.setdefault(parent_key, []).append(d)
+
+    def _node(d: Department, depth: int, seen: set) -> dict:
+        kids = []
+        for child in children_map.get(d.id, []):
+            if child.id in seen:
+                continue  # guard de ciclos
+            seen.add(child.id)
+            kids.append(_node(child, depth + 1, seen))
+        return {
+            "id": d.id,
+            "name": d.name,
+            "code": d.code,
+            "icon": d.icon_class or "bi-building",
+            "is_official": d.is_official,
+            "is_active": d.is_active,
+            "depth": depth,
+            "positions_count": pos_counts.get(d.id, 0),
+            "head": heads.get(d.id),
+            "children": kids,
+        }
+
+    roots = children_map.get(None, [])
+    seen = {r.id for r in roots}
+    return [_node(r, 0, seen) for r in roots]

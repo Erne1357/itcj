@@ -91,8 +91,10 @@ class Department(Base):
             if head_user
             else None,
         }
-        # Recurse a cualquier nivel (antes truncaba salvo direction/subdirection,
-        # ocultando subdptos de nivel 3+). Los hijos activos se expanden siempre.
+        # SOLO UN nivel de hijos (compat con el drill-down clásico). La
+        # serialización recursiva del árbol vive en departments_service.build_tree
+        # (contrato C3) — NO hacer esto recursivo aquí: to_dict tiene N+1 por nodo
+        # (positions_count/children_count/head) y explotaría en árboles grandes.
         if include_children:
             data["children"] = [
                 child.to_dict()
