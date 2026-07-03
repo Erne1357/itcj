@@ -3,10 +3,11 @@ Authorization API v2 — 18 endpoints (apps, roles, permisos, usuarios).
 Fuente: itcj/core/routes/api/authz.py
 """
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from itcj2.dependencies import DbSession, require_perms
 
 router = APIRouter(tags=["core-authz"])
@@ -14,6 +15,21 @@ logger = logging.getLogger(__name__)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _validate_hex_color(v: Optional[str]) -> Optional[str]:
+    """None → no enviado; "" → limpiar (sentinel para update); si no, #RRGGBB."""
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return ""
+    if not _HEX_COLOR_RE.match(v):
+        raise ValueError("color debe ser hex #RRGGBB")
+    return v
+
 
 class AppCreateBody(BaseModel):
     key: str
@@ -23,6 +39,13 @@ class AppCreateBody(BaseModel):
     visible_to_students: bool = False
     mobile_url: Optional[str] = None
     mobile_icon: Optional[str] = None
+    color: Optional[str] = None        # "#RRGGBB"
+    icon_class: Optional[str] = None   # p.ej. "bi-headset"
+
+    @field_validator("color")
+    @classmethod
+    def _color_hex(cls, v):
+        return _validate_hex_color(v)
 
 
 class AppUpdateBody(BaseModel):
@@ -32,6 +55,13 @@ class AppUpdateBody(BaseModel):
     visible_to_students: Optional[bool] = None
     mobile_url: Optional[str] = None
     mobile_icon: Optional[str] = None
+    color: Optional[str] = None        # "#RRGGBB"; "" limpia
+    icon_class: Optional[str] = None   # "" limpia
+
+    @field_validator("color")
+    @classmethod
+    def _color_hex(cls, v):
+        return _validate_hex_color(v)
 
 
 class RoleCreateBody(BaseModel):
@@ -75,6 +105,7 @@ def list_apps(
                 "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
                 "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
                 "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon,
+                "color": a.color, "icon_class": a.icon_class,
             }
             for a in rows
         ],
@@ -102,6 +133,7 @@ def create_app(
         key=key, name=name, is_active=body.is_active,
         mobile_enabled=body.mobile_enabled, visible_to_students=body.visible_to_students,
         mobile_url=body.mobile_url or None, mobile_icon=body.mobile_icon or None,
+        color=body.color or None, icon_class=(body.icon_class or "").strip() or None,
     )
     db.add(a)
     db.commit()
@@ -112,6 +144,7 @@ def create_app(
             "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
             "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
             "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon,
+            "color": a.color, "icon_class": a.icon_class,
         },
     }
 
@@ -142,6 +175,10 @@ def update_app(
         a.mobile_url = body.mobile_url.strip() or None
     if body.mobile_icon is not None:
         a.mobile_icon = body.mobile_icon.strip() or None
+    if body.color is not None:
+        a.color = body.color or None  # "" (ya validado) limpia el color
+    if body.icon_class is not None:
+        a.icon_class = body.icon_class.strip() or None
 
     db.commit()
     logger.info(f"App '{app_key}' actualizada por usuario {int(user['sub'])}")
@@ -151,6 +188,7 @@ def update_app(
             "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
             "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
             "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon,
+            "color": a.color, "icon_class": a.icon_class,
         },
     }
 
