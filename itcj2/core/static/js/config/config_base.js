@@ -98,6 +98,13 @@
         mobileMql.addListener(syncSidebarA11y); // Safari <14
     }
 
+    // Un swap boosted (idiomorph morph:innerHTML) reemplaza #configSidebar por
+    // el HTML servidor (sin inert): re-sincronizar el lock tras cada morph.
+    if (window.htmx) {
+        document.body.addEventListener('htmx:afterSettle', syncSidebarA11y);
+        document.body.addEventListener('htmx:historyRestore', syncSidebarA11y);
+    }
+
     // body es el target del morph:innerHTML: sus ATRIBUTOS no se morfean,
     // así que la clase de iframe puesta aquí persiste entre navegaciones.
     if (inIframe) document.body.classList.add('in-mobile-iframe');
