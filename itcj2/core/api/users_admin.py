@@ -595,3 +595,51 @@ def list_users_by_app(
             },
         },
     }
+
+
+# ── Batch: asignaciones por app (C3 core-config-revamp, anti-429) ────────────
+
+@router.get("/apps-summary")
+def get_users_apps_summary(
+    ids: str = Query("", description="IDs de usuario separados por coma (máx 100)"),
+    user: dict = require_perms("itcj", ["core.users.api.read"]),
+    db: DbSession = None,
+):
+    """Apps (activas) con alguna asignación, por usuario — badges de la lista
+    de usuarios en 1 request (reemplaza el N+1 de users.js, BUG A)."""
+    from itcj2.core.services import authz_service as svc
+
+    raw = [s.strip() for s in ids.split(",") if s.strip()]
+    if not raw:
+        raise HTTPException(400, detail="Falta el parámetro 'ids'")
+    if len(raw) > 100:
+        raise HTTPException(400, detail="Máximo 100 IDs por solicitud")
+    try:
+        user_ids = [int(s) for s in raw]
+    except ValueError:
+        raise HTTPException(
+            400, detail="El parámetro 'ids' debe contener solo números separados por coma"
+        )
+
+    return {"success": True, "data": svc.users_apps_summary(db, user_ids)}
+
+
+@router.get("/{user_id}/app-assignments")
+def get_user_app_assignments(
+    user_id: int,
+    user: dict = require_perms(
+        "itcj",
+        ["core.authz.api.read.user_roles", "core.authz.api.read.user_permissions"],
+    ),
+    db: DbSession = None,
+):
+    """Roles/perms directos/efectivos por app en 1 request (contrato C3).
+    Reemplaza los 3 GETs × app de user_detail (BUG A)."""
+    from itcj2.core.models.user import User
+    from itcj2.core.services import authz_service as svc
+
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, detail="Usuario no encontrado")
+
+    return {"success": True, "data": svc.user_app_assignments_map(db, user_id)}
