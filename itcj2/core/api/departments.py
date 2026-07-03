@@ -89,6 +89,46 @@ def list_parent_options(
     return {"status": "ok", "data": [d.to_dict() for d in options]}
 
 
+@router.get("/tree")
+def get_departments_tree(
+    user: dict = require_perms("itcj", ["core.departments.api.read.hierarchy"]),
+    db: DbSession = None,
+):
+    """Árbol completo del organigrama (activos), anidado (contrato C3).
+
+    Endpoint NUEVO → envelope destino {"success": true} desde el inicio.
+    """
+    from itcj2.core.services import departments_service as svc
+
+    return {"success": True, "data": svc.build_tree(db)}
+
+
+@router.get("/{dept_id}/subtree")
+def get_department_subtree(
+    dept_id: int,
+    user: dict = require_perms("itcj", ["core.departments.api.read.hierarchy"]),
+    db: DbSession = None,
+):
+    """Preview del subtree (C3): ids + nodos DFS con depth relativa al root.
+
+    Consumido por position_detail (F5) para explicar el alcance de perms
+    `.subtree`. Perm de jerarquía existente (F1b-D3); la página consumidora
+    es admin-only. Endpoint NUEVO → envelope {"success": true} + detail string.
+    """
+    from itcj2.core.services import hierarchy_service as hs
+
+    nodes = hs.subtree_nodes(db, dept_id)
+    if not nodes:
+        raise HTTPException(404, detail="Departamento no encontrado o inactivo")
+    return {
+        "success": True,
+        "data": {
+            "department_ids": sorted(n["id"] for n in nodes),
+            "departments": nodes,
+        },
+    }
+
+
 @router.get("/by-parent")
 def list_by_parent(
     parent_id: Optional[int] = None,
