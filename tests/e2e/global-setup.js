@@ -4,9 +4,10 @@
  *
  * Strategy (no secret / no token ever printed to the runner stdout):
  *  1. Mint a JWT INSIDE the backend container via `docker exec ... python -c`.
- *     The inline Python finds the first ACTIVE user that holds the
- *     `helpdesk.dashboard.admin` permission (so the nav populates), and prints
- *     ONLY the signed token to stdout. Diagnostics go to stderr.
+ *     The inline Python finds the first ACTIVE user that holds BOTH the
+ *     `helpdesk.dashboard.admin` permission (so the helpdesk nav populates)
+ *     AND the DB role `admin` in app `itcj` (so /itcj/config pages render),
+ *     and prints ONLY the signed token to stdout. Diagnostics go to stderr.
  *  2. Capture stdout into a Node variable. It is NEVER logged.
  *  3. Build a Playwright storageState with the `itcj_token` cookie and persist
  *     it to .auth/state.json (which is gitignored).
@@ -25,11 +26,14 @@ const AUTH_DIR = path.join(__dirname, '.auth');
 const STATE_PATH = path.join(AUTH_DIR, 'state.json');
 
 // Inline Python executed inside the container. Prints ONLY the token to stdout.
+// Selection is DUAL on purpose: helpdesk.dashboard.admin makes the helpdesk nav
+// render, and the DB role admin@itcj is required by _assert_admin on every
+// /itcj/config page (core/pages/config.py:42-73 — the JWT claim does NOT bypass it).
 const MINT_PY = `
 import sys
 from itcj2.database import SessionLocal
 from itcj2.core.models.user import User
-from itcj2.core.services.authz_service import get_user_permissions_for_app
+from itcj2.core.services.authz_service import get_user_permissions_for_app, user_roles_in_app
 
 db = SessionLocal()
 try:
@@ -38,19 +42,28 @@ try:
     for u in users:
         try:
             perms = get_user_permissions_for_app(db, u.id, "helpdesk")
+            if "helpdesk.dashboard.admin" not in perms:
+                continue
+            if "admin" not in user_roles_in_app(db, u.id, "itcj"):
+                continue
         except Exception:
             continue
-        if "helpdesk.dashboard.admin" in perms:
-            target = u
-            break
+        target = u
+        break
     if target is None:
-        sys.stderr.write("E2E_MINT: no active user with helpdesk.dashboard.admin found\\n")
+        sys.stderr.write(
+            "E2E_MINT: no active user satisfies BOTH criteria:\\n"
+            "  1) permission helpdesk.dashboard.admin (helpdesk nav/specs)\\n"
+            "  2) DB role 'admin' in app 'itcj' (config pages use _assert_admin ->\\n"
+            "     user_roles_in_app; the JWT role claim does NOT bypass it)\\n"
+            "Grant the itcj admin role to your helpdesk admin user and retry.\\n"
+        )
         sys.exit(2)
     parts = [target.first_name or "", target.last_name or ""]
     full_name = " ".join(p for p in parts if p).strip() or (target.username or "admin")
     from itcj2.middleware import _encode_jwt
     token = _encode_jwt({"sub": str(target.id), "role": "admin", "name": full_name, "cn": ""}, 12)
-    sys.stderr.write("E2E_MINT: user_id=%s ok\\n" % target.id)
+    sys.stderr.write("E2E_MINT: user_id=%s ok (dual criteria)\\n" % target.id)
     sys.stdout.write(token)
 finally:
     db.close()
@@ -82,16 +95,23 @@ async function verifyCookie(token) {
     baseURL: BASE_URL,
     extraHTTPHeaders: { Cookie: `itcj_token=${token}` },
   });
-  // maxRedirects:0 so a login redirect surfaces as 3xx instead of following it.
-  const res = await ctx.get('/help-desk/', { maxRedirects: 0 });
-  const status = res.status();
-  await ctx.dispose();
-  if (status !== 200) {
-    throw new Error(
-      `Global setup auth check failed: GET /help-desk/ returned ${status} ` +
-        `(expected 200). The minted cookie was not accepted (likely a 302 to login). ` +
-        `Verify SECRET_KEY matches and the user has helpdesk access.`
-    );
+  try {
+    // maxRedirects:0 so a login redirect surfaces as 3xx instead of following it.
+    const checks = [
+      ['/help-desk/', 'The minted cookie was not accepted (likely a 302 to login). Verify SECRET_KEY matches and the user has helpdesk access.'],
+      ['/itcj/config', 'The minted user must hold the DB role "admin" in app "itcj" — _assert_admin (core/pages/config.py) has no JWT bypass.'],
+    ];
+    for (const [urlPath, hint] of checks) {
+      const res = await ctx.get(urlPath, { maxRedirects: 0 });
+      const status = res.status();
+      if (status !== 200) {
+        throw new Error(
+          `Global setup auth check failed: GET ${urlPath} returned ${status} (expected 200). ${hint}`
+        );
+      }
+    }
+  } finally {
+    await ctx.dispose();
   }
 }
 
