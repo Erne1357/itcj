@@ -140,7 +140,7 @@ def create_user(
     if not (first_name and last_name) and body.full_name:
         parts = body.full_name.strip().split()
         if len(parts) < 2:
-            raise HTTPException(400, detail={"status": "error", "error": "invalid_name_format"})
+            raise HTTPException(400, detail="Nombre inválido: proporciona al menos nombre y apellido")
         if len(parts) >= 3:
             first_name = " ".join(parts[:-2]).upper()
             last_name = parts[-2].upper()
@@ -151,29 +151,29 @@ def create_user(
             middle_name = None
 
     if not (first_name and last_name):
-        raise HTTPException(400, detail={"status": "error", "error": "name_required"})
+        raise HTTPException(400, detail="El nombre y el apellido son requeridos")
 
     user_type = body.user_type
     if user_type == "student":
         role_name = "student"
         ctrl = (body.control_number or "").strip()
         if not ctrl or len(ctrl) != 8:
-            raise HTTPException(400, detail={"status": "error", "error": "valid_control_number_required"})
+            raise HTTPException(400, detail="Número de control inválido (8 dígitos, o letra seguida de 7 a 9 dígitos)")
         if db.query(User).filter_by(control_number=ctrl).first():
-            raise HTTPException(409, detail={"status": "error", "error": "control_number_already_exists"})
+            raise HTTPException(409, detail="El número de control ya está registrado")
     elif user_type == "staff":
         role_name = "staff"
         uname = (body.username or "").strip()
         if not uname:
-            raise HTTPException(400, detail={"status": "error", "error": "username_required_for_staff"})
+            raise HTTPException(400, detail="El nombre de usuario es requerido para personal")
         if db.query(User).filter_by(username=uname).first():
-            raise HTTPException(409, detail={"status": "error", "error": "username_already_exists"})
+            raise HTTPException(409, detail="El nombre de usuario ya está en uso")
     else:
-        raise HTTPException(400, detail={"status": "error", "error": "invalid_user_type"})
+        raise HTTPException(400, detail="Tipo de usuario inválido")
 
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(500, detail={"status": "error", "error": f"default_role_{role_name}_not_found"})
+        raise HTTPException(500, detail=f"Rol por defecto '{role_name}' no encontrado")
 
     try:
         new_user = User(
@@ -205,7 +205,7 @@ def create_user(
         }
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, detail={"status": "error", "error": "duplicate_value"})
+        raise HTTPException(409, detail="Valor duplicado: el usuario ya existe")
 
 
 # ── Create inactive user (inventory flow) ────────────────────────────────────
@@ -239,21 +239,21 @@ def create_inactive_user(
 
     dept = db.get(Department, body.department_id)
     if not dept:
-        raise HTTPException(400, detail={"success": False, "error": "Departamento no encontrado"})
+        raise HTTPException(400, detail="Departamento no encontrado")
 
     username = body.username.strip().lower()
     if not username:
-        raise HTTPException(400, detail={"success": False, "error": "Username requerido"})
+        raise HTTPException(400, detail="Username requerido")
 
     if db.query(User).filter_by(username=username).first():
-        raise HTTPException(409, detail={"success": False, "error": f"El username '{username}' ya está en uso"})
+        raise HTTPException(409, detail=f"El username '{username}' ya está en uso")
 
     if body.email and db.query(User).filter_by(email=body.email.strip()).first():
-        raise HTTPException(409, detail={"success": False, "error": "El correo ya está registrado en el sistema"})
+        raise HTTPException(409, detail="El correo ya está registrado en el sistema")
 
     role = db.query(Role).filter_by(name="staff").first()
     if not role:
-        raise HTTPException(500, detail={"success": False, "error": "Rol staff no encontrado"})
+        raise HTTPException(500, detail="Rol staff no encontrado")
 
     # Obtener o crear puesto auxiliar del departamento
     aux_code = f"aux_{dept.code}"
@@ -311,10 +311,10 @@ def create_inactive_user(
         }
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, detail={"success": False, "error": "Username o email duplicado"})
+        raise HTTPException(409, detail="Username o email duplicado")
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, detail={"success": False, "error": f"Error al crear usuario: {str(e)}"})
+        raise HTTPException(500, detail=f"Error al crear usuario: {str(e)}")
 
 
 # ── Current user department ───────────────────────────────────────────────────
@@ -329,7 +329,7 @@ def get_my_department(
 
     dept = get_user_department(db, int(user["sub"]))
     if not dept:
-        raise HTTPException(404, detail={"status": "error", "error": "no_department"})
+        raise HTTPException(404, detail="Sin departamento asignado")
     return {"success": True, "data": {"id": dept.id, "name": dept.name, "code": dept.code}}
 
 
@@ -349,11 +349,11 @@ def get_user_department_by_id(
     roles = user_roles_in_app(db, current_user_id, "helpdesk")
     allowed_roles = {"admin", "tech_desarrollo", "tech_soporte"}
     if not (roles & allowed_roles):
-        raise HTTPException(403, detail={"success": False, "error": "forbidden"})
+        raise HTTPException(403, detail="No autorizado")
 
     dept = get_user_department(db, target_user_id)
     if not dept:
-        raise HTTPException(404, detail={"success": False, "error": "no_department"})
+        raise HTTPException(404, detail="El usuario no tiene departamento asignado")
     return {"success": True, "data": {"id": dept.id, "name": dept.name, "code": dept.code}}
 
 
@@ -371,10 +371,10 @@ def reset_user_password(
 
     u = db.query(User).get(user_id)
     if not u:
-        raise HTTPException(404, detail={"status": "error", "error": "user_not_found"})
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     if u.control_number:
-        raise HTTPException(400, detail={"status": "error", "error": "cannot_reset_student_password"})
+        raise HTTPException(400, detail="No se puede resetear la contraseña de un estudiante")
 
     u.password_hash = hash_nip(DEFAULT_PASSWORD)
     u.must_change_password = True
@@ -397,10 +397,10 @@ def toggle_user_status(
 
     u = db.query(User).get(user_id)
     if not u:
-        raise HTTPException(404, detail={"status": "error", "error": "user_not_found"})
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     if int(current_user["sub"]) == u.id:
-        raise HTTPException(400, detail={"status": "error", "error": "cannot_toggle_own_account"})
+        raise HTTPException(400, detail="No puedes desactivar tu propia cuenta")
 
     u.is_active = not u.is_active
     db.commit()
@@ -433,18 +433,18 @@ def update_user(
 
     u = db.query(User).get(user_id)
     if not u:
-        raise HTTPException(404, detail={"status": "error", "error": "user_not_found"})
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     if body.first_name is not None:
         val = body.first_name.strip()
         if not val:
-            raise HTTPException(400, detail={"status": "error", "error": "first_name_required"})
+            raise HTTPException(400, detail="El nombre es requerido")
         u.first_name = val
 
     if body.last_name is not None:
         val = body.last_name.strip()
         if not val:
-            raise HTTPException(400, detail={"status": "error", "error": "last_name_required"})
+            raise HTTPException(400, detail="El apellido es requerido")
         u.last_name = val
 
     if body.middle_name is not None:
@@ -456,26 +456,26 @@ def update_user(
     if body.username is not None and not u.control_number:
         val = body.username.strip()
         if not val:
-            raise HTTPException(400, detail={"status": "error", "error": "username_required"})
+            raise HTTPException(400, detail="El nombre de usuario es requerido")
         existing = db.query(User).filter(User.username == val, User.id != user_id).first()
         if existing:
-            raise HTTPException(409, detail={"status": "error", "error": "username_already_exists"})
+            raise HTTPException(409, detail="El nombre de usuario ya está en uso")
         u.username = val
 
     if body.control_number is not None and u.control_number is not None:
         val = body.control_number.strip()
         if not val or len(val) != 8 or not val.isdigit():
-            raise HTTPException(400, detail={"status": "error", "error": "invalid_control_number"})
+            raise HTTPException(400, detail="Número de control inválido (8 dígitos, o letra seguida de 7 a 9 dígitos)")
         existing = db.query(User).filter(User.control_number == val, User.id != user_id).first()
         if existing:
-            raise HTTPException(409, detail={"status": "error", "error": "control_number_already_exists"})
+            raise HTTPException(409, detail="El número de control ya está registrado")
         u.control_number = val
 
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, detail={"status": "error", "error": "duplicate_value"})
+        raise HTTPException(409, detail="Valor duplicado")
 
     logger.info(f"Usuario {user_id} actualizado por {int(current_user['sub'])}")
     return {"status": "ok", "data": u.to_dict()}
@@ -503,11 +503,11 @@ def list_users_by_app(
 
     # Requiere acceso a helpdesk (cualquier rol/permiso)
     if user.get("role") != "admin" and not has_any_assignment(db, int(user["sub"]), "helpdesk", include_positions=True):
-        raise HTTPException(403, detail={"status": "error", "error": "forbidden"})
+        raise HTTPException(403, detail="No autorizado")
 
     app = db.query(App).filter_by(key=app_key, is_active=True).first()
     if not app:
-        raise HTTPException(404, detail={"status": "error", "error": "app_not_found"})
+        raise HTTPException(404, detail="Aplicación no encontrada")
 
     users_with_roles = db.query(User.id).join(
         UserAppRole, UserAppRole.user_id == User.id
