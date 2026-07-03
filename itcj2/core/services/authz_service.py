@@ -548,3 +548,81 @@ def user_has_position(db: Session, user_id: int, position_codes: list[str]) -> b
         .count()
     )
     return count > 0
+
+
+# ---------------------------
+# Batch para la UI de config (C3 core-config-revamp, anti-429 BUG A)
+# ---------------------------
+
+def user_app_assignments_map(db: Session, user_id: int) -> Dict[str, Dict[str, list]]:
+    """{app_key: {"roles": [...], "perms": [...], "effective": [...]}} para
+    TODAS las apps activas (llaves presentes aunque vacías — 1 card por app).
+
+    Reemplaza los 3 GETs × app de user_detail. "perms" = directos allow=True;
+    "effective" = effective_perm_set (directos ∪ vía roles ∪ puestos vigentes,
+    menos denies) como lista plana (decisión F1a-D5, contrato C3).
+    """
+    out: Dict[str, Dict[str, list]] = {}
+    apps = db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
+    for app in apps:
+        out[app.key] = {
+            "roles": sorted(user_roles_in_app(db, user_id, app.key)),
+            "perms": sorted(user_direct_perms_in_app(db, user_id, app.key)),
+            "effective": sorted(effective_perm_set(db, user_id, app.key)),
+        }
+    return out
+
+
+def users_apps_summary(db: Session, user_ids: list[int]) -> Dict[int, list[str]]:
+    """user_id -> app keys ACTIVAS donde el usuario tiene alguna asignación:
+    rol directo ∪ perm directo allow=True ∪ rol/perm vía puesto VIGENTE
+    (_active_position_filter). Espejo de has_any_assignment (F1a-D4).
+    4 queries set-based — badges de la lista de usuarios en 1 request.
+    """
+    result: Dict[int, list[str]] = {uid: [] for uid in user_ids}
+    if not user_ids:
+        return result
+
+    pairs: Set[Tuple[int, str]] = set()
+    pairs.update(
+        db.query(UserAppRole.user_id, App.key)
+        .join(App, App.id == UserAppRole.app_id)
+        .filter(UserAppRole.user_id.in_(user_ids), App.is_active == True)  # noqa: E712
+        .all()
+    )
+    pairs.update(
+        db.query(UserAppPerm.user_id, App.key)
+        .join(App, App.id == UserAppPerm.app_id)
+        .filter(
+            UserAppPerm.user_id.in_(user_ids),
+            UserAppPerm.allow == True,  # noqa: E712
+            App.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+    pairs.update(
+        db.query(UserPosition.user_id, App.key)
+        .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
+        .join(App, App.id == PositionAppRole.app_id)
+        .filter(
+            UserPosition.user_id.in_(user_ids),
+            _active_position_filter(),
+            App.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+    pairs.update(
+        db.query(UserPosition.user_id, App.key)
+        .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
+        .join(App, App.id == PositionAppPerm.app_id)
+        .filter(
+            UserPosition.user_id.in_(user_ids),
+            _active_position_filter(),
+            PositionAppPerm.allow == True,  # noqa: E712
+            App.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+    for uid, key in pairs:
+        result[uid].append(key)
+    return {uid: sorted(keys) for uid, keys in result.items()}
