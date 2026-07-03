@@ -44,13 +44,43 @@ def list_departments_by_parent(db: Session, parent_id=None):
     return list_subdirections(db)
 
 
-def list_parent_options(db: Session):
-    direction = get_direction(db)
-    if not direction:
-        return []
-    options = [direction]
-    options.extend(list_subdirections(db))
-    return options
+def list_parent_options(db: Session, exclude_subtree_of: int | None = None) -> list[dict]:
+    """Árbol activo COMPLETO aplanado (preorden DFS) con depth para indentar.
+
+    Reemplaza el cap histórico [direction + subdirections]: cualquier depto
+    activo puede ser padre (POST /departments nunca tuvo cap de profundidad, y
+    ahora incluye también el subtree de union_delegation, antes omitido).
+
+    ``exclude_subtree_of``: en modo edición excluye ese depto Y todo su subtree
+    (anti-ciclo en UI; el guard duro sigue en update_department).
+
+    Claves legacy conservadas para departments.js: id, name, parent_id.
+    Nota: parent_id refleja la posición EN EL ÁRBOL (None para nodos tratados
+    como raíz por tener parent inactivo), no siempre el valor crudo de BD.
+    """
+    excluded: set[int] = set()
+    if exclude_subtree_of is not None:
+        from itcj2.core.services.hierarchy_service import descendant_department_ids
+        excluded = descendant_department_ids(db, exclude_subtree_of, include_self=True)
+
+    flat: list[dict] = []
+
+    def _walk(nodes: list[dict], parent_id) -> None:
+        for n in nodes:
+            if n["id"] in excluded:
+                continue  # excluye el nodo y TODO su subtree
+            flat.append({
+                "id": n["id"],
+                "name": n["name"],
+                "code": n["code"],
+                "parent_id": parent_id,
+                "depth": n["depth"],
+                "is_official": n["is_official"],
+            })
+            _walk(n["children"], n["id"])
+
+    _walk(build_tree(db), None)
+    return flat
 
 
 def list_departments(db: Session):

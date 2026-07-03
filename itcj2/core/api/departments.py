@@ -79,14 +79,19 @@ def list_subdirections(
 
 @router.get("/parent-options")
 def list_parent_options(
+    exclude_subtree_of: Optional[int] = None,
     user: dict = require_perms("itcj", ["core.departments.api.read"]),
     db: DbSession = None,
 ):
-    """Lista departamentos disponibles como padres (dirección y subdirecciones)."""
+    """Opciones de padre: árbol activo completo aplanado con depth (sin cap).
+
+    ``exclude_subtree_of``: excluye ese depto y su subtree (modo edición, F5).
+    Envelope legacy {"status": "ok"} — flip por-recurso en F5.
+    """
     from itcj2.core.services import departments_service as svc
 
-    options = svc.list_parent_options(db)
-    return {"status": "ok", "data": [d.to_dict() for d in options]}
+    options = svc.list_parent_options(db, exclude_subtree_of=exclude_subtree_of)
+    return {"status": "ok", "data": options}
 
 
 @router.get("/tree")
