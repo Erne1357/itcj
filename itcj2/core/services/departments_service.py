@@ -99,6 +99,11 @@ def create_department(db: Session, code: str, name: str, description=None, paren
     if db.query(Department).filter_by(code=code).first():
         raise ValueError("department_code_exists")
 
+    if parent_id is not None:
+        parent = db.get(Department, parent_id)
+        if not parent or not parent.is_active:
+            raise ValueError("El departamento padre no existe o está inactivo")
+
     dept = Department(
         code=code,
         name=name,
@@ -122,6 +127,9 @@ def update_department(db: Session, dept_id: int, **kwargs):
         new_parent = kwargs["parent_id"]
         if new_parent == dept_id:
             raise ValueError("cycle_detected")
+        parent = db.get(Department, new_parent)
+        if not parent or not parent.is_active:
+            raise ValueError("El departamento padre no existe o está inactivo")
         # No permitir anclar el dept bajo uno de sus propios descendientes.
         from itcj2.core.services.hierarchy_service import descendant_department_ids
         if new_parent in descendant_department_ids(db, dept_id, include_self=False):
