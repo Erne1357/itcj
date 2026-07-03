@@ -79,3 +79,57 @@ class TestModuleUrl:
     def test_cdn_url_passthrough(self):
         cdn = "https://cdn.socket.io/4.7.5/socket.io.min.js"
         assert nav_config._module_url(cdn) == cdn
+
+
+# --- Task 2: sidebar_active derivado en el servidor -------------------------
+from pathlib import Path
+from unittest.mock import patch
+
+import itcj2
+
+
+@pytest.fixture()
+def admin_role_patch():
+    """Simula rol admin@itcj en BD. Punto único: authz_service.user_roles_in_app
+    (lo usan _assert_admin pre-F1a y cached_roles post-F1a)."""
+    with patch(
+        "itcj2.core.services.authz_service.user_roles_in_app",
+        return_value={"admin"},
+    ):
+        yield
+
+
+def _anchor_tag(html: str, href: str) -> str:
+    """Devuelve el tag <a ...> completo cuyo href es exactamente `href`."""
+    m = re.search(r'<a\b[^>]*href="' + re.escape(href) + r'"[^>]*>', html)
+    assert m, f"no se encontró <a href=\"{href}\"> en el HTML"
+    return m.group(0)
+
+
+class TestNoSidebarSetInTemplates:
+    def test_templates_do_not_set_sidebar_active(self):
+        base = Path(itcj2.__file__).parent / "core" / "templates" / "core" / "config"
+        offenders = [
+            str(p)
+            for p in base.rglob("*.html")
+            if "set sidebar_active" in p.read_text(encoding="utf-8")
+        ]
+        assert offenders == []
+
+
+class TestSidebarActiveDerived:
+    def test_roles_page_highlights_roles_link(self, app_client, auth_headers, admin_role_patch):
+        resp = app_client.get("/itcj/config/roles", headers=auth_headers)
+        assert resp.status_code == 200
+        assert "active" in _anchor_tag(resp.text, "/itcj/config/roles")
+        assert "active" not in _anchor_tag(resp.text, "/itcj/config/apps")
+
+    def test_permissions_page_highlights_apps_link(self, app_client, auth_headers, admin_role_patch):
+        resp = app_client.get("/itcj/config/apps/helpdesk/permissions", headers=auth_headers)
+        assert resp.status_code == 200
+        assert "active" in _anchor_tag(resp.text, "/itcj/config/apps")
+
+    def test_tasks_page_highlights_tasks_link(self, app_client, auth_headers, admin_role_patch):
+        resp = app_client.get("/itcj/config/system/tasks", headers=auth_headers)
+        assert resp.status_code == 200
+        assert "active" in _anchor_tag(resp.text, "/itcj/config/system/tasks")

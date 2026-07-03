@@ -57,7 +57,7 @@ async def settings(
     from itcj2.core.models.permission import Permission
     from itcj2.core.models.role import Role
     from itcj2.core.models.user import User
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     apps = db.query(App).order_by(App.key.asc()).all()
     roles = db.query(Role).order_by(Role.name.asc()).all()
@@ -78,7 +78,7 @@ async def settings(
     except Exception:
         pass
 
-    return render(request, "core/config/index.html", {
+    return render_config(request, "core/config/index.html", "index", {
         "apps": apps,
         "roles": roles,
         "users_count": users_count,
@@ -102,10 +102,10 @@ async def apps_management(
 ):
     """Página de gestión de aplicaciones."""
     from itcj2.core.models.app import App
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     apps = db.query(App).order_by(App.key.asc()).all()
-    return render(request, "core/config/system/apps.html", {"apps": apps})
+    return render_config(request, "core/config/system/apps.html", "apps", {"apps": apps})
 
 
 @router.get("/config/roles", name="core.pages.config.roles_management")
@@ -116,10 +116,10 @@ async def roles_management(
 ):
     """Página de gestión de roles globales."""
     from itcj2.core.models.role import Role
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     roles = db.query(Role).order_by(Role.name.asc()).all()
-    return render(request, "core/config/system/roles.html", {"roles": roles})
+    return render_config(request, "core/config/system/roles.html", "roles", {"roles": roles})
 
 
 @router.get("/config/apps/{app_key}/permissions", name="core.pages.config.app_permissions")
@@ -132,7 +132,7 @@ async def app_permissions(
     """Página de gestión de permisos de una app específica."""
     from itcj2.core.models.app import App
     from itcj2.core.models.permission import Permission
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     app = db.query(App).filter_by(key=app_key).first()
     if not app:
@@ -144,7 +144,7 @@ async def app_permissions(
         .order_by(Permission.code.asc())
         .all()
     )
-    return render(request, "core/config/system/permissions.html", {
+    return render_config(request, "core/config/system/permissions.html", "permissions", {
         "app": app,
         "permissions": permissions,
     })
@@ -156,9 +156,9 @@ async def themes_management(
     user: dict = _ADMIN_PAGE,
 ):
     """Página de gestión de temas visuales del sistema."""
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
-    return render(request, "core/config/system/themes.html")
+    return render_config(request, "core/config/system/themes.html", "themes")
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ async def users_management(
     from itcj2.core.models.role import Role
     from itcj2.core.models.user import User
     from itcj2.models.base import paginate
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     per_page = 20
     users_query = db.query(User)
@@ -199,7 +199,7 @@ async def users_management(
     apps = db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
     roles = db.query(Role).order_by(Role.name.asc()).all()
 
-    return render(request, "core/config/users/users.html", {
+    return render_config(request, "core/config/users/users.html", "users", {
         "users": pagination.items,
         "apps": apps,
         "roles": roles,
@@ -219,7 +219,7 @@ async def user_detail(
     from itcj2.core.models.app import App
     from itcj2.core.models.role import Role
     from itcj2.core.models.user import User
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     target = db.get(User, user_id)
     if not target:
@@ -228,7 +228,7 @@ async def user_detail(
     apps = db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
     roles = db.query(Role).order_by(Role.name.asc()).all()
 
-    return render(request, "core/config/users/user_detail.html", {
+    return render_config(request, "core/config/users/user_detail.html", "user_detail", {
         "user": target,
         "apps": apps,
         "roles": roles,
@@ -246,9 +246,9 @@ async def positions_management(
     user: dict = _ADMIN_PAGE,
 ):
     """Vista principal de departamentos y estructura organizacional."""
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
-    return render(request, "core/config/organization/departments.html")
+    return render_config(request, "core/config/organization/departments.html", "departments")
 
 
 @router.get("/config/departments/{department_id}", name="core.pages.config.department_detail")
@@ -260,13 +260,13 @@ async def department_detail(
 ):
     """Vista de detalle de un departamento con sus puestos."""
     from itcj2.core.models.department import Department
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     dept = db.get(Department, department_id)
     if not dept:
         raise HTTPException(status_code=404, detail="Departamento no encontrado")
 
-    return render(request, "core/config/organization/department_detail.html", {
+    return render_config(request, "core/config/organization/department_detail.html", "department_detail", {
         "department_id": department_id,
         "department": dept,
     })
@@ -282,7 +282,7 @@ async def position_detail(
     """Vista de detalle y edición de un puesto."""
     from itcj2.core.models.position import Position
     from itcj2.core.models.role import Role
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     position = db.get(Position, position_id)
     if not position:
@@ -290,7 +290,7 @@ async def position_detail(
 
     roles = db.query(Role).order_by(Role.name.asc()).all()
 
-    return render(request, "core/config/organization/position_detail.html", {
+    return render_config(request, "core/config/organization/position_detail.html", "position_detail", {
         "position_id": position_id,
         "position": position,
         "roles": roles,
@@ -311,7 +311,7 @@ async def email_management(
     """Página de configuración de cuentas de correo por aplicación."""
     from itcj2.core.models.app import App
     from itcj2.core.utils import msgraph_mail
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
     apps = db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
     apps_email = [
@@ -324,7 +324,7 @@ async def email_management(
         }
         for app in apps
     ]
-    return render(request, "core/config/system/email.html", {"apps_email": apps_email})
+    return render_config(request, "core/config/system/email.html", "email", {"apps_email": apps_email})
 
 
 @router.get("/config/email/auth/login", name="core.pages.config.email_auth_login")
@@ -404,6 +404,6 @@ async def tasks_management(
     user: dict = _ADMIN_PAGE,
 ):
     """Página de gestión de tareas programadas (catálogo, schedules, historial)."""
-    from itcj2.templates import render
+    from itcj2.core.pages.nav_config import render_config
 
-    return render(request, "core/config/system/tasks.html")
+    return render_config(request, "core/config/system/tasks.html", "tasks")
