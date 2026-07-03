@@ -30,7 +30,14 @@ CONFIG_BOOST_ENABLED = True
 # page_key -> módulos JS del registry cliente (ConfigPage). Solo páginas
 # MIGRADAS. Rutas relativas se sirven desde /static/core/ y se versionan con
 # sv(); URLs http(s):// (CDN) se pasan tal cual. Orden = orden de carga.
-CONFIG_PAGE_MODULES: dict[str, list[str]] = {}
+CONFIG_PAGE_MODULES: dict[str, list[str]] = {
+    # Piloto F2. El widget de usuarios activos vive como módulo del registry;
+    # socket.io se carga como dep CDN ANTES del módulo (F6 lo cambia a vendored).
+    "index": [
+        "https://cdn.socket.io/4.7.5/socket.io.min.js",
+        "js/config/active-users.js",
+    ],
+}
 
 # Patrón de URL -> page_key. Cubre las 12 páginas HTML de core/pages/config.py
 # (los endpoints AJAX/OAuth de email NO son páginas y no van aquí).
