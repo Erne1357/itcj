@@ -25,19 +25,19 @@
             <i class="bi bi-arrow-left"></i>
         </button>
         <span class="config-mobile-title">Configuración</span>
-        <button class="config-mobile-toggle" onclick="toggleSidebar()">
+        <button class="config-mobile-toggle" type="button" aria-label="Abrir menú">
             <i class="bi bi-list"></i>
         </button>
     </div>
 
     <div class="config-wrapper">
         <!-- Boton toggle movil (solo visible cuando NO está en iframe) -->
-        <button class="config-mobile-toggle" onclick="toggleSidebar()" id="normalMobileToggle">
+        <button class="config-mobile-toggle" type="button" id="normalMobileToggle" aria-label="Abrir menú">
             <i class="bi bi-list"></i>
         </button>
 
         <!-- Overlay para movil -->
-        <div class="config-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+        <div class="config-overlay" id="sidebarOverlay"></div>
 
         <!-- Sidebar -->
         <aside class="config-sidebar" id="configSidebar">

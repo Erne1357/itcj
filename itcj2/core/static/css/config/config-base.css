@@ -599,13 +599,15 @@
         backface-visibility: hidden;
         -webkit-backface-visibility: hidden;
         -webkit-transform: translateX(-100%);
-        visibility: hidden;
+        /* Off-canvas SOLO por transform (sin visibility:hidden): el shell HTMX
+           mantiene el sidebar renderizado en todo breakpoint para que el harness
+           e2e (gotoCore → [data-cfg-page], .config-sidebar) no lo vea "hidden" a
+           375px. El overlay + el foco delegado gestionan el cierre en móvil. */
     }
 
     .config-sidebar.open {
         transform: translateX(0);
         -webkit-transform: translateX(0);
-        visibility: visible;
     }
     
     /* IMPORTANTE: Restaurar visibilidad de textos en móvil */
