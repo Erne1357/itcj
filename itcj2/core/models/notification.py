@@ -50,6 +50,7 @@ class Notification(Base):
             for key, value in self.data.items():
                 sanitized_data[key] = list(value) if isinstance(value, (set, frozenset)) else value
 
+        style = self._app_style()
         data = {
             "id": self.id,
             "app_name": self.app_name,
@@ -62,8 +63,9 @@ class Notification(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "action_url": self._get_action_url(),
-            "app_icon": self._get_app_icon(),
+            "app_icon": self._get_app_icon(style),
             "app_color": self._get_app_color(),
+            "app_color_hex": style.get("color"),
         }
         if include_source and self.ticket:
             data["ticket"] = {
@@ -76,28 +78,52 @@ class Notification(Base):
     def _get_action_url(self):
         return self.data.get("url") if self.data else None
 
-    def _get_app_icon(self):
-        icons = {
-            "agendatec": "bi-calendar-check",
-            "helpdesk": "bi-headset",
-            "maint": "bi-tools",
-            "vistetec": "bi-bag-heart",
-            "titulatec": "bi-mortarboard-fill",
-            "warehouse": "bi-archive",
-            "inventory": "bi-box-seam",
-            "core": "bi-gear",
-        }
-        return icons.get(self.app_name, "bi-bell")
+    # Mapas legacy: fallback cuando la app no está en core_apps o no tiene estilo.
+    _LEGACY_ICONS = {
+        "agendatec": "bi-calendar-check",
+        "helpdesk": "bi-headset",
+        "maint": "bi-tools",
+        "vistetec": "bi-bag-heart",
+        "titulatec": "bi-mortarboard-fill",
+        "warehouse": "bi-archive",
+        "inventory": "bi-box-seam",
+        "core": "bi-gear",
+    }
+    _LEGACY_COLORS = {
+        "agendatec": "primary",
+        "helpdesk": "success",
+        "maint": "secondary",
+        "vistetec": "danger",
+        "titulatec": "warning",
+        "warehouse": "info",
+        "inventory": "warning",
+        "core": "secondary",
+    }
+
+    def _app_style(self) -> dict:
+        """Estilo (color/icon_class) desde core_apps vía app_style_cache.
+
+        Fail-open: sin session ORM o ante cualquier error devuelve {} y los
+        helpers caen a los mapas legacy.
+        """
+        from sqlalchemy.orm import object_session
+        db = object_session(self)
+        if db is None:
+            return {}
+        try:
+            from itcj2.core.services.app_style_cache import cached_app_styles
+            return cached_app_styles(db).get(self.app_name) or {}
+        except Exception:
+            return {}
+
+    def _get_app_icon(self, style: dict | None = None):
+        style = self._app_style() if style is None else style
+        if style.get("icon_class"):
+            return style["icon_class"]
+        return self._LEGACY_ICONS.get(self.app_name, "bi-bell")
 
     def _get_app_color(self):
-        colors = {
-            "agendatec": "primary",
-            "helpdesk": "success",
-            "maint": "secondary",
-            "vistetec": "danger",
-            "titulatec": "warning",
-            "warehouse": "info",
-            "inventory": "warning",
-            "core": "secondary",
-        }
-        return colors.get(self.app_name, "info")
+        # F1b-D1: tono Bootstrap legacy — los widgets renderizan `bg-${app_color}`
+        # como CLASE. El hex de BD viaja en app_color_hex; el flip de los widgets
+        # a hex es de F6 (mismo commit que sus consumidores). NO devolver hex aquí.
+        return self._LEGACY_COLORS.get(self.app_name, "info")
