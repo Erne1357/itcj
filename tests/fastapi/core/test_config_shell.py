@@ -133,3 +133,30 @@ class TestSidebarActiveDerived:
         resp = app_client.get("/itcj/config/system/tasks", headers=auth_headers)
         assert resp.status_code == 200
         assert "active" in _anchor_tag(resp.text, "/itcj/config/system/tasks")
+
+
+# --- Task 3: shell HTMX ------------------------------------------------------
+class TestHtmxShell:
+    def test_cfg_main_and_htmx_stack_present(self, app_client, auth_headers, admin_role_patch):
+        resp = app_client.get("/itcj/config", headers=auth_headers)
+        assert resp.status_code == 200
+        html = resp.text
+        assert 'id="cfgMain"' in html
+        assert 'data-cfg-page="index"' in html
+        assert 'hx-ext="morph,head-support"' in html
+        assert 'hx-swap="morph:innerHTML"' in html
+        assert 'hx-target="body"' in html
+        assert "htmx.org@2.0.3" in html
+        assert "idiomorph@0.7.3/dist/idiomorph-ext.min.js" in html
+        assert "htmx-ext-head-support@2.0.4/head-support.js" in html
+        # los 3 CDN htmx llevan SRI (D9: helpdesk no le puso SRI a idiomorph; aquí sí va)
+        assert html.count('integrity="sha384-') >= 3
+
+    def test_page_key_per_page(self, app_client, auth_headers, admin_role_patch):
+        resp = app_client.get("/itcj/config/users", headers=auth_headers)
+        assert 'data-cfg-page="users"' in resp.text
+
+    def test_no_boost_attrs_while_registry_empty(self, app_client, auth_headers, admin_role_patch):
+        # CONFIG_PAGE_MODULES está vacío hasta Task 6: ni un solo hx-boost.
+        resp = app_client.get("/itcj/config", headers=auth_headers)
+        assert "hx-boost" not in resp.text
