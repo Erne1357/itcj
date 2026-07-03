@@ -3,6 +3,7 @@ Users Admin API v2 — gestión de usuarios (lista, crear, actualizar, reset).
 Fuente: itcj/core/routes/api/users.py
 """
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -15,6 +16,11 @@ router = APIRouter(prefix="/users", tags=["users-admin"])
 logger = logging.getLogger(__name__)
 
 DEFAULT_PASSWORD = "tecno#2K"
+
+# D8/C7 (core-config-revamp): 8 dígitos (licenciatura) o letra + 7-9 dígitos
+# (posgrado). MISMO regex que el pattern del front (users.html #controlNumber).
+# Un numérico de 9 dígitos NO es válido.
+CONTROL_NUMBER_RE = re.compile(r"^(\d{8}|[A-Za-z]\d{7,9})$")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -157,7 +163,7 @@ def create_user(
     if user_type == "student":
         role_name = "student"
         ctrl = (body.control_number or "").strip()
-        if not ctrl or len(ctrl) != 8:
+        if not CONTROL_NUMBER_RE.match(ctrl):
             raise HTTPException(400, detail="Número de control inválido (8 dígitos, o letra seguida de 7 a 9 dígitos)")
         if db.query(User).filter_by(control_number=ctrl).first():
             raise HTTPException(409, detail="El número de control ya está registrado")
@@ -464,7 +470,7 @@ def update_user(
 
     if body.control_number is not None and u.control_number is not None:
         val = body.control_number.strip()
-        if not val or len(val) != 8 or not val.isdigit():
+        if not CONTROL_NUMBER_RE.match(val):
             raise HTTPException(400, detail="Número de control inválido (8 dígitos, o letra seguida de 7 a 9 dígitos)")
         existing = db.query(User).filter(User.control_number == val, User.id != user_id).first()
         if existing:
