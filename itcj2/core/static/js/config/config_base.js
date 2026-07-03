@@ -15,12 +15,42 @@
     function sidebarEl() { return document.getElementById('configSidebar'); }
     function overlayEl() { return document.getElementById('sidebarOverlay'); }
 
+    // El off-canvas móvil se cierra SOLO por transform (ver config-base.css
+    // ~L602): sin visibility:hidden el sidebar sigue teniendo bounding box y
+    // Playwright (gotoCore) lo ve "visible". Para no romper eso pero sacar los
+    // ~8 links del tab order / árbol de accesibilidad mientras está cerrado en
+    // móvil, togglear inert + aria-hidden desde JS (no cambian visibilidad
+    // computada ni el bounding box).
+    var mobileMql = window.matchMedia('(max-width: 768px)');
+
+    function lockSidebarA11y(sidebar) {
+        sidebar.setAttribute('inert', '');
+        sidebar.setAttribute('aria-hidden', 'true');
+    }
+
+    function unlockSidebarA11y(sidebar) {
+        sidebar.removeAttribute('inert');
+        sidebar.removeAttribute('aria-hidden');
+    }
+
+    // Sincroniza inert/aria-hidden según breakpoint + estado open/closed actual.
+    function syncSidebarA11y() {
+        var sidebar = sidebarEl();
+        if (!sidebar) return;
+        if (mobileMql.matches && !sidebar.classList.contains('open')) {
+            lockSidebarA11y(sidebar);
+        } else {
+            unlockSidebarA11y(sidebar);
+        }
+    }
+
     function openSidebar() {
         var sidebar = sidebarEl();
         var overlay = overlayEl();
         if (!sidebar) return;
         sidebar.classList.add('open');
         if (overlay) overlay.classList.add('show');
+        unlockSidebarA11y(sidebar);
     }
 
     function closeSidebar() {
@@ -28,6 +58,7 @@
         var overlay = overlayEl();
         if (sidebar) sidebar.classList.remove('open');
         if (overlay) overlay.classList.remove('show');
+        if (sidebar && mobileMql.matches) lockSidebarA11y(sidebar);
     }
 
     function toggleSidebar() {
@@ -57,6 +88,15 @@
         // En rail/off-canvas (≤992px), navegar desde el sidebar lo cierra
         if (e.target.closest('.config-nav-link') && window.innerWidth <= 992) closeSidebar();
     });
+
+    // Estado inicial (carga directa en móvil con sidebar cerrado) + reacción a
+    // cambios de breakpoint (rotación, resize de ventana/DevTools).
+    syncSidebarA11y();
+    if (typeof mobileMql.addEventListener === 'function') {
+        mobileMql.addEventListener('change', syncSidebarA11y);
+    } else if (typeof mobileMql.addListener === 'function') {
+        mobileMql.addListener(syncSidebarA11y); // Safari <14
+    }
 
     // body es el target del morph:innerHTML: sus ATRIBUTOS no se morfean,
     // así que la clase de iframe puesta aquí persiste entre navegaciones.
