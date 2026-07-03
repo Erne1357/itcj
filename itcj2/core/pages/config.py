@@ -334,9 +334,18 @@ async def email_auth_login(
     user: dict = _ADMIN_PAGE,
     db: DbSession = None,
 ):
-    """Inicia el flujo OAuth con Microsoft para la app indicada."""
+    """Inicia el flujo OAuth con Microsoft para la app indicada.
+
+    Genera un nonce anti-CSRF de un solo uso (C6): Redis oauth:state:{nonce}
+    -> app_key con TTL EMAIL_OAUTH_STATE_TTL; el nonce viaja como ``state``.
+    Redis caído => 500 (fail-closed, F1a-D6).
+    """
+    import secrets
+
+    from itcj2.config import get_settings
     from itcj2.core.models.app import App as AppModel
     from itcj2.core.utils import msgraph_mail
+    from itcj2.core.utils.redis_conn import get_redis
 
     if not app:
         return RedirectResponse("/itcj/config/email", status_code=302)
@@ -346,7 +355,11 @@ async def email_auth_login(
         logger.warning("email_auth_login: app '%s' no encontrada", app)
         return RedirectResponse("/itcj/config/email", status_code=302)
 
-    auth_url = msgraph_mail.build_auth_url(app)
+    nonce = secrets.token_urlsafe(32)
+    get_redis().setex(
+        f"oauth:state:{nonce}", get_settings().EMAIL_OAUTH_STATE_TTL, app
+    )
+    auth_url = msgraph_mail.build_auth_url(app, state=nonce)
     return RedirectResponse(auth_url, status_code=302)
 
 
@@ -354,20 +367,31 @@ async def email_auth_login(
 async def email_auth_callback(
     request: Request,
     code: str = Query("", description="Código de autorización de Microsoft"),
-    state: str = Query("", description="App key (enviado como 'state' en el flujo OAuth)"),
+    state: str = Query("", description="Nonce anti-CSRF emitido en email_auth_login"),
+    user: dict = _ADMIN_PAGE,
 ):
-    """Callback OAuth de Microsoft. Intercambia el código por tokens y guarda la cuenta."""
+    """Callback OAuth de Microsoft. Valida el nonce (un solo uso), resuelve el
+    app_key desde Redis e intercambia el código por tokens (C6, security)."""
     from itcj2.core.utils import msgraph_mail
+    from itcj2.core.utils.redis_conn import get_redis
 
     if not code or not state:
         logger.warning("email_auth_callback: faltan parámetros code o state")
         return RedirectResponse("/itcj/config/email", status_code=302)
 
-    result = msgraph_mail.process_auth_code(state, code)
+    r = get_redis()
+    redis_key = f"oauth:state:{state}"
+    app_key = r.get(redis_key)
+    if not app_key:
+        logger.warning("email_auth_callback: state inválido o expirado")
+        return RedirectResponse("/itcj/config/email", status_code=302)
+    r.delete(redis_key)  # un solo uso
+
+    result = msgraph_mail.process_auth_code(app_key, code)
     if result.get("error"):
         logger.error(
             "email_auth_callback error para app '%s': %s",
-            state,
+            app_key,
             result.get("error_description", result["error"]),
         )
 

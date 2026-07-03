@@ -113,13 +113,18 @@ def clear_account_and_cache(app_key: str):
             ap.unlink()
 
 
-def build_auth_url(app_key: str) -> str:
-    """Genera la URL de autorizacion de Microsoft. Usa app_key como state."""
+def build_auth_url(app_key: str, state: str | None = None) -> str:
+    """Genera la URL de autorizacion de Microsoft.
+
+    ``state`` debe ser el nonce anti-CSRF generado en email_auth_login
+    (persistido en Redis como oauth:state:{nonce} -> app_key, C6). Fallback
+    legacy ``state=app_key`` solo por retro-compatibilidad de firma.
+    """
     app = get_msal_app(app_key)
     return app.get_authorization_request_url(
         _scopes_for_auth(),
         redirect_uri=REDIRECT_URI,
-        state=app_key,
+        state=state or app_key,
         prompt="select_account",
     )
 
