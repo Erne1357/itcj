@@ -93,10 +93,10 @@ def create_app(
     key = body.key.strip()
     name = body.name.strip()
     if not key or not name:
-        raise HTTPException(400, detail={"status": "error", "error": "key_and_name_required"})
+        raise HTTPException(400, detail="La clave y el nombre son requeridos")
 
     if db.query(App).filter_by(key=key).first():
-        raise HTTPException(409, detail={"status": "error", "error": "app_key_exists"})
+        raise HTTPException(409, detail="Ya existe una aplicación con esa clave")
 
     a = App(
         key=key, name=name, is_active=body.is_active,
@@ -128,7 +128,7 @@ def update_app(
 
     a = db.query(App).filter_by(key=app_key).first()
     if not a:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Aplicación no encontrada")
 
     if body.name is not None:
         a.name = body.name.strip() or a.name
@@ -166,7 +166,7 @@ def delete_app(
 
     a = db.query(App).filter_by(key=app_key).first()
     if not a:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Aplicación no encontrada")
 
     db.delete(a)
     db.commit()
@@ -205,9 +205,9 @@ def create_role(
 
     name = body.name.strip()
     if not name:
-        raise HTTPException(400, detail={"status": "error", "error": "name_required"})
+        raise HTTPException(400, detail="El nombre es requerido")
     if db.query(Role).filter_by(name=name).first():
-        raise HTTPException(409, detail={"status": "error", "error": "role_exists"})
+        raise HTTPException(409, detail="Ya existe un rol con ese nombre")
 
     r = Role(name=name)
     db.add(r)
@@ -227,7 +227,7 @@ def delete_role(
 
     r = db.query(Role).filter_by(name=role_name).first()
     if not r:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
 
     db.delete(r)
     db.commit()
@@ -265,10 +265,10 @@ def create_perm(
     code = body.code.strip()
     name = body.name.strip()
     if not code or not name:
-        raise HTTPException(400, detail={"status": "error", "error": "code_and_name_required"})
+        raise HTTPException(400, detail="El código y el nombre son requeridos")
 
     if db.query(Permission).filter_by(app_id=app.id, code=code).first():
-        raise HTTPException(409, detail={"status": "error", "error": "permission_exists"})
+        raise HTTPException(409, detail="Ya existe un permiso con ese código en la aplicación")
 
     perm = Permission(app_id=app.id, code=code, name=name, description=body.description or None)
     db.add(perm)
@@ -290,7 +290,7 @@ def delete_perm(
     app = svc.get_or_404_app(db, app_key)
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     db.delete(perm)
     db.commit()
@@ -316,7 +316,7 @@ def get_role_perms(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
 
     rows = (
         db.query(Permission.code)
@@ -345,7 +345,7 @@ def replace_role_perms(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
 
     # Eliminar permisos actuales de esta app para el rol
     perm_ids_to_delete = (
@@ -391,10 +391,10 @@ def add_role_perm(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "perm_not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     if not db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first():
         db.add(RolePermission(role_id=role.id, perm_id=perm.id))
@@ -421,10 +421,10 @@ def remove_role_perm(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "perm_not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).delete()
     db.commit()
@@ -460,7 +460,7 @@ def add_user_role(
 
     role_name = body.role_name.strip()
     if not role_name:
-        raise HTTPException(400, detail={"status": "error", "error": "role_name_required"})
+        raise HTTPException(400, detail="El nombre del rol es requerido")
 
     created = svc.grant_role(db, user_id, app_key, role_name)
     return {"status": "ok", "data": {"created": bool(created)}}
@@ -506,7 +506,7 @@ def add_user_perm(
 
     code = body.code.strip()
     if not code:
-        raise HTTPException(400, detail={"status": "error", "error": "code_required"})
+        raise HTTPException(400, detail="El código del permiso es requerido")
 
     changed = svc.grant_perm(db, user_id, app_key, code, allow=body.allow)
     resp = {"status": "ok", "data": {"updated": bool(changed)}}
