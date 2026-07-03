@@ -118,7 +118,7 @@ def get_user_position_permissions(
         perms = svc.get_position_effective_permissions(db, user_id, app_key)
         return {"status": "ok", "data": sorted(list(perms))}
     except Exception as e:
-        raise HTTPException(400, detail={"status": "error", "error": str(e)})
+        raise HTTPException(400, detail=str(e))
 
 
 @router.get("/{position_id}")
@@ -132,7 +132,7 @@ def get_position(
 
     position = svc.get_position_by_id(db, position_id)
     if not position:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Puesto no encontrado")
 
     return {
         "status": "ok",
@@ -163,7 +163,7 @@ def create_position(
     code = body.code.strip()
     title = body.title.strip()
     if not code or not title:
-        raise HTTPException(400, detail={"status": "error", "error": "code_and_title_required"})
+        raise HTTPException(400, detail="El código y el título son requeridos")
 
     try:
         position = svc.create_position(
@@ -187,7 +187,7 @@ def create_position(
             },
         }
     except ValueError as e:
-        raise HTTPException(409, detail={"status": "error", "error": str(e)})
+        raise HTTPException(409, detail=str(e))
 
 
 @router.patch("/{position_id}")
@@ -219,7 +219,7 @@ def update_position(
             },
         }
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
 
 
 @router.delete("/{position_id}", status_code=204)
@@ -234,11 +234,11 @@ def delete_position(
 
     active = db.query(UserPosition).filter_by(position_id=position_id, is_active=True).count()
     if active > 0:
-        raise HTTPException(409, detail={"status": "error", "error": "position_has_active_users"})
+        raise HTTPException(409, detail="El puesto tiene usuarios activos asignados")
 
     position = svc.get_position_by_id(db, position_id)
     if not position:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Puesto no encontrado")
 
     svc.delete_position(db, position_id)
     logger.info(f"Puesto {position_id} eliminado por usuario {int(user['sub'])}")
@@ -285,7 +285,7 @@ def assign_user_to_position(
         try:
             start_date = datetime.strptime(body.start_date, "%Y-%m-%d").date()
         except ValueError:
-            raise HTTPException(400, detail={"status": "error", "error": "invalid_date_format"})
+            raise HTTPException(400, detail="Formato de fecha inválido (usa YYYY-MM-DD)")
 
     try:
         assignment = svc.assign_user_to_position(db, body.user_id, position_id, start_date, body.notes)
@@ -300,7 +300,7 @@ def assign_user_to_position(
             },
         }
     except ValueError as e:
-        raise HTTPException(409, detail={"status": "error", "error": str(e)})
+        raise HTTPException(409, detail=str(e))
 
 
 @router.post("/{position_id}/transfer")
@@ -318,20 +318,20 @@ def transfer_position(
         try:
             transfer_date = datetime.strptime(body.transfer_date, "%Y-%m-%d").date()
         except ValueError:
-            raise HTTPException(400, detail={"status": "error", "error": "invalid_date_format"})
+            raise HTTPException(400, detail="Formato de fecha inválido (usa YYYY-MM-DD)")
 
     old_user_id = body.old_user_id
     if not old_user_id:
         current = svc.get_position_current_user(db, position_id)
         if not current:
-            raise HTTPException(400, detail={"status": "error", "error": "no_current_user"})
+            raise HTTPException(400, detail="El puesto no tiene un usuario asignado actualmente")
         old_user_id = current["user_id"]
 
     try:
         svc.transfer_position(db, old_user_id, body.new_user_id, position_id, transfer_date)
         return {"status": "ok", "data": {"transferred": True}}
     except Exception as e:
-        raise HTTPException(500, detail={"status": "error", "error": str(e)})
+        raise HTTPException(500, detail=str(e))
 
 
 @router.delete("/{position_id}/remove-user")
@@ -349,19 +349,19 @@ def remove_user_from_position(
         try:
             end_date = datetime.strptime(body.end_date, "%Y-%m-%d").date()
         except ValueError:
-            raise HTTPException(400, detail={"status": "error", "error": "invalid_date_format"})
+            raise HTTPException(400, detail="Formato de fecha inválido (usa YYYY-MM-DD)")
 
     user_id = body.user_id
     if not user_id:
         current = svc.get_position_current_user(db, position_id)
         if not current:
-            raise HTTPException(400, detail={"status": "error", "error": "no_current_user"})
+            raise HTTPException(400, detail="El puesto no tiene un usuario asignado actualmente")
         user_id = current["user_id"]
 
     success = svc.remove_user_from_position(db, user_id, position_id, end_date)
     if success:
         return {"status": "ok", "data": {"removed": True}}
-    raise HTTPException(404, detail={"status": "error", "error": "removal_failed"})
+    raise HTTPException(404, detail="No se pudo remover la asignación")
 
 
 # ── Permisos por Puesto (App assignments) ─────────────────────────────────────
@@ -378,7 +378,7 @@ def get_position_assignments(
     try:
         return {"status": "ok", "data": svc.get_position_assignments(db, position_id)}
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
 
 
 @router.get("/{position_id}/apps/{app_key}/roles")
@@ -416,13 +416,13 @@ def assign_role_to_position(
 
     role_name = body.role_name.strip()
     if not role_name:
-        raise HTTPException(400, detail={"status": "error", "error": "role_name_required"})
+        raise HTTPException(400, detail="El nombre del rol es requerido")
 
     try:
         created = svc.assign_role_to_position(db, position_id, app_key, role_name)
         return {"status": "ok", "data": {"created": created}}
     except ValueError as e:
-        raise HTTPException(400, detail={"status": "error", "error": str(e)})
+        raise HTTPException(400, detail=str(e))
 
 
 @router.delete("/{position_id}/apps/{app_key}/roles/{role_name}", status_code=204)
@@ -478,13 +478,13 @@ def assign_perm_to_position(
 
     perm_code = body.code.strip()
     if not perm_code:
-        raise HTTPException(400, detail={"status": "error", "error": "code_required"})
+        raise HTTPException(400, detail="El código del permiso es requerido")
 
     try:
         created = svc.assign_permission_to_position(db, position_id, app_key, perm_code, body.allow)
         return {"status": "ok", "data": {"updated": created}}
     except ValueError as e:
-        raise HTTPException(400, detail={"status": "error", "error": str(e)})
+        raise HTTPException(400, detail=str(e))
 
 
 @router.delete("/{position_id}/apps/{app_key}/perms/{perm_code}", status_code=204)
@@ -502,7 +502,7 @@ def remove_perm_from_position(
     app = get_or_404_app(db, app_key)
     perm = get_perm(db, app.id, perm_code)
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "permission_not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     db.query(PositionAppPerm).filter_by(
         position_id=position_id, app_id=app.id, perm_id=perm.id

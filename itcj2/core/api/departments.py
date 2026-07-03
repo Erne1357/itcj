@@ -128,7 +128,7 @@ def get_department(
 
     dept = dept_svc.get_department(db, dept_id)
     if not dept:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Departamento no encontrado")
 
     positions = dept_svc.get_department_positions(db, dept_id)
     positions_data = [
@@ -167,7 +167,7 @@ def create_department(
     code = body.code.strip()
     name = body.name.strip()
     if not code or not name:
-        raise HTTPException(400, detail={"status": "error", "error": "code_and_name_required"})
+        raise HTTPException(400, detail="El código y el nombre son requeridos")
 
     try:
         dept = svc.create_department(
@@ -182,7 +182,7 @@ def create_department(
         logger.info(f"Departamento '{name}' creado por usuario {int(user['sub'])}")
         return {"status": "ok", "data": dept.to_dict()}
     except ValueError as e:
-        raise HTTPException(409, detail={"status": "error", "error": str(e)})
+        raise HTTPException(409, detail=str(e))
 
 
 @router.patch("/{dept_id}")
@@ -201,7 +201,7 @@ def update_department(
         logger.info(f"Departamento {dept_id} actualizado por usuario {int(user['sub'])}")
         return {"status": "ok", "data": dept.to_dict()}
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
 
 
 # ── Usuarios del departamento ─────────────────────────────────────────────────
@@ -223,7 +223,7 @@ def get_department_users(
 
     dept = dept_svc.get_department(db, dept_id)
     if not dept:
-        raise HTTPException(404, detail={"status": "error", "error": "Department not found"})
+        raise HTTPException(404, detail="Departamento no encontrado")
 
     filters = [
         Position.department_id == dept_id,
