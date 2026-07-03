@@ -482,9 +482,21 @@ def assign_perm_to_position(
 
     try:
         created = svc.assign_permission_to_position(db, position_id, app_key, perm_code, body.allow)
-        return {"status": "ok", "data": {"updated": created}}
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
+
+    resp = {"status": "ok", "data": {"updated": created}}
+
+    # Guardrail (espejo de authz.add_user_perm, authz.py:514-520): un perm
+    # .subtree en un puesto SIN department_id no tiene ancla → fail-closed,
+    # permiso muerto silencioso (scope_service). El JS de F5 muestra el warning.
+    if body.allow and perm_code.endswith(".subtree"):
+        from itcj2.core.models.position import Position
+        pos = db.get(Position, position_id)
+        if pos is not None and pos.department_id is None:
+            resp["warning"] = "scope_departamental_sin_departamento"
+
+    return resp
 
 
 @router.delete("/{position_id}/apps/{app_key}/perms/{perm_code}", status_code=204)
