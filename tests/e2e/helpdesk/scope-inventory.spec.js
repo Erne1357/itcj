@@ -24,6 +24,7 @@ from itcj2.core.models.app import App
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.position import Position, UserPosition, PositionAppPerm
 from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+from itcj2.core.services.authz_cache import invalidate_dept_map
 
 db = SessionLocal()
 def dept(code, parent=None):
@@ -49,6 +50,7 @@ try:
     grp('e2e_scope_leaf_grp', 'E2E LEAF GRP', leaf.id, u.id)
     grp('e2e_scope_other_grp', 'E2E OTHER GRP', other.id, u.id)
     db.commit()
+    invalidate_dept_map()  # el seed crea depts nuevos; el mapa cacheado (TTL 300s) puede estar stale
     sys.stdout.write(str(u.id))
 finally:
     db.close()
@@ -60,6 +62,7 @@ from itcj2.core.models.department import Department
 from itcj2.core.models.user import User
 from itcj2.core.models.position import Position, UserPosition, PositionAppPerm
 from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
+from itcj2.core.services.authz_cache import invalidate_dept_map
 db = SessionLocal()
 try:
     for g in db.query(InventoryGroup).filter(InventoryGroup.code.like('e2e_scope_%')).all(): db.delete(g)
@@ -71,6 +74,7 @@ try:
     for d in db.query(Department).filter(Department.code.like('e2e_scope_%')).order_by(Department.parent_id.desc().nullslast()).all():
         db.delete(d)
     db.commit()
+    invalidate_dept_map()  # los depts seeded ya no existen; el mapa cacheado quedaría stale para el siguiente run
 finally:
     db.close()
 `;
