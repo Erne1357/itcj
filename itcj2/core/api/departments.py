@@ -33,6 +33,11 @@ class DepartmentUpdateBody(BaseModel):
     icon_class: Optional[str] = None
 
 
+# Campos que ADMITEN null explícito en PATCH (limpiar). name/is_active/is_official
+# son NOT NULL: un null explícito en ellos se ignora en vez de romper (F1b-D2).
+_NULLABLE_DEPT_FIELDS = {"parent_id", "description", "icon_class"}
+
+
 # ── Consultas jerárquicas ─────────────────────────────────────────────────────
 
 @router.get("/direction")
@@ -237,10 +242,20 @@ def update_department(
     user: dict = require_perms("itcj", ["core.departments.api.update"]),
     db: DbSession = None,
 ):
-    """Actualiza un departamento."""
+    """Actualiza un departamento.
+
+    Semántica null (F1b-D2): un campo AUSENTE del body no se toca;
+    `"parent_id": null` explícito limpia el padre (promueve a raíz).
+    """
     from itcj2.core.services import departments_service as svc
 
-    updates = body.model_dump(exclude_none=True)
+    # F1b-D2: exclude_unset — campo AUSENTE no se toca; "parent_id": null
+    # EXPLÍCITO limpia el padre (promueve a raíz). Null en campos NOT NULL se ignora.
+    updates = body.model_dump(exclude_unset=True)
+    updates = {
+        k: v for k, v in updates.items()
+        if v is not None or k in _NULLABLE_DEPT_FIELDS
+    }
     try:
         dept = svc.update_department(db, dept_id, **updates)
         logger.info(f"Departamento {dept_id} actualizado por usuario {int(user['sub'])}")
