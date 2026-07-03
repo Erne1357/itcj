@@ -137,6 +137,8 @@ def create_app(
     )
     db.add(a)
     db.commit()
+    from itcj2.core.services.app_style_cache import invalidate_app_styles
+    invalidate_app_styles()
     logger.info(f"App '{key}' creada por usuario {int(user['sub'])}")
     return {
         "status": "ok",
@@ -181,6 +183,8 @@ def update_app(
         a.icon_class = body.icon_class.strip() or None
 
     db.commit()
+    from itcj2.core.services.app_style_cache import invalidate_app_styles
+    invalidate_app_styles()
     logger.info(f"App '{app_key}' actualizada por usuario {int(user['sub'])}")
     return {
         "status": "ok",
@@ -210,6 +214,8 @@ def delete_app(
     db.commit()
     from itcj2.core.services.authz_cache import invalidate_all
     invalidate_all()  # el cascade quita grants; sin esto el caché sirve stale hasta TTL
+    from itcj2.core.services.app_style_cache import invalidate_app_styles
+    invalidate_app_styles()
     logger.info(f"App '{app_key}' eliminada por usuario {int(user['sub'])}")
 
 
