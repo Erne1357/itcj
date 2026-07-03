@@ -91,7 +91,7 @@ def mark_read(notification_id: int, user: CurrentUser, db: DbSession):
     user_id = int(user["sub"])
     success = NotificationService.mark_read(db, notification_id, user_id)
     if not success:
-        raise HTTPException(404, detail="not_found")
+        raise HTTPException(404, detail="Notificación no encontrada")
 
     db.commit()
     _push_counts_to_user(db, user_id)
@@ -118,7 +118,7 @@ def delete_notification(notification_id: int, user: CurrentUser, db: DbSession):
     user_id = int(user["sub"])
     success = NotificationService.delete_notification(db, notification_id, user_id)
     if not success:
-        raise HTTPException(404, detail="not_found")
+        raise HTTPException(404, detail="Notificación no encontrada")
 
     db.commit()
     _push_counts_to_user(db, user_id)

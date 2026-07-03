@@ -39,7 +39,7 @@ def password_state(user: CurrentUser, db: DbSession):
 
     u = _get_user(user, db)
     if not u:
-        raise HTTPException(404, detail="user_not_found")
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     if "student" in user_roles_in_app(db, u.id, "itcj"):
         return PasswordStateResponse(must_change=False)
@@ -56,7 +56,7 @@ def change_password(body: ChangePasswordRequest, user: CurrentUser, db: DbSessio
 
     u = _get_user(user, db)
     if not u or "student" in user_roles_in_app(db, u.id, "itcj"):
-        raise HTTPException(403, detail="unauthorized")
+        raise HTTPException(403, detail="No autorizado")
 
     if body.new_password == DEFAULT_PASSWORD:
         raise HTTPException(400, detail="No puedes usar la contraseña por defecto")
@@ -77,7 +77,7 @@ def get_current_user_info(user: CurrentUser, db: DbSession):
 
     u = _get_user(user, db)
     if not u:
-        raise HTTPException(404, detail="user_not_found")
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     # Rol global
     roles_itcj = user_roles_in_app(db, u.id, "itcj")
@@ -131,7 +131,7 @@ def get_full_profile(user: CurrentUser):
     finally:
         db.close()
     if not profile:
-        raise HTTPException(404, detail="user_not_found")
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     return FullProfileResponse(data=profile)
 
@@ -176,7 +176,7 @@ def get_current_user_department(user: CurrentUser, db: DbSession):
     user_id = int(user["sub"])
     dept = get_user_department(db, user_id)
     if not dept:
-        raise HTTPException(404, detail="no_department")
+        raise HTTPException(404, detail="Sin departamento asignado")
     return {"success": True, "data": {"id": dept.id, "name": dept.name}}
 
 
@@ -187,7 +187,7 @@ def update_profile(body: UpdateProfileRequest, user: CurrentUser, db: DbSession)
 
     u = db.query(User).get(int(user["sub"]))
     if not u:
-        raise HTTPException(404, detail="user_not_found")
+        raise HTTPException(404, detail="Usuario no encontrado")
 
     if body.email is not None:
         u.email = body.email
