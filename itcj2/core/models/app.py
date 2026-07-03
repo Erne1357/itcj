@@ -21,6 +21,11 @@ class App(Base):
     mobile_url = Column(String(255), nullable=True)
     mobile_enabled = Column(Boolean, nullable=False, default=True)
 
+    # Estilo de badge DB-driven (D7/C4): hex "#RRGGBB" + clase bootstrap-icons.
+    # NULL → fallback UI: #6c757d / bi-app. Backfill vía DML core_config_2026_07.
+    color = Column(String(7), nullable=True)
+    icon_class = Column(String(50), nullable=True)
+
     permissions = relationship("Permission", backref="app", cascade="all, delete-orphan", lazy="dynamic")
 
     def to_dict(self, include_mobile=False):
@@ -31,6 +36,8 @@ class App(Base):
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "color": self.color,
+            "icon_class": self.icon_class,
         }
         if include_mobile:
             data.update({
