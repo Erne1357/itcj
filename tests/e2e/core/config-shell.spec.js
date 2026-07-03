@@ -40,3 +40,26 @@ test.describe('config shell — ConfigShell/ConfigUtils', () => {
     await expect(page.locator('#configSidebar')).not.toHaveClass(/open/);
   });
 });
+
+test.describe('config shell — controller ConfigPage (C2)', () => {
+  test('expone register/navigate/page y lee la página actual', async ({ page }) => {
+    await gotoCore(page, '/itcj/config');
+    const api = await page.evaluate(() => ({
+      reg: typeof (window.ConfigPage && window.ConfigPage.register),
+      nav: typeof (window.ConfigPage && window.ConfigPage.navigate),
+      page: window.ConfigPage && window.ConfigPage.page,
+    }));
+    expect(api.reg).toBe('function');
+    expect(api.nav).toBe('function');
+    expect(api.page).toBe('index');
+  });
+
+  test('navigate() a página NO migrada hace fallback duro (recarga completa)', async ({ page }) => {
+    await gotoCore(page, '/itcj/config'); // gotoCore instala window.__booted
+    await page.evaluate(() => window.ConfigPage.navigate('/itcj/config/users'));
+    await page.waitForURL(/\/itcj\/config\/users/);
+    // una recarga completa borra el marker
+    expect(await page.evaluate(() => window.__booted === true)).toBe(false);
+    await expect(page.locator('#cfgMain[data-cfg-page="users"]')).toBeAttached();
+  });
+});
