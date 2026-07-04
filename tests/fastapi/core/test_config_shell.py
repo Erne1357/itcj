@@ -181,6 +181,20 @@ class TestHtmxShell:
             probe = url.format(app_key="helpdesk", user_id=1, department_id=1, position_id=1)
             assert nav_config.is_boostable_url(probe) is True, probe
 
+    def test_kill_switch_removes_boost_from_rendered_page(
+        self, app_client, auth_headers, admin_role_patch, monkeypatch
+    ):
+        # Rama solo alcanzable por el kill-switch global: con CONFIG_BOOST_ENABLED
+        # = False, una página MIGRADA (index) se renderiza SIN ningún hx-boost y
+        # con el boost apagado (data-cfg-boost-urls vacío). Complementa el test
+        # unitario TestBoostIsland.test_kill_switch_disables_everything.
+        monkeypatch.setattr(nav_config, "CONFIG_BOOST_ENABLED", False)
+        resp = app_client.get("/itcj/config", headers=auth_headers)
+        assert resp.status_code == 200
+        html = resp.text
+        assert "hx-boost" not in html          # ningún link del sidebar boostea
+        assert 'data-cfg-boost-urls=""' in html  # whitelist de boost vacía (off)
+
     def test_non_config_url_not_boostable(self):
         # /itcj/profile es una página real del core pero ajena al shell de
         # config: no está (ni debe estar) en ENDPOINT_TO_PAGE. El fallback

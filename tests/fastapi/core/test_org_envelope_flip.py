@@ -82,3 +82,28 @@ def test_user_perm_grant_keeps_warning_key(db_session):
     assert resp["success"] is True
     assert "status" not in resp
     assert resp.get("warning") == "scope_departamental_sin_puesto"
+
+
+def test_position_perm_grant_keeps_warning_key(db_session):
+    """Espejo de posiciones: el flip NO pierde la clave warning del guardrail
+    (positions.assign_perm_to_position) — puesto SIN departamento + .subtree."""
+    from itcj2.core.api.positions import assign_perm_to_position, AssignPermBody
+    from itcj2.core.models.app import App
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.position import Position
+
+    app = App(key="f5envpos", name="f5envpos", is_active=True)
+    db_session.add(app); db_session.commit(); db_session.refresh(app)
+    perm = Permission(app_id=app.id, code="f5envpos.tickets.api.read.subtree", name="s")
+    db_session.add(perm); db_session.commit()
+    pos = Position(code="f5envpos_pos", title="p", department_id=None, is_active=True)
+    db_session.add(pos); db_session.commit(); db_session.refresh(pos)
+
+    resp = assign_perm_to_position(
+        position_id=pos.id, app_key=app.key,
+        body=AssignPermBody(code=perm.code, allow=True),
+        user={"sub": "1"}, db=db_session,
+    )
+    assert resp["success"] is True
+    assert "status" not in resp
+    assert resp.get("warning") == "scope_departamental_sin_departamento"
