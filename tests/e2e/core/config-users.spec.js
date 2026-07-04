@@ -146,3 +146,56 @@ test.describe('users list', () => {
     await expect(page.locator(`#userApps_${seed.in_id} .bg-e2ecfgbadge`)).toHaveCount(0);
   });
 });
+
+test.describe('user detail', () => {
+  test('apps tab: 1 GET batch, cache en re-show, refresh refetchea', async ({ page }) => {
+    /** @type {string[]} */
+    const batchCalls = [];
+    page.on('request', (req) => {
+      const t = req.resourceType();
+      if ((t === 'fetch' || t === 'xhr') && req.url().includes('/app-assignments')) {
+        batchCalls.push(req.url());
+      }
+    });
+
+    await gotoCore(page, `/itcj/config/users/${seed.in_id}`);
+
+    // Carga inicial: la pestaña de apps NO se ha mostrado → 0 llamadas batch
+    await page.waitForLoadState('networkidle');
+    expect(batchCalls.length).toBe(0);
+
+    // Primer show → exactamente 1 GET batch
+    await page.locator('#apps-tab').click();
+    await expect.poll(() => batchCalls.length, { timeout: 7000 }).toBe(1);
+    // El card de la app sembrada muestra el rol del batch
+    await expect(page.locator(`#roles_${seed.app_key}`)).toContainText('staff');
+
+    // Re-show: positions → apps SIN refetch (cache, BUG A)
+    await page.locator('#positions-tab').click();
+    await page.locator('#apps-tab').click();
+    await page.waitForTimeout(500);
+    expect(batchCalls.length).toBe(1);
+
+    // Refresh manual → segundo GET
+    await page.locator('#refreshAssignmentsBtn').click();
+    await expect.poll(() => batchCalls.length, { timeout: 7000 }).toBe(2);
+  });
+
+  test('permisos por puesto se cargan bajo demanda (sin N+1 en carga)', async ({ page }) => {
+    /** @type {string[]} */
+    const posCalls = [];
+    page.on('request', (req) => {
+      const t = req.resourceType();
+      if ((t === 'fetch' || t === 'xhr') && /\/positions\/\d+\/assignments/.test(req.url())) {
+        posCalls.push(req.url());
+      }
+    });
+
+    await gotoCore(page, `/itcj/config/users/${seed.in_id}`);
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(500);
+    // En carga NO se piden assignments por puesto (el usuario sembrado no tiene
+    // puestos, pero el assert vale para cualquiera: la carga nunca los pide)
+    expect(posCalls.length).toBe(0);
+  });
+});

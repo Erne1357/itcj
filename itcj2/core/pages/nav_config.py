@@ -44,6 +44,7 @@ CONFIG_PAGE_MODULES: dict[str, list[str]] = {
     "tasks": ["js/vendor/cronstrue.min.js", "js/config/system/tasks.js"],
     "email": ["js/config/system/email.js"],
     "users": ["js/config/users/users.js"],
+    "user_detail": ["js/config/users/user_detail.js"],
 }
 
 # Patrón de URL -> page_key. Cubre las 12 páginas HTML de core/pages/config.py

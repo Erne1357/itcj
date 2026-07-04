@@ -130,8 +130,16 @@
 
     <!-- Apps Tab -->
     <div class="tab-pane fade" id="apps-pane" role="tabpanel">
-        <h5 class="mb-3"><i class="bi bi-apps me-2"></i>Asignaciones por Aplicacion</h5>
-        <p class="text-muted mb-4">Roles y permisos especificos que tiene este usuario en cada aplicacion</p>
+        <div class="d-flex justify-content-between align-items-start mb-3">
+            <div>
+                <h5 class="mb-1"><i class="bi bi-apps me-2"></i>Asignaciones por Aplicacion</h5>
+                <p class="text-muted mb-0">Roles y permisos especificos que tiene este usuario en cada aplicacion</p>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary flex-shrink-0" id="refreshAssignmentsBtn"
+                    title="Recargar asignaciones">
+                <i class="bi bi-arrow-clockwise me-1"></i><span class="d-none d-sm-inline">Actualizar</span>
+            </button>
+        </div>
 
         <div class="row g-4" id="userAppsContainer">
             {% for app in apps %}
@@ -139,7 +147,10 @@
                 <div class="card app-card h-100 shadow-sm" data-app-key="{{ app.key }}">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center">
-                            <i class="bi bi-app me-2 text-primary"></i>
+                            <span class="app-badge me-2" style="--app-badge-color: {{ app.color or '#6c757d' }}"
+                                  title="{{ app.name }}">
+                                <i class="{{ app.icon_class or 'bi-app' }}"></i>
+                            </span>
                             <div>
                                 <h6 class="mb-0">{{ app.name }}</h6>
                                 <small class="text-muted">{{ app.key }}</small>
@@ -424,12 +435,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-    window.userId = {{ user.id }};
-    window.userIsActive = {{ 'true' if user.is_active else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='core/js/config/users/user_detail.js') }}?v={{ sv('core', 'js/config/users/user_detail.js') }}"></script>
 {% endblock %}

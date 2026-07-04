@@ -244,6 +244,7 @@ async def user_detail(
         "user": target,
         "apps": apps,
         "roles": roles,
+        "cfg_data": {"user-id": str(user_id)},
     })
 
 

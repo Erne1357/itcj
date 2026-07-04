@@ -44,8 +44,6 @@ test.beforeAll(() => {
 });
 
 test('user_detail carga con <=3 fetch/XHR a /api/core/v2/*', async ({ page }) => {
-  test.fail(true, 'BUG A: ~50 requests por carga hoy — F4 introduce batch y quita esta línea');
-
   /** @type {string[]} */
   const apiCalls = [];
   page.on('request', (req) => {
