@@ -36,7 +36,7 @@
             posPermsCache: new Map(),  // positionId -> apps dict
             permsCache: new Map(),     // appKey -> catálogo de permisos (picker)
             currentAppKey: null,
-            manageModal: null, resetModal: null, toggleModal: null, editModal: null,
+            manageModal: null, editModal: null,
         };
 
         const manageEl = document.getElementById('manageAssignmentsModal');
@@ -44,18 +44,12 @@
             S.manageModal = new bootstrap.Modal(manageEl);
             manageEl.addEventListener('click', onManageModalClick);
         }
-        const resetEl = document.getElementById('confirmResetPasswordModal');
-        if (resetEl) S.resetModal = new bootstrap.Modal(resetEl);
-        const toggleEl = document.getElementById('confirmToggleStatusModal');
-        if (toggleEl) S.toggleModal = new bootstrap.Modal(toggleEl);
         const editEl = document.getElementById('editUserModal');
         if (editEl) S.editModal = new bootstrap.Modal(editEl);
 
         document.getElementById('btnEditUser')?.addEventListener('click', () => S.editModal && S.editModal.show());
-        document.getElementById('btnToggleStatus')?.addEventListener('click', () => S.toggleModal && S.toggleModal.show());
-        document.getElementById('btnResetPassword')?.addEventListener('click', () => S.resetModal && S.resetModal.show());
-        document.getElementById('confirmResetPasswordBtn')?.addEventListener('click', resetPassword);
-        document.getElementById('confirmToggleStatusBtn')?.addEventListener('click', toggleStatus);
+        document.getElementById('btnToggleStatus')?.addEventListener('click', onToggleStatus);
+        document.getElementById('btnResetPassword')?.addEventListener('click', onResetPassword);
         document.getElementById('editUserForm')?.addEventListener('submit', (e) => { e.preventDefault(); saveUserInfo(); });
         document.getElementById('modalAssignRole')?.addEventListener('click', assignRole);
         document.getElementById('modalPermSearchInput')?.addEventListener('input', onPermSearch);
@@ -496,14 +490,20 @@
 
     // === ACCIONES DE USUARIO (reset / toggle / editar) =======================
     // D6: sin gates sobre códigos de error — result.error ya es string humano (F1a).
-    async function resetPassword() {
-        const btn = document.getElementById('confirmResetPasswordBtn');
-        const original = btn ? btn.innerHTML : '';
+    async function onResetPassword() {
+        const ok = await AppModal.confirm({
+            title: 'Confirmar Reset de Contrasena',
+            message: 'Esta seguro de resetear la contrasena de este usuario? '
+                + 'La contrasena se cambiara a "tecno#2K" y el usuario sera obligado '
+                + 'a cambiarla en su proximo inicio de sesion.',
+            confirmText: 'Si, Resetear',
+            confirmVariant: 'warning',
+        });
+        if (!ok) return;
+
+        const btn = document.getElementById('btnResetPassword');
         try {
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Reseteando...';
-            }
+            if (btn) btn.disabled = true;
             const res = await fetch(`${API}/users/${S.userId}/reset-password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -514,24 +514,33 @@
                 toast(result.error || 'Error al resetear la contraseña', 'danger');
                 return;
             }
-            if (S.resetModal) S.resetModal.hide();
             toast('Contraseña reseteada exitosamente. Nueva contraseña: "tecno#2K"');
         } catch (err) {
             console.error('Error resetting password:', err);
             toast('Error de conexión', 'danger');
         } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = original; }
+            if (btn) btn.disabled = false;
         }
     }
 
-    async function toggleStatus() {
-        const btn = document.getElementById('confirmToggleStatusBtn');
-        const original = btn ? btn.innerHTML : '';
+    async function onToggleStatus(e) {
+        const isActive = e.currentTarget.dataset.active === 'true';
+        const userName = e.currentTarget.dataset.userName || '';
+        const ok = await AppModal.confirm({
+            title: isActive ? 'Confirmar Desactivacion' : 'Confirmar Activacion',
+            message: isActive
+                ? `Esta seguro de desactivar la cuenta de este usuario? El usuario no podra iniciar sesion `
+                  + `mientras su cuenta este desactivada. Esta accion se puede revertir en cualquier momento. Usuario: ${userName}`
+                : `Esta seguro de activar la cuenta de este usuario? El usuario podra iniciar sesion nuevamente `
+                  + `con sus credenciales existentes. Usuario: ${userName}`,
+            confirmText: isActive ? 'Si, Desactivar' : 'Si, Activar',
+            confirmVariant: isActive ? 'danger' : 'success',
+        });
+        if (!ok) return;
+
+        const btn = document.getElementById('btnToggleStatus');
         try {
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Procesando...';
-            }
+            if (btn) btn.disabled = true;
             const res = await fetch(`${API}/users/${S.userId}/toggle-status`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -542,15 +551,14 @@
                 toast(result.error || 'Error al cambiar el estado de la cuenta', 'danger');
                 return;
             }
-            if (S.toggleModal) S.toggleModal.hide();
-            const isActive = result.data && result.data.is_active;
-            toast(`Cuenta ${isActive ? 'activada' : 'desactivada'} exitosamente`);
+            const nowActive = result.data && result.data.is_active;
+            toast(`Cuenta ${nowActive ? 'activada' : 'desactivada'} exitosamente`);
             setTimeout(() => window.location.reload(), 800);
         } catch (err) {
             console.error('Error toggling user status:', err);
             toast('Error de conexión', 'danger');
         } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = original; }
+            if (btn) btn.disabled = false;
         }
     }
 

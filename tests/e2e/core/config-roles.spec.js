@@ -52,11 +52,12 @@ test.describe('config roles — piloto ConfigPage', () => {
     // desnudo casaría 2 nodos y rompería el strict-mode de Playwright.
     await expect(page.locator(`div[data-role-name="${ROLE_NAME}"]`)).toBeVisible();
 
-    // eliminar (delegación document → modal de confirmación)
+    // eliminar (delegación document → AppModal.confirm, sin modal bespoke)
     await page.locator(`div[data-role-name="${ROLE_NAME}"] [data-bs-toggle="dropdown"]`).click();
     await page.locator(`div[data-role-name="${ROLE_NAME}"] .delete-role-btn`).click();
-    await expect(page.locator('#deleteRoleModal')).toBeVisible();
-    await page.locator('#confirmDeleteRole').click();
+    const confirmDialog = page.locator('.modal.show', { hasText: 'Eliminar rol' });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Eliminar' }).click();
     await expect(page.locator(`div[data-role-name="${ROLE_NAME}"]`)).toHaveCount(0);
   });
 

@@ -9,8 +9,6 @@
 
     var API = '/api/core/v2';
     var createModal = null;
-    var deleteModal = null;
-    var pendingDeleteRole = null;
     var onDocClick = null;
 
     function toast(msg, type) {
@@ -57,22 +55,22 @@
         }
     }
 
-    function showDeleteModal(btn) {
-        pendingDeleteRole = btn.dataset.roleName;
-        document.getElementById('deleteRoleName').textContent = pendingDeleteRole;
-        if (deleteModal) deleteModal.show();
-    }
+    async function onDeleteRole(roleName) {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar rol',
+            message: `Se eliminara el rol "${roleName}" y sus asignaciones`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    async function handleDeleteRole() {
-        if (!pendingDeleteRole) return;
         try {
-            const response = await fetch(API + '/authz/roles/' + encodeURIComponent(pendingDeleteRole), {
+            const response = await fetch(API + '/authz/roles/' + encodeURIComponent(roleName), {
                 method: 'DELETE'
             });
             if (response.ok) {
                 toast('Rol eliminado correctamente');
-                if (deleteModal) deleteModal.hide();
-                removeRoleFromContainer(pendingDeleteRole);
+                removeRoleFromContainer(roleName);
             } else {
                 const result = await response.json();
                 toast(result.error || 'Error al eliminar el rol', 'error');
@@ -165,16 +163,12 @@
         var nameInput = document.getElementById('roleName');
         if (nameInput) nameInput.addEventListener('input', validateRoleName);
 
-        var confirmBtn = document.getElementById('confirmDeleteRole');
-        if (confirmBtn) confirmBtn.addEventListener('click', handleDeleteRole);
-
         createModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('createRoleModal'));
-        deleteModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteRoleModal'));
 
         // Delegación en document (cards creadas en runtime) → se limpia en destroy
         onDocClick = function (e) {
             var btn = e.target.closest('.delete-role-btn');
-            if (btn) showDeleteModal(btn);
+            if (btn) onDeleteRole(btn.dataset.roleName);
         };
         document.addEventListener('click', onDocClick);
     }
@@ -184,11 +178,10 @@
             document.removeEventListener('click', onDocClick);
             onDocClick = null;
         }
-        [createModal, deleteModal].forEach(function (m) {
+        [createModal].forEach(function (m) {
             if (m) { try { m.hide(); m.dispose(); } catch (e) { /* noop */ } }
         });
-        createModal = deleteModal = null;
-        pendingDeleteRole = null;
+        createModal = null;
     }
 
     if (window.ConfigPage) {

@@ -6,7 +6,6 @@ class ThemesManager {
         this.apiBase = '/api/core/v2/themes';
         this.themes = [];
         this.editingThemeId = null;
-        this.deleteThemeId = null;
         this.decorationCounter = 0;
 
         // Plantillas de decoraciones predefinidas para sugerir
@@ -49,9 +48,6 @@ class ThemesManager {
         // Form submit
         this.themeForm.addEventListener('submit', (e) => this.handleSaveTheme(e));
 
-        // Delete confirmation
-        document.getElementById('confirmDeleteTheme').addEventListener('click', () => this.handleDeleteTheme());
-
         // Color picker sync
         this.setupColorSync('colorPrimary', 'colorPrimaryHex');
         this.setupColorSync('colorSecondary', 'colorSecondaryHex');
@@ -76,7 +72,6 @@ class ThemesManager {
 
     initModals() {
         this.themeModal = new bootstrap.Modal(document.getElementById('themeModal'));
-        this.deleteModal = new bootstrap.Modal(document.getElementById('deleteThemeModal'));
 
         // Reset form when modal closes
         document.getElementById('themeModal').addEventListener('hidden.bs.modal', () => {
@@ -182,19 +177,22 @@ class ThemesManager {
         }
     }
 
-    async handleDeleteTheme() {
-        if (!this.deleteThemeId) return;
+    async onDeleteTheme(themeId, themeName) {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar tematica',
+            message: `Se eliminara la tematica "${themeName}"`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
         try {
-            document.getElementById('confirmDeleteTheme').disabled = true;
-
-            const response = await fetch(`${this.apiBase}/${this.deleteThemeId}`, {
+            const response = await fetch(`${this.apiBase}/${themeId}`, {
                 method: 'DELETE'
             });
 
             if (response.ok) {
                 showSuccess('Tematica eliminada correctamente');
-                this.deleteModal.hide();
                 await this.loadThemes();
                 await this.loadActiveTheme();
             } else {
@@ -204,8 +202,6 @@ class ThemesManager {
         } catch (error) {
             console.error('Error deleting theme:', error);
             showError(error.message || 'Error al eliminar la tematica');
-        } finally {
-            document.getElementById('confirmDeleteTheme').disabled = false;
         }
     }
 
@@ -286,7 +282,7 @@ class ThemesManager {
                             <button class="btn btn-outline-primary" onclick="themesManager.editTheme(${theme.id})" title="Editar">
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="themesManager.confirmDelete(${theme.id}, '${this.escapeHtml(theme.name)}')" title="Eliminar">
+                            <button class="btn btn-outline-danger" onclick="themesManager.onDeleteTheme(${theme.id}, '${this.escapeHtml(theme.name)}')" title="Eliminar">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -584,12 +580,6 @@ class ThemesManager {
         this.decorationCounter = 0;
     }
 
-    confirmDelete(themeId, themeName) {
-        this.deleteThemeId = themeId;
-        document.getElementById('deleteThemeName').textContent = themeName;
-        this.deleteModal.show();
-    }
-
     // ==================== Utilities ====================
 
     escapeHtml(text) {
@@ -614,7 +604,7 @@ function _cfgInitThemes() {
 function _cfgDestroyThemes() {
     var m = window.themesManager;
     if (m) {
-        [m.themeModal, m.deleteModal].forEach(function (bm) {
+        [m.themeModal].forEach(function (bm) {
             if (bm) { try { bm.hide(); bm.dispose(); } catch (e) { /* noop */ } }
         });
     }

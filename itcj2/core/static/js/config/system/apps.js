@@ -13,8 +13,6 @@
     var API = '/api/core/v2';
     var createModal = null;
     var editModal = null;
-    var deleteModal = null;
-    var pendingDeleteKey = null;
     var onDocClick = null;
     var editPreviewSync = null;
 
@@ -125,20 +123,20 @@
         }
     }
 
-    function showDeleteModal(btn) {
-        pendingDeleteKey = btn.dataset.appKey;
-        document.getElementById('deleteAppName').textContent = btn.dataset.appName || '';
-        if (deleteModal) deleteModal.show();
-    }
+    async function onDeleteApp(appKey, appName) {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar aplicacion',
+            message: `Se eliminara "${appName}" y TODOS sus permisos asociados. Esta accion no se puede deshacer.`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    async function handleDeleteApp() {
-        if (!pendingDeleteKey) return;
         try {
-            var response = await fetch(API + '/authz/apps/' + encodeURIComponent(pendingDeleteKey), { method: 'DELETE' });
+            var response = await fetch(API + '/authz/apps/' + encodeURIComponent(appKey), { method: 'DELETE' });
             if (response.ok) {
                 toast('Aplicación eliminada correctamente');
-                if (deleteModal) deleteModal.hide();
-                removeRow(pendingDeleteKey);
+                removeRow(appKey);
             } else {
                 var result = await response.json();
                 toast(result.error || 'Error al eliminar la aplicación', 'error');
@@ -226,12 +224,9 @@
         if (editForm) editForm.addEventListener('submit', handleEditApp);
         var keyInput = document.getElementById('appKey');
         if (keyInput) keyInput.addEventListener('input', validateAppKey);
-        var confirmDelete = document.getElementById('confirmDeleteApp');
-        if (confirmDelete) confirmDelete.addEventListener('click', handleDeleteApp);
 
         createModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('createAppModal'));
         editModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('editAppModal'));
-        deleteModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteAppModal'));
 
         bindPreview('app');
         editPreviewSync = bindPreview('editApp');
@@ -240,18 +235,17 @@
             var editBtn = e.target.closest('.edit-app-btn');
             if (editBtn) { showEditModal(editBtn); return; }
             var delBtn = e.target.closest('.delete-app-btn');
-            if (delBtn) { showDeleteModal(delBtn); return; }
+            if (delBtn) { onDeleteApp(delBtn.dataset.appKey, delBtn.dataset.appName); return; }
         };
         document.addEventListener('click', onDocClick);
     }
 
     function destroy() {
         if (onDocClick) { document.removeEventListener('click', onDocClick); onDocClick = null; }
-        [createModal, editModal, deleteModal].forEach(function (m) {
+        [createModal, editModal].forEach(function (m) {
             if (m) { try { m.hide(); m.dispose(); } catch (e) { /* noop */ } }
         });
-        createModal = editModal = deleteModal = null;
-        pendingDeleteKey = null;
+        createModal = editModal = null;
         editPreviewSync = null;
     }
 

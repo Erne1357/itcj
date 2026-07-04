@@ -16,8 +16,6 @@
     var permissions = [];
     var selectedRole = null;
     var createModal = null;
-    var deleteModal = null;
-    var pendingDeleteCode = null;
     var onDocClick = null;
 
     function esc(v) { return window.ConfigUtils ? ConfigUtils.escapeHtml(v) : String(v == null ? '' : v); }
@@ -105,22 +103,22 @@
     }
 
     // ---- Eliminar permiso ------------------------------------------------
-    function showDeleteModal(btn) {
-        pendingDeleteCode = btn.dataset.permCode;
-        document.getElementById('deletePermName').textContent = btn.dataset.permName || '';
-        if (deleteModal) deleteModal.show();
-    }
+    async function onDeletePermission(permCode) {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar permiso',
+            message: `Se eliminara el permiso "${permCode}"`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    async function handleDeletePermission() {
-        if (!pendingDeleteCode) return;
         try {
             var response = await fetch(
-                API + '/authz/apps/' + encodeURIComponent(appKey) + '/perms/' + encodeURIComponent(pendingDeleteCode),
+                API + '/authz/apps/' + encodeURIComponent(appKey) + '/perms/' + encodeURIComponent(permCode),
                 { method: 'DELETE' });
             if (response.ok) {
                 toast('Permiso eliminado correctamente');
-                if (deleteModal) deleteModal.hide();
-                removePermissionRow(pendingDeleteCode);
+                removePermissionRow(permCode);
                 refreshRolePermissions();
             } else {
                 var result = await response.json();
@@ -294,19 +292,16 @@
         createForm.addEventListener('submit', handleCreatePermission);
         var permCode = document.getElementById('permCode');
         if (permCode) permCode.addEventListener('input', validatePermCode);
-        var confirmDelete = document.getElementById('confirmDeletePerm');
-        if (confirmDelete) confirmDelete.addEventListener('click', handleDeletePermission);
         var roleSelect = document.getElementById('roleSelect');
         if (roleSelect) roleSelect.addEventListener('change', function (e) { handleRoleSelection(e.target.value); });
         var saveBtn = document.getElementById('saveRolePermissions');
         if (saveBtn) saveBtn.addEventListener('click', saveRolePermissions);
 
         createModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('createPermModal'));
-        deleteModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deletePermModal'));
 
         onDocClick = function (e) {
             var btn = e.target.closest('.delete-perm-btn');
-            if (btn) showDeleteModal(btn);
+            if (btn) onDeletePermission(btn.dataset.permCode);
         };
         document.addEventListener('click', onDocClick);
 
@@ -318,11 +313,10 @@
 
     function destroy() {
         if (onDocClick) { document.removeEventListener('click', onDocClick); onDocClick = null; }
-        [createModal, deleteModal].forEach(function (m) {
+        [createModal].forEach(function (m) {
             if (m) { try { m.hide(); m.dispose(); } catch (e) { /* noop */ } }
         });
-        createModal = deleteModal = null;
-        pendingDeleteCode = null;
+        createModal = null;
         selectedRole = null;
     }
 

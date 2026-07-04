@@ -118,12 +118,15 @@ const Tasks = (() => {
         `).join('');
     };
 
-    const syncDefinitions = () => {
-        new bootstrap.Modal(document.getElementById('confirmSyncModal')).show();
-    };
+    const syncDefinitions = async () => {
+        const ok = await AppModal.confirm({
+            title: 'Sincronizar tareas',
+            message: '¿Sincronizar las definiciones de tareas con el código registrado?',
+            confirmText: 'Sincronizar',
+            confirmVariant: 'primary',
+        });
+        if (!ok) return;
 
-    const _doSyncDefinitions = async () => {
-        bootstrap.Modal.getInstance(document.getElementById('confirmSyncModal')).hide();
         try {
             const res = await api('POST', '/definitions/sync');
             showSuccess(`Sincronización completa: ${res.data.created} creadas, ${res.data.updated} actualizadas`);
@@ -654,17 +657,17 @@ const Tasks = (() => {
         }
     };
 
-    const confirmDeletePeriodic = (id, name) => {
-        _currentPeriodicId = id;
-        document.getElementById('deletePeriodicName').textContent = name;
-        new bootstrap.Modal(document.getElementById('deletePeriodicModal')).show();
-    };
+    const confirmDeletePeriodic = async (id, name) => {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar tarea programada',
+            message: `Se eliminara la tarea programada "${name}"`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    const deletePeriodic = async () => {
-        if (!_currentPeriodicId) return;
         try {
-            await api('DELETE', `/periodic/${_currentPeriodicId}`);
-            bootstrap.Modal.getInstance(document.getElementById('deletePeriodicModal')).hide();
+            await api('DELETE', `/periodic/${id}`);
             showSuccess('Tarea programada eliminada');
             await loadPeriodic();
         } catch {
@@ -829,16 +832,18 @@ const Tasks = (() => {
         `;
     };
 
-    const confirmRevokeRun = (id) => {
+    const confirmRevokeRun = async (id) => {
         _currentRunId = id;
-        new bootstrap.Modal(document.getElementById('confirmRevokeModal')).show();
-    };
+        const ok = await AppModal.confirm({
+            title: 'Cancelar tarea',
+            message: `Se revocara la ejecucion #${id}`,
+            confirmText: 'Sí, cancelar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    const _doRevokeRun = async () => {
-        if (!_currentRunId) return;
-        bootstrap.Modal.getInstance(document.getElementById('confirmRevokeModal'))?.hide();
         try {
-            const res = await api('DELETE', `/runs/${_currentRunId}/revoke`);
+            const res = await api('DELETE', `/runs/${id}/revoke`);
             if (res && res.success) {
                 showSuccess('Tarea cancelada');
                 bootstrap.Modal.getInstance(document.getElementById('runDetailModal'))?.hide();
@@ -866,11 +871,8 @@ const Tasks = (() => {
             document.getElementById(id).addEventListener('input', updateCronDesc);
         });
 
-        // Botones de modales
-        document.getElementById('confirmSyncBtn').addEventListener('click', _doSyncDefinitions);
-        document.getElementById('confirmDeletePeriodic').addEventListener('click', deletePeriodic);
+        // Botón de revocar dentro del modal de detalle de ejecución
         document.getElementById('revokeRunBtn').addEventListener('click', () => confirmRevokeRun(_currentRunId));
-        document.getElementById('confirmRevokeBtn').addEventListener('click', _doRevokeRun);
 
         // Filtros de historial
         document.getElementById('filterStatus').addEventListener('change', () => loadRuns());

@@ -58,10 +58,11 @@ test.describe('config apps — ConfigPage + color/icono (C4)', () => {
     await expect(row).toBeVisible();
     await expect(row.locator('.app-badge .bi-rocket')).toBeVisible();
 
-    // eliminar por UI
+    // eliminar por UI (AppModal.confirm, sin modal bespoke)
     await row.locator('.delete-app-btn').click();
-    await expect(page.locator('#deleteAppModal')).toBeVisible();
-    await page.locator('#confirmDeleteApp').click();
+    const confirmDialog = page.locator('.modal.show', { hasText: 'Eliminar aplicacion' });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Eliminar' }).click();
     await expect(page.locator(`tr[data-app-key="${APP_KEY}"]`)).toHaveCount(0);
   });
 });
@@ -114,10 +115,11 @@ test.describe('config permissions — ConfigPage + scope badges (C8)', () => {
     await expect(row).toBeVisible();
     await expect(row.locator('.scope-badge.scope-subtree')).toBeVisible();
 
-    // eliminar por UI
+    // eliminar por UI (AppModal.confirm, sin modal bespoke)
     await row.locator('.delete-perm-btn').click();
-    await expect(page.locator('#deletePermModal')).toBeVisible();
-    await page.locator('#confirmDeletePerm').click();
+    const confirmDialog = page.locator('.modal.show', { hasText: 'Eliminar permiso' });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Eliminar' }).click();
     await expect(page.locator(`tr[data-perm-code="${PERM_CODE}"]`)).toHaveCount(0);
   });
 });
@@ -167,10 +169,11 @@ test.describe('config themes — ConfigPage + flip envelope', () => {
     const card = page.locator(`.theme-card:has-text("${THEME_NAME}")`).first();
     await expect(card).toBeVisible();
 
-    // eliminar por UI (botón de basura -> modal confirm)
+    // eliminar por UI (botón de basura -> AppModal.confirm, sin modal bespoke)
     await card.locator('button[title="Eliminar"]').click();
-    await expect(page.locator('#deleteThemeModal')).toBeVisible();
-    await page.locator('#confirmDeleteTheme').click();
+    const confirmDialog = page.locator('.modal.show', { hasText: 'Eliminar tematica' });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: 'Eliminar' }).click();
     await expect(page.locator(`.theme-card:has-text("${THEME_NAME}")`)).toHaveCount(0);
   });
 });
