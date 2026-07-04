@@ -159,8 +159,7 @@ class AppNotificationFAB {
             return new Promise((resolve, reject) => {
                 if (window.io) return resolve();
                 const script = document.createElement('script');
-                script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-                script.crossOrigin = 'anonymous';
+                script.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
                 script.onload = () => resolve();
                 script.onerror = reject;
                 document.head.appendChild(script);

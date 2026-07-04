@@ -134,8 +134,7 @@ class MobileApp {
             return new Promise((resolve, reject) => {
                 if (window.io) return resolve();
                 const s = document.createElement('script');
-                s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-                s.crossOrigin = 'anonymous';
+                s.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
                 s.onload = () => resolve();
                 s.onerror = reject;
                 document.head.appendChild(s);

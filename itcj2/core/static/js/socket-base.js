@@ -24,8 +24,7 @@ window.ensureSocketIO = () => {
         }
         
         const script = document.createElement('script');
-        script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-        script.crossOrigin = 'anonymous';
+        script.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
         script.onload = () => resolve();
         script.onerror = (e) => reject(e);
         document.head.appendChild(script);

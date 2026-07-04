@@ -32,9 +32,9 @@ CONFIG_BOOST_ENABLED = True
 # sv(); URLs http(s):// (CDN) se pasan tal cual. Orden = orden de carga.
 CONFIG_PAGE_MODULES: dict[str, list[str]] = {
     # Piloto F2. El widget de usuarios activos vive como módulo del registry;
-    # socket.io se carga como dep CDN ANTES del módulo (F6 lo cambia a vendored).
+    # socket.io se carga vendored (F6 Task 5) ANTES del módulo.
     "index": [
-        "https://cdn.socket.io/4.7.5/socket.io.min.js",
+        "js/vendor/socket.io.min.js",
         "js/config/active-users.js",
     ],
     "roles": ["js/config/system/roles.js"],

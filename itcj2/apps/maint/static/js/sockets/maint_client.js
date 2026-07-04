@@ -145,7 +145,7 @@
         _initMaintSocket();
     } else {
         const script = document.createElement("script");
-        script.src = "https://cdn.socket.io/4.7.2/socket.io.min.js";
+        script.src = "/static/core/js/vendor/socket.io.min.js?v=4.7.5";
         script.onload = _initMaintSocket;
         script.onerror = () => console.error("[WS maint] No se pudo cargar socket.io desde CDN");
         document.head.appendChild(script);
