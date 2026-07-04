@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# Charset de clases bootstrap-icons: minúsculas, dígitos, guion y guion_bajo.
+# Se permite el espacio para pasar varias clases (p.ej. "bi-star-fill bi-lg").
+_ICON_CLASS_RE = re.compile(r"^[a-z0-9 _-]+$")
 
 
 def _validate_hex_color(v: Optional[str]) -> Optional[str]:
@@ -28,6 +31,21 @@ def _validate_hex_color(v: Optional[str]) -> Optional[str]:
         return ""
     if not _HEX_COLOR_RE.match(v):
         raise ValueError("color debe ser hex #RRGGBB")
+    return v
+
+
+def _validate_icon_class(v: Optional[str]) -> Optional[str]:
+    """None → no enviado; "" → limpiar (mismo sentinel que color); si no, charset
+    de bootstrap-icons y máx 50 (largo de la columna App.icon_class)."""
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return ""
+    if len(v) > 50:
+        raise ValueError("icon_class no debe exceder 50 caracteres")
+    if not _ICON_CLASS_RE.match(v):
+        raise ValueError("icon_class inválido (usa clases bi-* en minúsculas)")
     return v
 
 
@@ -47,6 +65,11 @@ class AppCreateBody(BaseModel):
     def _color_hex(cls, v):
         return _validate_hex_color(v)
 
+    @field_validator("icon_class")
+    @classmethod
+    def _icon(cls, v):
+        return _validate_icon_class(v)
+
 
 class AppUpdateBody(BaseModel):
     name: Optional[str] = None
@@ -62,6 +85,11 @@ class AppUpdateBody(BaseModel):
     @classmethod
     def _color_hex(cls, v):
         return _validate_hex_color(v)
+
+    @field_validator("icon_class")
+    @classmethod
+    def _icon(cls, v):
+        return _validate_icon_class(v)
 
 
 class RoleCreateBody(BaseModel):

@@ -41,3 +41,22 @@ def test_invalid_color_rejected():
         AppCreateBody(key="x", name="x", color="verde")
     with pytest.raises(ValidationError):
         AppUpdateBody(color="#12345")  # 5 hex digits
+
+
+def test_valid_icon_class_accepted():
+    # una clase y multi-clase (espacio) son válidas
+    assert AppCreateBody(key="x", name="x", icon_class="bi-headset").icon_class == "bi-headset"
+    assert AppCreateBody(key="x", name="x",
+                         icon_class="bi-star-fill bi-lg").icon_class == "bi-star-fill bi-lg"
+
+
+def test_icon_class_clear_sentinel():
+    # "" (sentinel de limpiar en update) sobrevive la validación, como color
+    assert AppUpdateBody(icon_class="").icon_class == ""
+
+
+def test_invalid_icon_class_rejected():
+    with pytest.raises(ValidationError):
+        AppCreateBody(key="x", name="x", icon_class="bi-<script>")  # charset inválido
+    with pytest.raises(ValidationError):
+        AppUpdateBody(icon_class="a" * 51)  # excede el largo de la columna (50)

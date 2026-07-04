@@ -223,7 +223,8 @@ def create_user(
 
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(500, detail=f"Rol por defecto '{role_name}' no encontrado")
+        logger.error("create_user: rol por defecto '%s' no encontrado", role_name)
+        raise HTTPException(500, detail="Error interno al crear el usuario")
 
     try:
         new_user = User(
@@ -362,9 +363,10 @@ def create_inactive_user(
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, detail="Username o email duplicado")
-    except Exception as e:
+    except Exception:
         db.rollback()
-        raise HTTPException(500, detail=f"Error al crear usuario: {str(e)}")
+        logger.exception("create_inactive_user: fallo al crear usuario")
+        raise HTTPException(500, detail="Error interno al crear el usuario")
 
 
 # ── Current user department ───────────────────────────────────────────────────

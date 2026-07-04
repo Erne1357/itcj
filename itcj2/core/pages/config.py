@@ -402,11 +402,12 @@ async def email_auth_callback(
 
     r = get_redis()
     redis_key = f"oauth:state:{state}"
-    app_key = r.get(redis_key)
+    # getdel: lee y borra ATÓMICAMENTE (un solo uso, sin ventana de carrera entre
+    # get y delete que permitiera reusar el nonce). redis-py 6.x / Redis 6.2+.
+    app_key = r.getdel(redis_key)
     if not app_key:
         logger.warning("email_auth_callback: state inválido o expirado")
         return RedirectResponse("/itcj/config/email", status_code=302)
-    r.delete(redis_key)  # un solo uso
 
     result = msgraph_mail.process_auth_code(app_key, code)
     if result.get("error"):
