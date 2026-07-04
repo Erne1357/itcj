@@ -13,7 +13,7 @@
 
 {% block page_icon %}<i class="bi bi-buildings"></i>{% endblock %}
 {% block page_title %}<span id="deptNameTitle">Cargando...</span>{% endblock %}
-{% block page_subtitle %}<span id="deptDescription" class="text-truncate d-inline-block" style="max-width: 250px;">Descripcion del departamento</span>{% endblock %}
+{% block page_subtitle %}<span id="deptDescription" class="text-truncate d-inline-block cfg-maxw-250">Descripcion del departamento</span>{% endblock %}
 
 {% block page_actions %}
 <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createPositionModal">
@@ -27,7 +27,7 @@
 
 {% block content %}
 <!-- Info del jefe -->
-<div class="alert alert-info mb-4 py-2" id="deptHeadInfo" style="display: none;">
+<div class="alert alert-info mb-4 py-2 cfg-hidden" id="deptHeadInfo">
     <i class="bi bi-person-badge me-2"></i><strong>Jefe:</strong> <span id="headName"></span>
 </div>
 
@@ -128,10 +128,10 @@
                                     <button class="btn btn-sm btn-primary" id="assignUserBtn">
                                         <i class="bi bi-person-plus me-1"></i>Asignar Usuario
                                     </button>
-                                    <button class="btn btn-sm btn-warning" id="transferPositionBtn" style="display:none;">
+                                    <button class="btn btn-sm btn-warning cfg-hidden" id="transferPositionBtn">
                                         <i class="bi bi-arrow-repeat me-1"></i>Transferir
                                     </button>
-                                    <button class="btn btn-sm btn-danger" id="removeUserBtn" style="display:none;">
+                                    <button class="btn btn-sm btn-danger cfg-hidden" id="removeUserBtn">
                                         <i class="bi bi-person-dash me-1"></i>Remover
                                     </button>
                                 </div>
@@ -185,7 +185,7 @@
                     </div>
 
                     <!-- Panel de Asignaciones -->
-                    <div class="col-12 col-md-8" id="appAssignmentPanelPosition" style="display: none;">
+                    <div class="col-12 col-md-8 cfg-hidden" id="appAssignmentPanelPosition">
                         <h6>Asignaciones para: <span id="selectedAppNamePosition"></span></h6>
 
                         <!-- Roles del Puesto -->

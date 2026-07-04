@@ -93,6 +93,20 @@ test.describe('config shell — tokens y avatares dedupe', () => {
   });
 });
 
+test.describe('config shell — estados hidden sin style inline', () => {
+  test('elementos de estado siguen ocultos tras migrar a .cfg-hidden', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/users');
+    await expect(page.locator('#staffFields')).toBeHidden();
+    await expect(page.locator('#appAssignmentPanel')).toBeHidden();
+    const inline = await page.evaluate(() =>
+      document.querySelectorAll('#cfgMain [style], .modal [style]').length);
+    expect(inline).toBe(0); // HOY FALLA: 4 style= en users.html
+
+    await gotoCore(page, '/itcj/config/system/tasks');
+    await expect(page.locator('#runsPagination')).toBeHidden();
+  });
+});
+
 test.describe('config shell — controller ConfigPage (C2)', () => {
   test('expone register/navigate/page y lee la página actual', async ({ page }) => {
     await gotoCore(page, '/itcj/config');

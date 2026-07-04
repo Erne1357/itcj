@@ -4,6 +4,15 @@
     font-size: 2rem;
 }
 
+/* Avatar hero del encabezado (antes inline). .user-avatar de esta página mide
+   80px; la doble clase (0,2,0) gana y fija el hero en 64px con gradiente config. */
+.user-avatar.user-avatar-hero {
+    width: 64px;
+    height: 64px;
+    font-size: 24px;
+    background: linear-gradient(135deg, var(--config-primary), var(--config-secondary));
+}
+
 .app-card {
     transition: transform 0.2s;
 }

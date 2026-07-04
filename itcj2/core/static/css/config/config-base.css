@@ -1085,6 +1085,20 @@
 .cfg-icon-xl  { font-size: 2rem; }
 .cfg-icon-xxl { font-size: 2.5rem; }
 
+/* ==================== UTILIDADES cfg-* (extraídas de style inline, F2) ==== */
+.cfg-minw-200 { min-width: 200px; }
+.cfg-maxw-150 { max-width: 150px; }
+.cfg-maxw-250 { max-width: 250px; }
+.cfg-w-auto   { width: auto; }
+.cfg-scroll-300 { max-height: 300px; overflow-y: auto; }
+/* footer de runs de tasks: flex SIN !important (d-flex de Bootstrap ganaría
+   a .cfg-hidden; por eso el template cambia d-flex -> cfg-runs-footer) */
+.cfg-runs-footer { display: flex; }
+/* Oculto por defecto SIN !important: el JS de página muestra con
+   style.display='block|inline-block' (inline gana a la clase) o con
+   classList.remove('cfg-hidden'). DEBE declararse después de cfg-runs-footer. */
+.cfg-hidden { display: none; }
+
 .text-truncate-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;

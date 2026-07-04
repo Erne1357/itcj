@@ -719,7 +719,7 @@ const Tasks = (() => {
         // Paginación
         const footer = document.getElementById('runsPagination');
         if (meta.total_pages > 1) {
-            footer.style.removeProperty('display');
+            footer.classList.remove('cfg-hidden');
             footer.innerHTML = `
                 <small class="text-muted">${meta.total} ejecuciones</small>
                 <div class="btn-group btn-group-sm">
@@ -728,7 +728,7 @@ const Tasks = (() => {
                     <button class="btn btn-outline-secondary" ${page >= meta.total_pages ? 'disabled' : ''} onclick="Tasks.loadRuns(${page + 1})">›</button>
                 </div>`;
         } else {
-            footer.style.display = 'none';
+            footer.classList.add('cfg-hidden');
         }
 
         // Badge en pestaña
