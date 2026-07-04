@@ -24,6 +24,17 @@ const Tasks = (() => {
     // escapeHtml del shell (fallback identidad si ConfigUtils no cargó aún)
     const esc = (v) => (window.ConfigUtils ? ConfigUtils.escapeHtml(v) : String(v == null ? '' : v));
 
+    // Mapa de estilos de app (color, C8) para el badge de app_name del catálogo
+    let _appStyles = {};
+
+    const loadAppStyles = async () => {
+        try {
+            const res = await fetch('/api/core/v2/authz/apps');
+            const json = await res.json();
+            (json.data || []).forEach((a) => { _appStyles[a.key] = a.color || '#6c757d'; });
+        } catch (_) { /* fallback: gris */ }
+    };
+
     // ── Utilitarias de presentación ───────────────────────────────────
     const statusBadge = (s) => {
         const labels = { PENDING: 'Pendiente', RUNNING: 'Ejecutando', SUCCESS: 'Exitoso', FAILURE: 'Fallido', REVOKED: 'Cancelado' };
@@ -88,7 +99,7 @@ const Tasks = (() => {
                     <div class="fw-semibold">${esc(d.display_name)}</div>
                     <div class="text-muted small font-monospace">${esc(d.task_name)}</div>
                 </td>
-                <td><span class="badge bg-secondary">${d.app_name}</span></td>
+                <td><span class="app-badge" style="--app-badge-color: ${_appStyles[d.app_name] || '#6c757d'}">${esc(d.app_name)}</span></td>
                 <td><i class="bi ${catIcons[d.category] || 'bi-gear'} me-1"></i>${d.category}</td>
                 <td>
                     <span class="badge ${d.is_active ? 'bg-success' : 'bg-secondary'}">
@@ -843,8 +854,8 @@ const Tasks = (() => {
     // ── Init ──────────────────────────────────────────────────────────
 
     const init = () => {
-        // Cargar catálogo al inicio
-        loadDefinitions();
+        // Cargar catálogo al inicio (colores de app en paralelo para el badge C8)
+        loadAppStyles().then(loadDefinitions);
 
         // Cargar programadas al cambiar de tab
         document.querySelector('[data-bs-target="#tab-scheduled"]').addEventListener('shown.bs.tab', loadPeriodic);

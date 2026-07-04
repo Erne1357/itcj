@@ -148,7 +148,7 @@
         const app = S.apps.find(a => a.key === appKey);
         const color = (app && app.color) || FALLBACK_COLOR;
         const name = app ? app.name : appKey;
-        return `<span class="app-badge" style="--app-badge-color: ${esc(color)}" title="${esc(name)}">${esc(appKey)}</span>`;
+        return `<span class="app-badge" data-app-key="${esc(appKey)}" style="--app-badge-color: ${esc(color)}" title="${esc(name)}">${esc(appKey)}</span>`;
     }
 
     function renderUserBadges(userId, appKeys) {

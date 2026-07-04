@@ -337,6 +337,8 @@ async def email_management(
         {
             "key": app.key,
             "name": app.name,
+            "icon_class": app.icon_class,
+            "color": app.color,
             "connected": (acct := msgraph_mail.read_account_info(app.key)) is not None,
             "username": acct.get("username") if acct else None,
             "account_name": acct.get("name") if acct else None,

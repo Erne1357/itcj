@@ -13,7 +13,11 @@
 
 {% block page_icon %}<i class="bi bi-key"></i>{% endblock %}
 {% block page_title %}Permisos de {{ app.name }}{% endblock %}
-{% block page_subtitle %}Aplicacion: <code>{{ app.key }}</code>{% endblock %}
+{% block page_subtitle %}Aplicacion:
+<span class="app-badge" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+    <i class="{{ app.icon_class or 'bi-app' }} me-1"></i>{{ app.key }}
+</span>
+{% endblock %}
 
 {% block page_actions %}
 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPermModal">

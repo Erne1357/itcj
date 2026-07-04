@@ -32,8 +32,8 @@
         <div class="card email-app-card h-100 {% if app.connected %}border-success{% endif %}" data-app-key="{{ app.key }}">
             <div class="card-body">
                 <div class="d-flex align-items-center gap-3 mb-3">
-                    <div class="email-app-icon">
-                        <i class="bi bi-app"></i>
+                    <div class="email-app-icon" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+                        <i class="{{ app.icon_class or 'bi-app' }}"></i>
                     </div>
                     <div class="flex-grow-1">
                         <h6 class="mb-0">{{ app.name }}</h6>
