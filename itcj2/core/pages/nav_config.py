@@ -38,6 +38,7 @@ CONFIG_PAGE_MODULES: dict[str, list[str]] = {
         "js/config/active-users.js",
     ],
     "roles": ["js/config/system/roles.js"],
+    "apps": ["js/config/system/apps.js"],
 }
 
 # Patrón de URL -> page_key. Cubre las 12 páginas HTML de core/pages/config.py
