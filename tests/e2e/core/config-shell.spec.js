@@ -158,21 +158,17 @@ test.describe('config shell — controller ConfigPage (C2)', () => {
     expect(api.page).toBe('index');
   });
 
-  test('navigate() a página NO migrada hace fallback duro (recarga completa)', async ({ page }) => {
-    // F5 migró 'departments' (árbol interactivo). El detalle de departamento
-    // (department_detail) sigue sin migrar al registry → caso vigente de página
-    // NO migrada: navigate() debe recargar completo.
+  test('navigate() a URL fuera del registry hace fallback duro (recarga completa)', async ({ page }) => {
+    // F5 cerró la migración de las 12 páginas de config (incluidas
+    // department_detail y position_detail): ya no hay una página DENTRO de
+    // /itcj/config que quede fuera de CONFIG_PAGE_MODULES. El caso vigente de
+    // fallback duro es un destino fuera de la whitelist de config por
+    // completo: /itcj/profile (página real del core, ajena al shell).
     await gotoCore(page, '/itcj/config'); // gotoCore instala window.__booted
-    const detailUrl = await page.evaluate(async () => {
-      const r = await fetch('/api/core/v2/departments/tree');
-      const j = await r.json();
-      const id = j && j.data && j.data[0] && j.data[0].id;
-      return `/itcj/config/departments/${id}`;
-    });
-    await page.evaluate((u) => window.ConfigPage.navigate(u), detailUrl);
-    await page.waitForURL(/\/itcj\/config\/departments\/\d+/);
+    await page.evaluate(() => window.ConfigPage.navigate('/itcj/profile'));
+    await page.waitForURL(/\/itcj\/profile/);
     // una recarga completa borra el marker
     expect(await page.evaluate(() => window.__booted === true)).toBe(false);
-    await expect(page.locator('#cfgMain[data-cfg-page="department_detail"]')).toBeAttached();
+    await expect(page.locator('#profileTabs')).toBeAttached();
   });
 });

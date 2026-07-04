@@ -169,14 +169,19 @@ class TestHtmxShell:
         assert "active-users.js" in html
         assert "cdn.socket.io" in html
 
-    def test_island_no_boost_from_unmigrated_page(self, app_client, auth_headers, admin_role_patch, db_session):
-        # F5 migró 'departments' (árbol interactivo); el detalle de departamento
-        # (department_detail) sigue clásico → caso vigente de página NO migrada.
-        # El island exige origen migrado: desde ella NADA lleva boost.
-        from itcj2.core.models.department import Department
+    def test_all_12_pages_boostable(self):
+        # F5 cerró la migración (departments, department_detail, position_detail):
+        # ya no queda ninguna de las 12 páginas de config fuera de
+        # CONFIG_PAGE_MODULES. El caso "página NO migrada" ya no existe DENTRO
+        # del registry de config; se cubre abajo con una URL fuera de él.
+        assert set(nav_config.CONFIG_PAGE_MODULES) == ALL_PAGE_KEYS
+        for url in nav_config.ENDPOINT_TO_PAGE:
+            probe = url.format(app_key="helpdesk", user_id=1, department_id=1, position_id=1)
+            assert nav_config.is_boostable_url(probe) is True, probe
 
-        dept = db_session.query(Department).first()
-        assert dept is not None, "se requiere al menos un departamento sembrado"
-        resp = app_client.get(f"/itcj/config/departments/{dept.id}", headers=auth_headers)
-        assert resp.status_code == 200
-        assert "hx-boost" not in resp.text
+    def test_non_config_url_not_boostable(self):
+        # /itcj/profile es una página real del core pero ajena al shell de
+        # config: no está (ni debe estar) en ENDPOINT_TO_PAGE. El fallback
+        # duro de is_boostable_url/navigate() sigue vigente para destinos
+        # fuera de la whitelist de config, aunque las 12 internas ya migraron.
+        assert nav_config.is_boostable_url("/itcj/profile") is False
