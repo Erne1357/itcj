@@ -41,8 +41,8 @@ def get_active_theme(db: DbSession = None):
 
     theme = svc.get_active_theme(db)
     if not theme:
-        return {"status": "ok", "data": None}
-    return {"status": "ok", "data": theme.to_dict(include_full=True)}
+        return {"success": True, "data": None}
+    return {"success": True, "data": theme.to_dict(include_full=True)}
 
 
 # ── Endpoints protegidos (solo admin) ─────────────────────────────────────────
@@ -56,7 +56,7 @@ def get_themes_stats(
     from itcj2.core.services import themes_service as svc
 
     return {
-        "status": "ok",
+        "success": True,
         "data": {"total": svc.get_themes_count(db), "active": svc.get_active_themes_count(db)},
     }
 
@@ -70,7 +70,7 @@ def list_themes(
     from itcj2.core.services import themes_service as svc
 
     themes = svc.list_themes(db)
-    return {"status": "ok", "data": [t.to_dict() for t in themes]}
+    return {"success": True, "data": [t.to_dict() for t in themes]}
 
 
 @router.get("/{theme_id}")
@@ -85,7 +85,7 @@ def get_theme(
     theme = svc.get_theme(db, theme_id)
     if not theme:
         raise HTTPException(404, detail="Temática no encontrada")
-    return {"status": "ok", "data": theme.to_dict(include_full=True)}
+    return {"success": True, "data": theme.to_dict(include_full=True)}
 
 
 @router.post("", status_code=201)
@@ -106,7 +106,7 @@ async def create_theme(
         user_id = int(user["sub"])
         theme = svc.create_theme(db, payload, created_by_id=user_id)
         logger.info(f"Tema '{name}' creado por usuario {user_id}")
-        return {"status": "ok", "data": theme.to_dict(include_full=True)}
+        return {"success": True, "data": theme.to_dict(include_full=True)}
     except ValueError as e:
         raise HTTPException(409, detail=str(e))
 
@@ -125,7 +125,7 @@ async def update_theme(
     try:
         theme = svc.update_theme(db, theme_id, **payload)
         logger.info(f"Tema {theme_id} actualizado por usuario {int(user['sub'])}")
-        return {"status": "ok", "data": theme.to_dict(include_full=True)}
+        return {"success": True, "data": theme.to_dict(include_full=True)}
     except ValueError as e:
         error_msg = str(e)
         status = 404 if ("no encontrada" in error_msg.lower() or "not found" in error_msg.lower()) else 409
@@ -144,7 +144,7 @@ def toggle_theme(
 
     try:
         theme = svc.toggle_theme_manual(db, theme_id, body.active)
-        return {"status": "ok", "data": theme.to_dict()}
+        return {"success": True, "data": theme.to_dict()}
     except ValueError as e:
         raise HTTPException(404, detail=str(e))
 
@@ -161,7 +161,7 @@ def toggle_theme_enabled(
 
     try:
         theme = svc.toggle_theme_enabled(db, theme_id, body.enabled)
-        return {"status": "ok", "data": theme.to_dict()}
+        return {"success": True, "data": theme.to_dict()}
     except ValueError as e:
         raise HTTPException(404, detail=str(e))
 

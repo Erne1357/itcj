@@ -121,3 +121,56 @@ test.describe('config permissions — ConfigPage + scope badges (C8)', () => {
     await expect(page.locator(`tr[data-perm-code="${PERM_CODE}"]`)).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------- themes
+const THEME_NAME = 'e2e_theme_' + Date.now().toString(36);
+
+const CLEAN_THEMES_PY = `
+from itcj2.database import SessionLocal
+from itcj2.core.models.theme import Theme
+db = SessionLocal()
+try:
+    for t in db.query(Theme).filter(Theme.name.like('e2e_theme_%')).all():
+        db.delete(t)
+    db.commit()
+finally:
+    db.close()
+`;
+
+test.describe('config themes — ConfigPage + flip envelope', () => {
+  test.afterAll(() => {
+    try {
+      execFileSync('docker', ['exec', '-i', BACKEND, 'python', '-c', CLEAN_THEMES_PY],
+        { encoding: 'utf8', timeout: 60_000 });
+    } catch (_) { /* best-effort */ }
+  });
+
+  test('carga vía morph y lista temas (envelope success)', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/themes');
+    await expect(page.locator('#cfgMain[data-cfg-page="themes"]')).toBeAttached();
+    await expect(page.locator('#cfgMain')).toHaveAttribute('data-cfg-modules', /themes\.js/);
+    // el grid de temas se pobló desde GET /themes (success:true, .data)
+    await expect(page.locator('#themesContainer')).toBeVisible();
+  });
+
+  test('crear y eliminar tema por modal', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/themes');
+    await page.locator('button[data-bs-target="#themeModal"]').first().click();
+    await expect(page.locator('#themeModal')).toBeVisible();
+    await page.fill('#themeName', THEME_NAME);
+    const createResp = page.waitForResponse(
+      (r) => r.url().endsWith('/api/core/v2/themes') && r.request().method() === 'POST'
+    );
+    await page.locator('#themeForm button[type="submit"]').click();
+    expect((await createResp).ok()).toBeTruthy();
+    await expect(page.locator('#themeModal')).toBeHidden();
+    const card = page.locator(`.theme-card:has-text("${THEME_NAME}")`).first();
+    await expect(card).toBeVisible();
+
+    // eliminar por UI (botón de basura -> modal confirm)
+    await card.locator('button[title="Eliminar"]').click();
+    await expect(page.locator('#deleteThemeModal')).toBeVisible();
+    await page.locator('#confirmDeleteTheme').click();
+    await expect(page.locator(`.theme-card:has-text("${THEME_NAME}")`)).toHaveCount(0);
+  });
+});

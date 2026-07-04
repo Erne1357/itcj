@@ -600,8 +600,29 @@ class ThemesManager {
     }
 }
 
-// Initialize
-let themesManager;
-document.addEventListener('DOMContentLoaded', () => {
-    themesManager = new ThemesManager();
-});
+/* -----------------------------------------------------------------------------
+   Registro en el shell HTMX (ConfigPage). init() re-crea la instancia en cada
+   visita (los nodos del content se recrean por morph; el constructor cachea los
+   refs frescos y bind* solo toca elementos recreados — sin listeners de document
+   ni window que fuguen). destroy() dispone los modales para no dejar backdrops
+   huérfanos. Los onclick inline resuelven contra window.themesManager.
+   --------------------------------------------------------------------------- */
+function _cfgInitThemes() {
+    window.themesManager = new ThemesManager();
+}
+
+function _cfgDestroyThemes() {
+    var m = window.themesManager;
+    if (m) {
+        [m.themeModal, m.deleteModal].forEach(function (bm) {
+            if (bm) { try { bm.hide(); bm.dispose(); } catch (e) { /* noop */ } }
+        });
+    }
+    window.themesManager = null;
+}
+
+if (window.ConfigPage) {
+    window.ConfigPage.register('themes', { init: _cfgInitThemes, destroy: _cfgDestroyThemes });
+} else {
+    document.addEventListener('DOMContentLoaded', _cfgInitThemes);
+}
