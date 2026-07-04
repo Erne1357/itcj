@@ -360,7 +360,7 @@ class DashboardNotificationWidget {
     renderNotificationItem(notification) {
         const isUnread = !notification.is_read;
         const icon = notification.app_icon || 'bi-bell';
-        const color = notification.app_color || 'secondary';
+        const color = notification.app_color_hex || '#6c757d';
         const url = notification.action_url || '';
         const timeAgo = this.getTimeAgo(notification.created_at);
 
@@ -368,14 +368,14 @@ class DashboardNotificationWidget {
             <div class="notification-item ${isUnread ? 'unread' : 'read'}"
                  data-id="${notification.id}"
                  data-url="${url}">
-                <div class="notification-icon bg-${color}">
+                <div class="notification-icon" style="background-color: ${color}">
                     <i class="${icon}"></i>
                 </div>
                 <div class="notification-content">
                     <div class="notification-title">${notification.title}</div>
                     ${notification.body ? `<div class="notification-body">${notification.body}</div>` : ''}
                     <div class="notification-meta">
-                        <span class="app-tag badge bg-${color}">${notification.app_name}</span>
+                        <span class="app-tag badge" style="background-color: ${color}">${notification.app_name}</span>
                         <span class="time">${timeAgo}</span>
                     </div>
                 </div>

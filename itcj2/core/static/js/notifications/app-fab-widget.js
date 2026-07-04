@@ -419,7 +419,7 @@ class AppNotificationFAB {
     renderNotificationItem(notification) {
         const isUnread = !notification.is_read;
         const icon = notification.app_icon || 'bi-bell';
-        const color = notification.app_color || 'secondary';
+        const color = notification.app_color_hex || '#6c757d';
         const url = notification.action_url || '';
         const timeAgo = this.getTimeAgo(notification.created_at);
 
@@ -428,7 +428,7 @@ class AppNotificationFAB {
                  data-id="${notification.id}"
                  data-url="${url}"
                  style="display:flex;padding:12px 16px;border-bottom:1px solid #e9ecef;cursor:pointer;background:${isUnread ? '#f0f9ff' : 'white'};">
-                <div class="notification-icon bg-${color}" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;">
+                <div class="notification-icon" style="background-color:${color};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;">
                     <i class="${icon}"></i>
                 </div>
                 <div style="flex:1;min-width:0;">
