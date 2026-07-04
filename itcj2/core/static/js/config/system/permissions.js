@@ -1,71 +1,48 @@
-// permissions.js - Gestión de permisos por aplicación
-class PermissionsManager {
-    constructor() {
-        this.apiBase = '/api/core/v2';
-        this.appKey = window.appKey;
-        this.roles = [];
-        this.permissions = [];
-        this.selectedRole = null;
-        this.init();
+/* =============================================================================
+   Permisos por app — módulo del registry ConfigPage (C2).
+   IIFE + register: appKey desde #cfgMain[data-app-key] (F3-D2); init() re-vincula
+   en cada visita; destroy() dispone modales + quita listener de document.
+   Badges de scope C8 por sufijo del código (F3-D5). Nombre/ícono de módulo
+   DERIVADOS del código (F3-D6) — sin mapas hardcoded. escapeHtml en todo
+   innerHTML de servidor. Toasts via ConfigUtils; sin showSuccess/showError
+   privados.
+   ============================================================================= */
+(function () {
+    'use strict';
+
+    var API = '/api/core/v2';
+    var appKey = null;
+    var roles = [];
+    var permissions = [];
+    var selectedRole = null;
+    var createModal = null;
+    var deleteModal = null;
+    var pendingDeleteCode = null;
+    var onDocClick = null;
+
+    function esc(v) { return window.ConfigUtils ? ConfigUtils.escapeHtml(v) : String(v == null ? '' : v); }
+    function toast(msg, type) { if (window.ConfigUtils) ConfigUtils.showToast(msg, type || 'success'); }
+    function sel(v) { return (window.CSS && CSS.escape) ? CSS.escape(v) : v; }
+
+    // ---- Derivaciones desde el código de permiso -------------------------
+    // Badge de scope (C8): sufijo -> clase. own_dept ANTES de own.
+    function scopeBadge(code) {
+        var m = /\.(subtree|own_dept|own|all)$/.exec(code || '');
+        if (!m) return '';
+        var cls = { subtree: 'scope-subtree', own_dept: 'scope-dept', own: 'scope-own', all: 'scope-all' }[m[1]];
+        var label = { subtree: 'subtree', own_dept: 'own dept', own: 'own', all: 'all' }[m[1]];
+        return ' <span class="scope-badge ' + cls + '">' + label + '</span>';
     }
 
-    init() {
-        this.bindEvents();
-        this.initModals();
-        this.loadRoles();
+    function moduleFriendlyName(m) {
+        if (!m) return 'General';
+        return m.split('_').map(function (w) {
+            return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+        }).join(' ');
     }
 
-    bindEvents() {
-        // Form submissions
-        const createForm = document.getElementById('createPermForm');
-
-        if (createForm) {
-            createForm.addEventListener('submit', (e) => this.handleCreatePermission(e));
-        }
-
-        // Delete buttons
-        document.addEventListener('click', (e) => {
-            if (e.target.closest('.delete-perm-btn')) {
-                const btn = e.target.closest('.delete-perm-btn');
-                this.showDeleteModal(btn);
-            }
-        });
-
-        // Confirm delete
-        const confirmDeleteBtn = document.getElementById('confirmDeletePerm');
-        if (confirmDeleteBtn) {
-            confirmDeleteBtn.addEventListener('click', () => this.handleDeletePermission());
-        }
-
-        // Role selection
-        const roleSelect = document.getElementById('roleSelect');
-        if (roleSelect) {
-            roleSelect.addEventListener('change', (e) => this.handleRoleSelection(e.target.value));
-        }
-
-        // Save role permissions
-        const saveBtn = document.getElementById('saveRolePermissions');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', () => this.saveRolePermissions());
-        }
-
-        // Input validation
-        const permCodeInput = document.getElementById('permCode');
-        if (permCodeInput) {
-            permCodeInput.addEventListener('input', this.validatePermCode);
-        }
-    }
-
-    initModals() {
-        this.createModal = new bootstrap.Modal(document.getElementById('createPermModal'));
-        this.deleteModal = new bootstrap.Modal(document.getElementById('deletePermModal'));
-    }
-
-    validatePermCode(e) {
-        const value = e.target.value;
-        const pattern = /^[a-z0-9._]*$/;
-
-        if (!pattern.test(value)) {
+    function validatePermCode(e) {
+        if (!/^[a-z0-9._]*$/.test(e.target.value)) {
             e.target.classList.add('is-invalid');
             e.target.setCustomValidity('Solo se permiten letras minúsculas, números, puntos y guiones bajos');
         } else {
@@ -74,533 +51,282 @@ class PermissionsManager {
         }
     }
 
-    async loadRoles() {
+    // ---- Roles (dropdown de asignación) ----------------------------------
+    async function loadRoles() {
         try {
-            const response = await fetch(`${this.apiBase}/authz/roles`);
-            const result = await response.json();
-
+            var response = await fetch(API + '/authz/roles');
+            var result = await response.json();
             if (response.ok && result.data) {
-                this.roles = result.data;
-                this.populateRoleSelect();
+                roles = result.data;
+                populateRoleSelect();
             }
-        } catch (error) {
-            console.error('Error loading roles:', error);
+        } catch (err) {
+            console.error('Error loading roles:', err);
         }
     }
 
-    populateRoleSelect() {
-        const select = document.getElementById('roleSelect');
+    function populateRoleSelect() {
+        var select = document.getElementById('roleSelect');
         if (!select) return;
-
-        // Clear existing options (except first)
-        while (select.children.length > 1) {
-            select.removeChild(select.lastChild);
-        }
-
-        this.roles.forEach(role => {
-            const option = document.createElement('option');
-            option.value = role.name;
-            option.textContent = role.name;
-            select.appendChild(option);
+        while (select.children.length > 1) select.removeChild(select.lastChild);
+        roles.forEach(function (role) {
+            var opt = document.createElement('option');
+            opt.value = role.name;
+            opt.textContent = role.name;
+            select.appendChild(opt);
         });
     }
 
-    async handleCreatePermission(e) {
+    // ---- Crear permiso ---------------------------------------------------
+    async function handleCreatePermission(e) {
         e.preventDefault();
-
-        const formData = new FormData(e.target);
-        const data = {
-            code: formData.get('code'),
-            name: formData.get('name'),
-            description: formData.get('description') || undefined
-        };
-
+        var fd = new FormData(e.target);
+        var data = { code: fd.get('code'), name: fd.get('name'), description: fd.get('description') || undefined };
         try {
-            const response = await fetch(`${this.apiBase}/authz/apps/${this.appKey}/perms`, {
+            var response = await fetch(API + '/authz/apps/' + encodeURIComponent(appKey) + '/perms', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(data)
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
             });
-
-            const result = await response.json();
-
+            var result = await response.json();
             if (response.ok) {
-                this.showSuccess('Permiso creado correctamente');
-                this.createModal.hide();
-                this.addPermissionToTable(result.data);
+                toast('Permiso creado correctamente');
+                if (createModal) createModal.hide();
+                addPermissionRow(result.data);
                 e.target.reset();
-                this.refreshPermissionsList();
+                refreshRolePermissions();
             } else {
-                this.showError(result.error || 'Error al crear el permiso');
+                toast(result.error || 'Error al crear el permiso', 'error');
             }
-        } catch (error) {
-            this.showError('Error de conexión');
-            console.error('Error creating permission:', error);
+        } catch (err) {
+            toast('Error de conexión', 'error');
+            console.error('Error creating permission:', err);
         }
     }
 
-    showDeleteModal(btn) {
-        const permCode = btn.dataset.permCode;
-        const permName = btn.dataset.permName;
-
-        this.deletePermCode = permCode;
-        document.getElementById('deletePermName').textContent = permName;
-        this.deleteModal.show();
+    // ---- Eliminar permiso ------------------------------------------------
+    function showDeleteModal(btn) {
+        pendingDeleteCode = btn.dataset.permCode;
+        document.getElementById('deletePermName').textContent = btn.dataset.permName || '';
+        if (deleteModal) deleteModal.show();
     }
 
-    async handleDeletePermission() {
+    async function handleDeletePermission() {
+        if (!pendingDeleteCode) return;
         try {
-            const response = await fetch(`${this.apiBase}/authz/apps/${this.appKey}/perms/${this.deletePermCode}`, {
-                method: 'DELETE'
-            });
-
+            var response = await fetch(
+                API + '/authz/apps/' + encodeURIComponent(appKey) + '/perms/' + encodeURIComponent(pendingDeleteCode),
+                { method: 'DELETE' });
             if (response.ok) {
-                this.showSuccess('Permiso eliminado correctamente');
-                this.deleteModal.hide();
-                this.removePermissionFromTable(this.deletePermCode);
-                this.refreshPermissionsList();
+                toast('Permiso eliminado correctamente');
+                if (deleteModal) deleteModal.hide();
+                removePermissionRow(pendingDeleteCode);
+                refreshRolePermissions();
             } else {
-                const result = await response.json();
-                this.showError(result.error || 'Error al eliminar el permiso');
+                var result = await response.json();
+                toast(result.error || 'Error al eliminar el permiso', 'error');
             }
-        } catch (error) {
-            this.showError('Error de conexión');
-            console.error('Error deleting permission:', error);
+        } catch (err) {
+            toast('Error de conexión', 'error');
+            console.error('Error deleting permission:', err);
         }
     }
 
-    async handleRoleSelection(roleName) {
-        if (!roleName) {
-            this.hideRolePermissions();
-            return;
-        }
-
-        this.selectedRole = roleName;
+    // ---- Asignación por rol ----------------------------------------------
+    async function handleRoleSelection(roleName) {
+        if (!roleName) { hideRolePermissions(); return; }
+        selectedRole = roleName;
         document.getElementById('selectedRoleName').textContent = roleName;
-
         try {
-            // Load app permissions
-            const permsResponse = await fetch(`${this.apiBase}/authz/apps/${this.appKey}/perms`);
-            const permsResult = await permsResponse.json();
-
-            // Load role permissions for this app
-            const rolePermsResponse = await fetch(`${this.apiBase}/authz/apps/${this.appKey}/roles/${roleName}/perms`);
-            const rolePermsResult = await rolePermsResponse.json();
-
+            var permsResponse = await fetch(API + '/authz/apps/' + encodeURIComponent(appKey) + '/perms');
+            var permsResult = await permsResponse.json();
+            var rolePermsResponse = await fetch(
+                API + '/authz/apps/' + encodeURIComponent(appKey) + '/roles/' + encodeURIComponent(roleName) + '/perms');
+            var rolePermsResult = await rolePermsResponse.json();
             if (permsResponse.ok && rolePermsResponse.ok) {
-                this.permissions = permsResult.data || [];
-                const rolePermissions = rolePermsResult.data || [];
-                this.showRolePermissions(rolePermissions);
+                permissions = permsResult.data || [];
+                showRolePermissions(rolePermsResult.data || []);
             }
-        } catch (error) {
-            this.showError('Error al cargar los permisos');
-            console.error('Error loading permissions:', error);
+        } catch (err) {
+            toast('Error al cargar los permisos', 'error');
+            console.error('Error loading permissions:', err);
         }
     }
 
-    /**
-     * Agrupa permisos por módulos y tipo
-     */
-    groupPermissions(permissions) {
-        const groups = {
-            pages: [],
-            dashboards: [],
-            modules: {}
-        };
-
-        permissions.forEach(perm => {
-            const parts = perm.code.split('.');
-
-            // Determinar si es página, dashboard o API
-            if (perm.code.includes('.page.')) {
+    function groupPermissions(perms) {
+        var groups = { pages: [], dashboards: [], modules: {} };
+        perms.forEach(function (perm) {
+            var parts = perm.code.split('.');
+            if (perm.code.indexOf('.page.') !== -1) {
                 groups.pages.push(perm);
-            } else if (perm.code.includes('.dashboard')) {
+            } else if (perm.code.indexOf('.dashboard') !== -1) {
                 groups.dashboards.push(perm);
-            } else if (perm.code.includes('.api.')) {
-                // Extraer el módulo (segundo segmento)
-                // Formato: app.modulo.api.accion[.scope]
-                const moduleName = parts[1]; // Ej: tickets, inventory, users
-
-                if (!groups.modules[moduleName]) {
-                    groups.modules[moduleName] = [];
-                }
-                groups.modules[moduleName].push(perm);
             } else {
-                // Otros permisos (general, etc.)
-                const moduleName = parts[1] || 'otros';
-                if (!groups.modules[moduleName]) {
-                    groups.modules[moduleName] = [];
-                }
-                groups.modules[moduleName].push(perm);
+                var moduleName = parts[1] || 'general';
+                (groups.modules[moduleName] = groups.modules[moduleName] || []).push(perm);
             }
         });
-
         return groups;
     }
 
-    /**
-     * Genera un nombre amigable para el módulo
-     */
-    getModuleFriendlyName(moduleName) {
-        const names = {
-            // HELPDESK
-            'tickets': 'Tickets',
-            'assignments': 'Asignaciones',
-            'collaborators': 'Colaboradores',
-            'comments': 'Comentarios',
-            'attachments': 'Adjuntos',
-            'categories': 'Categorías',
-            'inventory': 'Inventario',
-            'inventory_categories': 'Categorías Inventario',
-            'inventory_groups': 'Grupos/Salones',
-            'reports': 'Reportes',
-            'stats': 'Estadísticas',
-
-            // AGENDATEC
-            'admin_dashboard': 'Dashboard Admin',
-            'coord_dashboard': 'Dashboard Coordinador',
-            'users': 'Usuarios',
-            'requests': 'Solicitudes',
-            'slots': 'Horarios',
-            'appointments': 'Citas',
-            'drops': 'Bajas',
-            'social': 'Servicio Social',
-            'surveys': 'Encuestas',
-            'programs': 'Programas',
-
-            // CORE
-            'apps': 'Aplicaciones',
-            'departments': 'Departamentos',
-            'positions': 'Puestos',
-            'roles': 'Roles',
-            'permissions': 'Permisos',
-            'authz': 'Autorización',
-            'config': 'Configuración',
-            'system': 'Sistema',
-            'general': 'General',
-
-            // Default
-            'otros': 'Otros'
-        };
-
-        return names[moduleName] || moduleName.charAt(0).toUpperCase() + moduleName.slice(1);
+    function showRolePermissions(rolePermissions) {
+        var groups = groupPermissions(permissions);
+        document.getElementById('permissionsModuleTabs').innerHTML = buildPermissionsTabs(groups, rolePermissions);
+        document.getElementById('rolePermissionsContent').classList.remove('d-none');
+        document.getElementById('noRoleSelected').classList.add('d-none');
     }
 
-    showRolePermissions(rolePermissions) {
-        const content = document.getElementById('rolePermissionsContent');
-        const noRoleSelected = document.getElementById('noRoleSelected');
+    function buildPermissionsTabs(groups, rolePermissions) {
+        var nav = '<ul class="nav nav-tabs mb-3" role="tablist">';
+        var content = '<div class="tab-content">';
+        var first = true;
 
-        // Agrupar permisos
-        const groups = this.groupPermissions(this.permissions);
-
-        // Construir tabs
-        const tabsHtml = this.buildPermissionsTabs(groups, rolePermissions);
-
-        // Insertar en el DOM
-        const tabsContainer = document.getElementById('permissionsModuleTabs');
-        tabsContainer.innerHTML = tabsHtml;
-
-        content.classList.remove('d-none');
-        noRoleSelected.classList.add('d-none');
-    }
-
-    buildPermissionsTabs(groups, rolePermissions) {
-        let navHtml = '<ul class="nav nav-tabs mb-3" id="modulePermsTabs" role="tablist">';
-        let contentHtml = '<div class="tab-content" id="modulePermsTabContent">';
-
-        let firstTab = true;
-        let tabIndex = 0;
-
-        // Tab para Páginas
-        if (groups.pages.length > 0) {
-            const tabId = 'pages-tab';
-            const paneId = 'pages-pane';
-
-            navHtml += `
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link ${firstTab ? 'active' : ''}" id="${tabId}"
-                            data-bs-toggle="tab" data-bs-target="#${paneId}" type="button" role="tab">
-                        <i class="bi bi-window me-1"></i>Páginas (${groups.pages.length})
-                    </button>
-                </li>
-            `;
-
-            contentHtml += `
-                <div class="tab-pane fade ${firstTab ? 'show active' : ''}" id="${paneId}" role="tabpanel">
-                    <div class="row g-2">
-                        ${this.buildPermissionCheckboxes(groups.pages, rolePermissions)}
-                    </div>
-                </div>
-            `;
-
-            firstTab = false;
-            tabIndex++;
+        function addTab(id, icon, label, perms) {
+            nav += '<li class="nav-item" role="presentation">'
+                + '<button class="nav-link ' + (first ? 'active' : '') + '" id="' + id + '-tab"'
+                + ' data-bs-toggle="tab" data-bs-target="#' + id + '-pane" type="button" role="tab">'
+                + '<i class="' + icon + ' me-1"></i>' + esc(label) + ' (' + perms.length + ')</button></li>';
+            content += '<div class="tab-pane fade ' + (first ? 'show active' : '') + '" id="' + id + '-pane" role="tabpanel">'
+                + '<div class="row g-2">' + buildCheckboxes(perms, rolePermissions) + '</div></div>';
+            first = false;
         }
 
-        // Tab para Dashboards
-        if (groups.dashboards.length > 0) {
-            const tabId = 'dashboards-tab';
-            const paneId = 'dashboards-pane';
-
-            navHtml += `
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link ${firstTab ? 'active' : ''}" id="${tabId}"
-                            data-bs-toggle="tab" data-bs-target="#${paneId}" type="button" role="tab">
-                        <i class="bi bi-speedometer2 me-1"></i>Dashboards (${groups.dashboards.length})
-                    </button>
-                </li>
-            `;
-
-            contentHtml += `
-                <div class="tab-pane fade ${firstTab ? 'show active' : ''}" id="${paneId}" role="tabpanel">
-                    <div class="row g-2">
-                        ${this.buildPermissionCheckboxes(groups.dashboards, rolePermissions)}
-                    </div>
-                </div>
-            `;
-
-            firstTab = false;
-            tabIndex++;
-        }
-
-        // Tabs para módulos API
-        const moduleNames = Object.keys(groups.modules).sort();
-
-        moduleNames.forEach(moduleName => {
-            const perms = groups.modules[moduleName];
-            const friendlyName = this.getModuleFriendlyName(moduleName);
-            const tabId = `module-${moduleName}-tab`;
-            const paneId = `module-${moduleName}-pane`;
-
-            // Icono según módulo
-            const icon = this.getModuleIcon(moduleName);
-
-            navHtml += `
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link ${firstTab ? 'active' : ''}" id="${tabId}"
-                            data-bs-toggle="tab" data-bs-target="#${paneId}" type="button" role="tab">
-                        <i class="${icon} me-1"></i>${friendlyName} (${perms.length})
-                    </button>
-                </li>
-            `;
-
-            contentHtml += `
-                <div class="tab-pane fade ${firstTab ? 'show active' : ''}" id="${paneId}" role="tabpanel">
-                    <div class="row g-2">
-                        ${this.buildPermissionCheckboxes(perms, rolePermissions)}
-                    </div>
-                </div>
-            `;
-
-            firstTab = false;
-            tabIndex++;
+        if (groups.pages.length) addTab('perm-pages', 'bi bi-window', 'Páginas', groups.pages);
+        if (groups.dashboards.length) addTab('perm-dashboards', 'bi bi-speedometer2', 'Dashboards', groups.dashboards);
+        Object.keys(groups.modules).sort().forEach(function (m) {
+            // F3-D6: ícono genérico para módulos API (sin mapa hardcoded)
+            addTab('perm-module-' + m.replace(/[^a-z0-9_]/gi, '_'), 'bi bi-collection',
+                moduleFriendlyName(m), groups.modules[m]);
         });
 
-        navHtml += '</ul>';
-        contentHtml += '</div>';
-
-        return navHtml + contentHtml;
+        return nav + '</ul>' + content + '</div>';
     }
 
-    buildPermissionCheckboxes(permissions, rolePermissions) {
-        return permissions.map(perm => {
-            const isAssigned = rolePermissions.includes(perm.code);
-            return `
-                <div class="col-12 col-md-6 col-lg-4">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox"
-                               id="perm_${perm.code.replace(/\./g, '_')}"
-                               value="${perm.code}"
-                               ${isAssigned ? 'checked' : ''}>
-                        <label class="form-check-label" for="perm_${perm.code.replace(/\./g, '_')}">
-                            <strong>${perm.name}</strong><br>
-                            <small class="text-muted">${perm.code}</small>
-                            ${perm.description ? `<br><small class="text-muted">${perm.description}</small>` : ''}
-                        </label>
-                    </div>
-                </div>
-            `;
+    function buildCheckboxes(perms, rolePermissions) {
+        return perms.map(function (perm) {
+            var checked = rolePermissions.indexOf(perm.code) !== -1;
+            var idSafe = 'perm_' + perm.code.replace(/\./g, '_');
+            return '<div class="col-12 col-md-6 col-lg-4"><div class="form-check">'
+                + '<input class="form-check-input" type="checkbox" id="' + esc(idSafe) + '" value="' + esc(perm.code) + '" ' + (checked ? 'checked' : '') + '>'
+                + '<label class="form-check-label" for="' + esc(idSafe) + '">'
+                + '<strong>' + esc(perm.name) + '</strong>' + scopeBadge(perm.code) + '<br>'
+                + '<small class="text-muted">' + esc(perm.code) + '</small>'
+                + (perm.description ? '<br><small class="text-muted">' + esc(perm.description) + '</small>' : '')
+                + '</label></div></div>';
         }).join('');
     }
 
-    getModuleIcon(moduleName) {
-        const icons = {
-            // HELPDESK
-            'tickets': 'bi bi-ticket',
-            'assignments': 'bi bi-person-check',
-            'collaborators': 'bi bi-people',
-            'comments': 'bi bi-chat-left-text',
-            'attachments': 'bi bi-paperclip',
-            'categories': 'bi bi-tags',
-            'inventory': 'bi bi-box-seam',
-            'inventory_categories': 'bi bi-list-ul',
-            'inventory_groups': 'bi bi-collection',
-            'reports': 'bi bi-file-earmark-bar-graph',
-            'stats': 'bi bi-graph-up',
-
-            // AGENDATEC
-            'users': 'bi bi-person',
-            'requests': 'bi bi-clipboard-data',
-            'slots': 'bi bi-calendar-week',
-            'appointments': 'bi bi-calendar-event',
-            'drops': 'bi bi-person-dash',
-            'social': 'bi bi-heart',
-            'surveys': 'bi bi-list-check',
-
-            // CORE
-            'apps': 'bi bi-grid',
-            'departments': 'bi bi-building',
-            'positions': 'bi bi-person-badge',
-            'roles': 'bi bi-shield',
-            'permissions': 'bi bi-key',
-            'authz': 'bi bi-shield-check',
-            'config': 'bi bi-gear',
-            'system': 'bi bi-cpu',
-            'general': 'bi bi-star'
-        };
-
-        return icons[moduleName] || 'bi bi-circle';
+    function hideRolePermissions() {
+        document.getElementById('rolePermissionsContent').classList.add('d-none');
+        document.getElementById('noRoleSelected').classList.remove('d-none');
+        selectedRole = null;
     }
 
-    hideRolePermissions() {
-        const content = document.getElementById('rolePermissionsContent');
-        const noRoleSelected = document.getElementById('noRoleSelected');
-
-        content.classList.add('d-none');
-        noRoleSelected.classList.remove('d-none');
-        this.selectedRole = null;
-    }
-
-    async saveRolePermissions() {
-        if (!this.selectedRole) return;
-
-        const checkboxes = document.querySelectorAll('#permissionsModuleTabs input[type="checkbox"]');
-        const selectedPermissions = Array.from(checkboxes)
-            .filter(cb => cb.checked)
-            .map(cb => cb.value);
-
+    async function saveRolePermissions() {
+        if (!selectedRole) return;
+        var checkboxes = document.querySelectorAll('#permissionsModuleTabs input[type="checkbox"]');
+        var codes = Array.prototype.filter.call(checkboxes, function (cb) { return cb.checked; })
+            .map(function (cb) { return cb.value; });
         try {
-            const response = await fetch(`${this.apiBase}/authz/apps/${this.appKey}/roles/${this.selectedRole}/perms`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({codes: selectedPermissions})
-            });
-
+            var response = await fetch(
+                API + '/authz/apps/' + encodeURIComponent(appKey) + '/roles/' + encodeURIComponent(selectedRole) + '/perms', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ codes: codes }),
+                });
             if (response.ok) {
-                this.showSuccess('Permisos del rol actualizados correctamente');
+                toast('Permisos del rol actualizados correctamente');
             } else {
-                const result = await response.json();
-                this.showError(result.error || 'Error al actualizar los permisos');
+                var result = await response.json();
+                toast(result.error || 'Error al actualizar los permisos', 'error');
             }
-        } catch (error) {
-            this.showError('Error de conexión');
-            console.error('Error saving role permissions:', error);
+        } catch (err) {
+            toast('Error de conexión', 'error');
+            console.error('Error saving role permissions:', err);
         }
     }
 
-    async refreshPermissionsList() {
-        if (this.selectedRole) {
-            // Reload permissions for current role
-            await this.handleRoleSelection(this.selectedRole);
-        }
+    async function refreshRolePermissions() {
+        if (selectedRole) await handleRoleSelection(selectedRole);
     }
 
-    addPermissionToTable(permData) {
-        const tbody = document.querySelector('#permissionsTable tbody');
-        const row = this.createPermissionRow(permData);
-        tbody.appendChild(row);
-
-        // Remove empty state if present
-        const emptyState = document.getElementById('emptyPermsState');
-        if (emptyState) {
-            emptyState.remove();
-        }
-
-        // Update tab count
-        const tab = document.getElementById('permissions-tab');
-        if (tab) {
-            const match = tab.textContent.match(/\((\d+)\)/);
-            if (match) {
-                const count = parseInt(match[1]) + 1;
-                tab.innerHTML = tab.innerHTML.replace(/\(\d+\)/, `(${count})`);
-            }
-        }
+    // ---- Tabla de permisos (crear/eliminar sin reload) -------------------
+    function permRowHtml(perm) {
+        return '<td class="px-4"><code class="bg-light px-2 py-1 rounded">' + esc(perm.code) + '</code>' + scopeBadge(perm.code) + '</td>'
+            + '<td><strong>' + esc(perm.name) + '</strong></td>'
+            + '<td><small class="text-muted">' + esc(perm.description || 'Sin descripcion') + '</small></td>'
+            + '<td class="text-end pe-4"><button class="btn btn-sm btn-outline-danger delete-perm-btn"'
+            + ' data-perm-code="' + esc(perm.code) + '" data-perm-name="' + esc(perm.name) + '" title="Eliminar"><i class="bi bi-trash"></i></button></td>';
     }
 
-    removePermissionFromTable(permCode) {
-        const row = document.querySelector(`tr[data-perm-code="${permCode}"]`);
-        if (row) {
-            row.remove();
-        }
-
-        // Check if table is empty
-        const tbody = document.querySelector('#permissionsTable tbody');
-        if (tbody.children.length === 0) {
-            location.reload(); // Reload to show empty state
-        } else {
-            // Update tab count
-            const tab = document.getElementById('permissions-tab');
-            if (tab) {
-                const match = tab.textContent.match(/\((\d+)\)/);
-                if (match) {
-                    const count = Math.max(0, parseInt(match[1]) - 1);
-                    tab.innerHTML = tab.innerHTML.replace(/\(\d+\)/, `(${count})`);
-                }
-            }
-        }
+    function addPermissionRow(perm) {
+        if (!perm) return;
+        var tbody = document.querySelector('#permissionsTable tbody');
+        if (!tbody) return;
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-perm-code', perm.code);
+        tr.innerHTML = permRowHtml(perm);
+        tbody.appendChild(tr);
+        var empty = document.getElementById('emptyPermsState');
+        if (empty) empty.remove();
+        bumpTabCount(1);
     }
 
-    createPermissionRow(permData) {
-        const row = document.createElement('tr');
-        row.setAttribute('data-perm-code', permData.code);
-
-        row.innerHTML = `
-            <td class="px-4 py-3">
-                <code class="bg-light px-2 py-1 rounded">${permData.code}</code>
-            </td>
-            <td class="py-3">
-                <strong>${permData.name}</strong>
-            </td>
-            <td class="py-3">
-                <small class="text-muted">${permData.description || 'Sin descripción'}</small>
-            </td>
-            <td class="py-3 text-end">
-                <button class="btn btn-sm btn-outline-danger delete-perm-btn"
-                        data-perm-code="${permData.code}"
-                        data-perm-name="${permData.name}"
-                        title="Eliminar">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </td>
-        `;
-
-        return row;
+    function removePermissionRow(code) {
+        var row = document.querySelector('#permissionsTable tbody tr[data-perm-code="' + sel(code) + '"]');
+        if (row) row.remove();
+        bumpTabCount(-1);
     }
 
-    showSuccess(message) {
-        const toast = document.getElementById('successToast');
-        const messageEl = document.getElementById('successMessage');
-        messageEl.textContent = message;
-
-        const bsToast = new bootstrap.Toast(toast);
-        bsToast.show();
+    function bumpTabCount(delta) {
+        var tab = document.getElementById('permissions-tab');
+        if (!tab) return;
+        var m = tab.textContent.match(/\((\d+)\)/);
+        if (m) tab.innerHTML = tab.innerHTML.replace(/\(\d+\)/, '(' + Math.max(0, parseInt(m[1], 10) + delta) + ')');
     }
 
-    showError(message) {
-        const toast = document.getElementById('errorToast');
-        const messageEl = document.getElementById('errorMessage');
-        messageEl.textContent = message;
+    function init() {
+        var main = document.getElementById('cfgMain');
+        appKey = main ? main.dataset.appKey : null;
+        var createForm = document.getElementById('createPermForm');
+        if (!createForm || !appKey) return;   // no estamos en la página de permisos
 
-        const bsToast = new bootstrap.Toast(toast);
-        bsToast.show();
+        createForm.addEventListener('submit', handleCreatePermission);
+        var permCode = document.getElementById('permCode');
+        if (permCode) permCode.addEventListener('input', validatePermCode);
+        var confirmDelete = document.getElementById('confirmDeletePerm');
+        if (confirmDelete) confirmDelete.addEventListener('click', handleDeletePermission);
+        var roleSelect = document.getElementById('roleSelect');
+        if (roleSelect) roleSelect.addEventListener('change', function (e) { handleRoleSelection(e.target.value); });
+        var saveBtn = document.getElementById('saveRolePermissions');
+        if (saveBtn) saveBtn.addEventListener('click', saveRolePermissions);
+
+        createModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('createPermModal'));
+        deleteModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deletePermModal'));
+
+        onDocClick = function (e) {
+            var btn = e.target.closest('.delete-perm-btn');
+            if (btn) showDeleteModal(btn);
+        };
+        document.addEventListener('click', onDocClick);
+
+        selectedRole = null;
+        roles = [];
+        permissions = [];
+        loadRoles();
     }
-}
 
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new PermissionsManager();
-});
+    function destroy() {
+        if (onDocClick) { document.removeEventListener('click', onDocClick); onDocClick = null; }
+        [createModal, deleteModal].forEach(function (m) {
+            if (m) { try { m.hide(); m.dispose(); } catch (e) { /* noop */ } }
+        });
+        createModal = deleteModal = null;
+        pendingDeleteCode = null;
+        selectedRole = null;
+    }
+
+    if (window.ConfigPage) {
+        window.ConfigPage.register('permissions', { init: init, destroy: destroy });
+    }
+})();

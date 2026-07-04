@@ -156,10 +156,10 @@ async def app_permissions(
         .order_by(Permission.code.asc())
         .all()
     )
-    return render_config(request, "core/config/system/permissions.html", "permissions", {
-        "app": app,
-        "permissions": permissions,
-    })
+    return render_config(
+        request, "core/config/system/permissions.html", "permissions",
+        {"app": app, "permissions": permissions, "cfg_data": {"app-key": app.key}},
+    )
 
 
 @router.get("/config/themes", name="core.pages.config.themes_management")

@@ -65,3 +65,59 @@ test.describe('config apps — ConfigPage + color/icono (C4)', () => {
     await expect(page.locator(`tr[data-app-key="${APP_KEY}"]`)).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------- permissions
+const PERM_CODE = 'e2e.test.api.read.subtree';
+
+const CLEAN_PERMS_PY = `
+from itcj2.database import SessionLocal
+from itcj2.core.models.app import App
+from itcj2.core.models.permission import Permission
+db = SessionLocal()
+try:
+    app = db.query(App).filter_by(key='helpdesk').first()
+    if app:
+        for p in db.query(Permission).filter(Permission.app_id == app.id,
+                                              Permission.code.like('e2e.test.%')).all():
+            db.delete(p)
+        db.commit()
+finally:
+    db.close()
+`;
+
+test.describe('config permissions — ConfigPage + scope badges (C8)', () => {
+  test.afterAll(() => {
+    try {
+      execFileSync('docker', ['exec', '-i', BACKEND, 'python', '-c', CLEAN_PERMS_PY],
+        { encoding: 'utf8', timeout: 60_000 });
+    } catch (_) { /* best-effort */ }
+  });
+
+  test('carga vía morph, data-app-key en cfgMain', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/apps/helpdesk/permissions');
+    await expect(page.locator('#cfgMain[data-cfg-page="permissions"]')).toBeAttached();
+    await expect(page.locator('#cfgMain')).toHaveAttribute('data-app-key', 'helpdesk');
+    await expect(page.locator('#cfgMain')).toHaveAttribute('data-cfg-modules', /permissions\.js/);
+  });
+
+  test('crear permiso .subtree muestra scope badge y aparece en asignación por rol', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/apps/helpdesk/permissions');
+    await page.locator('button[data-bs-target="#createPermModal"]').click();
+    await page.fill('#permCode', PERM_CODE);
+    await page.fill('#permName', 'E2E Test Subtree');
+    const respPromise = page.waitForResponse(
+      (r) => r.url().includes('/perms') && r.request().method() === 'POST'
+    );
+    await page.locator('#createPermForm button[type="submit"]').click();
+    expect((await respPromise).ok()).toBeTruthy();
+    const row = page.locator(`tr[data-perm-code="${PERM_CODE}"]`);
+    await expect(row).toBeVisible();
+    await expect(row.locator('.scope-badge.scope-subtree')).toBeVisible();
+
+    // eliminar por UI
+    await row.locator('.delete-perm-btn').click();
+    await expect(page.locator('#deletePermModal')).toBeVisible();
+    await page.locator('#confirmDeletePerm').click();
+    await expect(page.locator(`tr[data-perm-code="${PERM_CODE}"]`)).toHaveCount(0);
+  });
+});
