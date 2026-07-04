@@ -16,6 +16,7 @@
     var deleteModal = null;
     var pendingDeleteKey = null;
     var onDocClick = null;
+    var editPreviewSync = null;
 
     function esc(v) { return window.ConfigUtils ? ConfigUtils.escapeHtml(v) : String(v == null ? '' : v); }
     function toast(msg, type) { if (window.ConfigUtils) ConfigUtils.showToast(msg, type || 'success'); }
@@ -37,7 +38,7 @@
         var icon = document.getElementById(prefix + 'Icon');
         var badge = document.getElementById(prefix + 'BadgePreview');
         var badgeIcon = document.getElementById(prefix + 'BadgePreviewIcon');
-        if (!color || !icon || !badge) return;
+        if (!color || !icon || !badge) return null;
         function sync() {
             badge.style.setProperty('--app-badge-color', color.value || '#6c757d');
             if (badgeIcon) badgeIcon.className = 'bi ' + ((icon.value || '').trim() || 'bi-app') + ' me-1';
@@ -45,6 +46,7 @@
         color.addEventListener('input', sync);
         icon.addEventListener('input', sync);
         sync();
+        return sync;
     }
 
     function payload(form, withKey) {
@@ -96,7 +98,7 @@
         document.getElementById('editAppMobileIcon').value = btn.dataset.appMobileIcon || '';
         document.getElementById('editAppColor').value = btn.dataset.appColor || '#6c757d';
         document.getElementById('editAppIcon').value = btn.dataset.appIcon || '';
-        bindPreview('editApp');   // re-sincroniza el preview con los valores cargados
+        if (editPreviewSync) editPreviewSync();   // re-sincroniza el preview con los valores cargados
         if (editModal) editModal.show();
     }
 
@@ -232,6 +234,7 @@
         deleteModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteAppModal'));
 
         bindPreview('app');
+        editPreviewSync = bindPreview('editApp');
 
         onDocClick = function (e) {
             var editBtn = e.target.closest('.edit-app-btn');
@@ -249,6 +252,7 @@
         });
         createModal = editModal = deleteModal = null;
         pendingDeleteKey = null;
+        editPreviewSync = null;
     }
 
     if (window.ConfigPage) {
