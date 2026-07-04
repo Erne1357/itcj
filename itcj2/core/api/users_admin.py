@@ -46,13 +46,54 @@ class UpdateUserBody(BaseModel):
     control_number: Optional[str] = None
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _app_access_user_ids(db, app_id: int):
+    """Query de ids de usuario con CUALQUIER asignación en la app:
+    rol directo, permiso directo, o rol/permiso vía puesto activo.
+    (Los filtros de is_active de usuario se aplican en el query exterior.)
+    """
+    from itcj2.core.models.user import User
+    from itcj2.core.models.user_app_role import UserAppRole
+    from itcj2.core.models.user_app_perm import UserAppPerm
+    from itcj2.core.models.position import UserPosition, PositionAppRole, PositionAppPerm
+
+    with_roles = db.query(User.id).join(
+        UserAppRole, UserAppRole.user_id == User.id
+    ).filter(UserAppRole.app_id == app_id)
+
+    with_perms = db.query(User.id).join(
+        UserAppPerm, UserAppPerm.user_id == User.id
+    ).filter(UserAppPerm.app_id == app_id, UserAppPerm.allow == True)  # noqa: E712
+
+    with_pos_roles = db.query(User.id).join(
+        UserPosition, UserPosition.user_id == User.id
+    ).join(
+        PositionAppRole, PositionAppRole.position_id == UserPosition.position_id
+    ).filter(PositionAppRole.app_id == app_id, UserPosition.is_active == True)  # noqa: E712
+
+    with_pos_perms = db.query(User.id).join(
+        UserPosition, UserPosition.user_id == User.id
+    ).join(
+        PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id
+    ).filter(
+        PositionAppPerm.app_id == app_id,
+        PositionAppPerm.allow == True,  # noqa: E712
+        UserPosition.is_active == True,  # noqa: E712
+    )
+
+    return with_roles.union(with_perms).union(with_pos_roles).union(with_pos_perms)
+
+
 # ── List users ────────────────────────────────────────────────────────────────
 
 @router.get("")
 def list_users(
-    search: str = Query("", description="Búsqueda por nombre, email, username o no. control"),
+    search: str = Query("", description="(legacy) Búsqueda por nombre, email, username o no. control"),
+    q: Optional[str] = Query(None, description="Búsqueda canónica (gana sobre search)"),
     role: Optional[str] = Query(None),
     status: Optional[str] = Query(None, description="'active' o 'inactive'"),
+    app: Optional[str] = Query(None, description="Key de app: usuarios con acceso a esa app"),
     only_staff: bool = Query(False),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -60,9 +101,11 @@ def list_users(
     db: DbSession = None,
 ):
     """Lista usuarios con filtros y paginación."""
+    from itcj2.core.models.app import App
     from itcj2.core.models.user import User
     from itcj2.core.models.role import Role
     from itcj2.models.base import paginate
+    from sqlalchemy import false
 
     query = db.query(User)
 
@@ -71,8 +114,9 @@ def list_users(
     elif status == "inactive":
         query = query.filter(User.is_active == False)  # noqa: E712
 
-    if search:
-        pattern = f"%{search}%"
+    term = q if q is not None else search
+    if term:
+        pattern = f"%{term}%"
         query = query.filter(
             or_(
                 User.full_name.ilike(pattern),
@@ -87,6 +131,13 @@ def list_users(
 
     if role:
         query = query.join(Role, User.role_id == Role.id).filter(Role.name == role)
+
+    if app:
+        app_obj = db.query(App).filter_by(key=app).first()
+        if app_obj:
+            query = query.filter(User.id.in_(_app_access_user_ids(db, app_obj.id)))
+        else:
+            query = query.filter(false())  # app inexistente → lista vacía
 
     query = query.order_by(User.full_name)
 
@@ -501,9 +552,6 @@ def list_users_by_app(
     """Lista usuarios con acceso a una aplicación específica."""
     from itcj2.core.models.app import App
     from itcj2.core.models.user import User
-    from itcj2.core.models.user_app_role import UserAppRole
-    from itcj2.core.models.user_app_perm import UserAppPerm
-    from itcj2.core.models.position import UserPosition, PositionAppRole, PositionAppPerm
     from itcj2.core.services.authz_service import user_roles_in_app, has_any_assignment
     from itcj2.models.base import paginate
 
@@ -515,36 +563,7 @@ def list_users_by_app(
     if not app:
         raise HTTPException(404, detail="Aplicación no encontrada")
 
-    users_with_roles = db.query(User.id).join(
-        UserAppRole, UserAppRole.user_id == User.id
-    ).filter(UserAppRole.app_id == app.id, User.is_active == True)  # noqa: E712
-
-    users_with_perms = db.query(User.id).join(
-        UserAppPerm, UserAppPerm.user_id == User.id
-    ).filter(UserAppPerm.app_id == app.id, UserAppPerm.allow == True, User.is_active == True)  # noqa: E712
-
-    users_with_pos_roles = db.query(User.id).join(
-        UserPosition, UserPosition.user_id == User.id
-    ).join(
-        PositionAppRole, PositionAppRole.position_id == UserPosition.position_id
-    ).filter(PositionAppRole.app_id == app.id, UserPosition.is_active == True, User.is_active == True)  # noqa: E712
-
-    users_with_pos_perms = db.query(User.id).join(
-        UserPosition, UserPosition.user_id == User.id
-    ).join(
-        PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id
-    ).filter(
-        PositionAppPerm.app_id == app.id,
-        PositionAppPerm.allow == True,  # noqa: E712
-        UserPosition.is_active == True,  # noqa: E712
-        User.is_active == True,  # noqa: E712
-    )
-
-    user_ids = (
-        users_with_roles.union(users_with_perms)
-        .union(users_with_pos_roles)
-        .union(users_with_pos_perms)
-    )
+    user_ids = _app_access_user_ids(db, app.id)
 
     query = db.query(User).filter(User.id.in_(user_ids), User.is_active == True)  # noqa: E712
 
