@@ -45,8 +45,9 @@ npx playwright show-report                     # open the HTML report
    **dual on purpose**: the script finds the first active user that holds
    BOTH the `helpdesk.dashboard.admin` **permission** (so the helpdesk nav
    populates) AND the DB **role** `admin` in the app `itcj` (so `/itcj/config`
-   pages render — `_assert_admin` in `core/pages/config.py` checks
-   `user_roles_in_app`, which the JWT `role` claim does **not** bypass). If no
+   pages render — `_ADMIN_PAGE = Depends(require_page_roles("itcj", ["admin"]))`
+   in `core/pages/config.py:40` checks `user_roles_in_app` via `authz_cache`,
+   which the JWT `role` claim does **not** bypass). If no
    user satisfies both criteria, setup fails fast with a clear message (grant
    the `itcj` admin role to your helpdesk admin user and retry). It prints
    **only** the signed token to stdout; the `SECRET_KEY` never leaves the

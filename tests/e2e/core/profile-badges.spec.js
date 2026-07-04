@@ -76,8 +76,27 @@ test.describe('profile: DB-driven app badges (F7)', () => {
         `#notificationsContainer .notification-item[data-notif-id="${notifId}"] .notification-icon`
       );
       await expect(item).toBeVisible();
-      const bg = await item.evaluate((el) => getComputedStyle(el).backgroundColor);
-      expect(bg).toBe(expected);
+
+      // profile.js dispara loadNotifications() DOS veces en esta secuencia:
+      // init() al cargar la página y el handler shown.bs.tab al hacer click en
+      // la pestaña. Cada una reemplaza el innerHTML del contenedor. Un único
+      // evaluate() puede resolver el locator contra el nodo del primer render
+      // y ejecutar getComputedStyle sobre ese nodo ya DESPRENDIDO por el
+      // segundo render (un nodo detached devuelve "" para toda propiedad).
+      // En aislamiento ambos fetches llegan casi juntos y no se nota; con la
+      // suite completa el backend va más cargado y la ventana se abre — así
+      // fallaba este spec (received: ""). expect.poll re-resuelve el locator
+      // en cada intento, de modo que siempre termina leyendo el nodo del
+      // render vigente. Mismo patrón que badge-consistency.spec.js.
+      await expect
+        .poll(
+          () =>
+            item
+              .evaluate((el) => getComputedStyle(el).backgroundColor)
+              .catch(() => ''), // re-render a mitad de lectura → reintentar
+          { timeout: 7_000 }
+        )
+        .toBe(expected);
     } finally {
       runPy(
         [

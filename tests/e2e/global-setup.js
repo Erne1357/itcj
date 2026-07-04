@@ -27,8 +27,9 @@ const STATE_PATH = path.join(AUTH_DIR, 'state.json');
 
 // Inline Python executed inside the container. Prints ONLY the token to stdout.
 // Selection is DUAL on purpose: helpdesk.dashboard.admin makes the helpdesk nav
-// render, and the DB role admin@itcj is required by _assert_admin on every
-// /itcj/config page (core/pages/config.py:42-73 — the JWT claim does NOT bypass it).
+// render, and the DB role admin@itcj is required by _ADMIN_PAGE
+// (require_page_roles("itcj", ["admin"])) on every /itcj/config page
+// (core/pages/config.py:40 — the JWT claim does NOT bypass it).
 const MINT_PY = `
 import sys
 from itcj2.database import SessionLocal
