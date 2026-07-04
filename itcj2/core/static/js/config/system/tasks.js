@@ -21,6 +21,9 @@ const Tasks = (() => {
         return res.json();
     };
 
+    // escapeHtml del shell (fallback identidad si ConfigUtils no cargó aún)
+    const esc = (v) => (window.ConfigUtils ? ConfigUtils.escapeHtml(v) : String(v == null ? '' : v));
+
     // ── Utilitarias de presentación ───────────────────────────────────
     const statusBadge = (s) => {
         const labels = { PENDING: 'Pendiente', RUNNING: 'Ejecutando', SUCCESS: 'Exitoso', FAILURE: 'Fallido', REVOKED: 'Cancelado' };
@@ -82,8 +85,8 @@ const Tasks = (() => {
         tbody.innerHTML = _definitions.map(d => `
             <tr>
                 <td>
-                    <div class="fw-semibold">${d.display_name}</div>
-                    <div class="text-muted small font-monospace">${d.task_name}</div>
+                    <div class="fw-semibold">${esc(d.display_name)}</div>
+                    <div class="text-muted small font-monospace">${esc(d.task_name)}</div>
                 </td>
                 <td><span class="badge bg-secondary">${d.app_name}</span></td>
                 <td><i class="bi ${catIcons[d.category] || 'bi-gear'} me-1"></i>${d.category}</td>
@@ -470,9 +473,9 @@ const Tasks = (() => {
         try {
             document.getElementById('execConfirmBtn').disabled = true;
             const res = await api('POST', '/runs', { task_name: _currentExecDef.task_name, kwargs });
-            if (res.status === 'ok') {
+            if (res && res.success) {
                 bootstrap.Modal.getInstance(document.getElementById('executeModal')).hide();
-                showSuccess(`Tarea "${_currentExecDef.display_name}" enviada (run #${res.data.id})`);
+                showSuccess(`Tarea "${esc(_currentExecDef.display_name)}" enviada (run #${res.data.id})`);
                 document.querySelector('[data-bs-target="#tab-history"]').click();
                 await loadRuns();
             } else {
@@ -498,8 +501,8 @@ const Tasks = (() => {
         tbody.innerHTML = rows.map(pt => `
             <tr>
                 <td>
-                    <div class="fw-semibold">${pt.name}</div>
-                    <div class="text-muted small">${pt.display_name || pt.task_name}</div>
+                    <div class="fw-semibold">${esc(pt.name)}</div>
+                    <div class="text-muted small">${esc(pt.display_name || pt.task_name)}</div>
                 </td>
                 <td>
                     <code>${pt.cron_expression}</code>
@@ -611,7 +614,7 @@ const Tasks = (() => {
                 res = await api('POST', '/periodic', payload);
             }
 
-            if (res && res.status === 'ok') {
+            if (res && res.success) {
                 bootstrap.Modal.getInstance(document.getElementById('periodicModal')).hide();
                 showSuccess(_currentPeriodicId ? 'Tarea programada actualizada' : 'Tarea programada creada');
                 await loadPeriodic();
@@ -626,7 +629,7 @@ const Tasks = (() => {
     const togglePeriodic = async (id, checkbox) => {
         try {
             const res = await api('PATCH', `/periodic/${id}/toggle`);
-            if (res.status === 'ok') {
+            if (res && res.success) {
                 const label = checkbox.nextElementSibling;
                 label.textContent = res.data.is_active ? 'Activa' : 'Pausada';
                 label.className = `form-check-label small ${res.data.is_active ? 'text-success' : 'text-muted'}`;
@@ -670,7 +673,7 @@ const Tasks = (() => {
 
         const res = await fetch(`/api/core/v2/tasks/runs?${params}`).then(r => r.json());
         const runs = res.data || [];
-        const meta = res.meta || {};
+        const meta = res || {};
         const tbody = document.getElementById('runsTableBody');
 
         if (!runs.length) {
@@ -687,16 +690,16 @@ const Tasks = (() => {
                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
                             style="width:${r.progress || 10}%"></div>
                    </div>
-                   <div class="small text-muted">${r.progress_message || 'Ejecutando...'}</div>`
+                   <div class="small text-muted">${esc(r.progress_message || 'Ejecutando...')}</div>`
                 : '';
 
             const trigger = r.trigger === 'MANUAL'
-                ? `<span class="small">Manual${r.triggered_by_user ? ': ' + r.triggered_by_user : ''}</span>`
+                ? `<span class="small">Manual${r.triggered_by_user ? ': ' + esc(r.triggered_by_user) : ''}</span>`
                 : '<span class="small text-muted">Programada</span>';
 
             return `<tr>
                 <td>
-                    <div class="fw-semibold">${r.display_name}</div>
+                    <div class="fw-semibold">${esc(r.display_name)}</div>
                     ${progressBar}
                 </td>
                 <td>${trigger}</td>
@@ -784,9 +787,9 @@ const Tasks = (() => {
 
         body.innerHTML = `
             <div class="row g-3 mb-3">
-                <div class="col-sm-6"><strong>Tarea:</strong><br>${r.display_name}</div>
+                <div class="col-sm-6"><strong>Tarea:</strong><br>${esc(r.display_name)}</div>
                 <div class="col-sm-6"><strong>Estado:</strong><br>${statusBadge(r.status)}</div>
-                <div class="col-sm-6"><strong>Disparador:</strong><br>${r.trigger} ${r.triggered_by_user ? '— ' + r.triggered_by_user : ''}</div>
+                <div class="col-sm-6"><strong>Disparador:</strong><br>${esc(r.trigger)} ${r.triggered_by_user ? '— ' + esc(r.triggered_by_user) : ''}</div>
                 <div class="col-sm-6"><strong>Duración:</strong><br>${duration(r.duration_seconds)}</div>
                 <div class="col-sm-6"><strong>Inicio:</strong><br>${r.started_at ? new Date(r.started_at).toLocaleString('es-MX') : '-'}</div>
                 <div class="col-sm-6"><strong>Fin:</strong><br>${r.finished_at ? new Date(r.finished_at).toLocaleString('es-MX') : '-'}</div>
@@ -800,7 +803,7 @@ const Tasks = (() => {
                     <div class="progress">
                         <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${r.progress}%"></div>
                     </div>
-                    ${r.progress_message ? `<small class="text-muted">${r.progress_message}</small>` : ''}
+                    ${r.progress_message ? `<small class="text-muted">${esc(r.progress_message)}</small>` : ''}
                 </div>` : ''}
             ${r.args_json && Object.keys(r.args_json).length ? `
                 <div class="mb-3">
@@ -825,7 +828,7 @@ const Tasks = (() => {
         bootstrap.Modal.getInstance(document.getElementById('confirmRevokeModal'))?.hide();
         try {
             const res = await api('DELETE', `/runs/${_currentRunId}/revoke`);
-            if (res.status === 'ok') {
+            if (res && res.success) {
                 showSuccess('Tarea cancelada');
                 bootstrap.Modal.getInstance(document.getElementById('runDetailModal'))?.hide();
                 await loadRuns(_runsPage);
@@ -867,9 +870,15 @@ const Tasks = (() => {
         document.querySelector('[data-bs-target="#tab-scheduled"]').addEventListener('shown.bs.tab', stopAutoRefresh);
     };
 
+    const destroy = () => {
+        // corta el auto-refresh de 5s (único recurso document/window del módulo)
+        if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+    };
+
     // API pública del módulo
     return {
         init,
+        destroy,
         syncDefinitions,
         openExecuteModal,
         openPeriodicModal,
@@ -885,4 +894,11 @@ const Tasks = (() => {
     };
 })();
 
-document.addEventListener('DOMContentLoaded', Tasks.init);
+// Exponer para los onclick inline de las filas generadas (Tasks.viewRun, etc.)
+window.Tasks = Tasks;
+
+if (window.ConfigPage) {
+    window.ConfigPage.register('tasks', { init: Tasks.init, destroy: Tasks.destroy });
+} else {
+    document.addEventListener('DOMContentLoaded', Tasks.init);
+}

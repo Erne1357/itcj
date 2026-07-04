@@ -174,3 +174,34 @@ test.describe('config themes — ConfigPage + flip envelope', () => {
     await expect(page.locator(`.theme-card:has-text("${THEME_NAME}")`)).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------- tasks
+test.describe('config tasks — ConfigPage + flip envelope + cronstrue self-host', () => {
+  test('carga vía morph, cronstrue vendored, catálogo desde envelope success', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/system/tasks');
+    await expect(page.locator('#cfgMain[data-cfg-page="tasks"]')).toBeAttached();
+    await expect(page.locator('#cfgMain')).toHaveAttribute('data-cfg-modules', /cronstrue\.min\.js/);
+    await expect(page.locator('#cfgMain')).toHaveAttribute('data-cfg-modules', /tasks\.js/);
+    // cronstrue se sirve local (no CDN) y quedó global
+    await expect
+      .poll(() => page.evaluate(() => typeof window.cronstrue), { timeout: 8_000 })
+      .toBe('object');
+    const usedCdn = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('script[src]'))
+        .some((s) => s.src.includes('cdn.jsdelivr.net') && s.src.includes('cronstrue')));
+    expect(usedCdn).toBe(false);
+    // el catálogo se renderizó (o mensaje vacío) desde GET /tasks/definitions (success:true)
+    await expect(page.locator('#tab-catalog table tbody')).toBeVisible();
+  });
+
+  test('historial: la paginación consume total_pages top-level', async ({ page }) => {
+    await gotoCore(page, '/itcj/config/system/tasks');
+    const runsResp = page.waitForResponse((r) => r.url().includes('/api/core/v2/tasks/runs'));
+    await page.locator('[data-bs-target="#tab-history"]').click();
+    const body = await (await runsResp).json();
+    expect(body.success).toBe(true);
+    expect(body).toHaveProperty('total_pages');
+    expect(body).not.toHaveProperty('meta');
+    await expect(page.locator('#tab-history table tbody')).toBeVisible();
+  });
+});

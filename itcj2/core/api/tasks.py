@@ -95,7 +95,7 @@ def list_definitions(
         .order_by(TaskDefinition.app_name, TaskDefinition.display_name)
         .all()
     )
-    return {"status": "ok", "data": [r.to_dict() for r in rows]}
+    return {"success": True, "data": [r.to_dict() for r in rows]}
 
 
 @router.post("/definitions/sync", status_code=201)
@@ -134,7 +134,7 @@ def sync_definitions(
         "sync_definitions: %d creadas, %d actualizadas — usuario %s",
         created, updated, user["sub"],
     )
-    return {"status": "ok", "data": {"created": created, "updated": updated}}
+    return {"success": True, "data": {"created": created, "updated": updated}}
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ def list_periodic(
         .order_by(PeriodicTask.name)
         .all()
     )
-    return {"status": "ok", "data": [r.to_dict() for r in rows]}
+    return {"success": True, "data": [r.to_dict() for r in rows]}
 
 
 @router.post("/periodic", status_code=201)
@@ -189,7 +189,7 @@ def create_periodic(
     db.refresh(pt)
 
     logger.info("PeriodicTask '%s' creada por usuario %s", pt.name, user["sub"])
-    return {"status": "ok", "data": pt.to_dict()}
+    return {"success": True, "data": pt.to_dict()}
 
 
 @router.patch("/periodic/{task_id}")
@@ -229,7 +229,7 @@ def update_periodic(
     db.refresh(pt)
 
     logger.info("PeriodicTask %d actualizada por usuario %s", task_id, user["sub"])
-    return {"status": "ok", "data": pt.to_dict()}
+    return {"success": True, "data": pt.to_dict()}
 
 
 @router.patch("/periodic/{task_id}/toggle")
@@ -252,7 +252,7 @@ def toggle_periodic(
     logger.info(
         "PeriodicTask %d %s por usuario %s", task_id, action, user["sub"]
     )
-    return {"status": "ok", "data": {"is_active": pt.is_active}}
+    return {"success": True, "data": {"is_active": pt.is_active}}
 
 
 @router.delete("/periodic/{task_id}", status_code=204)
@@ -324,14 +324,12 @@ def list_runs(
     )
 
     return {
-        "status": "ok",
+        "success": True,
         "data": [r.to_dict() for r in runs],
-        "meta": {
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": (total + per_page - 1) // per_page,
-        },
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page,
     }
 
 
@@ -348,7 +346,7 @@ def get_run(
     if not run:
         raise HTTPException(404, detail="Ejecución no encontrada")
 
-    return {"status": "ok", "data": run.to_dict()}
+    return {"success": True, "data": run.to_dict()}
 
 
 @router.post("/runs", status_code=201)
@@ -398,7 +396,7 @@ def dispatch_task(
         "Tarea '%s' despachada manualmente por usuario %s (run_id=%d, celery_id=%s)",
         body.task_name, user_id, run.id, celery_id,
     )
-    return {"status": "ok", "data": run.to_dict()}
+    return {"success": True, "data": run.to_dict()}
 
 
 @router.delete("/runs/{run_id}/revoke")
@@ -436,4 +434,4 @@ def revoke_run(
         "TaskRun %d revocada por usuario %s (celery_id=%s)",
         run_id, user["sub"], run.celery_task_id,
     )
-    return {"status": "ok", "data": run.to_dict()}
+    return {"success": True, "data": run.to_dict()}
