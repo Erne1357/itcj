@@ -161,13 +161,15 @@ class TestHtmxShell:
         resp = app_client.get("/itcj/config", headers=auth_headers)
         html = resp.text
         assert re.search(r'<a\b[^>]*href="/itcj/config"[^>]*hx-boost="true"', html)
-        # users NO está migrada: su link no lleva boost
-        assert not re.search(r'<a\b[^>]*href="/itcj/config/users"[^>]*hx-boost="true"', html)
+        # users está migrada (F4 Task 2): su link SÍ lleva boost
+        assert re.search(r'<a\b[^>]*href="/itcj/config/users"[^>]*hx-boost="true"', html)
+        # departments NO está migrada: su link no lleva boost
+        assert not re.search(r'<a\b[^>]*href="/itcj/config/departments"[^>]*hx-boost="true"', html)
         # el content-root anuncia los módulos del index
         assert "active-users.js" in html
         assert "cdn.socket.io" in html
 
     def test_island_no_boost_from_unmigrated_page(self, app_client, auth_headers, admin_role_patch):
-        # el island exige origen migrado: desde users (clásica) NADA lleva boost
-        resp = app_client.get("/itcj/config/users", headers=auth_headers)
+        # el island exige origen migrado: desde departments (clásica) NADA lleva boost
+        resp = app_client.get("/itcj/config/departments", headers=auth_headers)
         assert "hx-boost" not in resp.text
