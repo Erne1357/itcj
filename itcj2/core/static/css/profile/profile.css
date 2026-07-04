@@ -1,13 +1,3 @@
-/* Variables de colores por aplicación */
-:root {
-  --color-core: #4a5568;
-  --color-core-light: #718096;
-  --color-agendatec: #5dade2;
-  --color-agendatec-dark: #3498db;
-  --color-helpdesk: #52c41a;
-  --color-helpdesk-dark: #389e0d;
-}
-
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
@@ -108,38 +98,7 @@ body {
   justify-content: center;
   font-size: 1.5rem;
   color: white;
-}
-
-.app-icon-core {
-  background: linear-gradient(135deg, var(--color-core) 0%, var(--color-core-light) 100%);
-}
-
-.app-icon-agendatec {
-  background: linear-gradient(135deg, var(--color-agendatec) 0%, var(--color-agendatec-dark) 100%);
-}
-
-.app-icon-helpdesk {
-  background: linear-gradient(135deg, var(--color-helpdesk) 0%, var(--color-helpdesk-dark) 100%);
-}
-
-.app-icon-itcj {
-  background: linear-gradient(135deg, #e61d1d 0%, #a50e0e 100%);
-}
-
-/* App Badges */
-.app-badge-core {
-  background-color: var(--color-core);
-  color: white;
-}
-
-.app-badge-agendatec {
-  background-color: var(--color-agendatec);
-  color: white;
-}
-
-.app-badge-helpdesk {
-  background-color: var(--color-helpdesk);
-  color: white;
+  background-color: var(--app-badge-color, #6c757d);
 }
 
 /* Permission Section */
