@@ -53,6 +53,11 @@
 
     function destroy() {
         if (S && S.searchTimer) clearTimeout(S.searchTimer);
+        if (S) {
+            [S.createModal, S.assignModal].forEach(function (m) {
+                if (m) { try { m.hide(); m.dispose(); } catch (e) { /* noop */ } }
+            });
+        }
         S = null;
     }
 
