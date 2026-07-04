@@ -196,6 +196,11 @@
     <script src="{{ url_for('static', filename='core/js/shared/app-modal.js') }}?v={{ sv('core', 'js/shared/app-modal.js') }}"></script>
 
     <script src="{{ url_for('static', filename='core/js/config/config_base.js') }}?v={{ sv('core', 'js/config/config_base.js') }}"></script>
+    <!-- socket.io vendored (D9) + conexión /notify presence-only del shell: los
+         admins en cualquier página de config cuentan como "en línea" y la
+         conexión sobrevive a los morphs de navegación (fuera del registry). -->
+    <script src="{{ url_for('static', filename='core/js/vendor/socket.io.min.js') }}?v={{ sv('core', 'js/vendor/socket.io.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='core/js/config/shared/presence-client.js') }}?v={{ sv('core', 'js/config/shared/presence-client.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/config/shared/config-page.js') }}?v={{ sv('core', 'js/config/shared/config-page.js') }}"></script>
 
     {% block extra_js %}{% endblock %}
