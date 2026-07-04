@@ -565,10 +565,19 @@ def user_app_assignments_map(db: Session, user_id: int) -> Dict[str, Dict[str, l
     out: Dict[str, Dict[str, list]] = {}
     apps = db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
     for app in apps:
+        # Un solo cómputo de las piezas por app. Antes "perms" llamaba a
+        # user_direct_perms_in_app y "effective" volvía a calcularlo DENTRO de
+        # effective_perm_set (directos duplicados). Derivamos ambos del mismo
+        # trío con las MISMAS primitivas/filtros — sin drift de procedencia (C3):
+        #   perms      = directos
+        #   effective  = (directos | vía_roles) - denegados   (== effective_perm_set)
+        direct = user_direct_perms_in_app(db, user_id, app.key)
+        via = perms_via_roles(db, user_id, app.key)
+        denied = denied_perms_in_app(db, user_id, app.key)
         out[app.key] = {
             "roles": sorted(user_roles_in_app(db, user_id, app.key)),
-            "perms": sorted(user_direct_perms_in_app(db, user_id, app.key)),
-            "effective": sorted(effective_perm_set(db, user_id, app.key)),
+            "perms": sorted(direct),
+            "effective": sorted((direct | via) - denied),
         }
     return out
 

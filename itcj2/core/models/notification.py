@@ -44,13 +44,13 @@ class Notification(Base):
         Index("ix_notifications_app_type", "app_name", "type"),
     )
 
-    def to_dict(self, include_source=False):
+    def to_dict(self, include_source=False, styles: dict | None = None):
         sanitized_data = {}
         if self.data:
             for key, value in self.data.items():
                 sanitized_data[key] = list(value) if isinstance(value, (set, frozenset)) else value
 
-        style = self._app_style()
+        style = self._resolve_style(styles)
         data = {
             "id": self.id,
             "app_name": self.app_name,
@@ -99,6 +99,16 @@ class Notification(Base):
         "inventory": "warning",
         "core": "secondary",
     }
+
+    def _resolve_style(self, styles: dict | None) -> dict:
+        """Estilo de ESTA app. ``styles`` = mapa {app_key: {...}} de
+        ``cached_app_styles`` que los hot paths de lista pasan UNA vez al
+        serializar N notificaciones (evita 1 GET Redis — o 1 scan de core_apps
+        con Redis caído — POR notificación). Si es None, resuelve por-fila
+        (paths de 1 notificación)."""
+        if styles is not None:
+            return styles.get(self.app_name) or {}
+        return self._app_style()
 
     def _app_style(self) -> dict:
         """Estilo (color/icon_class) desde core_apps vía app_style_cache.

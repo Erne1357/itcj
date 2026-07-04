@@ -241,8 +241,13 @@ class NotificationService:
         has_more = len(items) > limit
         items = items[:limit]
 
+        # Estilos de apps UNA sola vez para toda la página (evita 1 GET Redis por
+        # notificación en la serialización — antes N+1 en el hot path de lista).
+        from itcj2.core.services.app_style_cache import cached_app_styles
+        styles = cached_app_styles(db)
+
         return {
-            'items': [n.to_dict() for n in items],
+            'items': [n.to_dict(styles=styles) for n in items],
             'total': total_count,
             'unread': unread_count,
             'has_more': has_more
