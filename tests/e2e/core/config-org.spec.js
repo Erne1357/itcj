@@ -150,3 +150,46 @@ test('crear sub-departamento de nivel 4 desde el nodo hoja', async ({ page }) =>
   // creado desde la UI → NO oficial
   await expect(newNode.locator('.dept-badge-official')).toHaveCount(0);
 });
+
+test('editar departamento oficial exige confirmación fuerte (D4)', async ({ page }) => {
+  await gotoCore(page, '/itcj/config/departments');
+  const tree = page.locator('#deptTree');
+  await page.fill('#deptTreeSearch', 'e2e cfg oficial');
+  await tree.locator(`[data-tree-action="edit"][data-dept-id="${seed.official_id}"]`).click();
+
+  const modal = page.locator('#editDepartmentModal');
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('#editDeptName')).toHaveValue('E2E CFG OFICIAL');
+  // anti-ciclo: el propio departamento no aparece como padre elegible
+  await expect(modal.locator(`#editDeptParent option[value="${seed.official_id}"]`)).toHaveCount(0);
+
+  await modal.locator('#editDeptName').fill('E2E CFG OFICIAL v2');
+  await modal.locator('button[type="submit"]').click();
+
+  // AppModal de advertencia fuerte (montado en <body>)
+  const confirmDialog = page.locator('.modal.show', { hasText: 'organigrama institucional' });
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole('button', { name: 'Sí, modificar' }).click();
+
+  await expect(modal).toBeHidden();
+  await page.fill('#deptTreeSearch', 'e2e cfg oficial');
+  await expect(tree.getByText('E2E CFG OFICIAL v2')).toBeVisible();
+});
+
+test('desactivar departamento no oficial pide confirmación normal', async ({ page }) => {
+  await gotoCore(page, '/itcj/config/departments');
+  const tree = page.locator('#deptTree');
+  await page.fill('#deptTreeSearch', 'e2e cfg nivel4');
+  // Scope al ROW del nodo (no al .dept-node, cuyo subtree incluiría los botones
+  // de los ancestros auto-mostrados por la búsqueda → click en múltiples).
+  const node = tree.locator('.dept-node-row', { hasText: 'E2E CFG NIVEL4' });
+  await expect(node).toBeVisible();
+  await node.locator('[data-tree-action="deactivate"]').click();
+
+  const confirmDialog = page.locator('.modal.show', { hasText: 'Desactivar departamento' });
+  await expect(confirmDialog).toBeVisible();
+  // confirm normal: NO contiene la advertencia institucional
+  await expect(confirmDialog).not.toContainText('organigrama institucional');
+  await confirmDialog.getByRole('button', { name: 'Desactivar' }).click();
+  await expect(confirmDialog).toBeHidden();
+});

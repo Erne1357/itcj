@@ -274,10 +274,129 @@
         }
     }
 
-    // Stubs completados en Task 3 (edit modal + política D4).
-    function openEditModal(node) { toast('Edición disponible próximamente', 'info'); }
-    function onEditSubmit(e) { e.preventDefault(); }
-    function deactivate(node) { toast('Desactivación disponible próximamente', 'info'); }
+    // === D4: confirmación (fuerte para oficiales) ==========================
+    function confirmMutation(node, actionTitle, actionVerb) {
+        if (node.is_official) {
+            return window.AppModal.confirm({
+                title: 'Departamento OFICIAL',
+                variant: 'danger',
+                confirmVariant: 'danger',
+                confirmText: 'Sí, modificar',
+                message: `"${node.name}" forma parte del organigrama institucional oficial del ITCJ. ` +
+                    `Modificarlo afecta la estructura organizacional de todo el sistema ` +
+                    `(alcances de permisos, jerarquías y reportes). ¿Seguro que deseas ${actionVerb}?`,
+            });
+        }
+        return window.AppModal.confirm({
+            title: actionTitle,
+            message: `¿Deseas ${actionVerb} "${node.name}"?`,
+            confirmText: actionTitle.split(' ')[0],
+        });
+    }
+
+    async function openEditModal(node) {
+        // El DeptNode del árbol (build_tree, lean) NO trae description ni parent_id;
+        // se consulta el detalle para prefilar sin perder la descripción existente
+        // ni el padre actual (selectedId correcto en el selector).
+        let detail = node;
+        try {
+            const res = await fetch(`${API}/departments/${node.id}`);
+            const result = await res.json();
+            if (res.ok && result.data) detail = Object.assign({}, node, result.data);
+        } catch (err) {
+            console.error('Error loading department detail:', err);
+        }
+        S.editing = detail;
+        document.getElementById('editDeptName').value = detail.name || '';
+        document.getElementById('editDeptDescription').value = detail.description || '';
+        document.getElementById('editDeptIcon').value = detail.icon_class || detail.icon || '';
+        document.getElementById('editDeptActive').checked = !!detail.is_active;
+        document.getElementById('editDeptOfficialBadge').classList.toggle('d-none', !detail.is_official);
+        try {
+            await loadParentOptions(document.getElementById('editDeptParent'), {
+                excludeSubtreeOf: detail.id,
+                selectedId: detail.parent_id,
+                allowRoot: true,
+            });
+        } catch (err) {
+            console.error(err);
+            toast('Error al cargar los departamentos padre', 'danger');
+        }
+        if (S.editModal) S.editModal.show();
+    }
+
+    async function onEditSubmit(e) {
+        e.preventDefault();
+        const node = S.editing;
+        if (!node) return;
+
+        const parentRaw = document.getElementById('editDeptParent').value;
+        const payload = {
+            name: document.getElementById('editDeptName').value.trim(),
+            description: document.getElementById('editDeptDescription').value.trim() || null,
+            icon_class: document.getElementById('editDeptIcon').value.trim() || null,
+            is_active: document.getElementById('editDeptActive').checked,
+        };
+        if (!payload.name) { toast('El nombre es obligatorio', 'danger'); return; }
+        // Re-parent / promover a raíz. El PATCH limpia el padre con parent_id:null
+        // EXPLÍCITO (campo nullable del schema); solo se envía cuando cambia de veras.
+        if (parentRaw === '') {
+            if (node.parent_id != null) payload.parent_id = null; // promover a raíz
+        } else {
+            payload.parent_id = parseInt(parentRaw, 10);
+        }
+
+        if (node.is_official) {
+            const ok = await confirmMutation(node, 'Guardar cambios', 'guardar estos cambios');
+            if (!ok) return;
+        }
+
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+            const res = await fetch(`${API}/departments/${node.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await res.json();
+            if (!res.ok) {
+                toast(result.error || 'Error al actualizar el departamento', 'danger');
+                return;
+            }
+            toast('Departamento actualizado correctamente');
+            if (S.editModal) S.editModal.hide();
+            S.editing = null;
+            await loadTree();
+        } catch (err) {
+            console.error('Error updating department:', err);
+            toast('Error de conexión', 'danger');
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    }
+
+    async function deactivate(node) {
+        const ok = await confirmMutation(node, 'Desactivar departamento', 'desactivar este departamento');
+        if (!ok) return;
+        try {
+            const res = await fetch(`${API}/departments/${node.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: false }),
+            });
+            const result = await res.json();
+            if (!res.ok) {
+                toast(result.error || 'Error al desactivar el departamento', 'danger');
+                return;
+            }
+            toast('Departamento desactivado');
+            await loadTree();
+        } catch (err) {
+            console.error('Error deactivating department:', err);
+            toast('Error de conexión', 'danger');
+        }
+    }
 
     window.ConfigPage.register('departments', { init: init, destroy: destroy });
 })();

@@ -163,13 +163,20 @@ class TestHtmxShell:
         assert re.search(r'<a\b[^>]*href="/itcj/config"[^>]*hx-boost="true"', html)
         # users está migrada (F4 Task 2): su link SÍ lleva boost
         assert re.search(r'<a\b[^>]*href="/itcj/config/users"[^>]*hx-boost="true"', html)
-        # departments NO está migrada: su link no lleva boost
-        assert not re.search(r'<a\b[^>]*href="/itcj/config/departments"[^>]*hx-boost="true"', html)
+        # departments está migrada (F5): su link SÍ lleva boost
+        assert re.search(r'<a\b[^>]*href="/itcj/config/departments"[^>]*hx-boost="true"', html)
         # el content-root anuncia los módulos del index
         assert "active-users.js" in html
         assert "cdn.socket.io" in html
 
-    def test_island_no_boost_from_unmigrated_page(self, app_client, auth_headers, admin_role_patch):
-        # el island exige origen migrado: desde departments (clásica) NADA lleva boost
-        resp = app_client.get("/itcj/config/departments", headers=auth_headers)
+    def test_island_no_boost_from_unmigrated_page(self, app_client, auth_headers, admin_role_patch, db_session):
+        # F5 migró 'departments' (árbol interactivo); el detalle de departamento
+        # (department_detail) sigue clásico → caso vigente de página NO migrada.
+        # El island exige origen migrado: desde ella NADA lleva boost.
+        from itcj2.core.models.department import Department
+
+        dept = db_session.query(Department).first()
+        assert dept is not None, "se requiere al menos un departamento sembrado"
+        resp = app_client.get(f"/itcj/config/departments/{dept.id}", headers=auth_headers)
+        assert resp.status_code == 200
         assert "hx-boost" not in resp.text
