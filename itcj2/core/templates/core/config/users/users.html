@@ -201,11 +201,11 @@
                 <form id="newUserForm">
                     <div class="mb-3">
                         <label for="fullName" class="form-label">Nombre Completo <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="fullName" required>
+                        <input type="text" class="form-control" id="fullName" name="full_name" required>
                     </div>
                     <div class="mb-3">
                         <label for="email" class="form-label">Email (Opcional)</label>
-                        <input type="email" class="form-control" id="email">
+                        <input type="email" class="form-control" id="email" name="email">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Tipo de Usuario <span class="text-danger">*</span></label>
@@ -223,19 +223,20 @@
                     <div id="studentFields">
                         <div class="mb-3">
                             <label for="controlNumber" class="form-label">Numero de Control <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="controlNumber" maxlength="10" pattern="(\d{8}|[A-Za-z]\d{7,9})" required>
+                            <input type="text" class="form-control" id="controlNumber" name="control_number"
+                                   maxlength="10" pattern="(\d{8}|[A-Za-z]\d{7,9})">
                             <div class="form-text">8 digitos normales o 9-10 caracteres para posgrado/traslado (ej. M21111182)</div>
                         </div>
                     </div>
-                    <div id="staffFields" class="cfg-hidden">
+                    <div id="staffFields" class="d-none">
                         <div class="mb-3">
                             <label for="username" class="form-label">Nombre de Usuario <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="username" required>
+                            <input type="text" class="form-control" id="username" name="username">
                         </div>
                     </div>
                     <div class="mb-3">
                         <label for="password" class="form-label">NIP / Contrasena <span class="text-danger">*</span></label>
-                        <input type="password" class="form-control" id="password" required>
+                        <input type="password" class="form-control" id="password" name="password" required>
                     </div>
                 </form>
             </div>
@@ -280,7 +281,7 @@
                             {% endfor %}
                         </div>
                     </div>
-                    <div class="col-12 col-md-8 cfg-hidden" id="appAssignmentPanel">
+                    <div class="col-12 col-md-8 d-none" id="appAssignmentPanel">
                         <h6>Asignaciones para: <span id="selectedAppName"></span></h6>
 
                         <!-- Roles Tab -->
@@ -339,8 +340,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{{ url_for('static', filename='core/js/config/users/users.js') }}?v={{ sv('core', 'js/config/users/users.js') }}"></script>
 {% endblock %}

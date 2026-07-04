@@ -150,11 +150,13 @@ test.describe('config shell — controller ConfigPage (C2)', () => {
   });
 
   test('navigate() a página NO migrada hace fallback duro (recarga completa)', async ({ page }) => {
+    // 'departments' sigue sin migrar al registry (F4 migró 'users'); es el
+    // caso vigente de página NO migrada → navigate() debe recargar completo.
     await gotoCore(page, '/itcj/config'); // gotoCore instala window.__booted
-    await page.evaluate(() => window.ConfigPage.navigate('/itcj/config/users'));
-    await page.waitForURL(/\/itcj\/config\/users/);
+    await page.evaluate(() => window.ConfigPage.navigate('/itcj/config/departments'));
+    await page.waitForURL(/\/itcj\/config\/departments/);
     // una recarga completa borra el marker
     expect(await page.evaluate(() => window.__booted === true)).toBe(false);
-    await expect(page.locator('#cfgMain[data-cfg-page="users"]')).toBeAttached();
+    await expect(page.locator('#cfgMain[data-cfg-page="departments"]')).toBeAttached();
   });
 });

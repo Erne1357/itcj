@@ -358,11 +358,6 @@
     font-weight: 600;
 }
 
-/* App colors */
-.bg-agendatec { background-color: #0d6efd !important; }
-.bg-helpdesk { background-color: #198754 !important; }
-.bg-itcj { background-color: #e61d1d !important; }
-
 /* ==================== FORMULARIOS ==================== */
 .form-control:focus,
 .form-select:focus {

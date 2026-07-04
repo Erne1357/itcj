@@ -19,30 +19,6 @@
     font-size: 0.75em;
 }
 
-.bg-agendatec {
-    background-color: #0d6efd !important;
-}
-
-.bg-helpdesk {
-    background-color: #198754 !important;
-}
-
-.bg-vistetec {
-    background-color: #8B1538 !important;
-}
-
-.bg-itcj {
-    background-color: #e61d1d !important;
-}
-
-.bg-warehouse {
-    background-color: #fd7e14 !important;
-}
-
-.bg-maint {
-    background-color: #546E7A !important;
-}
-
 /* ===== Responsive para Users ===== */
 @media (max-width: 768px) {
     /* Filtros en columna */

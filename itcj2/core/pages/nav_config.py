@@ -43,6 +43,7 @@ CONFIG_PAGE_MODULES: dict[str, list[str]] = {
     "themes": ["js/config/system/themes.js"],
     "tasks": ["js/vendor/cronstrue.min.js", "js/config/system/tasks.js"],
     "email": ["js/config/system/email.js"],
+    "users": ["js/config/users/users.js"],
 }
 
 # Patrón de URL -> page_key. Cubre las 12 páginas HTML de core/pages/config.py

@@ -45,8 +45,6 @@ test.beforeAll(() => { try { pyInContainer(CLEAN_PY); } catch (_) { /* nada que 
 test.afterAll(() => { try { pyInContainer(CLEAN_PY); } catch (_) { /* best-effort */ } });
 
 test('crear estudiante desde el modal dispara el POST y muestra la fila', async ({ page }) => {
-  test.fail(true, 'BUG B: required oculto bloquea el submit — F4 lo arregla y quita esta línea');
-
   await gotoCore(page, '/itcj/config/users');
   await page.locator('button[data-bs-target="#newUserModal"]').click();
   await expect(page.locator('#newUserModal')).toBeVisible();
