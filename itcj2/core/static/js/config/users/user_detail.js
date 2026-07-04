@@ -121,7 +121,7 @@
                         <div class="mb-3">
                             <h6 class="text-muted mb-2"><i class="bi bi-building me-1"></i>Departamento</h6>
                             <div class="d-flex align-items-center">
-                                <i class="${esc(p.department.icon_class || 'bi-building')} me-2 text-primary"></i>
+                                <i class="bi ${esc(p.department.icon_class || 'bi-building')} me-2 text-primary"></i>
                                 <div>
                                     <div class="fw-bold">${esc(p.department.name)}</div>
                                     <small class="text-muted">${esc(p.department.code)}</small>

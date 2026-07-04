@@ -274,6 +274,24 @@
         var row = document.querySelector('#permissionsTable tbody tr[data-perm-code="' + sel(code) + '"]');
         if (row) row.remove();
         bumpTabCount(-1);
+        maybeShowEmptyState();
+    }
+
+    // Restaura el placeholder de empty-state (markup idéntico al de
+    // permissions.html #emptyPermsState) cuando se elimina el último permiso.
+    function maybeShowEmptyState() {
+        var tbody = document.querySelector('#permissionsTable tbody');
+        if (!tbody || tbody.children.length > 0) return;
+        if (document.getElementById('emptyPermsState')) return;
+        var cardBody = document.querySelector('#permissionsTable')?.closest('.card-body');
+        if (!cardBody) return;
+        var div = document.createElement('div');
+        div.className = 'empty-state';
+        div.id = 'emptyPermsState';
+        div.innerHTML = '<i class="bi bi-key"></i>'
+            + '<h5>' + esc('No hay permisos registrados') + '</h5>'
+            + '<p>' + esc('Crea el primer permiso para esta aplicacion') + '</p>';
+        cardBody.appendChild(div);
     }
 
     function bumpTabCount(delta) {

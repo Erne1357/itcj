@@ -250,7 +250,7 @@
             html += `
                 <div class="activity-item">
                     <div class="activity-icon app-icon" style="background-color: ${this.escapeHtml(activity.app_color_hex || '#6c757d')}">
-                        <i class="${this.escapeHtml(activity.icon || 'bi-circle')}"></i>
+                        <i class="bi ${this.escapeHtml(activity.icon || 'bi-circle')}"></i>
                     </div>
                     <div class="activity-content">
                         <div class="d-flex justify-content-between align-items-start mb-1">
@@ -347,7 +347,7 @@
                      data-created="${notif.created_at}">
                     ${!notif.is_read ? '<div class="notification-indicator"></div>' : ''}
                     <div class="notification-icon" style="background-color: ${color}">
-                        <i class="${icon}"></i>
+                        <i class="bi ${icon}"></i>
                     </div>
                     <div class="notification-content">
                         <div class="d-flex justify-content-between align-items-start mb-1">

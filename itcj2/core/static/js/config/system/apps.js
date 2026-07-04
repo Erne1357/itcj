@@ -213,6 +213,23 @@
     function removeRow(appKey) {
         var row = document.querySelector('#appsTable tbody tr[data-app-key="' + sel(appKey) + '"]');
         if (row) row.remove();
+        maybeShowEmptyState();
+    }
+
+    // Restaura el placeholder de empty-state (markup idéntico al de apps.html)
+    // cuando se elimina la última fila de la tabla.
+    function maybeShowEmptyState() {
+        var tbody = document.querySelector('#appsTable tbody');
+        if (!tbody || tbody.children.length > 0) return;
+        if (document.querySelector('.empty-state')) return;
+        var cardBody = document.querySelector('#appsTable')?.closest('.card-body');
+        if (!cardBody) return;
+        var div = document.createElement('div');
+        div.className = 'empty-state';
+        div.innerHTML = '<i class="bi bi-app-indicator"></i>'
+            + '<h5>' + esc('No hay aplicaciones registradas') + '</h5>'
+            + '<p>' + esc('Crea tu primera aplicacion para comenzar') + '</p>';
+        cardBody.appendChild(div);
     }
 
     function init() {

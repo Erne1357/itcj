@@ -10,7 +10,8 @@
  * - Vistas por departamento
  *
  * Socket.IO es inyectado por app-fab-widget.js; si el FAB aún no corrió,
- * este fallback garantiza que el CDN esté cargado antes de conectar.
+ * este fallback garantiza que el script vendorizado local esté cargado antes
+ * de conectar.
  */
 (() => {
     function _initMaintSocket() {
@@ -140,14 +141,14 @@
         });
     }
 
-    // Fallback: cargar Socket.IO CDN si el FAB aún no lo inyectó
+    // Fallback: cargar el Socket.IO vendorizado local si el FAB aún no lo inyectó
     if (window.io) {
         _initMaintSocket();
     } else {
         const script = document.createElement("script");
         script.src = "/static/core/js/vendor/socket.io.min.js?v=4.7.5";
         script.onload = _initMaintSocket;
-        script.onerror = () => console.error("[WS maint] No se pudo cargar socket.io desde CDN");
+        script.onerror = () => console.error("[WS maint] No se pudo cargar socket.io (vendor local)");
         document.head.appendChild(script);
     }
 })();

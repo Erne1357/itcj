@@ -429,7 +429,7 @@ class AppNotificationFAB {
                  data-url="${url}"
                  style="display:flex;padding:12px 16px;border-bottom:1px solid #e9ecef;cursor:pointer;background:${isUnread ? '#f0f9ff' : 'white'};">
                 <div class="notification-icon" style="background-color:${color};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;">
-                    <i class="${icon}"></i>
+                    <i class="bi ${icon}"></i>
                 </div>
                 <div style="flex:1;min-width:0;">
                     <div style="font-size:13px;font-weight:600;color:#212529;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(notification.title)}</div>

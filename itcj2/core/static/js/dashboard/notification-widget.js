@@ -369,7 +369,7 @@ class DashboardNotificationWidget {
                  data-id="${notification.id}"
                  data-url="${url}">
                 <div class="notification-icon" style="background-color: ${color}">
-                    <i class="${icon}"></i>
+                    <i class="bi ${icon}"></i>
                 </div>
                 <div class="notification-content">
                     <div class="notification-title">${this.escapeHtml(notification.title)}</div>
@@ -552,7 +552,7 @@ class DashboardNotificationWidget {
         toast.className = 'notification-toast';
         toast.innerHTML = `
             <div class="d-flex align-items-center">
-                <i class="${notification.app_icon || 'bi-bell'} me-2"></i>
+                <i class="bi ${notification.app_icon || 'bi-bell'} me-2"></i>
                 <div>
                     <div class="fw-bold">${this.escapeHtml(notification.title)}</div>
                     ${notification.body ? `<div class="small">${this.escapeHtml(notification.body)}</div>` : ''}

@@ -28,6 +28,7 @@
             tree: [],
             byId: new Map(),
             expanded: new Set(),
+            searchCollapsed: new Set(), // override del chevron mientras hay búsqueda activa (B4)
             editing: null,          // nodo en edición (Task 3)
             createModal: null,
             editModal: null,
@@ -113,7 +114,11 @@
     function renderNode(node, visible) {
         if (visible && !visible.show.has(node.id)) return '';
         const children = node.children || [];
-        const isOpen = visible ? visible.open.has(node.id) : S.expanded.has(node.id);
+        // Con búsqueda activa, "abierto" viene de (searchOpenSet ∪ expanded) menos el
+        // override searchCollapsed que el toggle actualiza mientras se busca (B4).
+        const isOpen = visible
+            ? (visible.open.has(node.id) || S.expanded.has(node.id)) && !S.searchCollapsed.has(node.id)
+            : S.expanded.has(node.id);
         const chevron = children.length
             ? `<button type="button" class="btn btn-sm btn-link dept-chevron p-0"
                        data-tree-action="toggle" data-dept-id="${node.id}"
@@ -160,6 +165,7 @@
     // === EVENTOS ===========================================================
     function onSearchInput() {
         if (!S) return;
+        S.searchCollapsed.clear(); // el texto cambió/se limpió: el override ya no aplica
         clearTimeout(S.searchTimer);
         S.searchTimer = setTimeout(renderTree, 200);
     }
@@ -171,10 +177,21 @@
         const node = S.byId.get(id);
         if (!node) return;
         switch (btn.dataset.treeAction) {
-            case 'toggle':
-                if (S.expanded.has(id)) S.expanded.delete(id); else S.expanded.add(id);
+            case 'toggle': {
+                const searching = !!(document.getElementById('deptTreeSearch')?.value || '').trim();
+                if (searching) {
+                    // Durante búsqueda: el toggle actúa como override sobre
+                    // (searchOpenSet ∪ expanded) — no sobre expanded directamente.
+                    if (S.searchCollapsed.has(id)) S.searchCollapsed.delete(id);
+                    else S.searchCollapsed.add(id);
+                } else if (S.expanded.has(id)) {
+                    S.expanded.delete(id);
+                } else {
+                    S.expanded.add(id);
+                }
                 renderTree();
                 break;
+            }
             case 'detail':
                 window.ConfigPage.navigate(`/itcj/config/departments/${id}`);
                 break;
@@ -194,26 +211,24 @@
     /**
      * Llena un <select> con el árbol activo completo, indentado por profundidad.
      * options: { excludeSubtreeOf: id|null, selectedId: id|null, allowRoot: bool }
-     * excludeSubtreeOf usa GET /departments/{id}/subtree (anti-ciclo en edición).
+     * excludeSubtreeOf viaja como query param al backend (GET /departments/parent-options
+     * ?exclude_subtree_of={id}), que ya excluye el depto + su subtree server-side
+     * (anti-ciclo en edición) — 1 sola request (B3).
      */
     async function loadParentOptions(selectEl, opts) {
         const o = opts || {};
-        const res = await fetch(`${API}/departments/parent-options`);
+        const url = o.excludeSubtreeOf != null
+            ? `${API}/departments/parent-options?exclude_subtree_of=${o.excludeSubtreeOf}`
+            : `${API}/departments/parent-options`;
+        const res = await fetch(url);
         const result = await res.json();
         if (!res.ok) throw new Error(result.error || 'Error al cargar opciones de padre');
-        let excluded = new Set();
-        if (o.excludeSubtreeOf != null) {
-            const sres = await fetch(`${API}/departments/${o.excludeSubtreeOf}/subtree`);
-            const sresult = await sres.json();
-            if (sres.ok && sresult.data) excluded = new Set(sresult.data.department_ids || []);
-        }
         selectEl.innerHTML = '';
         const first = document.createElement('option');
         first.value = '';
         first.textContent = o.allowRoot ? '— Sin padre (raíz) —' : 'Selecciona un departamento…';
         selectEl.appendChild(first);
         (result.data || []).forEach(d => {
-            if (excluded.has(d.id)) return;
             const depth = (d.depth != null) ? d.depth : (S.byId.get(d.id) ? S.byId.get(d.id).depth : 0);
             const opt = document.createElement('option');
             opt.value = d.id;

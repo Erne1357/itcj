@@ -46,11 +46,7 @@
         document.getElementById('manageAppsBtn')?.addEventListener('click', showManageAppsModal);
         document.getElementById('assignUserForm')?.addEventListener('submit', onAssignUser);
         document.getElementById('userSearch')?.addEventListener('input', onUserSearchInput);
-        document.getElementById('allowsMultiple')?.addEventListener('change', (e) => {
-            const emailField = document.getElementById('positionEmail');
-            if (e.target.checked) { emailField.value = ''; emailField.disabled = true; }
-            else { emailField.disabled = false; }
-        });
+        document.getElementById('allowsMultiple')?.addEventListener('change', onAllowsMultipleChange);
 
         // Delegación scoped al content root (no document: A→B→A recrea nodos)
         main.addEventListener('click', onMainClick);
@@ -68,6 +64,14 @@
             });
         }
         S = null;
+    }
+
+    // Named (no arrow inline): evita acumular listeners con identidad distinta
+    // en nodos que persisten entre morphs (B5, paridad con el resto del módulo).
+    function onAllowsMultipleChange(e) {
+        const emailField = document.getElementById('positionEmail');
+        if (e.target.checked) { emailField.value = ''; emailField.disabled = true; }
+        else { emailField.disabled = false; }
     }
 
     function onMainClick(e) {
