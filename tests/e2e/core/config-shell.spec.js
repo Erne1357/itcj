@@ -41,6 +41,29 @@ test.describe('config shell — ConfigShell/ConfigUtils', () => {
   });
 });
 
+test.describe('config shell — sidebar tablet (≤992px)', () => {
+  test('tablet (900px): toggle visible y el sidebar expande con click, no con hover', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await gotoCore(page, '/itcj/config');
+
+    const toggle = page.locator('#normalMobileToggle');
+    await expect(toggle).toBeVisible(); // HOY FALLA: el toggle solo aparece ≤768px
+
+    const width = () =>
+      page.locator('#configSidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    expect(await width()).toBe(60);   // rail colapsado
+
+    await toggle.click();
+    await expect(page.locator('#configSidebar')).toHaveClass(/open/);
+    await expect.poll(width, { timeout: 3_000 }).toBe(280); // expandido (transición 0.2s)
+    // labels visibles al expandir
+    await expect(page.locator('.config-nav-link span').first()).toBeVisible();
+
+    await toggle.click();
+    await expect(page.locator('#configSidebar')).not.toHaveClass(/open/);
+  });
+});
+
 test.describe('config shell — controller ConfigPage (C2)', () => {
   test('expone register/navigate/page y lee la página actual', async ({ page }) => {
     await gotoCore(page, '/itcj/config');

@@ -550,13 +550,15 @@
 
 /* ==================== RESPONSIVE ==================== */
 
-/* Tablet: 992px - Sidebar colapsado con hover */
+/* Tablet: ≤992px — rail colapsado + toggle explícito.
+   NO hover-expand: hover no existe en touch; el botón .config-mobile-toggle
+   abre/cierra con la clase .open (mismo mecanismo que móvil). */
 @media (max-width: 992px) {
     .config-sidebar {
         width: var(--config-sidebar-collapsed-width);
     }
 
-    .config-sidebar:hover {
+    .config-sidebar.open {
         width: var(--config-sidebar-width);
     }
 
@@ -567,15 +569,30 @@
         display: none;
     }
 
-    .config-sidebar:hover .config-sidebar-brand h5,
-    .config-sidebar:hover .config-nav-link span,
-    .config-sidebar:hover .config-nav-section-title,
-    .config-sidebar:hover .config-sidebar-user-info {
+    .config-sidebar.open .config-sidebar-brand h5,
+    .config-sidebar.open .config-nav-link span,
+    .config-sidebar.open .config-nav-section-title,
+    .config-sidebar.open .config-sidebar-user-info {
         display: block;
     }
 
     .config-main {
         margin-left: var(--config-sidebar-collapsed-width);
+    }
+
+    /* Toggle visible desde tablet, a la derecha del rail.
+       !important: la regla base .config-mobile-toggle (display:none, left:0.75rem)
+       vive más abajo en el archivo (sección "Boton de toggle para movil") y
+       gana por orden de aparición a igual especificidad si no se fuerza aquí
+       (mismo patrón ya usado por el bloque ≤768px para 'display'). */
+    .config-mobile-toggle {
+        display: block !important;
+        left: calc(var(--config-sidebar-collapsed-width) + 0.75rem) !important;
+    }
+
+    /* El contenido no queda debajo del toggle fijo */
+    .config-content {
+        padding-top: 3.5rem;
     }
 
     /* Ajustes de tablas para tablet */
@@ -674,9 +691,10 @@
         display: none;
     }
 
-    /* Mostrar boton de menu */
+    /* Mostrar boton de menu pegado al borde (sidebar off-canvas) */
     .config-mobile-toggle {
         display: block !important;
+        left: 0.75rem;
     }
 
     /* Tablas responsivas */
