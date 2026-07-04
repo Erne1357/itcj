@@ -21,6 +21,20 @@ const Tasks = (() => {
         return res.json();
     };
 
+    // escapeHtml del shell (fallback identidad si ConfigUtils no cargó aún)
+    const esc = (v) => (window.ConfigUtils ? ConfigUtils.escapeHtml(v) : String(v == null ? '' : v));
+
+    // Mapa de estilos de app (color, C8) para el badge de app_name del catálogo
+    let _appStyles = {};
+
+    const loadAppStyles = async () => {
+        try {
+            const res = await fetch('/api/core/v2/authz/apps');
+            const json = await res.json();
+            (json.data || []).forEach((a) => { _appStyles[a.key] = a.color || '#6c757d'; });
+        } catch (_) { /* fallback: gris */ }
+    };
+
     // ── Utilitarias de presentación ───────────────────────────────────
     const statusBadge = (s) => {
         const labels = { PENDING: 'Pendiente', RUNNING: 'Ejecutando', SUCCESS: 'Exitoso', FAILURE: 'Fallido', REVOKED: 'Cancelado' };
@@ -82,21 +96,21 @@ const Tasks = (() => {
         tbody.innerHTML = _definitions.map(d => `
             <tr>
                 <td>
-                    <div class="fw-semibold">${d.display_name}</div>
-                    <div class="text-muted small font-monospace">${d.task_name}</div>
+                    <div class="fw-semibold">${esc(d.display_name)}</div>
+                    <div class="text-muted small font-monospace">${esc(d.task_name)}</div>
                 </td>
-                <td><span class="badge bg-secondary">${d.app_name}</span></td>
-                <td><i class="bi ${catIcons[d.category] || 'bi-gear'} me-1"></i>${d.category}</td>
+                <td><span class="app-badge" style="--app-badge-color: ${esc(_appStyles[d.app_name] || '#6c757d')}">${esc(d.app_name)}</span></td>
+                <td><i class="bi ${catIcons[d.category] || 'bi-gear'} me-1"></i>${esc(d.category)}</td>
                 <td>
                     <span class="badge ${d.is_active ? 'bg-success' : 'bg-secondary'}">
                         ${d.is_active ? 'Activa' : 'Inactiva'}
                     </span>
                 </td>
                 <td class="text-end">
-                    <button class="btn btn-sm btn-outline-success me-1" onclick="Tasks.openExecuteModal('${d.task_name}')" title="Ejecutar ahora" ${!d.is_active ? 'disabled' : ''}>
+                    <button class="btn btn-sm btn-outline-success me-1" onclick="Tasks.openExecuteModal('${esc(d.task_name)}')" title="Ejecutar ahora" ${!d.is_active ? 'disabled' : ''}>
                         <i class="bi bi-play-fill"></i> Ejecutar
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" onclick="Tasks.openPeriodicModalFromDef('${d.task_name}')" title="Agendar">
+                    <button class="btn btn-sm btn-outline-primary" onclick="Tasks.openPeriodicModalFromDef('${esc(d.task_name)}')" title="Agendar">
                         <i class="bi bi-calendar-plus"></i>
                     </button>
                 </td>
@@ -104,12 +118,15 @@ const Tasks = (() => {
         `).join('');
     };
 
-    const syncDefinitions = () => {
-        new bootstrap.Modal(document.getElementById('confirmSyncModal')).show();
-    };
+    const syncDefinitions = async () => {
+        const ok = await AppModal.confirm({
+            title: 'Sincronizar tareas',
+            message: '¿Sincronizar las definiciones de tareas con el código registrado?',
+            confirmText: 'Sincronizar',
+            confirmVariant: 'primary',
+        });
+        if (!ok) return;
 
-    const _doSyncDefinitions = async () => {
-        bootstrap.Modal.getInstance(document.getElementById('confirmSyncModal')).hide();
         try {
             const res = await api('POST', '/definitions/sync');
             showSuccess(`Sincronización completa: ${res.data.created} creadas, ${res.data.updated} actualizadas`);
@@ -176,14 +193,14 @@ const Tasks = (() => {
         const deptCheckboxes = depts.length
             ? depts.map(d => `<div class="form-check">
                 <input class="form-check-input f-dept-id" type="checkbox" value="${d.id}" id="fd_${d.id}">
-                <label class="form-check-label small" for="fd_${d.id}">${d.name}</label>
+                <label class="form-check-label small" for="fd_${d.id}">${esc(d.name)}</label>
               </div>`).join('')
             : '<span class="text-muted small">Sin departamentos</span>';
 
         const catCheckboxes = cats.length
             ? cats.map(c => `<div class="form-check">
                 <input class="form-check-input f-cat-id" type="checkbox" value="${c.id}" id="fc_${c.id}">
-                <label class="form-check-label small" for="fc_${c.id}">${c.name}</label>
+                <label class="form-check-label small" for="fc_${c.id}">${esc(c.name)}</label>
               </div>`).join('')
             : '<span class="text-muted small">Sin categorías</span>';
 
@@ -367,13 +384,13 @@ const Tasks = (() => {
                 ? entries.map(([k, v]) => {
                     if (typeof v === 'boolean') {
                         return `<div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="ep_${k}" ${v ? 'checked' : ''} data-key="${k}" data-type="bool">
-                            <label class="form-check-label" for="ep_${k}">${k.replace(/_/g, ' ')}</label>
+                            <input class="form-check-input" type="checkbox" id="ep_${esc(k)}" ${v ? 'checked' : ''} data-key="${esc(k)}" data-type="bool">
+                            <label class="form-check-label" for="ep_${esc(k)}">${esc(k.replace(/_/g, ' '))}</label>
                         </div>`;
                     }
                     return `<div class="mb-2">
-                        <label class="form-label small fw-semibold">${k.replace(/_/g, ' ')}</label>
-                        <input type="text" class="form-control form-control-sm" id="ep_${k}" value="${v ?? ''}" data-key="${k}" data-type="str">
+                        <label class="form-label small fw-semibold">${esc(k.replace(/_/g, ' '))}</label>
+                        <input type="text" class="form-control form-control-sm" id="ep_${esc(k)}" value="${esc(v ?? '')}" data-key="${esc(k)}" data-type="str">
                     </div>`;
                 }).join('')
                 : '<p class="text-muted small mb-0">Esta tarea no requiere parámetros adicionales.</p>';
@@ -470,9 +487,9 @@ const Tasks = (() => {
         try {
             document.getElementById('execConfirmBtn').disabled = true;
             const res = await api('POST', '/runs', { task_name: _currentExecDef.task_name, kwargs });
-            if (res.status === 'ok') {
+            if (res && res.success) {
                 bootstrap.Modal.getInstance(document.getElementById('executeModal')).hide();
-                showSuccess(`Tarea "${_currentExecDef.display_name}" enviada (run #${res.data.id})`);
+                showSuccess(`Tarea "${esc(_currentExecDef.display_name)}" enviada (run #${res.data.id})`);
                 document.querySelector('[data-bs-target="#tab-history"]').click();
                 await loadRuns();
             } else {
@@ -498,11 +515,11 @@ const Tasks = (() => {
         tbody.innerHTML = rows.map(pt => `
             <tr>
                 <td>
-                    <div class="fw-semibold">${pt.name}</div>
-                    <div class="text-muted small">${pt.display_name || pt.task_name}</div>
+                    <div class="fw-semibold">${esc(pt.name)}</div>
+                    <div class="text-muted small">${esc(pt.display_name || pt.task_name)}</div>
                 </td>
                 <td>
-                    <code>${pt.cron_expression}</code>
+                    <code>${esc(pt.cron_expression)}</code>
                     <div class="text-muted small">${cronDesc(pt.cron_expression)}</div>
                 </td>
                 <td>${pt.last_run_at ? timeAgo(pt.last_run_at) : '<span class="text-muted">Nunca</span>'}</td>
@@ -520,7 +537,7 @@ const Tasks = (() => {
                     <button class="btn btn-sm btn-outline-secondary me-1" onclick="Tasks.openPeriodicModal(${pt.id})" title="Editar">
                         <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="Tasks.confirmDeletePeriodic(${pt.id}, '${pt.name.replace(/'/g, "\\'")}')" title="Eliminar">
+                    <button class="btn btn-sm btn-outline-danger" onclick="Tasks.confirmDeletePeriodic(${pt.id}, '${esc(pt.name.replace(/'/g, "\\'"))}')" title="Eliminar">
                         <i class="bi bi-trash"></i>
                     </button>
                 </td>
@@ -538,7 +555,7 @@ const Tasks = (() => {
         // Llenar select de tareas
         const select = document.getElementById('periodicTaskName');
         select.innerHTML = '<option value="">-- Seleccionar tarea --</option>' +
-            _definitions.map(d => `<option value="${d.task_name}">${d.display_name} (${d.app_name})</option>`).join('');
+            _definitions.map(d => `<option value="${esc(d.task_name)}">${esc(d.display_name)} (${esc(d.app_name)})</option>`).join('');
 
         if (id) {
             const res = await api('GET', '/periodic');
@@ -611,7 +628,7 @@ const Tasks = (() => {
                 res = await api('POST', '/periodic', payload);
             }
 
-            if (res && res.status === 'ok') {
+            if (res && res.success) {
                 bootstrap.Modal.getInstance(document.getElementById('periodicModal')).hide();
                 showSuccess(_currentPeriodicId ? 'Tarea programada actualizada' : 'Tarea programada creada');
                 await loadPeriodic();
@@ -626,7 +643,7 @@ const Tasks = (() => {
     const togglePeriodic = async (id, checkbox) => {
         try {
             const res = await api('PATCH', `/periodic/${id}/toggle`);
-            if (res.status === 'ok') {
+            if (res && res.success) {
                 const label = checkbox.nextElementSibling;
                 label.textContent = res.data.is_active ? 'Activa' : 'Pausada';
                 label.className = `form-check-label small ${res.data.is_active ? 'text-success' : 'text-muted'}`;
@@ -640,17 +657,17 @@ const Tasks = (() => {
         }
     };
 
-    const confirmDeletePeriodic = (id, name) => {
-        _currentPeriodicId = id;
-        document.getElementById('deletePeriodicName').textContent = name;
-        new bootstrap.Modal(document.getElementById('deletePeriodicModal')).show();
-    };
+    const confirmDeletePeriodic = async (id, name) => {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar tarea programada',
+            message: `Se eliminara la tarea programada "${name}"`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    const deletePeriodic = async () => {
-        if (!_currentPeriodicId) return;
         try {
-            await api('DELETE', `/periodic/${_currentPeriodicId}`);
-            bootstrap.Modal.getInstance(document.getElementById('deletePeriodicModal')).hide();
+            await api('DELETE', `/periodic/${id}`);
             showSuccess('Tarea programada eliminada');
             await loadPeriodic();
         } catch {
@@ -670,7 +687,7 @@ const Tasks = (() => {
 
         const res = await fetch(`/api/core/v2/tasks/runs?${params}`).then(r => r.json());
         const runs = res.data || [];
-        const meta = res.meta || {};
+        const meta = res || {};
         const tbody = document.getElementById('runsTableBody');
 
         if (!runs.length) {
@@ -687,16 +704,16 @@ const Tasks = (() => {
                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
                             style="width:${r.progress || 10}%"></div>
                    </div>
-                   <div class="small text-muted">${r.progress_message || 'Ejecutando...'}</div>`
+                   <div class="small text-muted">${esc(r.progress_message || 'Ejecutando...')}</div>`
                 : '';
 
             const trigger = r.trigger === 'MANUAL'
-                ? `<span class="small">Manual${r.triggered_by_user ? ': ' + r.triggered_by_user : ''}</span>`
+                ? `<span class="small">Manual${r.triggered_by_user ? ': ' + esc(r.triggered_by_user) : ''}</span>`
                 : '<span class="small text-muted">Programada</span>';
 
             return `<tr>
                 <td>
-                    <div class="fw-semibold">${r.display_name}</div>
+                    <div class="fw-semibold">${esc(r.display_name)}</div>
                     ${progressBar}
                 </td>
                 <td>${trigger}</td>
@@ -719,7 +736,7 @@ const Tasks = (() => {
         // Paginación
         const footer = document.getElementById('runsPagination');
         if (meta.total_pages > 1) {
-            footer.style.removeProperty('display');
+            footer.classList.remove('cfg-hidden');
             footer.innerHTML = `
                 <small class="text-muted">${meta.total} ejecuciones</small>
                 <div class="btn-group btn-group-sm">
@@ -728,7 +745,7 @@ const Tasks = (() => {
                     <button class="btn btn-outline-secondary" ${page >= meta.total_pages ? 'disabled' : ''} onclick="Tasks.loadRuns(${page + 1})">›</button>
                 </div>`;
         } else {
-            footer.style.display = 'none';
+            footer.classList.add('cfg-hidden');
         }
 
         // Badge en pestaña
@@ -784,9 +801,9 @@ const Tasks = (() => {
 
         body.innerHTML = `
             <div class="row g-3 mb-3">
-                <div class="col-sm-6"><strong>Tarea:</strong><br>${r.display_name}</div>
+                <div class="col-sm-6"><strong>Tarea:</strong><br>${esc(r.display_name)}</div>
                 <div class="col-sm-6"><strong>Estado:</strong><br>${statusBadge(r.status)}</div>
-                <div class="col-sm-6"><strong>Disparador:</strong><br>${r.trigger} ${r.triggered_by_user ? '— ' + r.triggered_by_user : ''}</div>
+                <div class="col-sm-6"><strong>Disparador:</strong><br>${esc(r.trigger)} ${r.triggered_by_user ? '— ' + esc(r.triggered_by_user) : ''}</div>
                 <div class="col-sm-6"><strong>Duración:</strong><br>${duration(r.duration_seconds)}</div>
                 <div class="col-sm-6"><strong>Inicio:</strong><br>${r.started_at ? new Date(r.started_at).toLocaleString('es-MX') : '-'}</div>
                 <div class="col-sm-6"><strong>Fin:</strong><br>${r.finished_at ? new Date(r.finished_at).toLocaleString('es-MX') : '-'}</div>
@@ -800,32 +817,34 @@ const Tasks = (() => {
                     <div class="progress">
                         <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${r.progress}%"></div>
                     </div>
-                    ${r.progress_message ? `<small class="text-muted">${r.progress_message}</small>` : ''}
+                    ${r.progress_message ? `<small class="text-muted">${esc(r.progress_message)}</small>` : ''}
                 </div>` : ''}
             ${r.args_json && Object.keys(r.args_json).length ? `
                 <div class="mb-3">
                     <strong>Argumentos:</strong>
-                    <pre class="result-json mt-1">${JSON.stringify(r.args_json, null, 2)}</pre>
+                    <pre class="result-json mt-1">${esc(JSON.stringify(r.args_json, null, 2))}</pre>
                 </div>` : ''}
             ${resultJson ? `
                 <div class="mb-0">
                     <strong>Resultado:</strong>
-                    <pre class="result-json mt-1">${resultJson}</pre>
+                    <pre class="result-json mt-1">${esc(resultJson)}</pre>
                 </div>` : ''}
         `;
     };
 
-    const confirmRevokeRun = (id) => {
+    const confirmRevokeRun = async (id) => {
         _currentRunId = id;
-        new bootstrap.Modal(document.getElementById('confirmRevokeModal')).show();
-    };
+        const ok = await AppModal.confirm({
+            title: 'Cancelar tarea',
+            message: `Se revocara la ejecucion #${id}`,
+            confirmText: 'Sí, cancelar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
-    const _doRevokeRun = async () => {
-        if (!_currentRunId) return;
-        bootstrap.Modal.getInstance(document.getElementById('confirmRevokeModal'))?.hide();
         try {
-            const res = await api('DELETE', `/runs/${_currentRunId}/revoke`);
-            if (res.status === 'ok') {
+            const res = await api('DELETE', `/runs/${id}/revoke`);
+            if (res && res.success) {
                 showSuccess('Tarea cancelada');
                 bootstrap.Modal.getInstance(document.getElementById('runDetailModal'))?.hide();
                 await loadRuns(_runsPage);
@@ -840,8 +859,8 @@ const Tasks = (() => {
     // ── Init ──────────────────────────────────────────────────────────
 
     const init = () => {
-        // Cargar catálogo al inicio
-        loadDefinitions();
+        // Cargar catálogo al inicio (colores de app en paralelo para el badge C8)
+        loadAppStyles().then(loadDefinitions);
 
         // Cargar programadas al cambiar de tab
         document.querySelector('[data-bs-target="#tab-scheduled"]').addEventListener('shown.bs.tab', loadPeriodic);
@@ -852,11 +871,8 @@ const Tasks = (() => {
             document.getElementById(id).addEventListener('input', updateCronDesc);
         });
 
-        // Botones de modales
-        document.getElementById('confirmSyncBtn').addEventListener('click', _doSyncDefinitions);
-        document.getElementById('confirmDeletePeriodic').addEventListener('click', deletePeriodic);
+        // Botón de revocar dentro del modal de detalle de ejecución
         document.getElementById('revokeRunBtn').addEventListener('click', () => confirmRevokeRun(_currentRunId));
-        document.getElementById('confirmRevokeBtn').addEventListener('click', _doRevokeRun);
 
         // Filtros de historial
         document.getElementById('filterStatus').addEventListener('change', () => loadRuns());
@@ -867,9 +883,15 @@ const Tasks = (() => {
         document.querySelector('[data-bs-target="#tab-scheduled"]').addEventListener('shown.bs.tab', stopAutoRefresh);
     };
 
+    const destroy = () => {
+        // corta el auto-refresh de 5s (único recurso document/window del módulo)
+        if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+    };
+
     // API pública del módulo
     return {
         init,
+        destroy,
         syncDefinitions,
         openExecuteModal,
         openPeriodicModal,
@@ -885,4 +907,11 @@ const Tasks = (() => {
     };
 })();
 
-document.addEventListener('DOMContentLoaded', Tasks.init);
+// Exponer para los onclick inline de las filas generadas (Tasks.viewRun, etc.)
+window.Tasks = Tasks;
+
+if (window.ConfigPage) {
+    window.ConfigPage.register('tasks', { init: Tasks.init, destroy: Tasks.destroy });
+} else {
+    document.addEventListener('DOMContentLoaded', Tasks.init);
+}

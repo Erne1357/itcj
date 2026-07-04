@@ -3,10 +3,11 @@ Authorization API v2 — 18 endpoints (apps, roles, permisos, usuarios).
 Fuente: itcj/core/routes/api/authz.py
 """
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from itcj2.dependencies import DbSession, require_perms
 
 router = APIRouter(tags=["core-authz"])
@@ -14,6 +15,39 @@ logger = logging.getLogger(__name__)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# Charset de clases bootstrap-icons: minúsculas, dígitos, guion y guion_bajo.
+# Se permite el espacio para pasar varias clases (p.ej. "bi-star-fill bi-lg").
+_ICON_CLASS_RE = re.compile(r"^[a-z0-9 _-]+$")
+
+
+def _validate_hex_color(v: Optional[str]) -> Optional[str]:
+    """None → no enviado; "" → limpiar (sentinel para update); si no, #RRGGBB."""
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return ""
+    if not _HEX_COLOR_RE.match(v):
+        raise ValueError("color debe ser hex #RRGGBB")
+    return v
+
+
+def _validate_icon_class(v: Optional[str]) -> Optional[str]:
+    """None → no enviado; "" → limpiar (mismo sentinel que color); si no, charset
+    de bootstrap-icons y máx 50 (largo de la columna App.icon_class)."""
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return ""
+    if len(v) > 50:
+        raise ValueError("icon_class no debe exceder 50 caracteres")
+    if not _ICON_CLASS_RE.match(v):
+        raise ValueError("icon_class inválido (usa clases bi-* en minúsculas)")
+    return v
+
 
 class AppCreateBody(BaseModel):
     key: str
@@ -23,6 +57,18 @@ class AppCreateBody(BaseModel):
     visible_to_students: bool = False
     mobile_url: Optional[str] = None
     mobile_icon: Optional[str] = None
+    color: Optional[str] = None        # "#RRGGBB"
+    icon_class: Optional[str] = None   # p.ej. "bi-headset"
+
+    @field_validator("color")
+    @classmethod
+    def _color_hex(cls, v):
+        return _validate_hex_color(v)
+
+    @field_validator("icon_class")
+    @classmethod
+    def _icon(cls, v):
+        return _validate_icon_class(v)
 
 
 class AppUpdateBody(BaseModel):
@@ -32,6 +78,18 @@ class AppUpdateBody(BaseModel):
     visible_to_students: Optional[bool] = None
     mobile_url: Optional[str] = None
     mobile_icon: Optional[str] = None
+    color: Optional[str] = None        # "#RRGGBB"; "" limpia
+    icon_class: Optional[str] = None   # "" limpia
+
+    @field_validator("color")
+    @classmethod
+    def _color_hex(cls, v):
+        return _validate_hex_color(v)
+
+    @field_validator("icon_class")
+    @classmethod
+    def _icon(cls, v):
+        return _validate_icon_class(v)
 
 
 class RoleCreateBody(BaseModel):
@@ -69,12 +127,13 @@ def list_apps(
 
     rows = db.query(App).order_by(App.key.asc()).all()
     return {
-        "status": "ok",
+        "success": True,
         "data": [
             {
                 "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
                 "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
                 "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon,
+                "color": a.color, "icon_class": a.icon_class,
             }
             for a in rows
         ],
@@ -93,25 +152,29 @@ def create_app(
     key = body.key.strip()
     name = body.name.strip()
     if not key or not name:
-        raise HTTPException(400, detail={"status": "error", "error": "key_and_name_required"})
+        raise HTTPException(400, detail="La clave y el nombre son requeridos")
 
     if db.query(App).filter_by(key=key).first():
-        raise HTTPException(409, detail={"status": "error", "error": "app_key_exists"})
+        raise HTTPException(409, detail="Ya existe una aplicación con esa clave")
 
     a = App(
         key=key, name=name, is_active=body.is_active,
         mobile_enabled=body.mobile_enabled, visible_to_students=body.visible_to_students,
         mobile_url=body.mobile_url or None, mobile_icon=body.mobile_icon or None,
+        color=body.color or None, icon_class=(body.icon_class or "").strip() or None,
     )
     db.add(a)
     db.commit()
+    from itcj2.core.services.app_style_cache import invalidate_app_styles
+    invalidate_app_styles()
     logger.info(f"App '{key}' creada por usuario {int(user['sub'])}")
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
             "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
             "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon,
+            "color": a.color, "icon_class": a.icon_class,
         },
     }
 
@@ -128,7 +191,7 @@ def update_app(
 
     a = db.query(App).filter_by(key=app_key).first()
     if not a:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Aplicación no encontrada")
 
     if body.name is not None:
         a.name = body.name.strip() or a.name
@@ -142,15 +205,22 @@ def update_app(
         a.mobile_url = body.mobile_url.strip() or None
     if body.mobile_icon is not None:
         a.mobile_icon = body.mobile_icon.strip() or None
+    if body.color is not None:
+        a.color = body.color or None  # "" (ya validado) limpia el color
+    if body.icon_class is not None:
+        a.icon_class = body.icon_class.strip() or None
 
     db.commit()
+    from itcj2.core.services.app_style_cache import invalidate_app_styles
+    invalidate_app_styles()
     logger.info(f"App '{app_key}' actualizada por usuario {int(user['sub'])}")
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
             "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
             "mobile_url": a.mobile_url, "mobile_icon": a.mobile_icon,
+            "color": a.color, "icon_class": a.icon_class,
         },
     }
 
@@ -166,12 +236,14 @@ def delete_app(
 
     a = db.query(App).filter_by(key=app_key).first()
     if not a:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Aplicación no encontrada")
 
     db.delete(a)
     db.commit()
     from itcj2.core.services.authz_cache import invalidate_all
     invalidate_all()  # el cascade quita grants; sin esto el caché sirve stale hasta TTL
+    from itcj2.core.services.app_style_cache import invalidate_app_styles
+    invalidate_app_styles()
     logger.info(f"App '{app_key}' eliminada por usuario {int(user['sub'])}")
 
 
@@ -182,13 +254,22 @@ def list_roles(
     user: dict = require_perms("itcj", ["core.roles.api.read"]),
     db: DbSession = None,
 ):
-    """Lista todos los roles globales."""
-    from itcj2.core.models.role import Role
+    """Lista todos los roles globales con conteo de usuarios (sin N+1)."""
+    from sqlalchemy import func
 
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.user import User
+
+    counts = dict(
+        db.query(User.role_id, func.count(User.id))
+        .filter(User.role_id.isnot(None))
+        .group_by(User.role_id)
+        .all()
+    )
     return {
-        "status": "ok",
+        "success": True,
         "data": [
-            {"name": r.name}
+            {"id": r.id, "name": r.name, "users_count": counts.get(r.id, 0)}
             for r in db.query(Role).order_by(Role.name.asc()).all()
         ],
     }
@@ -205,15 +286,15 @@ def create_role(
 
     name = body.name.strip()
     if not name:
-        raise HTTPException(400, detail={"status": "error", "error": "name_required"})
+        raise HTTPException(400, detail="El nombre es requerido")
     if db.query(Role).filter_by(name=name).first():
-        raise HTTPException(409, detail={"status": "error", "error": "role_exists"})
+        raise HTTPException(409, detail="Ya existe un rol con ese nombre")
 
     r = Role(name=name)
     db.add(r)
     db.commit()
     logger.info(f"Rol '{name}' creado por usuario {int(user['sub'])}")
-    return {"status": "ok", "data": {"name": r.name}}
+    return {"success": True, "data": {"name": r.name}}
 
 
 @router.delete("/roles/{role_name}", status_code=204)
@@ -227,7 +308,7 @@ def delete_role(
 
     r = db.query(Role).filter_by(name=role_name).first()
     if not r:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
 
     db.delete(r)
     db.commit()
@@ -247,7 +328,7 @@ def list_perms(
     """Lista permisos de una aplicación."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": svc.list_perms(db, app_key)}
+    return {"success": True, "data": svc.list_perms(db, app_key)}
 
 
 @router.post("/apps/{app_key}/perms", status_code=201)
@@ -265,15 +346,15 @@ def create_perm(
     code = body.code.strip()
     name = body.name.strip()
     if not code or not name:
-        raise HTTPException(400, detail={"status": "error", "error": "code_and_name_required"})
+        raise HTTPException(400, detail="El código y el nombre son requeridos")
 
     if db.query(Permission).filter_by(app_id=app.id, code=code).first():
-        raise HTTPException(409, detail={"status": "error", "error": "permission_exists"})
+        raise HTTPException(409, detail="Ya existe un permiso con ese código en la aplicación")
 
     perm = Permission(app_id=app.id, code=code, name=name, description=body.description or None)
     db.add(perm)
     db.commit()
-    return {"status": "ok", "data": {"code": perm.code, "name": perm.name, "description": perm.description}}
+    return {"success": True, "data": {"code": perm.code, "name": perm.name, "description": perm.description}}
 
 
 @router.delete("/apps/{app_key}/perms/{code}", status_code=204)
@@ -290,7 +371,7 @@ def delete_perm(
     app = svc.get_or_404_app(db, app_key)
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     db.delete(perm)
     db.commit()
@@ -316,7 +397,7 @@ def get_role_perms(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
 
     rows = (
         db.query(Permission.code)
@@ -325,7 +406,7 @@ def get_role_perms(
         .order_by(Permission.code.asc())
         .all()
     )
-    return {"status": "ok", "data": [r[0] for r in rows]}
+    return {"success": True, "data": [r[0] for r in rows]}
 
 
 @router.put("/apps/{app_key}/roles/{role_name}/perms")
@@ -345,7 +426,7 @@ def replace_role_perms(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
 
     # Eliminar permisos actuales de esta app para el rol
     perm_ids_to_delete = (
@@ -371,7 +452,7 @@ def replace_role_perms(
     db.commit()
     from itcj2.core.services.authz_cache import invalidate_all
     invalidate_all()  # role-wide: afecta a todos los usuarios con este rol
-    return {"status": "ok", "data": None}
+    return {"success": True, "data": None}
 
 
 @router.post("/apps/{app_key}/roles/{role_name}/perms/{code}")
@@ -391,17 +472,17 @@ def add_role_perm(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "perm_not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     if not db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first():
         db.add(RolePermission(role_id=role.id, perm_id=perm.id))
         db.commit()
         from itcj2.core.services.authz_cache import invalidate_all
         invalidate_all()  # role-wide
-    return {"status": "ok", "data": None}
+    return {"success": True, "data": None}
 
 
 @router.delete("/apps/{app_key}/roles/{role_name}/perms/{code}", status_code=204)
@@ -421,10 +502,10 @@ def remove_role_perm(
     app = svc.get_or_404_app(db, app_key)
     role = db.query(Role).filter_by(name=role_name).first()
     if not role:
-        raise HTTPException(404, detail={"status": "error", "error": "role_not_found"})
+        raise HTTPException(404, detail="Rol no encontrado")
     perm = db.query(Permission).filter_by(app_id=app.id, code=code).first()
     if not perm:
-        raise HTTPException(404, detail={"status": "error", "error": "perm_not_found"})
+        raise HTTPException(404, detail="Permiso no encontrado")
 
     db.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).delete()
     db.commit()
@@ -444,7 +525,7 @@ def get_user_roles(
     """Roles de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": sorted(list(svc.user_roles_in_app(db, user_id, app_key)))}
+    return {"success": True, "data": sorted(list(svc.user_roles_in_app(db, user_id, app_key)))}
 
 
 @router.post("/apps/{app_key}/users/{user_id}/roles")
@@ -460,10 +541,10 @@ def add_user_role(
 
     role_name = body.role_name.strip()
     if not role_name:
-        raise HTTPException(400, detail={"status": "error", "error": "role_name_required"})
+        raise HTTPException(400, detail="El nombre del rol es requerido")
 
     created = svc.grant_role(db, user_id, app_key, role_name)
-    return {"status": "ok", "data": {"created": bool(created)}}
+    return {"success": True, "data": {"created": bool(created)}}
 
 
 @router.delete("/apps/{app_key}/users/{user_id}/roles/{role_name}", status_code=204)
@@ -490,7 +571,7 @@ def get_user_perms(
     """Permisos directos de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": sorted(list(svc.user_direct_perms_in_app(db, user_id, app_key)))}
+    return {"success": True, "data": sorted(list(svc.user_direct_perms_in_app(db, user_id, app_key)))}
 
 
 @router.post("/apps/{app_key}/users/{user_id}/perms")
@@ -506,10 +587,10 @@ def add_user_perm(
 
     code = body.code.strip()
     if not code:
-        raise HTTPException(400, detail={"status": "error", "error": "code_required"})
+        raise HTTPException(400, detail="El código del permiso es requerido")
 
     changed = svc.grant_perm(db, user_id, app_key, code, allow=body.allow)
-    resp = {"status": "ok", "data": {"updated": bool(changed)}}
+    resp = {"success": True, "data": {"updated": bool(changed)}}
 
     # Guardrail: un perm de scope departamental (.subtree) sin puesto que lo respalde
     # no tiene ancla → no surte efecto (fail-closed). Avisamos para no dejar un
@@ -546,4 +627,4 @@ def get_user_effective_perms(
     """Permisos efectivos de un usuario en una app (roles + directos + puestos)."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": svc.effective_perms(db, user_id, app_key)}
+    return {"success": True, "data": svc.effective_perms(db, user_id, app_key)}

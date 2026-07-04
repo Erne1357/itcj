@@ -241,7 +241,7 @@
 
             if (!res.ok) {
                 const errorData = await res.json();
-                const errorMessage = errorData.message || "No se pudo actualizar la contraseña.";
+                const errorMessage = errorData.error || errorData.message || "No se pudo actualizar la contraseña.";
                 showToast(errorMessage, "error");
                 return;
             }

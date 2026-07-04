@@ -143,7 +143,11 @@ def _create_notifications_batch(
     ]
     db.add_all(notifications)
     db.flush()  # Obtiene IDs sin cerrar la transacción
-    notif_dicts = [n.to_dict() for n in notifications]
+    # Estilos de apps UNA sola vez para todo el lote (evita 1 GET Redis por
+    # notificación en la serialización — antes N+1 en el broadcast batch).
+    from itcj2.core.services.app_style_cache import cached_app_styles
+    styles = cached_app_styles(db)
+    notif_dicts = [n.to_dict(styles=styles) for n in notifications]
     db.commit()
     return notif_dicts
 

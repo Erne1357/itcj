@@ -1,7 +1,5 @@
 {% extends "core/config/config_base.html" %}
 
-{% set sidebar_active = 'roles' %}
-
 {% block title %}Gestion de Roles{% endblock %}
 
 {% block breadcrumb %}
@@ -58,7 +56,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <small class="text-muted">
                         <i class="bi bi-people me-1"></i>
-                        {{ role.users|length }} usuarios asignados
+                        {{ role_counts.get(role.id, 0) }} usuarios asignados
                     </small>
                 </div>
             </div>
@@ -109,34 +107,4 @@
     </div>
 </div>
 
-<!-- Modal: Confirmar Eliminacion -->
-<div class="modal fade" id="deleteRoleModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-danger">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Eliminacion
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p>Estas seguro de que deseas eliminar el rol <strong id="deleteRoleName"></strong>?</p>
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle me-2"></i>
-                    Esta accion eliminara todas las asignaciones de este rol a usuarios y aplicaciones.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-danger" id="confirmDeleteRole">
-                    <i class="bi bi-trash me-1"></i>Eliminar Rol
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{{ url_for('static', filename='core/js/config/system/roles.js') }}?v={{ sv('core', 'js/config/system/roles.js') }}"></script>
 {% endblock %}

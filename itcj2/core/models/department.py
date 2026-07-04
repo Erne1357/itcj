@@ -65,11 +65,21 @@ class Department(Base):
         head_position = self.get_head_position()
         if not head_position:
             return None
+        # Alineado con departments_service.build_tree (F1b-D5): misma ventana de
+        # puesto VIGENTE (respeta start_date/end_date, no solo is_active) y mismo
+        # orden determinista. Un jefe con puesto vencido/futuro ya no aparece.
         from itcj2.core.models.position import UserPosition
+        from itcj2.core.services.departments_service import _active_position_window
         db = object_session(self)
-        assignment = db.query(UserPosition).filter_by(
-            position_id=head_position.id, is_active=True
-        ).first()
+        assignment = (
+            db.query(UserPosition)
+            .filter(
+                UserPosition.position_id == head_position.id,
+                _active_position_window(),
+            )
+            .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
+            .first()
+        )
         return assignment.user if assignment else None
 
     def to_dict(self, include_children=False):
@@ -91,8 +101,10 @@ class Department(Base):
             if head_user
             else None,
         }
-        # Recurse a cualquier nivel (antes truncaba salvo direction/subdirection,
-        # ocultando subdptos de nivel 3+). Los hijos activos se expanden siempre.
+        # SOLO UN nivel de hijos (compat con el drill-down clásico). La
+        # serialización recursiva del árbol vive en departments_service.build_tree
+        # (contrato C3) — NO hacer esto recursivo aquí: to_dict tiene N+1 por nodo
+        # (positions_count/children_count/head) y explotaría en árboles grandes.
         if include_children:
             data["children"] = [
                 child.to_dict()

@@ -1,27 +1,19 @@
 {% extends "core/config/config_base.html" %}
 
-{% set sidebar_active = 'departments' %}
-
 {% block title %}Estructura Organizacional{% endblock %}
 
 {% block breadcrumb %}
-<li class="breadcrumb-item active" id="currentBreadcrumb">Estructura Organizacional</li>
+<li class="breadcrumb-item active">Estructura Organizacional</li>
 {% endblock %}
 
-{% block page_icon %}<i class="bi bi-building"></i>{% endblock %}
-{% block page_title %}<span id="pageTitle">Estructura Organizacional</span>{% endblock %}
-{% block page_subtitle %}<span id="pageSubtitle">Direccion y Delegacion Sindical del instituto</span>{% endblock %}
+{% block page_icon %}<i class="bi bi-diagram-3"></i>{% endblock %}
+{% block page_title %}Estructura Organizacional{% endblock %}
+{% block page_subtitle %}Árbol de departamentos del instituto (profundidad ilimitada){% endblock %}
 
 {% block page_actions %}
-<div class="d-flex gap-2 flex-wrap">
-    <!-- Boton para regresar (oculto inicialmente) -->
-    <button class="btn btn-outline-secondary back-btn btn-sm" id="backBtn" style="display: none;">
-        <i class="bi bi-arrow-left me-1 me-sm-2"></i><span class="d-none d-sm-inline">Volver</span>
-    </button>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createDepartmentModal">
-        <i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nuevo Departamento</span><span class="d-sm-none">Nuevo</span>
-    </button>
-</div>
+<button class="btn btn-primary btn-sm" id="newRootDeptBtn">
+    <i class="bi bi-plus-lg me-1"></i><span class="d-none d-sm-inline">Nuevo Departamento</span><span class="d-sm-none">Nuevo</span>
+</button>
 {% endblock %}
 
 {% block extra_css %}
@@ -29,8 +21,18 @@
 {% endblock %}
 
 {% block content %}
-<!-- Contenedor Principal -->
-<div id="mainContainer"></div>
+<div class="card">
+    <div class="card-header">
+        <div class="input-group input-group-sm dept-tree-search">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input type="search" class="form-control" id="deptTreeSearch"
+                   placeholder="Buscar departamento por nombre o código…" autocomplete="off">
+        </div>
+    </div>
+    <div class="card-body p-2 p-md-3">
+        <div id="deptTree" class="dept-tree"></div>
+    </div>
+</div>
 {% endblock %}
 
 {% block modals %}
@@ -45,35 +47,32 @@
             <form id="createDepartmentForm">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="deptCode" class="form-label">Codigo *</label>
+                        <label for="deptCode" class="form-label">Código *</label>
                         <input type="text" class="form-control" id="deptCode" name="code"
                                placeholder="ej: sistemas_computacion" pattern="[a-z0-9_]+" required>
                     </div>
                     <div class="mb-3">
                         <label for="deptName" class="form-label">Nombre *</label>
                         <input type="text" class="form-control" id="deptName" name="name"
-                               placeholder="ej: Sistemas y Computacion" required>
+                               placeholder="ej: Sistemas y Computación" required>
                     </div>
                     <div class="mb-3">
-                        <label for="deptDescription" class="form-label">Descripcion</label>
+                        <label for="deptDescription" class="form-label">Descripción</label>
                         <textarea class="form-control" id="deptDescription" name="description" rows="3"></textarea>
                     </div>
                     <div class="mb-3">
                         <label for="deptParent" class="form-label">Departamento Padre</label>
                         <select class="form-select" id="deptParent" name="parent_id">
-                            <option value="">-- Nivel Superior (Direccion/Subdireccion) --</option>
+                            <option value="">— Sin padre (raíz) —</option>
                         </select>
                         <small class="form-text text-muted">
-                            Selecciona la direccion para crear una subdireccion, o una subdireccion para crear un departamento.
+                            Puedes anidar sub-departamentos a cualquier profundidad.
                         </small>
                     </div>
                     <div class="mb-3">
                         <label for="deptIcon" class="form-label">Icono (Bootstrap Icons)</label>
                         <input type="text" class="form-control" id="deptIcon" name="icon_class"
                                placeholder="ej: bi-code-slash">
-                        <small class="form-text text-muted">
-                            Ver iconos en: <a href="https://icons.getbootstrap.com" target="_blank">icons.getbootstrap.com</a>
-                        </small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -86,8 +85,49 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='core/js/config/organization/departments.js') }}?v={{ sv('core', 'js/config/organization/departments.js') }}"></script>
+<!-- Modal: Editar Departamento -->
+<div class="modal fade" id="editDepartmentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Editar Departamento
+                    <span class="badge text-bg-warning ms-2 d-none" id="editDeptOfficialBadge">Oficial</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editDepartmentForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="editDeptName" class="form-label">Nombre *</label>
+                        <input type="text" class="form-control" id="editDeptName" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editDeptDescription" class="form-label">Descripción</label>
+                        <textarea class="form-control" id="editDeptDescription" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editDeptParent" class="form-label">Departamento Padre</label>
+                        <select class="form-select" id="editDeptParent" name="parent_id"></select>
+                        <small class="form-text text-muted">
+                            «Sin padre» promueve el departamento a raíz. No puede anidarse bajo su propio subtree.
+                        </small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editDeptIcon" class="form-label">Icono (Bootstrap Icons)</label>
+                        <input type="text" class="form-control" id="editDeptIcon" name="icon_class" placeholder="ej: bi-code-slash">
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="editDeptActive" name="is_active">
+                        <label class="form-check-label" for="editDeptActive">Departamento activo</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}

@@ -6,7 +6,7 @@
     <title>{% block title %}Configuracion{% endblock %} - ITCJ</title>
 
     <!-- Bootstrap CSS -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
 
     <!-- CSS Base de Configuracion -->
@@ -18,31 +18,31 @@
 
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body hx-ext="morph,head-support" hx-swap="morph:innerHTML" hx-target="body">
     <!-- Header móvil con flecha de regreso (solo visible en iframe) -->
     <div class="config-mobile-header">
         <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
             <i class="bi bi-arrow-left"></i>
         </button>
         <span class="config-mobile-title">Configuración</span>
-        <button class="config-mobile-toggle" onclick="toggleSidebar()">
+        <button class="config-mobile-toggle" type="button" aria-label="Abrir menú">
             <i class="bi bi-list"></i>
         </button>
     </div>
 
     <div class="config-wrapper">
         <!-- Boton toggle movil (solo visible cuando NO está en iframe) -->
-        <button class="config-mobile-toggle" onclick="toggleSidebar()" id="normalMobileToggle">
+        <button class="config-mobile-toggle" type="button" id="normalMobileToggle" aria-label="Abrir menú">
             <i class="bi bi-list"></i>
         </button>
 
         <!-- Overlay para movil -->
-        <div class="config-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+        <div class="config-overlay" id="sidebarOverlay"></div>
 
         <!-- Sidebar -->
         <aside class="config-sidebar" id="configSidebar">
             <div class="config-sidebar-header">
-                <a href="{{ url_for('pages_core.pages_config.settings') }}" class="config-sidebar-brand">
+                <a href="{{ url_for('pages_core.pages_config.settings') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.settings')) }} class="config-sidebar-brand">
                     <i class="bi bi-gear-fill"></i>
                     <h5>Configuracion</h5>
                 </a>
@@ -52,7 +52,7 @@
                 <!-- Seccion Principal -->
                 <div class="config-nav-section">
                     <div class="config-nav-section-title">General</div>
-                    <a href="{{ url_for('pages_core.pages_config.settings') }}"
+                    <a href="{{ url_for('pages_core.pages_config.settings') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.settings')) }}
                        class="config-nav-link {% if sidebar_active == 'dashboard' %}active{% endif %}">
                         <i class="bi bi-speedometer2"></i>
                         <span>Panel Principal</span>
@@ -62,27 +62,27 @@
                 <!-- Seccion Sistema -->
                 <div class="config-nav-section">
                     <div class="config-nav-section-title">Sistema</div>
-                    <a href="{{ url_for('pages_core.pages_config.apps_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.apps_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.apps_management')) }}
                        class="config-nav-link {% if sidebar_active == 'apps' %}active{% endif %}">
                         <i class="bi bi-app-indicator"></i>
                         <span>Aplicaciones</span>
                     </a>
-                    <a href="{{ url_for('pages_core.pages_config.roles_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.roles_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.roles_management')) }}
                        class="config-nav-link {% if sidebar_active == 'roles' %}active{% endif %}">
                         <i class="bi bi-people-fill"></i>
                         <span>Roles Globales</span>
                     </a>
-                    <a href="{{ url_for('pages_core.pages_config.themes_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.themes_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.themes_management')) }}
                        class="config-nav-link {% if sidebar_active == 'themes' %}active{% endif %}">
                         <i class="bi bi-palette-fill"></i>
                         <span>Tematicas</span>
                     </a>
-                    <a href="{{ url_for('pages_core.pages_config.email_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.email_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.email_management')) }}
                        class="config-nav-link {% if sidebar_active == 'email' %}active{% endif %}">
                         <i class="bi bi-envelope-fill"></i>
                         <span>Correo</span>
                     </a>
-                    <a href="{{ url_for('pages_core.pages_config.tasks_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.tasks_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.tasks_management')) }}
                        class="config-nav-link {% if sidebar_active == 'tasks' %}active{% endif %}">
                         <i class="bi bi-cpu"></i>
                         <span>Tareas Programadas</span>
@@ -92,7 +92,7 @@
                 <!-- Seccion Usuarios -->
                 <div class="config-nav-section">
                     <div class="config-nav-section-title">Usuarios</div>
-                    <a href="{{ url_for('pages_core.pages_config.users_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.users_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.users_management')) }}
                        class="config-nav-link {% if sidebar_active == 'users' %}active{% endif %}">
                         <i class="bi bi-person-lines-fill"></i>
                         <span>Usuarios</span>
@@ -102,7 +102,7 @@
                 <!-- Seccion Organizacion -->
                 <div class="config-nav-section">
                     <div class="config-nav-section-title">Organizacion</div>
-                    <a href="{{ url_for('pages_core.pages_config.positions_management') }}"
+                    <a href="{{ url_for('pages_core.pages_config.positions_management') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.positions_management')) }}
                        class="config-nav-link {% if sidebar_active == 'departments' %}active{% endif %}">
                         <i class="bi bi-diagram-3"></i>
                         <span>Departamentos</span>
@@ -122,14 +122,18 @@
         </aside>
 
         <!-- Contenido Principal -->
-        <main class="config-main">
+        <main class="config-main" id="cfgMain"
+              data-cfg-page="{{ cfg_page or '' }}"
+              data-cfg-modules="{{ cfg_modules or '' }}"
+              data-cfg-boost-urls="{{ cfg_boost_urls or '' }}"
+              {%- for k, v in (cfg_data or {}).items() %} data-{{ k }}="{{ v }}"{% endfor %}>
             <div class="config-content">
                 <!-- Header de Pagina -->
                 <div class="config-page-header">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb config-breadcrumb">
                             <li class="breadcrumb-item">
-                                <a href="{{ url_for('pages_core.pages_config.settings') }}">
+                                <a href="{{ url_for('pages_core.pages_config.settings') }}" {{ cfg_boost_attr(url_for('pages_core.pages_config.settings')) }}>
                                     <i class="bi bi-gear me-1"></i>Configuracion
                                 </a>
                             </li>
@@ -181,10 +185,23 @@
     {% block modals %}{% endblock %}
 
     <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
+    <!-- HTMX (navegación sin recargar) + Idiomorph (swap por morphing). D9: CDN + SRI. -->
+    <script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js" integrity="sha384-szktAZju9fwY15dZ6D2FKFN4eZoltuXiHStNDJWK9+FARrxJtquql828JzikODob" crossorigin="anonymous"></script>
+    <!-- head-support: fusiona el head del response en cada navegacion boosted.
+         Sin esto, el CSS del bloque extra_css de la pagina destino NO se aplica
+         porque hx-target="body" no toca el <head>. -->
+    <script src="https://unpkg.com/htmx-ext-head-support@2.0.4/head-support.js" integrity="sha384-alEpTwaoXBHw9xh1d3fDZ4lNnOqQYkcIaRQTSQXgSZnAhcnj1H4F27lOZ1Eci1Sp" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='core/js/shared/app-modal.js') }}?v={{ sv('core', 'js/shared/app-modal.js') }}"></script>
 
     <script src="{{ url_for('static', filename='core/js/config/config_base.js') }}?v={{ sv('core', 'js/config/config_base.js') }}"></script>
+    <!-- socket.io vendored (D9) + conexión /notify presence-only del shell: los
+         admins en cualquier página de config cuentan como "en línea" y la
+         conexión sobrevive a los morphs de navegación (fuera del registry). -->
+    <script src="{{ url_for('static', filename='core/js/vendor/socket.io.min.js') }}?v={{ sv('core', 'js/vendor/socket.io.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='core/js/config/shared/presence-client.js') }}?v={{ sv('core', 'js/config/shared/presence-client.js') }}"></script>
+    <script src="{{ url_for('static', filename='core/js/config/shared/config-page.js') }}?v={{ sv('core', 'js/config/shared/config-page.js') }}"></script>
 
     {% block extra_js %}{% endblock %}
 </body>

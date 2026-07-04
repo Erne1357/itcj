@@ -34,6 +34,10 @@ core_router.include_router(positions_router, prefix="/positions")
 from .api.themes import router as themes_router
 core_router.include_router(themes_router, prefix="/themes")
 
+# Email: estado/desconexión de cuentas Microsoft Graph por app (F1a, C3)
+from .api.email import router as email_router
+core_router.include_router(email_router, prefix="/email")
+
 # Deploy: notificaciones de archivos estáticos
 from .api.deploy import router as deploy_router
 core_router.include_router(deploy_router, prefix="/deploy")

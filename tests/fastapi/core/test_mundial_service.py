@@ -110,7 +110,13 @@ def test_get_matches_past_scope():
     fake_redis = MagicMock()
     fake_redis.get.return_value = None
     fake_redis.hgetall.return_value = {}
+    # Determinismo: _get_fixtures_cached consulta la API real (MUNDIAL_API_PROVIDER
+    # está activo en el contenedor dev) ANTES de caer al fixture estático, así que
+    # sin apagar _fetch_api_all el test tomaba los 104 partidos reales del Mundial
+    # y drifteaba con el reloj de pared. Con la API en None usa load_fixtures
+    # (parcheado) y now_cj congelado → estable hoy y el mes que viene.
     with patch("itcj2.core.services.mundial_service.get_redis", return_value=fake_redis), \
+         patch("itcj2.core.services.mundial_service._fetch_api_all", return_value=None), \
          patch("itcj2.core.services.mundial_service.load_fixtures", return_value=fixtures), \
          patch("itcj2.core.services.mundial_service.now_cj",
                return_value=datetime(2026, 6, 18, 12, 0, tzinfo=ZoneInfo("America/Ciudad_Juarez"))):

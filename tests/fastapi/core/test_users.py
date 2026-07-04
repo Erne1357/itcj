@@ -85,7 +85,7 @@ class TestChangePassword:
                 )
 
         assert resp.status_code == 200
-        assert resp.json()["message"] == "password_updated"
+        assert resp.json()["success"] is True
         assert fake_user.password_hash == "new_hash"
 
     def test_change_password_too_short(self, app_client, auth_headers):
@@ -233,6 +233,7 @@ class TestGetActivity:
         resp = app_client.get("/api/core/v2/user/me/activity", headers=auth_headers)
 
         assert resp.status_code == 200
+        assert resp.json()["success"] is True
         assert len(resp.json()["data"]) == 1
         mock_activity.assert_called_once_with(ANY, 200, limit=10)
 
@@ -273,7 +274,7 @@ class TestUpdateProfile:
             )
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["success"] is True
 
     def test_unauthenticated(self, app_client):
         resp = app_client.patch(

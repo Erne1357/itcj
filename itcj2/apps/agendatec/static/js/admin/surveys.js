@@ -11,15 +11,16 @@
   // === ESTADO ===
   async function refreshStatus() {
     try {
-      const r = await fetch("/itcj/config/email/auth/status?app=agendatec", { credentials: "include" });
+      const r = await fetch("/api/core/v2/email/status?app=agendatec", { credentials: "include" });
       const j = await r.json();
+      const st = (j && j.data) || {};
       const badge = $("#msStatus");
       const txt = $("#msAccountTxt");
       if (!badge || !txt) return;
-      if (j.connected) {
+      if (st.connected) {
         badge.textContent = "Conectado";
         badge.className = "badge text-bg-success";
-        const who = j?.account?.username || "—";
+        const who = st.account?.username || "—";
         txt.innerHTML = `Conectado como <strong>${escapeHtml(who)}</strong>`;
       } else {
         badge.textContent = "Sin sesión";
@@ -91,7 +92,7 @@
 
     // Logout Microsoft
     $("#btnMsLogout")?.addEventListener("click", async () => {
-      await fetch("/itcj/config/email/auth/logout?app=agendatec", {
+      await fetch("/api/core/v2/email/logout?app=agendatec", {
         method: "POST",
         credentials: "include"
       });

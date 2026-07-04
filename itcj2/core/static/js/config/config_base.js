@@ -1,95 +1,147 @@
-'use strict';
+/* =============================================================================
+   ConfigShell — shell del panel /itcj/config (sidebar, iframe móvil, toasts).
+   IIFE morph-safe: handlers DELEGADOS en document (sobreviven a los swaps de
+   idiomorph; los botones se recrean, el listener no vive en ellos).
+   Expone window.ConfigShell + window.ConfigUtils y mantiene los alias legacy
+   showSuccess/showError que consumen los page-JS pre-F3.
+   ============================================================================= */
+(function () {
+    'use strict';
+    if (window.ConfigShell) return; // singleton
 
-// Detectar si estamos en un iframe móvil
-const inIframe = window.self !== window.top;
-if (inIframe) {
-    document.body.classList.add('in-mobile-iframe');
-    // Ocultar el toggle normal
-    const normalToggle = document.getElementById('normalMobileToggle');
-    if (normalToggle) normalToggle.style.display = 'none';
-}
+    var inIframe = window.self !== window.top;
 
-// Toggle sidebar en movil
-function toggleSidebar() {
-    const sidebar = document.getElementById('configSidebar');
-    const overlay = document.getElementById('sidebarOverlay');
+    // ---- Sidebar ------------------------------------------------------------
+    function sidebarEl() { return document.getElementById('configSidebar'); }
+    function overlayEl() { return document.getElementById('sidebarOverlay'); }
 
-    if (sidebar.classList.contains('open')) {
-        closeSidebar();
-    } else {
-        // Forzar repaint antes de abrir
-        sidebar.style.display = 'none';
-        sidebar.offsetHeight; // Trigger reflow
-        sidebar.style.display = '';
+    // El off-canvas móvil se cierra SOLO por transform (ver config-base.css
+    // ~L602): sin visibility:hidden el sidebar sigue teniendo bounding box y
+    // Playwright (gotoCore) lo ve "visible". Para no romper eso pero sacar los
+    // ~8 links del tab order / árbol de accesibilidad mientras está cerrado en
+    // móvil, togglear inert + aria-hidden desde JS (no cambian visibilidad
+    // computada ni el bounding box).
+    var mobileMql = window.matchMedia('(max-width: 768px)');
 
-        // Pequeño delay para asegurar el repaint
-        requestAnimationFrame(() => {
-            sidebar.classList.add('open');
-            overlay.classList.add('show');
-        });
+    function lockSidebarA11y(sidebar) {
+        sidebar.setAttribute('inert', '');
+        sidebar.setAttribute('aria-hidden', 'true');
     }
-}
 
-function closeSidebar() {
-    const sidebar = document.getElementById('configSidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    sidebar.classList.remove('open');
-    overlay.classList.remove('show');
-}
+    function unlockSidebarA11y(sidebar) {
+        sidebar.removeAttribute('inert');
+        sidebar.removeAttribute('aria-hidden');
+    }
 
-// Regresar al dashboard (para iframe móvil)
-function goToDashboard() {
-    if (inIframe) {
-        try {
-            window.parent.postMessage({
-                type: 'CLOSE_APP',
-                source: 'config'
-            }, window.location.origin);
-        } catch (e) {
-            console.warn('No se pudo notificar al parent:', e);
-            window.location.href = '/itcj/m/';
+    // Sincroniza inert/aria-hidden según breakpoint + estado open/closed actual.
+    function syncSidebarA11y() {
+        var sidebar = sidebarEl();
+        if (!sidebar) return;
+        if (mobileMql.matches && !sidebar.classList.contains('open')) {
+            lockSidebarA11y(sidebar);
+        } else {
+            unlockSidebarA11y(sidebar);
         }
-    } else {
+    }
+
+    function openSidebar() {
+        var sidebar = sidebarEl();
+        var overlay = overlayEl();
+        if (!sidebar) return;
+        sidebar.classList.add('open');
+        if (overlay) overlay.classList.add('show');
+        unlockSidebarA11y(sidebar);
+    }
+
+    function closeSidebar() {
+        var sidebar = sidebarEl();
+        var overlay = overlayEl();
+        if (sidebar) sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('show');
+        if (sidebar && mobileMql.matches) lockSidebarA11y(sidebar);
+    }
+
+    function toggleSidebar() {
+        var sidebar = sidebarEl();
+        if (sidebar && sidebar.classList.contains('open')) closeSidebar();
+        else openSidebar();
+    }
+
+    // Regreso al dashboard móvil (shell iframe del core)
+    function goToDashboard() {
+        if (inIframe) {
+            try {
+                window.parent.postMessage({ type: 'CLOSE_APP', source: 'config' }, window.location.origin);
+                return;
+            } catch (e) {
+                console.warn('No se pudo notificar al parent:', e);
+            }
+        }
         window.location.href = '/itcj/m/';
     }
-}
 
-// Cerrar sidebar al hacer click en un enlace (móvil)
-document.addEventListener('DOMContentLoaded', function() {
-    const navLinks = document.querySelectorAll('.config-nav-link');
-    navLinks.forEach(link => {
-        link.addEventListener('click', function() {
-            if (window.innerWidth <= 768) {
-                closeSidebar();
-            }
-        });
+    // Delegación única (sustituye los onclick="" del template)
+    document.addEventListener('click', function (e) {
+        if (e.target.closest('.config-mobile-toggle')) { toggleSidebar(); return; }
+        if (e.target.closest('#sidebarOverlay')) { closeSidebar(); return; }
+        if (e.target.closest('#mobileBackToDashboard')) { goToDashboard(); return; }
+        // En rail/off-canvas (≤992px), navegar desde el sidebar lo cierra
+        if (e.target.closest('.config-nav-link') && window.innerWidth <= 992) closeSidebar();
     });
 
-    // Forzar repaint inicial del sidebar en móvil
-    if (window.innerWidth <= 768) {
-        const sidebar = document.getElementById('configSidebar');
-        sidebar.style.display = 'none';
-        sidebar.offsetHeight;
-        sidebar.style.display = '';
+    // Estado inicial (carga directa en móvil con sidebar cerrado) + reacción a
+    // cambios de breakpoint (rotación, resize de ventana/DevTools).
+    syncSidebarA11y();
+    if (typeof mobileMql.addEventListener === 'function') {
+        mobileMql.addEventListener('change', syncSidebarA11y);
+    } else if (typeof mobileMql.addListener === 'function') {
+        mobileMql.addListener(syncSidebarA11y); // Safari <14
     }
 
-    // Bind del botón de regreso al dashboard
-    const backBtn = document.getElementById('mobileBackToDashboard');
-    if (backBtn) {
-        backBtn.addEventListener('click', goToDashboard);
+    // Un swap boosted (idiomorph morph:innerHTML) reemplaza #configSidebar por
+    // el HTML servidor (sin inert): re-sincronizar el lock tras cada morph.
+    if (window.htmx) {
+        document.body.addEventListener('htmx:afterSettle', syncSidebarA11y);
+        document.body.addEventListener('htmx:historyRestore', syncSidebarA11y);
     }
-});
 
-// Utilidades de toast
-function showSuccess(message) {
-    document.getElementById('successMessage').textContent = message;
-    new bootstrap.Toast(document.getElementById('successToast')).show();
-}
+    // body es el target del morph:innerHTML: sus ATRIBUTOS no se morfean,
+    // así que la clase de iframe puesta aquí persiste entre navegaciones.
+    if (inIframe) document.body.classList.add('in-mobile-iframe');
+    // (#normalMobileToggle se oculta por CSS: body.in-mobile-iframe #normalMobileToggle)
 
-function showError(message) {
-    document.getElementById('errorMessage').textContent = message;
-    new bootstrap.Toast(document.getElementById('errorToast')).show();
-}
+    // ---- Toasts + helpers compartidos ----------------------------------------
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
 
-// API Base URL
-const API_BASE = '/api/core/v2';
+    // type: 'success' (default) | 'error' | 'danger'
+    function showToast(message, type) {
+        var isError = type === 'error' || type === 'danger';
+        var msgEl = document.getElementById(isError ? 'errorMessage' : 'successMessage');
+        var toastEl = document.getElementById(isError ? 'errorToast' : 'successToast');
+        if (!msgEl || !toastEl || !window.bootstrap) return;
+        msgEl.textContent = message;
+        bootstrap.Toast.getOrCreateInstance(toastEl).show();
+    }
+
+    function showSuccess(message) { showToast(message, 'success'); }
+    function showError(message) { showToast(message, 'error'); }
+
+    window.ConfigShell = {
+        toggleSidebar: toggleSidebar,
+        closeSidebar: closeSidebar,
+        goToDashboard: goToDashboard,
+        inIframe: inIframe
+    };
+    window.ConfigUtils = { showToast: showToast, escapeHtml: escapeHtml };
+    // Alias legacy (page-JS pre-F3); se retiran cuando F3-F5 reescriban cada página.
+    window.showSuccess = showSuccess;
+    window.showError = showError;
+    window.API_BASE = window.API_BASE || '/api/core/v2';
+})();

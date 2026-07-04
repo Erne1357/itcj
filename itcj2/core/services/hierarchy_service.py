@@ -86,3 +86,31 @@ def department_descendants_map(db: Session) -> dict[int, set[int]]:
     for _id, _ in rows:
         out[_id] = walk(_id, {_id})
     return out
+
+
+def subtree_nodes(db: Session, root_id: int) -> list[dict]:
+    """Nodos del subtree de ``root_id`` (activos, incl. self) en orden DFS.
+
+    Para el preview de scope ``.subtree`` en config (contrato C3):
+    ``depth`` es RELATIVA al root pedido (root=0) para indentar el listado.
+    Guard de ciclos por path + depth-cap. Lista vacía si el root no existe
+    o está inactivo.
+    """
+    sql = text(
+        """
+        WITH RECURSIVE tree(id, name, depth, path) AS (
+            SELECT id, name, 0, ARRAY[id]
+            FROM core_departments WHERE id = :root AND is_active
+            UNION ALL
+            SELECT d.id, d.name, t.depth + 1, t.path || d.id
+            FROM core_departments d
+            JOIN tree t ON d.parent_id = t.id
+            WHERE d.is_active AND t.depth < :maxd AND d.id <> ALL(t.path)
+        )
+        SELECT id, name, depth FROM tree ORDER BY path
+        """
+    )
+    return [
+        {"id": r[0], "name": r[1], "depth": r[2]}
+        for r in db.execute(sql, {"root": root_id, "maxd": _MAX_DEPTH})
+    ]

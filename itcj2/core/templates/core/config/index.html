@@ -1,7 +1,5 @@
 {% extends "core/config/config_base.html" %}
 
-{% set sidebar_active = 'dashboard' %}
-
 {% block title %}Panel de Configuracion{% endblock %}
 
 {% block page_icon %}<i class="bi bi-speedometer2"></i>{% endblock %}
@@ -17,7 +15,7 @@
 <div class="row g-3 mb-4">
     <div class="col-6 col-lg">
         <div class="stat-card">
-            <div class="stat-icon" style="background: rgba(13,110,253,0.1); color: var(--config-primary);">
+            <div class="stat-icon stat-icon-apps">
                 <i class="bi bi-app-indicator"></i>
             </div>
             <div class="stat-info">
@@ -28,7 +26,7 @@
     </div>
     <div class="col-6 col-lg">
         <div class="stat-card">
-            <div class="stat-icon" style="background: rgba(25,135,84,0.1); color: var(--config-success);">
+            <div class="stat-icon stat-icon-roles">
                 <i class="bi bi-people-fill"></i>
             </div>
             <div class="stat-info">
@@ -39,7 +37,7 @@
     </div>
     <div class="col-6 col-lg">
         <div class="stat-card">
-            <div class="stat-icon" style="background: rgba(13,202,240,0.1); color: var(--config-info);">
+            <div class="stat-icon stat-icon-users">
                 <i class="bi bi-person-lines-fill"></i>
             </div>
             <div class="stat-info">
@@ -50,7 +48,7 @@
     </div>
     <div class="col-6 col-lg">
         <div class="stat-card">
-            <div class="stat-icon" style="background: rgba(111,66,193,0.1); color: var(--config-purple);">
+            <div class="stat-icon stat-icon-perms">
                 <i class="bi bi-key-fill"></i>
             </div>
             <div class="stat-info">
@@ -61,7 +59,7 @@
     </div>
     <div class="col-6 col-lg">
         <div class="stat-card" id="active-users-card">
-            <div class="stat-icon" style="background: rgba(255,87,34,0.1); color: #ff5722;">
+            <div class="stat-icon stat-icon-online">
                 <i class="bi bi-broadcast"></i>
             </div>
             <div class="stat-info">
@@ -84,7 +82,7 @@
         <a href="{{ url_for('pages_core.pages_config.apps_management') }}" class="nav-card-link">
             <div class="card nav-card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
-                    <div class="nav-card-icon" style="background: linear-gradient(135deg, #0d6efd, #0b5ed7);">
+                    <div class="nav-card-icon nav-card-icon-apps">
                         <i class="bi bi-app-indicator"></i>
                     </div>
                     <div class="flex-grow-1">
@@ -102,7 +100,7 @@
         <a href="{{ url_for('pages_core.pages_config.roles_management') }}" class="nav-card-link">
             <div class="card nav-card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
-                    <div class="nav-card-icon" style="background: linear-gradient(135deg, #198754, #157347);">
+                    <div class="nav-card-icon nav-card-icon-roles">
                         <i class="bi bi-people-fill"></i>
                     </div>
                     <div class="flex-grow-1">
@@ -120,7 +118,7 @@
         <a href="{{ url_for('pages_core.pages_config.users_management') }}" class="nav-card-link">
             <div class="card nav-card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
-                    <div class="nav-card-icon" style="background: linear-gradient(135deg, #0dcaf0, #0aa2c0);">
+                    <div class="nav-card-icon nav-card-icon-users">
                         <i class="bi bi-person-lines-fill"></i>
                     </div>
                     <div class="flex-grow-1">
@@ -138,14 +136,14 @@
         <a href="{{ url_for('pages_core.pages_config.positions_management') }}" class="nav-card-link">
             <div class="card nav-card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
-                    <div class="nav-card-icon" style="background: linear-gradient(135deg, #6f42c1, #5a32a3);">
+                    <div class="nav-card-icon nav-card-icon-depts">
                         <i class="bi bi-diagram-3"></i>
                     </div>
                     <div class="flex-grow-1">
                         <h6 class="mb-1">Departamentos</h6>
                         <p class="text-muted mb-0 small">Estructura organizacional</p>
                     </div>
-                    <span class="badge rounded-pill" style="background: var(--config-purple);">{{ departments_count }}</span>
+                    <span class="badge rounded-pill badge-purple">{{ departments_count }}</span>
                 </div>
             </div>
         </a>
@@ -156,14 +154,14 @@
         <a href="{{ url_for('pages_core.pages_config.themes_management') }}" class="nav-card-link">
             <div class="card nav-card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
-                    <div class="nav-card-icon" style="background: linear-gradient(135deg, #e91e63, #c2185b);">
+                    <div class="nav-card-icon nav-card-icon-themes">
                         <i class="bi bi-palette-fill"></i>
                     </div>
                     <div class="flex-grow-1">
                         <h6 class="mb-1">Tematicas</h6>
                         <p class="text-muted mb-0 small">Decoraciones y temas visuales</p>
                     </div>
-                    <span class="badge rounded-pill" style="background: #e91e63;">{{ themes_count }}</span>
+                    <span class="badge rounded-pill badge-pink">{{ themes_count }}</span>
                 </div>
             </div>
         </a>
@@ -174,7 +172,7 @@
         <a href="{{ url_for('pages_core.pages_config.email_management') }}" class="nav-card-link">
             <div class="card nav-card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
-                    <div class="nav-card-icon" style="background: linear-gradient(135deg, #0078d4, #005a9e);">
+                    <div class="nav-card-icon nav-card-icon-email">
                         <i class="bi bi-envelope-fill"></i>
                     </div>
                     <div class="flex-grow-1">
@@ -223,7 +221,7 @@
 
                     {% if active_apps|length == 0 %}
                     <div class="list-group-item text-center py-5">
-                        <i class="bi bi-app-indicator text-muted d-block mb-2" style="font-size: 2rem;"></i>
+                        <i class="bi bi-app-indicator text-muted d-block mb-2 cfg-icon-xl"></i>
                         <p class="text-muted mb-0">No hay aplicaciones activas</p>
                     </div>
                     {% endif %}
@@ -237,7 +235,7 @@
         <div class="card shadow-sm h-100">
             <div class="card-header bg-white d-flex align-items-center justify-content-between">
                 <h6 class="mb-0">
-                    <i class="bi bi-palette-fill me-2" style="color: #e91e63;"></i>Tematica Activa
+                    <i class="bi bi-palette-fill me-2 text-theme-pink"></i>Tematica Activa
                 </h6>
                 <a href="{{ url_for('pages_core.pages_config.themes_management') }}" class="btn btn-sm btn-outline-secondary">
                     Gestionar
@@ -271,9 +269,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
-<script src="{{ url_for('static', filename='core/js/config/active-users.js') }}?v={{ sv('core', 'js/config/active-users.js') }}"></script>
 {% endblock %}

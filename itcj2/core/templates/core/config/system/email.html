@@ -1,7 +1,5 @@
 {% extends "core/config/config_base.html" %}
 
-{% set sidebar_active = 'email' %}
-
 {% block title %}Configuracion de Correo{% endblock %}
 
 {% block breadcrumb %}
@@ -34,8 +32,8 @@
         <div class="card email-app-card h-100 {% if app.connected %}border-success{% endif %}" data-app-key="{{ app.key }}">
             <div class="card-body">
                 <div class="d-flex align-items-center gap-3 mb-3">
-                    <div class="email-app-icon">
-                        <i class="bi bi-app"></i>
+                    <div class="email-app-icon" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+                        <i class="{{ app.icon_class or 'bi-app' }}"></i>
                     </div>
                     <div class="flex-grow-1">
                         <h6 class="mb-0">{{ app.name }}</h6>
@@ -86,7 +84,7 @@
     <div class="col-12">
         <div class="card">
             <div class="card-body text-center py-5">
-                <i class="bi bi-app-indicator text-muted d-block mb-2" style="font-size: 2.5rem;"></i>
+                <i class="bi bi-app-indicator text-muted d-block mb-2 cfg-icon-xxl"></i>
                 <h6 class="text-muted">No hay aplicaciones activas</h6>
                 <p class="text-muted small mb-0">Activa al menos una aplicacion para configurar correo.</p>
             </div>
@@ -94,8 +92,4 @@
     </div>
     {% endif %}
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{{ url_for('static', filename='core/js/config/system/email.js') }}?v={{ sv('core', 'js/config/system/email.js') }}"></script>
 {% endblock %}

@@ -240,10 +240,6 @@
 
             const result = await response.json();
 
-            if (result.status !== 'ok') {
-                throw new Error(result.error || 'Error en la respuesta del servidor');
-            }
-
             departmentUsers = result.data.users || [];
             const activeCount = departmentUsers.filter(u => u.is_active).length;
             document.getElementById('usersCount').textContent =
