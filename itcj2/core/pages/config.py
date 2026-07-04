@@ -297,22 +297,23 @@ async def position_detail(
     user: dict = _ADMIN_PAGE,
     db: DbSession = None,
 ):
-    """Vista de detalle y edición de un puesto."""
+    """Detalle y edición de un puesto."""
     from itcj2.core.models.position import Position
-    from itcj2.core.models.role import Role
     from itcj2.core.pages.nav_config import render_config
 
     position = db.get(Position, position_id)
     if not position:
         raise HTTPException(status_code=404, detail="Puesto no encontrado")
 
-    roles = db.query(Role).order_by(Role.name.asc()).all()
-
-    return render_config(request, "core/config/organization/position_detail.html", "position_detail", {
-        "position_id": position_id,
-        "position": position,
-        "roles": roles,
-    })
+    return render_config(
+        request,
+        "core/config/organization/position_detail.html",
+        "position_detail",
+        {
+            "position": position,
+            "cfg_data": {"position-id": str(position_id)},
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

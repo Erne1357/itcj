@@ -218,3 +218,23 @@ test('department detail: puestos, badge oficial ausente en no-oficial y user pic
   await expect(page.locator('#managePositionModal')).toHaveCount(0);
   await expect(page.locator('#managePositionAppsModal')).toHaveCount(0);
 });
+
+test('position detail: render base, modal de apps con roles por fetch, sin confirmModal bespoke', async ({ page }) => {
+  await gotoCore(page, `/itcj/config/positions/${seed.pos_id}`);
+  const main = page.locator('#cfgMain');
+
+  await expect(main.locator('#positionName')).toHaveText('Jefe E2E CFG');
+  await expect(main.locator('#displayCode')).toHaveText('e2e_cfg_pos');
+
+  // el modal bespoke de confirmación ya no existe (se usa AppModal)
+  await expect(page.locator('#confirmModal')).toHaveCount(0);
+
+  // gestionar apps: la lista de apps carga y el select de roles se llena por fetch
+  await main.locator('#manageAppsBtn').click();
+  const modal = page.locator('#manageAppsModal');
+  await expect(modal).toBeVisible();
+  await modal.locator('.app-item[data-app-key="helpdesk"]').click();
+  await expect
+    .poll(async () => modal.locator('#roleToAssign option').count(), { timeout: 7000 })
+    .toBeGreaterThan(1);
+});
