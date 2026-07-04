@@ -279,10 +279,15 @@ async def department_detail(
     if not dept:
         raise HTTPException(status_code=404, detail="Departamento no encontrado")
 
-    return render_config(request, "core/config/organization/department_detail.html", "department_detail", {
-        "department_id": department_id,
-        "department": dept,
-    })
+    return render_config(
+        request,
+        "core/config/organization/department_detail.html",
+        "department_detail",
+        {
+            "department": dept,
+            "cfg_data": {"department-id": str(department_id)},
+        },
+    )
 
 
 @router.get("/config/positions/{position_id}", name="core.pages.config.position_detail")

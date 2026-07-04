@@ -193,3 +193,28 @@ test('desactivar departamento no oficial pide confirmación normal', async ({ pa
   await confirmDialog.getByRole('button', { name: 'Desactivar' }).click();
   await expect(confirmDialog).toBeHidden();
 });
+
+test('department detail: puestos, badge oficial ausente en no-oficial y user picker vivo', async ({ page }) => {
+  await gotoCore(page, `/itcj/config/departments/${seed.sub_id}`);
+  const main = page.locator('#cfgMain');
+
+  await expect(main.getByText('E2E CFG SUB').first()).toBeVisible();
+  // no-oficial → sin badge
+  await expect(main.locator('#deptOfficialBadge')).toBeHidden();
+
+  // card del puesto sembrado con acción de asignar usuario
+  const card = main.locator('[data-position-id]', { hasText: 'Jefe E2E CFG' }).first();
+  await expect(card).toBeVisible();
+  await card.locator('[data-pos-action="assign"]').click();
+
+  const modal = page.locator('#assignUserModal');
+  await expect(modal).toBeVisible();
+  // el picker carga usuarios reales (staff): más de la opción placeholder
+  await expect
+    .poll(async () => modal.locator('#userSelect option').count(), { timeout: 7000 })
+    .toBeGreaterThan(1);
+
+  // los modales muertos ya no existen en el DOM
+  await expect(page.locator('#managePositionModal')).toHaveCount(0);
+  await expect(page.locator('#managePositionAppsModal')).toHaveCount(0);
+});
