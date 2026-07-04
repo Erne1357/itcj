@@ -90,8 +90,7 @@ def _app_access_user_ids(db, app_id: int):
 
 @router.get("")
 def list_users(
-    search: str = Query("", description="(legacy) Búsqueda por nombre, email, username o no. control"),
-    q: Optional[str] = Query(None, description="Búsqueda canónica (gana sobre search)"),
+    q: Optional[str] = Query(None, description="Búsqueda por nombre, email, username o no. control"),
     role: Optional[str] = Query(None),
     status: Optional[str] = Query(None, description="'active' o 'inactive'"),
     app: Optional[str] = Query(None, description="Key de app: usuarios con acceso a esa app"),
@@ -115,9 +114,8 @@ def list_users(
     elif status == "inactive":
         query = query.filter(User.is_active == False)  # noqa: E712
 
-    term = q if q is not None else search
-    if term:
-        pattern = f"%{term}%"
+    if q:
+        pattern = f"%{q}%"
         query = query.filter(
             or_(
                 User.full_name.ilike(pattern),
@@ -538,7 +536,7 @@ def update_user(
 @router.get("/by-app/{app_key}")
 def list_users_by_app(
     app_key: str,
-    search: str = Query(""),
+    q: Optional[str] = Query(None, description="Búsqueda por username, nombre, email o no. control"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=50),
     user: CurrentUser = None,
@@ -562,8 +560,8 @@ def list_users_by_app(
 
     query = db.query(User).filter(User.id.in_(user_ids), User.is_active == True)  # noqa: E712
 
-    if search:
-        pattern = f"%{search}%"
+    if q:
+        pattern = f"%{q}%"
         query = query.filter(
             or_(
                 User.username.ilike(pattern),

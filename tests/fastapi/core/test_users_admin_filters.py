@@ -1,4 +1,5 @@
-"""F4 Task 1: list_users acepta q (alias canonico de search) y filtro app= real.
+"""F4 Task 1: list_users acepta q (unico filtro de texto; search legado retirado
+en B2) y filtro app= real.
 
 Direct-call style (patron F1b): se invoca la funcion del endpoint con la
 db_session real-PG (savepoint); require_perms no aplica en llamada directa.
@@ -45,7 +46,7 @@ def _mk_role(db, name):
 
 
 def _call(db, **kw):
-    args = dict(search="", q=None, role=None, status=None, app=None,
+    args = dict(q=None, role=None, status=None, app=None,
                 only_staff=False, page=1, per_page=50,
                 user={"sub": "1"}, db=db)
     args.update(kw)
@@ -62,12 +63,6 @@ def test_q_filters_like_search(db_session):
     names = [u["full_name"] for u in _users_of(resp)]
     assert any("ALPHA" in n for n in names)
     assert not any("BETA" in n for n in names)
-
-
-def test_q_takes_precedence_over_search(db_session):
-    _mk_user(db_session, "ZZF4Q", "GAMMA", username="zzf4_gamma")
-    resp = _call(db_session, q="GAMMA ZZF4Q", search="zz_no_such_user_xyz")
-    assert len(_users_of(resp)) >= 1
 
 
 def test_app_filter_direct_role(db_session):
@@ -175,7 +170,7 @@ def test_by_app_still_lists_assigned_users(db_session):
     db_session.commit()
 
     resp = users_admin.list_users_by_app(
-        app_key="zzf4app3", search="", page=1, per_page=20,
+        app_key="zzf4app3", q=None, page=1, per_page=20,
         user={"sub": "1", "role": "admin"}, db=db_session,
     )
     assert u.id in [x["id"] for x in _users_of(resp)]

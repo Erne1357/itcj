@@ -36,7 +36,7 @@ def _assert_list_envelope(resp):
 def test_list_users_envelope(db_session):
     _mk_user(db_session, "ZZF4ENV", "LISTA", username="zzf4env_lista")
     resp = users_admin.list_users(
-        search="", q="ZZF4ENV", role=None, status=None, app=None,
+        q="ZZF4ENV", role=None, status=None, app=None,
         only_staff=False, page=1, per_page=20,
         user={"sub": "1"}, db=db_session,
     )
@@ -88,7 +88,7 @@ def test_by_app_envelope(db_session):
     db_session.commit()
 
     resp = users_admin.list_users_by_app(
-        app_key="zzf4envapp", search="", page=1, per_page=20,
+        app_key="zzf4envapp", q=None, page=1, per_page=20,
         user={"sub": "1", "role": "admin"}, db=db_session,
     )
     _assert_list_envelope(resp)

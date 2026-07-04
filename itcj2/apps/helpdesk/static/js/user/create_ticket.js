@@ -104,7 +104,7 @@
             listContainer.innerHTML = '';
 
             try {
-                const url = `/api/core/v2/users/by-app/helpdesk?search=${encodeURIComponent(search)}`;
+                const url = `/api/core/v2/users/by-app/helpdesk?q=${encodeURIComponent(search)}`;
                 const response = await fetch(url);
 
                 if (!response.ok) throw new Error('Error al cargar usuarios');
