@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # invalidación; bajar para refrescar más rápido a costa de más misses.
     AUTHZ_CACHE_TTL: int = 300
 
+    # Presencia (core-config-revamp F6) — ventana en segundos para considerar
+    # "activo" a un usuario en los sorted-sets presence:notify:*. La poda ocurre
+    # EN LECTURA (presence_service.get_counts); no hay heartbeat.
+    PRESENCE_WINDOW_SECONDS: int = 300
+
     # OAuth de correo (config → email, C6 core-config-revamp): TTL en segundos
     # del nonce anti-CSRF guardado en Redis como oauth:state:{nonce} -> app_key.
     EMAIL_OAUTH_STATE_TTL: int = 600
