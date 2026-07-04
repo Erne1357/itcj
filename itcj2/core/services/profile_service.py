@@ -67,6 +67,7 @@ def get_user_profile_data(db: Session, user_id: int) -> dict:
         profile['app_assignments'][app.key] = {
             'app_name': app.name,
             'app_icon': app.icon_class or 'bi-app',
+            'app_color': app.color or '#6c757d',
             'roles': list(roles) if isinstance(roles, set) else roles,
             'direct_permissions': list(direct_perms) if isinstance(direct_perms, set) else direct_perms,
             'effective_permissions': perms_data['effective'],
