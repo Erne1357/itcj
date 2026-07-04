@@ -31,10 +31,10 @@ CONFIG_BOOST_ENABLED = True
 # MIGRADAS. Rutas relativas se sirven desde /static/core/ y se versionan con
 # sv(); URLs http(s):// (CDN) se pasan tal cual. Orden = orden de carga.
 CONFIG_PAGE_MODULES: dict[str, list[str]] = {
-    # Piloto F2. El widget de usuarios activos vive como módulo del registry;
-    # socket.io se carga vendored (F6 Task 5) ANTES del módulo.
+    # Piloto F2. El widget de usuarios activos vive como módulo del registry.
+    # socket.io vendored lo provee el shell (config_base.html base scripts, F6
+    # Task 6) a TODAS las páginas de config, así que aquí solo va el widget.
     "index": [
-        "js/vendor/socket.io.min.js",
         "js/config/active-users.js",
     ],
     "roles": ["js/config/system/roles.js"],

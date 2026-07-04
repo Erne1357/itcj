@@ -1,50 +1,56 @@
-/* =============================================================================
-   Usuarios activos (panel index de config) — módulo del registry ConfigPage.
-   Comportamiento IGUAL que el widget previo (socket /system + evento
-   active_users) pero con ciclo init/destroy: el socket se crea al entrar a la
-   página y se desconecta al salir — sin listeners duplicados en morphs A→B→A.
-   F6 reescribe este archivo (presencia real + socket.io vendored).
-   ============================================================================= */
+/**
+ * active-users.js — widget "En Línea" de la página index de /itcj/config.
+ *
+ * Suscriptor PURO del namespace /system (broadcast-only): pinta el payload
+ * `active_users` {total, students, staff, admins} (contrato C5). La presencia
+ * real se registra en /notify (presence-client.js del shell + widgets de apps);
+ * este widget ya no se cuenta a sí mismo.
+ *
+ * Módulo del registry ConfigPage (C2): init crea el socket /system al entrar a
+ * la página index; destroy lo cierra al navegar a otra pestaña del shell.
+ */
 (function () {
     'use strict';
 
     var socket = null;
 
-    function init() {
-        // Re-consultar SIEMPRE los nodos: idiomorph recrea el content en revisitas.
+    function render(data) {
         var totalEl = document.getElementById('active-users-total');
         var detailEl = document.getElementById('active-users-detail');
-        if (!totalEl || typeof window.io !== 'function') return;
+        if (!totalEl) return;
+        totalEl.textContent = (data && typeof data.total === 'number') ? String(data.total) : '--';
+        if (!detailEl) return;
+        var parts = [];
+        if (data && data.students > 0) parts.push(data.students + ' est.');
+        if (data && data.staff > 0) parts.push(data.staff + ' staff');
+        if (data && data.admins > 0) parts.push(data.admins + ' admin.');
+        detailEl.textContent = parts.join(' | ');
+    }
 
-        destroy();  // defensivo: nunca dos sockets
+    function renderError() {
+        var totalEl = document.getElementById('active-users-total');
+        var detailEl = document.getElementById('active-users-detail');
+        if (totalEl) totalEl.textContent = '--';
+        if (detailEl) detailEl.textContent = 'Sin conexión';
+    }
 
-        socket = io('/system', {
+    function init() {
+        if (!document.getElementById('active-users-total')) return; // markup ausente
+        if (!window.io) { renderError(); return; }                   // vendored no cargó
+        socket = window.io('/system', {
             transports: ['websocket', 'polling'],
             withCredentials: true
         });
-
-        socket.on('active_users', function (data) {
-            totalEl.textContent = data.total;
-            var parts = [];
-            if (data.students > 0) parts.push(data.students + ' est.');
-            if (data.admins > 0) parts.push(data.admins + ' admin.');
-            detailEl.textContent = parts.join(' | ');
-        });
-
-        socket.on('connect_error', function () {
-            totalEl.textContent = '--';
-            detailEl.textContent = 'Sin conexion';
-        });
+        socket.on('active_users', render);
+        socket.on('connect_error', renderError);
     }
 
     function destroy() {
         if (socket) {
-            try { socket.disconnect(); } catch (e) { /* noop */ }
+            try { socket.off(); socket.disconnect(); } catch (e) { /* noop */ }
             socket = null;
         }
     }
 
-    if (window.ConfigPage) {
-        window.ConfigPage.register('index', { init: init, destroy: destroy });
-    }
+    window.ConfigPage.register('index', { init: init, destroy: destroy });
 })();
