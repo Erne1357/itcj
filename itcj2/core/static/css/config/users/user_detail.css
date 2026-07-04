@@ -1,9 +1,7 @@
 .user-avatar {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     font-size: 2rem;
-    font-weight: 600;
 }
 
 .app-card {

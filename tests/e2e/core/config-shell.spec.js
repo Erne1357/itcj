@@ -64,6 +64,35 @@ test.describe('config shell — sidebar tablet (≤992px)', () => {
   });
 });
 
+test.describe('config shell — tokens y avatares dedupe', () => {
+  test('--app-primary es alias de --config-primary y el avatar del sidebar conserva su look', async ({ page }) => {
+    await gotoCore(page, '/itcj/config');
+    const probe = await page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const avatar = document.querySelector('.config-sidebar-user .user-avatar');
+      const acs = avatar ? getComputedStyle(avatar) : null;
+      return {
+        appPrimary: cs.getPropertyValue('--app-primary').trim(),
+        configPrimary: cs.getPropertyValue('--config-primary').trim(),
+        avatarW: acs ? acs.width : null,
+        avatarBg: acs ? acs.backgroundImage : null,
+        avatarRadius: acs ? acs.borderRadius : null,
+      };
+    });
+    // HOY FALLA: --app-primary es #6366f1 (indigo), no el azul config
+    expect(probe.appPrimary.replace(/\s/g, '')).not.toBe('#6366f1');
+    // el alias debe RESOLVER al valor de --config-primary (var() o literal)
+    expect(
+      probe.appPrimary === probe.configPrimary ||
+      probe.appPrimary.includes('--config-primary')
+    ).toBe(true);
+    // el avatar del sidebar no pierde su definición al deduplicar
+    expect(probe.avatarW).toBe('36px');
+    expect(probe.avatarBg).toContain('linear-gradient');
+    expect(probe.avatarRadius).toBe('50%');
+  });
+});
+
 test.describe('config shell — controller ConfigPage (C2)', () => {
   test('expone register/navigate/page y lee la página actual', async ({ page }) => {
     await gotoCore(page, '/itcj/config');
