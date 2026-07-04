@@ -226,13 +226,22 @@ def list_roles(
     user: dict = require_perms("itcj", ["core.roles.api.read"]),
     db: DbSession = None,
 ):
-    """Lista todos los roles globales."""
-    from itcj2.core.models.role import Role
+    """Lista todos los roles globales con conteo de usuarios (sin N+1)."""
+    from sqlalchemy import func
 
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.user import User
+
+    counts = dict(
+        db.query(User.role_id, func.count(User.id))
+        .filter(User.role_id.isnot(None))
+        .group_by(User.role_id)
+        .all()
+    )
     return {
         "status": "ok",
         "data": [
-            {"name": r.name}
+            {"id": r.id, "name": r.name, "users_count": counts.get(r.id, 0)}
             for r in db.query(Role).order_by(Role.name.asc()).all()
         ],
     }

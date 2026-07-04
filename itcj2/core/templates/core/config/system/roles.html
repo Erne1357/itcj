@@ -56,7 +56,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <small class="text-muted">
                         <i class="bi bi-people me-1"></i>
-                        {{ role.users|length }} usuarios asignados
+                        {{ role_counts.get(role.id, 0) }} usuarios asignados
                     </small>
                 </div>
             </div>

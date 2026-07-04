@@ -115,11 +115,23 @@ async def roles_management(
     db: DbSession = None,
 ):
     """Página de gestión de roles globales."""
+    from sqlalchemy import func
+
     from itcj2.core.models.role import Role
+    from itcj2.core.models.user import User
     from itcj2.core.pages.nav_config import render_config
 
+    role_counts = dict(
+        db.query(User.role_id, func.count(User.id))
+        .filter(User.role_id.isnot(None))
+        .group_by(User.role_id)
+        .all()
+    )
     roles = db.query(Role).order_by(Role.name.asc()).all()
-    return render_config(request, "core/config/system/roles.html", "roles", {"roles": roles})
+    return render_config(
+        request, "core/config/system/roles.html", "roles",
+        {"roles": roles, "role_counts": role_counts},
+    )
 
 
 @router.get("/config/apps/{app_key}/permissions", name="core.pages.config.app_permissions")
