@@ -192,15 +192,51 @@
             </div>`).join('');
     }
 
-    // [Task 6] agrega scope badge; en Task 5 es un badge plano.
+    // El badge del permiso directo lleva su badge de scope (C8).
     function permBadge(code, cls) {
-        return `<span class="badge ${cls} me-1 mb-1">${esc(code)}</span>`;
+        return `<span class="badge ${cls} me-1 mb-1">${esc(code)} ${pickerScopeBadge(code)}</span>`;
     }
 
-    // [Task 6] stub — panel de ancla/subtree se implementa en Task 6.
-    function renderAnchorPanel() {
+    async function renderAnchorPanel() {
         const panel = document.getElementById('anchorPanel');
-        if (panel) panel.innerHTML = '<span class="text-muted small">—</span>';
+        if (!panel || !S || !S.position) return;
+        const deptId = S.position.department_id;
+        if (!deptId) {
+            panel.innerHTML = `
+                <div class="alert alert-warning mb-0" data-cfg-anchor-warning>
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Este puesto no tiene departamento ancla.</strong>
+                    Los permisos de alcance departamental (<span class="scope-badge scope-subtree">.subtree</span>)
+                    asignados a este puesto <strong>no surtirán efecto</strong>: el alcance se resuelve
+                    a partir del departamento del puesto que otorga el permiso.
+                </div>`;
+            return;
+        }
+        panel.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>';
+        try {
+            const res = await fetch(`${API}/departments/${deptId}/subtree`);
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || 'Error al cargar el subtree');
+            const depts = (result.data && result.data.departments) || [];
+            const baseDepth = depts.length ? Math.min(...depts.map(d => d.depth)) : 0;
+            panel.innerHTML = `
+                <p class="mb-2 small text-muted">
+                    Los permisos <span class="scope-badge scope-subtree">.subtree</span> de este puesto
+                    aplican sobre el departamento ancla y todo su subárbol
+                    (<strong>${depts.length}</strong> departamento${depts.length === 1 ? '' : 's'} visibles):
+                </p>
+                <ul class="list-unstyled mb-0 anchor-subtree-list">
+                    ${depts.map(d => `
+                        <li class="anchor-subtree-item" data-subtree-dept-id="${d.id}">
+                            <span class="anchor-subtree-indent" aria-hidden="true">${'&nbsp;&nbsp;&nbsp;'.repeat(Math.max(0, d.depth - baseDepth))}</span>
+                            <i class="bi ${d.id === deptId ? 'bi-geo-alt-fill text-primary' : 'bi-building text-muted'} me-1"></i>
+                            ${esc(d.name)}${d.id === deptId ? ' <span class="badge text-bg-primary">ancla</span>' : ''}
+                        </li>`).join('')}
+                </ul>`;
+        } catch (err) {
+            console.error('Error loading subtree preview:', err);
+            panel.innerHTML = '<div class="alert alert-danger mb-0">Error al cargar el alcance del puesto</div>';
+        }
     }
 
     // === GUARDAR / BORRAR ==================================================
@@ -486,8 +522,27 @@
         }
     }
 
-    // [Task 6] devuelve el badge de scope; en Task 5 devuelve ''.
-    function pickerScopeBadge(code) { return ''; }
+    // === SCOPE-AWARE (C8) ==================================================
+    function scopeOf(code) {
+        if (code.endsWith('.subtree')) return 'subtree';
+        if (code.endsWith('.own_dept') || code.endsWith('.department')) return 'dept';
+        if (code.endsWith('.own')) return 'own';
+        if (code.endsWith('.all')) return 'all';
+        return null;
+    }
+
+    const SCOPE_LABEL = {
+        subtree: 'subtree — depto. + sub-departamentos',
+        dept: 'departamento propio',
+        own: 'solo lo propio',
+        all: 'todo (global)',
+    };
+
+    function pickerScopeBadge(code) {
+        const scope = scopeOf(code);
+        if (!scope) return '';
+        return `<span class="scope-badge scope-${scope}" title="${esc(SCOPE_LABEL[scope])}">.${esc(scope === 'dept' ? 'dept' : scope)}</span>`;
+    }
 
     function filterPermPicker(query, container) {
         const q = query.toLowerCase().trim();
@@ -578,8 +633,15 @@
         }
     }
 
-    // [Task 6] stub — lee result.warning del guardrail.
-    function notifyScopeWarning(result) { /* implementado en Task 6 */ }
+    // Lee el warning del guardrail (fail-closed). El endpoint de puesto
+    // devuelve 'scope_departamental_sin_departamento' (positions.py); se acepta
+    // también 'scope_departamental_sin_puesto' (espejo del flujo user-direct).
+    function notifyScopeWarning(result) {
+        const w = result && result.warning;
+        if (w === 'scope_departamental_sin_departamento' || w === 'scope_departamental_sin_puesto') {
+            toast('Aviso: el puesto no tiene departamento ancla; este permiso departamental no surtirá efecto.', 'warning');
+        }
+    }
 
     async function removeRole(roleName) {
         try {

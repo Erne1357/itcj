@@ -238,3 +238,39 @@ test('position detail: render base, modal de apps con roles por fetch, sin confi
     .poll(async () => modal.locator('#roleToAssign option').count(), { timeout: 7000 })
     .toBeGreaterThan(1);
 });
+
+test('position detail scope-aware: badge .subtree, ancla y preview del subtree', async ({ page }) => {
+  await gotoCore(page, `/itcj/config/positions/${seed.pos_id}`);
+  const main = page.locator('#cfgMain');
+
+  // el perm directo .subtree del seed rinde badge de scope subtree
+  await expect(main.locator('#appsContainer .scope-badge.scope-subtree').first()).toBeVisible();
+
+  // panel de ancla: departamento del puesto + subtree visible (sub y leaf)
+  const anchor = main.locator('#anchorPanel');
+  await expect(anchor).toContainText('E2E CFG SUB');
+  await expect(anchor).toContainText('E2E CFG LEAF');
+  await expect(anchor.locator('[data-cfg-anchor-warning]')).toHaveCount(0);
+});
+
+test('puesto sin ancla: alerta visible y warning al asignar perm .subtree', async ({ page }) => {
+  await gotoCore(page, `/itcj/config/positions/${seed.pos_na_id}`);
+  const main = page.locator('#cfgMain');
+
+  // alerta de puesto sin departamento ancla
+  await expect(main.locator('#anchorPanel [data-cfg-anchor-warning]')).toBeVisible();
+  await expect(main.locator('#anchorPanel')).toContainText('no surtirán efecto');
+
+  // asignar un perm .subtree desde el picker → el server responde warning y el JS lo muestra
+  await main.locator('#manageAppsBtn').click();
+  const modal = page.locator('#manageAppsModal');
+  await expect(modal).toBeVisible();
+  await modal.locator('.app-item[data-app-key="helpdesk"]').click();
+  await modal.locator('#permSearchInput').fill('.subtree');
+  const subtreeItem = modal.locator('.perm-item:not(.assigned)', { hasText: '.subtree' }).first();
+  await expect(subtreeItem).toBeVisible();
+  await subtreeItem.click();
+
+  // toast de warning (además del de éxito)
+  await expect(page.getByText(/no surtirá efecto/i).first()).toBeVisible();
+});

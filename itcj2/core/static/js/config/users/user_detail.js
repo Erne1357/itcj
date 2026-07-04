@@ -446,8 +446,10 @@
             });
             const result = await res.json();
             if (!res.ok) { toast(result.error || 'Error al asignar el permiso', 'danger'); return; }
-            // spec §3.3: mostrar el warning del guardrail (scope departamental sin puesto)
-            if (result.warning) toast(`Aviso: ${result.warning}`, 'warning');
+            // spec §3.3: guardrail scope departamental sin puesto que lo ancle (authz.py).
+            if (result.warning === 'scope_departamental_sin_puesto') {
+                toast('Aviso: el usuario no tiene un puesto que ancle este permiso departamental; no surtirá efecto.', 'warning');
+            }
             toast('Permiso asignado correctamente');
             await afterMutation();
         } catch (err) {
