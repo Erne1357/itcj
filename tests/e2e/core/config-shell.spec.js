@@ -98,9 +98,18 @@ test.describe('config shell — estados hidden sin style inline', () => {
     await gotoCore(page, '/itcj/config/users');
     await expect(page.locator('#staffFields')).toBeHidden();
     await expect(page.locator('#appAssignmentPanel')).toBeHidden();
+    // style= con SOLO custom properties (--*) es legítimo por contrato C8
+    // (app-badge usa style="--app-badge-color: ..."); se prohíbe todo estilo inline real.
     const inline = await page.evaluate(() =>
-      document.querySelectorAll('#cfgMain [style], .modal [style]').length);
-    expect(inline).toBe(0); // HOY FALLA: 4 style= en users.html
+      Array.from(document.querySelectorAll('#cfgMain [style], .modal [style]'))
+        .filter((el) => {
+          const s = el.style;
+          for (let i = 0; i < s.length; i++) {
+            if (!s[i].startsWith('--')) return true; // declaración real → violación
+          }
+          return s.length === 0 && el.getAttribute('style').trim() !== ''; // atributo raro no parseado
+        }).length);
+    expect(inline).toBe(0);
 
     await gotoCore(page, '/itcj/config/system/tasks');
     await expect(page.locator('#runsPagination')).toBeHidden();
