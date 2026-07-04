@@ -167,7 +167,9 @@ class TestHtmxShell:
         assert re.search(r'<a\b[^>]*href="/itcj/config/departments"[^>]*hx-boost="true"', html)
         # el content-root anuncia los módulos del index
         assert "active-users.js" in html
-        assert "cdn.socket.io" in html
+        # socket.io ahora es vendored y lo provee el shell (config_base.html base
+        # scripts), no un CDN ni un módulo del registry (D9, F6 Task 5/6/7).
+        assert "js/vendor/socket.io.min.js" in html
 
     def test_all_12_pages_boostable(self):
         # F5 cerró la migración (departments, department_detail, position_detail):
