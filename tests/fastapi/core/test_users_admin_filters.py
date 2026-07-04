@@ -5,7 +5,7 @@ db_session real-PG (savepoint); require_perms no aplica en llamada directa.
 Los asserts de lista son tolerantes al envelope (pre/post flip de Task 4):
 la forma exacta del envelope se fija en test_users_envelope_flip.py (Task 4).
 """
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -100,6 +100,62 @@ def test_app_filter_via_position(db_session):
 
     resp = _call(db_session, q="ZZF4POS", app="zzf4app2")
     assert [u["id"] for u in _users_of(resp)] == [u_pos.id]
+
+
+def test_app_filter_excludes_expired_position(db_session):
+    """F4/1.2: puesto is_active=True pero end_date vencido NO debe otorgar acceso.
+
+    Espeja _active_position_filter() (authz_service.py) — la fuente de verdad
+    de has_any_assignment. Antes del fix, _app_access_user_ids solo miraba
+    UserPosition.is_active y colaba usuarios con ventana vencida.
+    """
+    app = _mk_app(db_session, "zzf4app_exp")
+    role = _mk_role(db_session, "zzf4role_exp")
+    u_pos = _mk_user(db_session, "ZZF4EXP", "VENCIDO", username="zzf4_exp")
+
+    from itcj2.core.models.position import Position, UserPosition, PositionAppRole
+    pos = Position(code="zzf4_exp_code", title="ZZF4 Exp", is_active=True, allows_multiple=True)
+    db_session.add(pos)
+    db_session.flush()
+    db_session.add(UserPosition(
+        user_id=u_pos.id, position_id=pos.id,
+        start_date=date.today() - timedelta(days=30),
+        end_date=date.today() - timedelta(days=1),
+        is_active=True,
+    ))
+    db_session.add(PositionAppRole(position_id=pos.id, app_id=app.id, role_id=role.id))
+    db_session.commit()
+
+    resp = _call(db_session, q="ZZF4EXP", app="zzf4app_exp")
+    assert _users_of(resp) == []
+
+
+def test_app_filter_includes_position_with_null_or_future_end_date(db_session):
+    """F4/1.2: puesto vigente (end_date NULL o futuro) SI otorga acceso."""
+    app = _mk_app(db_session, "zzf4app_fut")
+    role = _mk_role(db_session, "zzf4role_fut")
+    u_null = _mk_user(db_session, "ZZF4FUT", "NULLEND", username="zzf4_fut_null")
+    u_future = _mk_user(db_session, "ZZF4FUT", "FUTUREEND", username="zzf4_fut_future")
+
+    from itcj2.core.models.position import Position, UserPosition, PositionAppRole
+    pos = Position(code="zzf4_fut_code", title="ZZF4 Fut", is_active=True, allows_multiple=True)
+    db_session.add(pos)
+    db_session.flush()
+    db_session.add(UserPosition(
+        user_id=u_null.id, position_id=pos.id,
+        start_date=date.today() - timedelta(days=5), end_date=None, is_active=True,
+    ))
+    db_session.add(UserPosition(
+        user_id=u_future.id, position_id=pos.id,
+        start_date=date.today() - timedelta(days=5),
+        end_date=date.today() + timedelta(days=5), is_active=True,
+    ))
+    db_session.add(PositionAppRole(position_id=pos.id, app_id=app.id, role_id=role.id))
+    db_session.commit()
+
+    resp = _call(db_session, q="ZZF4FUT", app="zzf4app_fut")
+    ids = {u["id"] for u in _users_of(resp)}
+    assert ids == {u_null.id, u_future.id}
 
 
 def test_app_filter_unknown_key_returns_empty(db_session):

@@ -57,6 +57,7 @@ def _app_access_user_ids(db, app_id: int):
     from itcj2.core.models.user_app_role import UserAppRole
     from itcj2.core.models.user_app_perm import UserAppPerm
     from itcj2.core.models.position import UserPosition, PositionAppRole, PositionAppPerm
+    from itcj2.core.services.authz_service import _active_position_filter
 
     with_roles = db.query(User.id).join(
         UserAppRole, UserAppRole.user_id == User.id
@@ -70,7 +71,7 @@ def _app_access_user_ids(db, app_id: int):
         UserPosition, UserPosition.user_id == User.id
     ).join(
         PositionAppRole, PositionAppRole.position_id == UserPosition.position_id
-    ).filter(PositionAppRole.app_id == app_id, UserPosition.is_active == True)  # noqa: E712
+    ).filter(PositionAppRole.app_id == app_id, _active_position_filter())
 
     with_pos_perms = db.query(User.id).join(
         UserPosition, UserPosition.user_id == User.id
@@ -79,7 +80,7 @@ def _app_access_user_ids(db, app_id: int):
     ).filter(
         PositionAppPerm.app_id == app_id,
         PositionAppPerm.allow == True,  # noqa: E712
-        UserPosition.is_active == True,  # noqa: E712
+        _active_position_filter(),
     )
 
     return with_roles.union(with_perms).union(with_pos_roles).union(with_pos_perms)
