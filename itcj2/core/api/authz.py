@@ -99,7 +99,7 @@ def list_apps(
 
     rows = db.query(App).order_by(App.key.asc()).all()
     return {
-        "status": "ok",
+        "success": True,
         "data": [
             {
                 "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
@@ -141,7 +141,7 @@ def create_app(
     invalidate_app_styles()
     logger.info(f"App '{key}' creada por usuario {int(user['sub'])}")
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
             "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
@@ -187,7 +187,7 @@ def update_app(
     invalidate_app_styles()
     logger.info(f"App '{app_key}' actualizada por usuario {int(user['sub'])}")
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             "id": a.id, "key": a.key, "name": a.name, "is_active": a.is_active,
             "mobile_enabled": a.mobile_enabled, "visible_to_students": a.visible_to_students,
@@ -239,7 +239,7 @@ def list_roles(
         .all()
     )
     return {
-        "status": "ok",
+        "success": True,
         "data": [
             {"id": r.id, "name": r.name, "users_count": counts.get(r.id, 0)}
             for r in db.query(Role).order_by(Role.name.asc()).all()
@@ -266,7 +266,7 @@ def create_role(
     db.add(r)
     db.commit()
     logger.info(f"Rol '{name}' creado por usuario {int(user['sub'])}")
-    return {"status": "ok", "data": {"name": r.name}}
+    return {"success": True, "data": {"name": r.name}}
 
 
 @router.delete("/roles/{role_name}", status_code=204)
@@ -300,7 +300,7 @@ def list_perms(
     """Lista permisos de una aplicación."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": svc.list_perms(db, app_key)}
+    return {"success": True, "data": svc.list_perms(db, app_key)}
 
 
 @router.post("/apps/{app_key}/perms", status_code=201)
@@ -326,7 +326,7 @@ def create_perm(
     perm = Permission(app_id=app.id, code=code, name=name, description=body.description or None)
     db.add(perm)
     db.commit()
-    return {"status": "ok", "data": {"code": perm.code, "name": perm.name, "description": perm.description}}
+    return {"success": True, "data": {"code": perm.code, "name": perm.name, "description": perm.description}}
 
 
 @router.delete("/apps/{app_key}/perms/{code}", status_code=204)
@@ -378,7 +378,7 @@ def get_role_perms(
         .order_by(Permission.code.asc())
         .all()
     )
-    return {"status": "ok", "data": [r[0] for r in rows]}
+    return {"success": True, "data": [r[0] for r in rows]}
 
 
 @router.put("/apps/{app_key}/roles/{role_name}/perms")
@@ -424,7 +424,7 @@ def replace_role_perms(
     db.commit()
     from itcj2.core.services.authz_cache import invalidate_all
     invalidate_all()  # role-wide: afecta a todos los usuarios con este rol
-    return {"status": "ok", "data": None}
+    return {"success": True, "data": None}
 
 
 @router.post("/apps/{app_key}/roles/{role_name}/perms/{code}")
@@ -454,7 +454,7 @@ def add_role_perm(
         db.commit()
         from itcj2.core.services.authz_cache import invalidate_all
         invalidate_all()  # role-wide
-    return {"status": "ok", "data": None}
+    return {"success": True, "data": None}
 
 
 @router.delete("/apps/{app_key}/roles/{role_name}/perms/{code}", status_code=204)
@@ -497,7 +497,7 @@ def get_user_roles(
     """Roles de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": sorted(list(svc.user_roles_in_app(db, user_id, app_key)))}
+    return {"success": True, "data": sorted(list(svc.user_roles_in_app(db, user_id, app_key)))}
 
 
 @router.post("/apps/{app_key}/users/{user_id}/roles")
@@ -516,7 +516,7 @@ def add_user_role(
         raise HTTPException(400, detail="El nombre del rol es requerido")
 
     created = svc.grant_role(db, user_id, app_key, role_name)
-    return {"status": "ok", "data": {"created": bool(created)}}
+    return {"success": True, "data": {"created": bool(created)}}
 
 
 @router.delete("/apps/{app_key}/users/{user_id}/roles/{role_name}", status_code=204)
@@ -543,7 +543,7 @@ def get_user_perms(
     """Permisos directos de un usuario en una app."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": sorted(list(svc.user_direct_perms_in_app(db, user_id, app_key)))}
+    return {"success": True, "data": sorted(list(svc.user_direct_perms_in_app(db, user_id, app_key)))}
 
 
 @router.post("/apps/{app_key}/users/{user_id}/perms")
@@ -562,7 +562,7 @@ def add_user_perm(
         raise HTTPException(400, detail="El código del permiso es requerido")
 
     changed = svc.grant_perm(db, user_id, app_key, code, allow=body.allow)
-    resp = {"status": "ok", "data": {"updated": bool(changed)}}
+    resp = {"success": True, "data": {"updated": bool(changed)}}
 
     # Guardrail: un perm de scope departamental (.subtree) sin puesto que lo respalde
     # no tiene ancla → no surte efecto (fail-closed). Avisamos para no dejar un
@@ -599,4 +599,4 @@ def get_user_effective_perms(
     """Permisos efectivos de un usuario en una app (roles + directos + puestos)."""
     from itcj2.core.services import authz_service as svc
 
-    return {"status": "ok", "data": svc.effective_perms(db, user_id, app_key)}
+    return {"success": True, "data": svc.effective_perms(db, user_id, app_key)}

@@ -50,7 +50,7 @@ def get_direction(
 
     direction = svc.get_direction(db)
     return {
-        "status": "ok",
+        "success": True,
         "data": direction.to_dict(include_children=True) if direction else None,
     }
 
@@ -65,7 +65,7 @@ def get_union_delegation(
 
     union_delegation = svc.get_union_delegation(db)
     return {
-        "status": "ok",
+        "success": True,
         "data": union_delegation.to_dict(include_children=True) if union_delegation else None,
     }
 
@@ -79,7 +79,7 @@ def list_subdirections(
     from itcj2.core.services import departments_service as svc
 
     subdirs = svc.list_subdirections(db)
-    return {"status": "ok", "data": [d.to_dict(include_children=True) for d in subdirs]}
+    return {"success": True, "data": [d.to_dict(include_children=True) for d in subdirs]}
 
 
 @router.get("/parent-options")
@@ -91,12 +91,11 @@ def list_parent_options(
     """Opciones de padre: árbol activo completo aplanado con depth (sin cap).
 
     ``exclude_subtree_of``: excluye ese depto y su subtree (modo edición, F5).
-    Envelope legacy {"status": "ok"} — flip por-recurso en F5.
     """
     from itcj2.core.services import departments_service as svc
 
     options = svc.list_parent_options(db, exclude_subtree_of=exclude_subtree_of)
-    return {"status": "ok", "data": options}
+    return {"success": True, "data": options}
 
 
 @router.get("/tree")
@@ -149,7 +148,7 @@ def list_by_parent(
     from itcj2.core.services import departments_service as svc
 
     depts = svc.list_departments_by_parent(db, parent_id)
-    return {"status": "ok", "data": [d.to_dict() for d in depts]}
+    return {"success": True, "data": [d.to_dict() for d in depts]}
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -163,7 +162,7 @@ def list_departments(
     from itcj2.core.services import departments_service as svc
 
     depts = svc.list_departments(db)
-    return {"status": "ok", "data": [d.to_dict() for d in depts]}
+    return {"success": True, "data": [d.to_dict() for d in depts]}
 
 
 @router.get("/{dept_id}")
@@ -197,7 +196,7 @@ def get_department(
     ]
 
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             **dept.to_dict(include_children=True),
             "positions": positions_data,
@@ -230,7 +229,7 @@ def create_department(
             is_official=body.is_official,
         )
         logger.info(f"Departamento '{name}' creado por usuario {int(user['sub'])}")
-        return {"status": "ok", "data": dept.to_dict()}
+        return {"success": True, "data": dept.to_dict()}
     except ValueError as e:
         raise HTTPException(409, detail=str(e))
 
@@ -259,7 +258,7 @@ def update_department(
     try:
         dept = svc.update_department(db, dept_id, **updates)
         logger.info(f"Departamento {dept_id} actualizado por usuario {int(user['sub'])}")
-        return {"status": "ok", "data": dept.to_dict()}
+        return {"success": True, "data": dept.to_dict()}
     except ValueError as e:
         raise HTTPException(404, detail=str(e))
 
@@ -337,6 +336,6 @@ def get_department_users(
         })
 
     return {
-        "status": "ok",
+        "success": True,
         "data": {"department": dept.to_dict(), "users": users_list, "total": len(users_list)},
     }

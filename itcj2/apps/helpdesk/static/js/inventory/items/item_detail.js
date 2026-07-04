@@ -824,7 +824,7 @@
             if (!response.ok) throw new Error('Error al cargar usuarios');
 
             const result = await response.json();
-            departmentUsers = result.data;
+            departmentUsers = result.data.users || [];
 
             const select = document.getElementById('assign-user-select');
             select.innerHTML = '<option value="">Seleccionar usuario...</option>';

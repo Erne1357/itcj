@@ -58,10 +58,11 @@ def test_legacy_keys_preserved(db_session):
         assert key in o
 
 
-def test_endpoint_param_and_legacy_envelope(db_session):
+def test_endpoint_param_and_success_envelope(db_session):
     r = _mk(db_session, "po_e_root")
     l1 = _mk(db_session, "po_e_l1", parent=r.id)
     resp = departments_api.list_parent_options(exclude_subtree_of=l1.id,
                                                user={"sub": "1"}, db=db_session)
-    assert resp["status"] == "ok"  # envelope legacy hasta el flip de F5
+    assert resp["success"] is True  # envelope nuevo tras el flip de F5
+    assert "status" not in resp
     assert l1.id not in {o["id"] for o in resp["data"]}

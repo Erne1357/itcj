@@ -74,7 +74,7 @@ def list_positions(
 
     positions = svc.list_positions(db, department)
     return {
-        "status": "ok",
+        "success": True,
         "data": [
             {
                 "id": p.id,
@@ -101,7 +101,7 @@ def get_user_positions(
     """Puestos activos de un usuario."""
     from itcj2.core.services import positions_service as svc
 
-    return {"status": "ok", "data": svc.get_user_active_positions(db, user_id)}
+    return {"success": True, "data": svc.get_user_active_positions(db, user_id)}
 
 
 @router.get("/users/{user_id}/apps/{app_key}/position-perms")
@@ -116,7 +116,7 @@ def get_user_position_permissions(
 
     try:
         perms = svc.get_position_effective_permissions(db, user_id, app_key)
-        return {"status": "ok", "data": sorted(list(perms))}
+        return {"success": True, "data": sorted(list(perms))}
     except Exception as e:
         raise HTTPException(400, detail=str(e))
 
@@ -135,7 +135,7 @@ def get_position(
         raise HTTPException(404, detail="Puesto no encontrado")
 
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             "id": position.id,
             "code": position.code,
@@ -178,7 +178,7 @@ def create_position(
         )
         logger.info(f"Puesto '{title}' creado por usuario {int(user['sub'])}")
         return {
-            "status": "ok",
+            "success": True,
             "data": {
                 "id": position.id, "code": position.code, "title": position.title,
                 "description": position.description, "email": position.email,
@@ -205,7 +205,7 @@ def update_position(
         position = svc.update_position(db, position_id, **updates)
         logger.info(f"Puesto {position_id} actualizado por usuario {int(user['sub'])}")
         return {
-            "status": "ok",
+            "success": True,
             "data": {
                 "id": position.id, "code": position.code, "title": position.title,
                 "description": position.description, "email": position.email,
@@ -255,7 +255,7 @@ def get_position_current_user(
     """Usuario actualmente asignado al puesto."""
     from itcj2.core.services import positions_service as svc
 
-    return {"status": "ok", "data": svc.get_position_current_user(db, position_id)}
+    return {"success": True, "data": svc.get_position_current_user(db, position_id)}
 
 
 @router.get("/{position_id}/users")
@@ -267,7 +267,7 @@ def get_position_all_users(
     """Todos los usuarios asignados al puesto."""
     from itcj2.core.services import positions_service as svc
 
-    return {"status": "ok", "data": svc.get_position_current_users(db, position_id)}
+    return {"success": True, "data": svc.get_position_current_users(db, position_id)}
 
 
 @router.post("/{position_id}/assign-user", status_code=201)
@@ -291,7 +291,7 @@ def assign_user_to_position(
         assignment = svc.assign_user_to_position(db, body.user_id, position_id, start_date, body.notes)
         logger.info(f"Usuario {body.user_id} asignado al puesto {position_id}")
         return {
-            "status": "ok",
+            "success": True,
             "data": {
                 "user_id": assignment.user_id,
                 "position_id": assignment.position_id,
@@ -329,7 +329,7 @@ def transfer_position(
 
     try:
         svc.transfer_position(db, old_user_id, body.new_user_id, position_id, transfer_date)
-        return {"status": "ok", "data": {"transferred": True}}
+        return {"success": True, "data": {"transferred": True}}
     except Exception as e:
         raise HTTPException(500, detail=str(e))
 
@@ -360,7 +360,7 @@ def remove_user_from_position(
 
     success = svc.remove_user_from_position(db, user_id, position_id, end_date)
     if success:
-        return {"status": "ok", "data": {"removed": True}}
+        return {"success": True, "data": {"removed": True}}
     raise HTTPException(404, detail="No se pudo remover la asignación")
 
 
@@ -376,7 +376,7 @@ def get_position_assignments(
     from itcj2.core.services import positions_service as svc
 
     try:
-        return {"status": "ok", "data": svc.get_position_assignments(db, position_id)}
+        return {"success": True, "data": svc.get_position_assignments(db, position_id)}
     except ValueError as e:
         raise HTTPException(404, detail=str(e))
 
@@ -400,7 +400,7 @@ def get_position_app_roles(
         .filter(PositionAppRole.position_id == position_id, PositionAppRole.app_id == app.id)
         .all()
     )
-    return {"status": "ok", "data": [r[0] for r in roles]}
+    return {"success": True, "data": [r[0] for r in roles]}
 
 
 @router.post("/{position_id}/apps/{app_key}/roles")
@@ -420,7 +420,7 @@ def assign_role_to_position(
 
     try:
         created = svc.assign_role_to_position(db, position_id, app_key, role_name)
-        return {"status": "ok", "data": {"created": created}}
+        return {"success": True, "data": {"created": created}}
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
 
@@ -462,7 +462,7 @@ def get_position_app_perms(
         )
         .all()
     )
-    return {"status": "ok", "data": [p[0] for p in perms]}
+    return {"success": True, "data": [p[0] for p in perms]}
 
 
 @router.post("/{position_id}/apps/{app_key}/perms")
@@ -485,7 +485,7 @@ def assign_perm_to_position(
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
 
-    resp = {"status": "ok", "data": {"updated": created}}
+    resp = {"success": True, "data": {"updated": created}}
 
     # Guardrail (espejo de authz.add_user_perm, authz.py:514-520): un perm
     # .subtree en un puesto SIN department_id no tiene ancla → fail-closed,
@@ -567,4 +567,4 @@ def get_position_effective_perms(
     all_perms.update(p[0] for p in perms_via_roles)
     all_perms.update(p[0] for p in direct_perms)
 
-    return {"status": "ok", "data": sorted(all_perms)}
+    return {"success": True, "data": sorted(all_perms)}
