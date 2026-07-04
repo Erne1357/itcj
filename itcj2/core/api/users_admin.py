@@ -159,20 +159,12 @@ def list_users(
     ]
 
     return {
-        "status": "ok",
-        "data": {
-            "users": users_data,
-            "pagination": {
-                "page": p.page,
-                "per_page": p.per_page,
-                "total": p.total,
-                "pages": p.pages,
-                "has_next": p.has_next,
-                "has_prev": p.has_prev,
-                "next_num": p.next_num,
-                "prev_num": p.prev_num,
-            },
-        },
+        "success": True,
+        "data": users_data,
+        "total": p.total,
+        "page": p.page,
+        "per_page": p.per_page,
+        "total_pages": p.pages,
     }
 
 
@@ -251,7 +243,7 @@ def create_user(
 
         logger.info(f"Usuario '{new_user.full_name}' creado por {int(user['sub'])}")
         return {
-            "status": "ok",
+            "success": True,
             "data": {
                 "id": new_user.id,
                 "full_name": new_user.full_name,
@@ -439,7 +431,7 @@ def reset_user_password(
     db.commit()
 
     logger.info(f"Contraseña reseteada para usuario {user_id} por {int(current_user['sub'])}")
-    return {"status": "ok", "data": {"user_id": u.id, "must_change_password": True}}
+    return {"success": True, "data": {"user_id": u.id, "must_change_password": True}}
 
 
 # ── Toggle status ─────────────────────────────────────────────────────────────
@@ -473,7 +465,7 @@ def toggle_user_status(
 
     action = "activada" if u.is_active else "desactivada"
     logger.info(f"Cuenta de usuario {user_id} {action} por {int(current_user['sub'])}")
-    return {"status": "ok", "data": {"user_id": u.id, "is_active": u.is_active, "message": f"Cuenta {action}"}}
+    return {"success": True, "data": {"user_id": u.id, "is_active": u.is_active, "message": f"Cuenta {action}"}}
 
 
 # ── Update user ───────────────────────────────────────────────────────────────
@@ -536,7 +528,7 @@ def update_user(
         raise HTTPException(409, detail="Valor duplicado")
 
     logger.info(f"Usuario {user_id} actualizado por {int(current_user['sub'])}")
-    return {"status": "ok", "data": u.to_dict()}
+    return {"success": True, "data": u.to_dict()}
 
 
 # ── Users by app ──────────────────────────────────────────────────────────────
@@ -600,20 +592,12 @@ def list_users_by_app(
         })
 
     return {
-        "status": "ok",
-        "data": {
-            "users": users_data,
-            "pagination": {
-                "page": p.page,
-                "per_page": p.per_page,
-                "total": p.total,
-                "pages": p.pages,
-                "has_next": p.has_next,
-                "has_prev": p.has_prev,
-                "next_num": p.next_num,
-                "prev_num": p.prev_num,
-            },
-        },
+        "success": True,
+        "data": users_data,
+        "total": p.total,
+        "page": p.page,
+        "per_page": p.per_page,
+        "total_pages": p.pages,
     }
 
 

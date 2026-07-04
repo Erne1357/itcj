@@ -65,7 +65,7 @@ def change_password(body: ChangePasswordRequest, user: CurrentUser, db: DbSessio
     u.must_change_password = False
     db.commit()
 
-    return {"message": "password_updated"}
+    return {"success": True, "message": "Contraseña actualizada"}
 
 
 @router.get("/me", response_model=UserProfileResponse)
@@ -145,7 +145,7 @@ def get_activity(user: CurrentUser, limit: int = Query(10, ge=1, le=50)):
     user_id = int(user["sub"])
     db = SessionLocal()
     try:
-        return {"status": "ok", "data": get_user_activity(db, user_id, limit=limit)}
+        return {"success": True, "data": get_user_activity(db, user_id, limit=limit)}
     finally:
         db.close()
 
@@ -163,7 +163,7 @@ def get_notifications(
     user_id = int(user["sub"])
     db = SessionLocal()
     try:
-        return {"status": "ok", "data": get_user_notifications(db, user_id, unread_only, limit)}
+        return {"success": True, "data": get_user_notifications(db, user_id, unread_only, limit)}
     finally:
         db.close()
 
@@ -193,4 +193,4 @@ def update_profile(body: UpdateProfileRequest, user: CurrentUser, db: DbSession)
         u.email = body.email
 
     db.commit()
-    return {"status": "ok", "message": "profile_updated"}
+    return {"success": True, "message": "Perfil actualizado"}

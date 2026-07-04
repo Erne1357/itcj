@@ -764,19 +764,20 @@ class DepartmentDetailManager {
 
         try {
             const url = searchTerm ?
-                `${this.apiBase}/users?search=${encodeURIComponent(searchTerm)}&limit=50` :
-                `${this.apiBase}/users?limit=50`;
+                `${this.apiBase}/users?q=${encodeURIComponent(searchTerm)}&per_page=50` :
+                `${this.apiBase}/users?per_page=50`;
 
             const response = await fetch(url);
             const result = await response.json();
 
             if (response.ok && result.data) {
+                const users = Array.isArray(result.data) ? result.data : (result.data.users || []);
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
 
-                result.data.forEach(user => {
+                users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
-                    option.textContent = `${user.name}${user.email ? ` (${user.email})` : ''}`;
+                    option.textContent = `${user.full_name || user.name}${user.email ? ` (${user.email})` : ''}`;
                     select.appendChild(option);
                 });
             }
@@ -811,29 +812,22 @@ class DepartmentDetailManager {
         try {
             select.innerHTML = '<option value="">Cargando usuarios...</option>';
 
-            const response = await fetch(`${this.apiBase}/users?limit=100`);
+            const response = await fetch(`${this.apiBase}/users?per_page=100`);
             const result = await response.json();
 
-
             if (response.ok && result.data) {
+                const users = Array.isArray(result.data) ? result.data : (result.data.users || []);
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
 
-                // ⭐ VALIDACIÓN: Verificar que result.data sea un array
-                if (Array.isArray(result.data)) {
-                    result.data.forEach(user => {
-                        const option = document.createElement('option');
-                        option.value = user.id;
-                        option.textContent = `${user.name}${user.email ? ` (${user.email})` : ''}`;
-                        select.appendChild(option);
-                    });
+                users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = `${user.full_name || user.name}${user.email ? ` (${user.email})` : ''}`;
+                    select.appendChild(option);
+                });
 
-                    if (result.data.length === 0) {
-                        select.innerHTML = '<option value="">No hay usuarios disponibles</option>';
-                    }
-                } else {
-                    // ⭐ MANEJO: Si data no es array
-                    console.error('Expected array but got:', typeof result.data, result.data);
-                    throw new Error('La respuesta de usuarios no tiene el formato esperado');
+                if (users.length === 0) {
+                    select.innerHTML = '<option value="">No hay usuarios disponibles</option>';
                 }
             } else {
                 throw new Error(result.error || 'Error al obtener usuarios');

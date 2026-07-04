@@ -110,7 +110,7 @@
                 if (!response.ok) throw new Error('Error al cargar usuarios');
 
                 const result = await response.json();
-                this.availableRequesters = result.data?.users || [];
+                this.availableRequesters = Array.isArray(result.data) ? result.data : (result.data?.users || []);
                 this.filteredRequesters = [...this.availableRequesters];
 
                 loadingDiv.style.display = 'none';

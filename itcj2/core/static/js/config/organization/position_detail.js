@@ -349,20 +349,21 @@ class PositionDetailManager {
         try {
             select.innerHTML = '<option value="">Cargando usuarios...</option>';
 
-            const response = await fetch(`${this.apiBase}/users?limit=100&only_staff=true`);
+            const response = await fetch(`${this.apiBase}/users?per_page=100&only_staff=true`);
             const result = await response.json();
 
             if (response.ok && result.data) {
+                const users = Array.isArray(result.data) ? result.data : (result.data.users || []);
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
-                
-                result.data.users.forEach(user => {
+
+                users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
                     option.textContent = `${user.username}${user.email ? ` (${user.email})` : ''}`;
                     select.appendChild(option);
                 });
-                
-                if (result.data.users.length === 0) {
+
+                if (users.length === 0) {
                     select.innerHTML = '<option value="">No hay usuarios disponibles</option>';
                 }
             }
@@ -377,17 +378,17 @@ class PositionDetailManager {
         
         try {
             const url = searchTerm ?
-                `${this.apiBase}/users?search=${encodeURIComponent(searchTerm)}&limit=50&only_staff=true` :
-                `${this.apiBase}/users?limit=50&only_staff=true`;
-            
+                `${this.apiBase}/users?q=${encodeURIComponent(searchTerm)}&per_page=50&only_staff=true` :
+                `${this.apiBase}/users?per_page=50&only_staff=true`;
+
             const response = await fetch(url);
             const result = await response.json();
-            
 
             if (response.ok && result.data) {
+                const users = Array.isArray(result.data) ? result.data : (result.data.users || []);
                 select.innerHTML = '<option value="">Seleccionar usuario...</option>';
-                
-                result.data.users.forEach(user => {
+
+                users.forEach(user => {
                     const option = document.createElement('option');
                     option.value = user.id;
                     option.textContent = `${user.username}${user.email ? ` (${user.email})` : ''}`;
