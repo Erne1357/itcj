@@ -1,600 +1,283 @@
-// itcj/core/static/js/config/departments.js
-class DepartmentsManager {
-    constructor() {
-        this.apiBase = '/api/core/v2';
-        this.currentView = 'top-level'; // 'top-level' | 'subdirections' | 'departments'
-        this.selectedTopLevel = null; // Dirección o Sindicato
-        this.selectedSubdirection = null;
-        this.topLevelEntities = []; // Dirección y Sindicato
-        this.subdirections = [];
-        this.departments = [];
-        this.navigationStack = [];
-        
-        // Mapeo de iconos por código
-        this.ICON_MAP = {
-            // Dirección y Sindicato
-            'direction': 'bi-briefcase',
-            'union_delegation': 'bi-people-fill',
-            
-            // Subdirecciones
-            'sub_planning': 'bi-diagram-3',
-            'sub_academic': 'bi-mortarboard',
-            'sub_admin_services': 'bi-gear',
-            
-            // Departamentos - Planeación
-            'planning': 'bi-bar-chart-line',
-            'comms_diffusion': 'bi-megaphone',
-            'school_services': 'bi-person-badge',
-            'extracurricular_act': 'bi-palette',
-            'tech_management': 'bi-handshake',
-            'info_resources': 'bi-book',
-            
-            // Departamentos - Académica
-            'basic_sciences': 'bi-calculator',
-            'metal_mechanics': 'bi-tools',
-            'elec_electronics': 'bi-lightning',
-            'academic_dev': 'bi-journal-check',
-            'sys_computing': 'bi-code-slash',
-            'industrial_eng': 'bi-factory',
-            'eco_admin_sci': 'bi-cash-coin',
-            'prof_studies_div': 'bi-briefcase',
-            'postgrad_research': 'bi-flask',
-            
-            // Departamentos - Servicios Admin
-            'human_resources': 'bi-people',
-            'financial_resources': 'bi-wallet',
-            'mat_services': 'bi-box-seam',
-            'equipment_maint': 'bi-wrench',
-            'comp_center': 'bi-hdd-stack'
-        };
-        
-        this.init();
-    }
+// itcj2/core/static/js/config/organization/departments.js
+// Árbol organizacional interactivo. Módulo ConfigPage (patrón C2): IIFE + register.
+// Envelope-agnóstico: branch por response.ok; lee result.data / result.error.
+(function () {
+    'use strict';
 
-    async init() {
-        this.bindEvents();
-        this.initModals();
-        await this.loadTopLevelEntities();
-        this.renderTopLevelView();
-    }
+    const API = '/api/core/v2';
 
-    bindEvents() {
-        const createForm = document.getElementById('createDepartmentForm');
-        if (createForm) {
-            createForm.addEventListener('submit', (e) => this.handleCreateDepartment(e));
-        }
+    const esc = (window.ConfigUtils && window.ConfigUtils.escapeHtml) || function (s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
 
-        const backBtn = document.getElementById('backBtn');
-        if (backBtn) {
-            backBtn.addEventListener('click', () => this.goBack());
-        }
-    }
-
-    initModals() {
-        this.createModal = new bootstrap.Modal(document.getElementById('createDepartmentModal'));
-        
-        // Cargar subdirecciones en el select del modal
-        const parentSelect = document.getElementById('deptParent');
-        if (parentSelect) {
-            this.loadParentOptions();
-        }
-    }
-
-    async loadParentOptions() {
-        try {
-            const response = await fetch(`${this.apiBase}/departments/parent-options`);
-            const result = await response.json();
-            
-            if (response.ok && result.data) {
-                const select = document.getElementById('deptParent');
-                // Preservar la primera opción
-                const firstOption = select.querySelector('option[value=""]');
-                select.innerHTML = '';
-                if (firstOption) {
-                    select.appendChild(firstOption);
-                }
-                
-                result.data.forEach(dept => {
-                    const option = document.createElement('option');
-                    option.value = dept.id;
-                    const level = dept.parent_id ? '├─ ' : '📁 ';
-                    option.textContent = level + dept.name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Error loading parent options:', error);
-        }
-    }
-
-    async loadTopLevelEntities() {
-        try {
-            // Cargar dirección
-            const dirResponse = await fetch(`${this.apiBase}/departments/direction`);
-            const dirResult = await dirResponse.json();
-            
-            // Cargar sindicato
-            const unionResponse = await fetch(`${this.apiBase}/departments/union-delegation`);
-            const unionResult = await unionResponse.json();
-            
-            this.topLevelEntities = [];
-            
-            if (dirResponse.ok && dirResult.data) {
-                this.topLevelEntities.push(dirResult.data);
-            }
-            
-            if (unionResponse.ok && unionResult.data) {
-                this.topLevelEntities.push(unionResult.data);
-            }
-        } catch (error) {
-            console.error('Error loading top level entities:', error);
-            this.showError('Error al cargar la estructura organizacional');
-        }
-    }
-
-    async loadSubdirections() {
-        try {
-            const response = await fetch(`${this.apiBase}/departments/subdirections`);
-            const result = await response.json();
-            
-            if (response.ok && result.data) {
-                this.subdirections = result.data;
-            }
-        } catch (error) {
-            console.error('Error loading subdirections:', error);
-            this.showError('Error al cargar las subdirecciones');
-        }
-    }
-
-    async loadDepartmentsByParent(parentId) {
-        try {
-            const response = await fetch(`${this.apiBase}/departments/by-parent?parent_id=${parentId}`);
-            const result = await response.json();
-            
-            if (response.ok && result.data) {
-                this.departments = result.data;
-            }
-        } catch (error) {
-            console.error('Error loading departments:', error);
-            this.showError('Error al cargar los departamentos');
-        }
-    }
-
-    renderTopLevelView() {
-        this.currentView = 'top-level';
-        const container = document.getElementById('mainContainer');
-        
-        // Update header
-        document.getElementById('currentBreadcrumb').textContent = 'Estructura Organizacional';
-        document.getElementById('pageTitle').innerHTML = '<i class="bi bi-building me-2"></i>Estructura Organizacional';
-        document.getElementById('pageSubtitle').textContent = 'Dirección y Delegación Sindical del instituto';
-        document.getElementById('backBtn').style.display = 'none';
-        this.navigationStack = [];
-
-        if (this.topLevelEntities.length === 0) {
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="bi bi-building display-1 text-muted"></i>
-                    <h5 class="text-muted mt-3">No hay estructura organizacional registrada</h5>
-                    <p class="text-muted">Crea la dirección o delegación sindical</p>
-                </div>
-            `;
-            return;
-        }
-
-        // Renderizar entidades de nivel superior lado a lado
-        container.innerHTML = `
-            <div class="row justify-content-center g-4">
-                ${this.topLevelEntities.map(entity => `
-                    <div class="col-12 col-lg-6">
-                        ${this.createTopLevelCard(entity)}
-                    </div>
-                `).join('')}
-            </div>
-        `;
-
-        // Bind click events
-        document.querySelectorAll('.top-level-card').forEach(card => {
-            card.addEventListener('click', async (e) => {
-                if (e.target.closest('.admin-btn')) {
-                    e.stopPropagation();
-                    return;
-                }
-                const entityId = parseInt(card.dataset.entityId);
-                await this.selectTopLevel(entityId);
-            });
-        });
-
-        // Bind admin button events
-        document.querySelectorAll('.admin-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const deptId = parseInt(btn.dataset.deptId);
-                window.location.href = `/itcj/config/departments/${deptId}`;
-            });
-        });
-    }
-
-    renderSubdirectionsView() {
-        this.currentView = 'subdirections';
-        const container = document.getElementById('mainContainer');
-        
-        // Update header
-        document.getElementById('currentBreadcrumb').textContent = this.selectedTopLevel.name;
-        document.getElementById('pageTitle').innerHTML = `
-            <i class="${this.getIcon(this.selectedTopLevel.code, this.selectedTopLevel.icon_class)} me-2"></i>${this.selectedTopLevel.name}
-        `;
-        document.getElementById('pageSubtitle').textContent = 'Selecciona una subdirección para ver sus departamentos';
-        document.getElementById('backBtn').style.display = 'inline-block';
-
-        if (this.subdirections.length === 0) {
-            container.innerHTML = `
-                <div class="text-center py-5 fade-in">
-                    <i class="bi bi-diagram-3 display-1 text-muted"></i>
-                    <h5 class="text-muted mt-3">No hay subdirecciones registradas</h5>
-                    <p class="text-muted">Crea la primera subdirección organizacional</p>
-                </div>
-            `;
-            return;
-        }
-
-        // Renderizar subdirecciones centradas
-        container.innerHTML = `
-            <div class="row justify-content-center g-4">
-                ${this.subdirections.map(sub => this.createSubdirectionCard(sub)).join('')}
-            </div>
-        `;
-
-        // Bind click events
-        document.querySelectorAll('.subdirection-card').forEach(card => {
-            card.addEventListener('click', async (e) => {
-                if (e.target.closest('.admin-btn')) {
-                    e.stopPropagation();
-                    return;
-                }
-                const subdirId = parseInt(card.dataset.subdirId);
-                await this.selectSubdirection(subdirId, card);
-            });
-        });
-
-        // Bind admin button events
-        document.querySelectorAll('.admin-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const deptId = parseInt(btn.dataset.deptId);
-                window.location.href = `/itcj/config/departments/${deptId}`;
-            });
-        });
-    }
-
-    createTopLevelCard(entity) {
-        const icon = this.getIcon(entity.code, entity.icon_class);
-        const isDirection = entity.code === 'direction';
-        const childrenLabel = isDirection ? 'Subdirecciones' : 'Departamentos';
-        const childrenIcon = isDirection ? 'bi-diagram-3' : 'bi-building';
-        
-        return `
-            <div class="card top-level-card shadow-lg border-0 fade-in" data-entity-id="${entity.id}">
-                <div class="card-body text-center p-5 position-relative">
-                    <!-- Botón de administración discreto -->
-                    <button class="btn btn-sm btn-outline-secondary admin-btn position-absolute top-0 end-0 m-3" 
-                            data-dept-id="${entity.id}" title="Administrar ${entity.name}">
-                        <i class="bi bi-gear"></i>
-                    </button>
-                    
-                    <div class="top-level-icon mb-4">
-                        <i class="${icon}" style="font-size: 4rem; color: #0d6efd;"></i>
-                    </div>
-                    <h2 class="card-title mb-3">${entity.name}</h2>
-                    ${entity.description ? 
-                        `<p class="card-text text-muted mb-4">${entity.description}</p>` : 
-                        ''
-                    }
-                    <div class="mt-4">
-                        <span class="badge bg-primary fs-5">
-                            <i class="${childrenIcon} me-1"></i>${entity.children_count} ${childrenLabel}
-                        </span>
-                    </div>
-                    <div class="mt-4">
-                        <p class="text-muted small">Haz clic para explorar</p>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    createSubdirectionCard(subdirection) {
-        const icon = this.getIcon(subdirection.code, subdirection.icon_class);
-        
-        return `
-            <div class="col-12 col-md-6 col-lg-4">
-                <div class="card subdirection-card h-100 shadow-sm fade-in position-relative" data-subdir-id="${subdirection.id}">
-                    <!-- Botón de administración discreto -->
-                    <button class="btn btn-sm btn-outline-secondary admin-btn position-absolute top-0 end-0 m-2" 
-                            data-dept-id="${subdirection.id}" title="Administrar subdirección">
-                        <i class="bi bi-gear" style="font-size: 0.8rem;"></i>
-                    </button>
-                    
-                    <div class="card-body text-center p-4">
-                        <div class="subdirection-icon mb-3">
-                            <i class="${icon}" style="font-size: 2.5rem; color: #0d6efd;"></i>
-                        </div>
-                        <h4 class="card-title mb-3">${subdirection.name}</h4>
-                        ${subdirection.description ? 
-                            `<p class="card-text text-muted small">${subdirection.description}</p>` : 
-                            ''
-                        }
-                        <div class="mt-3">
-                            <span class="badge bg-primary">
-                                <i class="bi bi-building me-1"></i>${subdirection.children_count} Departamentos
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    async selectTopLevel(entityId) {
-        const entity = this.topLevelEntities.find(e => e.id === entityId);
-        if (!entity) return;
-        
-        // Si no tiene hijos, ir directo al detalle
-        if (!entity.children_count || entity.children_count === 0) {
-            window.location.href = `/itcj/config/departments/${entityId}`;
-            return;
-        }
-        
-        // Animación de expansión
-        const card = document.querySelector(`.top-level-card[data-entity-id="${entityId}"]`);
-        if (card) {
-            card.classList.add('expand-out');
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        
-        this.navigationStack.push({view: 'top-level'});
-        this.selectedTopLevel = entity;
-        
-        // Si es dirección, cargar subdirecciones
-        if (entity.code === 'direction') {
-            await this.loadSubdirections();
-            this.renderSubdirectionsView();
+    function toast(msg, type) {
+        if (window.ConfigUtils && window.ConfigUtils.showToast) {
+            window.ConfigUtils.showToast(msg, type || 'success');
         } else {
-            // Si es sindicato u otra entidad, cargar departamentos directamente
-            await this.loadDepartmentsByParent(entityId);
-            this.renderDepartmentsView();
+            (type === 'danger' ? console.error : console.log)(msg);
         }
     }
 
-    async selectSubdirection(subdirId, cardElement) {
-        // Animación de expansión
-        if (cardElement) {
-            cardElement.classList.add('expand-out');
-            await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        
-        // Cargar departamentos
-        const subdirection = this.subdirections.find(s => s.id === subdirId);
-        if (!subdirection) return;
-        
-        this.navigationStack.push({view: 'subdirections'});
-        this.selectedSubdirection = subdirection;
-        await this.loadDepartmentsByParent(subdirId);
-        this.renderDepartmentsView();
+    // Estado por activación de página; se recrea en cada init (A→B→A recrea nodos).
+    let S = null;
+
+    function init() {
+        S = {
+            tree: [],
+            byId: new Map(),
+            expanded: new Set(),
+            editing: null,          // nodo en edición (Task 3)
+            createModal: null,
+            editModal: null,
+            searchTimer: null,
+        };
+        const createEl = document.getElementById('createDepartmentModal');
+        if (createEl) S.createModal = new bootstrap.Modal(createEl);
+        const editEl = document.getElementById('editDepartmentModal'); // Task 3
+        if (editEl) S.editModal = new bootstrap.Modal(editEl);
+
+        const search = document.getElementById('deptTreeSearch');
+        if (search) search.addEventListener('input', onSearchInput);
+        const treeEl = document.getElementById('deptTree');
+        if (treeEl) treeEl.addEventListener('click', onTreeClick);
+        const createForm = document.getElementById('createDepartmentForm');
+        if (createForm) createForm.addEventListener('submit', onCreateSubmit);
+        const editForm = document.getElementById('editDepartmentForm'); // Task 3
+        if (editForm) editForm.addEventListener('submit', onEditSubmit);
+        const newRootBtn = document.getElementById('newRootDeptBtn');
+        if (newRootBtn) newRootBtn.addEventListener('click', () => openCreateModal(null));
+
+        loadTree();
     }
 
-    renderDepartmentsView() {
-        this.currentView = 'departments';
-        const container = document.getElementById('mainContainer');
-        
-        // Determinar si es subdirección o entidad de nivel superior (sindicato)
-        const parent = this.selectedSubdirection || this.selectedTopLevel;
-        
-        // Update header
-        document.getElementById('currentBreadcrumb').textContent = parent.name;
-        document.getElementById('pageTitle').innerHTML = `
-            <i class="${this.getIcon(parent.code, parent.icon_class)} me-2"></i>${parent.name}
-        `;
-        document.getElementById('pageSubtitle').textContent = parent.description || 'Departamentos';
-        document.getElementById('backBtn').style.display = 'inline-block';
+    function destroy() {
+        if (S && S.searchTimer) clearTimeout(S.searchTimer);
+        S = null;
+        // Los listeners viven en nodos del content root: el morph los descarta.
+    }
 
-        if (this.departments.length === 0) {
-            const parentType = this.selectedSubdirection ? 'subdirección' : 'dependencia';
-            container.innerHTML = `
-                <div class="text-center py-5 fade-in">
-                    <i class="bi bi-building display-1 text-muted"></i>
-                    <h5 class="text-muted mt-3">No hay departamentos en esta ${parentType}</h5>
-                    <p class="text-muted">Crea el primer departamento</p>
-                </div>
-            `;
+    // === CARGA =============================================================
+    async function loadTree() {
+        const cont = document.getElementById('deptTree');
+        if (!cont) return;
+        cont.innerHTML = '<div class="text-center py-5"><div class="spinner-border" role="status"></div></div>';
+        try {
+            const res = await fetch(`${API}/departments/tree`);
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || 'Error al cargar el árbol');
+            S.tree = result.data || [];
+            S.byId.clear();
+            (function index(nodes) {
+                nodes.forEach(n => { S.byId.set(n.id, n); index(n.children || []); });
+            })(S.tree);
+            if (S.expanded.size === 0) S.tree.forEach(n => S.expanded.add(n.id)); // raíces abiertas
+            renderTree();
+        } catch (err) {
+            console.error('Error loading tree:', err);
+            cont.innerHTML = '<div class="alert alert-danger mb-0">Error al cargar la estructura organizacional</div>';
+        }
+    }
+
+    // === RENDER ============================================================
+    function renderTree() {
+        const cont = document.getElementById('deptTree');
+        if (!cont || !S) return;
+        const q = (document.getElementById('deptTreeSearch')?.value || '').toLowerCase().trim();
+        const visible = q ? computeSearchSets(q) : null;
+        if (S.tree.length === 0) {
+            cont.innerHTML = '<div class="text-center py-5 text-muted">No hay departamentos registrados</div>';
             return;
         }
+        const html = S.tree.map(n => renderNode(n, visible)).join('');
+        cont.innerHTML = html || '<div class="text-center py-4 text-muted">Sin resultados para la búsqueda</div>';
+    }
 
-        container.innerHTML = `
-            <div class="row g-4">
-                ${this.departments.map(dept => this.createDepartmentCard(dept)).join('')}
+    // matches + ancestros visibles; ancestros de un match se auto-expanden.
+    function computeSearchSets(q) {
+        const show = new Set(), open = new Set();
+        function walk(node, ancestors) {
+            const hit = node.name.toLowerCase().includes(q) ||
+                        (node.code || '').toLowerCase().includes(q);
+            if (hit) {
+                show.add(node.id);
+                ancestors.forEach(a => { show.add(a); open.add(a); });
+            }
+            (node.children || []).forEach(c => walk(c, ancestors.concat(node.id)));
+        }
+        S.tree.forEach(n => walk(n, []));
+        return { show, open };
+    }
+
+    function renderNode(node, visible) {
+        if (visible && !visible.show.has(node.id)) return '';
+        const children = node.children || [];
+        const isOpen = visible ? visible.open.has(node.id) : S.expanded.has(node.id);
+        const chevron = children.length
+            ? `<button type="button" class="btn btn-sm btn-link dept-chevron p-0"
+                       data-tree-action="toggle" data-dept-id="${node.id}"
+                       aria-expanded="${isOpen}" title="${isOpen ? 'Colapsar' : 'Expandir'}">
+                   <i class="bi ${isOpen ? 'bi-chevron-down' : 'bi-chevron-right'}"></i>
+               </button>`
+            : '<span class="dept-chevron-spacer"></span>';
+        const badges = [
+            node.is_official ? '<span class="badge text-bg-warning dept-badge-official">Oficial</span>' : '',
+            `<span class="badge text-bg-light border">Nivel ${node.depth}</span>`,
+            `<span class="badge text-bg-secondary">${node.positions_count} puestos</span>`,
+            children.length ? `<span class="badge text-bg-info">${children.length} sub</span>` : '',
+            node.is_active ? '' : '<span class="badge text-bg-dark">Inactivo</span>',
+        ].filter(Boolean).join(' ');
+        const head = node.head
+            ? `<small class="text-muted d-none d-lg-inline"><i class="bi bi-person-badge me-1"></i>${esc(node.head.name)}</small>`
+            : '';
+        return `
+        <div class="dept-node" data-node-id="${node.id}">
+            <div class="dept-node-row d-flex align-items-center flex-wrap gap-2">
+                ${chevron}
+                <i class="${esc(node.icon || 'bi-building')} text-primary"></i>
+                <span class="dept-node-name fw-semibold">${esc(node.name)}</span>
+                <code class="small text-muted">${esc(node.code)}</code>
+                ${badges}
+                ${head}
+                <span class="dept-node-actions ms-auto d-flex gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="Ver detalle"
+                            data-tree-action="detail" data-dept-id="${node.id}"><i class="bi bi-box-arrow-in-right"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-success" title="Crear sub-departamento"
+                            data-tree-action="create-child" data-dept-id="${node.id}"><i class="bi bi-plus-lg"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" title="Editar"
+                            data-tree-action="edit" data-dept-id="${node.id}"><i class="bi bi-pencil"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" title="Desactivar"
+                            data-tree-action="deactivate" data-dept-id="${node.id}" ${node.is_active ? '' : 'disabled'}><i class="bi bi-slash-circle"></i></button>
+                </span>
             </div>
-        `;
+            <div class="dept-node-children ${isOpen ? '' : 'd-none'}">
+                ${children.map(c => renderNode(c, visible)).join('')}
+            </div>
+        </div>`;
+    }
 
-        // Bind click events
-        document.querySelectorAll('.view-dept-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const deptId = parseInt(btn.dataset.deptId);
-                window.location.href = `/itcj/config/departments/${deptId}`;
-            });
+    // === EVENTOS ===========================================================
+    function onSearchInput() {
+        if (!S) return;
+        clearTimeout(S.searchTimer);
+        S.searchTimer = setTimeout(renderTree, 200);
+    }
+
+    function onTreeClick(e) {
+        const btn = e.target.closest('[data-tree-action]');
+        if (!btn || !S) return;
+        const id = parseInt(btn.dataset.deptId, 10);
+        const node = S.byId.get(id);
+        if (!node) return;
+        switch (btn.dataset.treeAction) {
+            case 'toggle':
+                if (S.expanded.has(id)) S.expanded.delete(id); else S.expanded.add(id);
+                renderTree();
+                break;
+            case 'detail':
+                window.ConfigPage.navigate(`/itcj/config/departments/${id}`);
+                break;
+            case 'create-child':
+                openCreateModal(id);
+                break;
+            case 'edit':
+                openEditModal(node);
+                break;
+            case 'deactivate':
+                deactivate(node);
+                break;
+        }
+    }
+
+    // === SELECTOR DE PADRE (Task 2 lo consume; definido aquí) =============
+    /**
+     * Llena un <select> con el árbol activo completo, indentado por profundidad.
+     * options: { excludeSubtreeOf: id|null, selectedId: id|null, allowRoot: bool }
+     * excludeSubtreeOf usa GET /departments/{id}/subtree (anti-ciclo en edición).
+     */
+    async function loadParentOptions(selectEl, opts) {
+        const o = opts || {};
+        const res = await fetch(`${API}/departments/parent-options`);
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || 'Error al cargar opciones de padre');
+        let excluded = new Set();
+        if (o.excludeSubtreeOf != null) {
+            const sres = await fetch(`${API}/departments/${o.excludeSubtreeOf}/subtree`);
+            const sresult = await sres.json();
+            if (sres.ok && sresult.data) excluded = new Set(sresult.data.department_ids || []);
+        }
+        selectEl.innerHTML = '';
+        const first = document.createElement('option');
+        first.value = '';
+        first.textContent = o.allowRoot ? '— Sin padre (raíz) —' : 'Selecciona un departamento…';
+        selectEl.appendChild(first);
+        (result.data || []).forEach(d => {
+            if (excluded.has(d.id)) return;
+            const depth = (d.depth != null) ? d.depth : (S.byId.get(d.id) ? S.byId.get(d.id).depth : 0);
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = `${'─'.repeat(depth)}${depth ? ' ' : ''}${d.name}`;
+            if (o.selectedId === d.id) opt.selected = true;
+            selectEl.appendChild(opt);
         });
     }
 
-    createDepartmentCard(dept) {
-        const icon = this.getIcon(dept.code, dept.icon_class);
-        const statusBadge = dept.is_active ? 
-            '<span class="badge bg-success">Activo</span>' : 
-            '<span class="badge bg-secondary">Inactivo</span>';
-
-        return `
-            <div class="col-12 col-md-6 col-lg-4 fade-in" data-dept-id="${dept.id}">
-                <div class="card department-card h-100 shadow-sm">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div class="d-flex align-items-center">
-                                <div class="department-icon text-primary me-3">
-                                    <i class="bi ${icon}"></i>
-                                </div>
-                                <div>
-                                    <h5 class="card-title mb-1">${dept.name}</h5>
-                                    <small class="text-muted">${dept.code}</small>
-                                </div>
-                            </div>
-                            ${statusBadge}
-                        </div>
-                        
-                        ${dept.description ? 
-                            `<p class="card-text text-muted small">${dept.description}</p>` : 
-                            ''
-                        }
-                        
-                        <div class="border-top pt-3 mt-3">
-                            <div class="row text-center">
-                                <div class="col-6">
-                                    <div class="fw-bold text-primary">${dept.positions_count}</div>
-                                    <small class="text-muted">Puestos</small>
-                                </div>
-                                <div class="col-6">
-                                    <div class="small">
-                                        ${dept.head ? 
-                                            `<i class="bi bi-person-badge text-success"></i><br><small>${dept.head.full_name}</small>` :
-                                            `<i class="bi bi-x-circle text-muted"></i><br><small>Sin jefe</small>`
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-footer bg-transparent">
-                        <button class="btn btn-sm btn-outline-primary w-100 view-dept-btn" 
-                                data-dept-id="${dept.id}">
-                            <i class="bi bi-arrow-right-circle me-1"></i>Ver Puestos
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    async goBack() {
-        const previousView = this.navigationStack.pop();
-        
-        if (!previousView) {
-            // Si no hay vista anterior, ir a nivel superior
-            await this.goToTopLevel();
-            return;
-        }
-        
-        switch (previousView.view) {
-            case 'top-level':
-                await this.goToTopLevel();
-                break;
-            case 'subdirections':
-                await this.goToSubdirections();
-                break;
-            default:
-                await this.goToTopLevel();
-        }
-    }
-
-    async goToTopLevel() {
-        this.selectedTopLevel = null;
-        this.selectedSubdirection = null;
-        this.departments = [];
-        this.navigationStack = [];
-        await this.loadTopLevelEntities();
-        this.renderTopLevelView();
-    }
-
-    async goToSubdirections() {
-        this.selectedSubdirection = null;
-        this.departments = [];
-        await this.loadSubdirections();
-        this.renderSubdirectionsView();
-    }
-
-    getIcon(code, iconClass) {
-        // Prioridad: iconClass en BD > mapeo por código > icono por defecto
-        if (iconClass) return iconClass;
-        if (this.ICON_MAP[code]) return this.ICON_MAP[code];
-        return 'bi-building'; // Icono por defecto
-    }
-
-    async handleCreateDepartment(e) {
-        e.preventDefault();
-        
-        const formData = new FormData(e.target);
-        const data = {
-            code: formData.get('code'),
-            name: formData.get('name'),
-            description: formData.get('description') || null,
-            parent_id: formData.get('parent_id') || null,
-            icon_class: formData.get('icon_class') || null
-        };
-
+    // === CREAR (completo en Task 2) / EDITAR y DESACTIVAR (Task 3) ========
+    async function openCreateModal(parentId) {
+        const form = document.getElementById('createDepartmentForm');
+        if (form) form.reset();
         try {
-            const response = await fetch(`${this.apiBase}/departments`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
-            });
+            await loadParentOptions(document.getElementById('deptParent'),
+                { selectedId: parentId, allowRoot: true });
+        } catch (err) {
+            console.error(err);
+            toast('Error al cargar los departamentos padre', 'danger');
+        }
+        if (S.createModal) S.createModal.show();
+    }
 
-            const result = await response.json();
-            if (response.ok) {
-                this.showSuccess('Departamento creado correctamente');
-                this.createModal.hide();
-                e.target.reset();
-                
-                // Recargar vista actual
-                switch (this.currentView) {
-                    case 'top-level':
-                        await this.loadTopLevelEntities();
-                        this.renderTopLevelView();
-                        break;
-                    case 'subdirections':
-                        await this.loadSubdirections();
-                        this.renderSubdirectionsView();
-                        break;
-                    case 'departments':
-                        if (this.selectedSubdirection) {
-                            await this.loadDepartmentsByParent(this.selectedSubdirection.id);
-                            this.renderDepartmentsView();
-                        } else if (this.selectedTopLevel) {
-                            await this.loadDepartmentsByParent(this.selectedTopLevel.id);
-                            this.renderDepartmentsView();
-                        }
-                        break;
-                }
-            } else {
-                this.showError(result.error || 'Error al crear el departamento');
+    async function onCreateSubmit(e) {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const parentRaw = formData.get('parent_id');
+        const payload = {
+            code: (formData.get('code') || '').trim(),
+            name: (formData.get('name') || '').trim(),
+            description: (formData.get('description') || '').trim() || null,
+            parent_id: parentRaw ? parseInt(String(parentRaw), 10) : null,
+            icon_class: (formData.get('icon_class') || '').trim() || null,
+        };
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+            const res = await fetch(`${API}/departments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await res.json();
+            if (!res.ok) {
+                toast(result.error || 'Error al crear el departamento', 'danger');
+                return;
             }
-        } catch (error) {
-            this.showError('Error de conexión');
-            console.error('Error creating department:', error);
+            toast('Departamento creado correctamente');
+            if (S.createModal) S.createModal.hide();
+            e.target.reset();
+            if (payload.parent_id) S.expanded.add(payload.parent_id); // mostrar al hijo nuevo
+            await loadTree();
+        } catch (err) {
+            console.error('Error creating department:', err);
+            toast('Error de conexión', 'danger');
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
         }
     }
 
-    showSuccess(message) {
-        const toast = document.getElementById('successToast');
-        const messageEl = document.getElementById('successMessage');
-        messageEl.textContent = message;
-        new bootstrap.Toast(toast).show();
-    }
+    // Stubs completados en Task 3 (edit modal + política D4).
+    function openEditModal(node) { toast('Edición disponible próximamente', 'info'); }
+    function onEditSubmit(e) { e.preventDefault(); }
+    function deactivate(node) { toast('Desactivación disponible próximamente', 'info'); }
 
-    showError(message) {
-        const toast = document.getElementById('errorToast');
-        const messageEl = document.getElementById('errorMessage');
-        messageEl.textContent = message;
-        new bootstrap.Toast(toast).show();
-    }
-}
-
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    new DepartmentsManager();
-});
+    window.ConfigPage.register('departments', { init: init, destroy: destroy });
+})();
