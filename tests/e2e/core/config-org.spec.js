@@ -118,3 +118,35 @@ test('árbol: expandir por niveles y búsqueda auto-expande matches', async ({ p
   const officialNode = tree.locator(`[data-node-id="${seed.official_id}"]`);
   await expect(officialNode.locator('.dept-badge-official')).toHaveText('Oficial');
 });
+
+test('crear sub-departamento de nivel 4 desde el nodo hoja', async ({ page }) => {
+  await gotoCore(page, '/itcj/config/departments');
+  const tree = page.locator('#deptTree');
+
+  // llegar al leaf (nivel 2): buscar lo auto-expande
+  await page.fill('#deptTreeSearch', 'e2e cfg leaf');
+  await expect(tree.getByText('E2E CFG LEAF')).toBeVisible();
+
+  // abrir el modal de crear con el leaf como padre preseleccionado
+  await tree.locator(`[data-tree-action="create-child"][data-dept-id="${seed.leaf_id}"]`).click();
+  const modal = page.locator('#createDepartmentModal');
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('#deptParent')).toHaveValue(String(seed.leaf_id));
+
+  // el selector de padre NO está capado: contiene al leaf (nivel 2) indentado
+  const leafOption = modal.locator(`#deptParent option[value="${seed.leaf_id}"]`);
+  await expect(leafOption).toHaveText(/E2E CFG LEAF/);
+
+  await modal.locator('#deptCode').fill('e2e_cfg_l4');
+  await modal.locator('#deptName').fill('E2E CFG NIVEL4');
+  await modal.locator('button[type="submit"]').click();
+  await expect(modal).toBeHidden();
+
+  // el nodo nuevo (nivel 3 = 4º nivel del árbol) aparece bajo el leaf
+  await page.fill('#deptTreeSearch', 'e2e cfg nivel4');
+  const newNode = tree.locator('.dept-node', { hasText: 'E2E CFG NIVEL4' }).first();
+  await expect(newNode).toBeVisible();
+  await expect(newNode.locator('.badge', { hasText: 'Nivel 3' })).toBeVisible();
+  // creado desde la UI → NO oficial
+  await expect(newNode.locator('.dept-badge-official')).toHaveCount(0);
+});
