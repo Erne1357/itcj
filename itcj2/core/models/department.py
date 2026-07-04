@@ -65,11 +65,21 @@ class Department(Base):
         head_position = self.get_head_position()
         if not head_position:
             return None
+        # Alineado con departments_service.build_tree (F1b-D5): misma ventana de
+        # puesto VIGENTE (respeta start_date/end_date, no solo is_active) y mismo
+        # orden determinista. Un jefe con puesto vencido/futuro ya no aparece.
         from itcj2.core.models.position import UserPosition
+        from itcj2.core.services.departments_service import _active_position_window
         db = object_session(self)
-        assignment = db.query(UserPosition).filter_by(
-            position_id=head_position.id, is_active=True
-        ).first()
+        assignment = (
+            db.query(UserPosition)
+            .filter(
+                UserPosition.position_id == head_position.id,
+                _active_position_window(),
+            )
+            .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
+            .first()
+        )
         return assignment.user if assignment else None
 
     def to_dict(self, include_children=False):
