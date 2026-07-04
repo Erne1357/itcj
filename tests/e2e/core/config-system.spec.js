@@ -205,3 +205,17 @@ test.describe('config tasks — ConfigPage + flip envelope + cronstrue self-host
     await expect(page.locator('#tab-history table tbody')).toBeVisible();
   });
 });
+
+// ---------------------------------------------------------------- email
+test.describe('config email — ConfigPage + API C3', () => {
+  test('carga vía morph y consulta estado por la API nueva', async ({ page }) => {
+    const statusReq = page.waitForRequest((r) =>
+      r.url().includes('/api/core/v2/email/status'));
+    await gotoCore(page, '/itcj/config/email');
+    await expect(page.locator('#cfgMain[data-cfg-page="email"]')).toBeAttached();
+    await expect(page.locator('#cfgMain')).toHaveAttribute('data-cfg-modules', /email\.js/);
+    // el refresh de estado pega a la API C3 (no a la ruta vieja de páginas)
+    const req = await statusReq;
+    expect(req.url()).toContain('/api/core/v2/email/status');
+  });
+});
