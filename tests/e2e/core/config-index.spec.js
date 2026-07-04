@@ -25,4 +25,19 @@ test.describe('config index — módulo piloto', () => {
     );
     expect(bodyPageScripts).toBe(0);
   });
+
+  test('index sin estilos inline; las clases extraídas resuelven', async ({ page }) => {
+    await gotoCore(page, '/itcj/config');
+    expect(await page.locator('#cfgMain [style]').count()).toBe(0); // HOY: 15
+    const probe = await page.evaluate(() => {
+      const statOnline = document.querySelector('.stat-icon-online');
+      const navApps = document.querySelector('.nav-card-icon-apps');
+      return {
+        onlineColor: statOnline ? getComputedStyle(statOnline).color : null,
+        appsBg: navApps ? getComputedStyle(navApps).backgroundImage : null,
+      };
+    });
+    expect(probe.onlineColor).toBe('rgb(255, 87, 34)');
+    expect(probe.appsBg).toContain('linear-gradient');
+  });
 });

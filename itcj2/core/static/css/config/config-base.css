@@ -1081,6 +1081,10 @@
     cursor: pointer;
 }
 
+/* Iconos de empty-state (antes font-size inline) */
+.cfg-icon-xl  { font-size: 2rem; }
+.cfg-icon-xxl { font-size: 2.5rem; }
+
 .text-truncate-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;

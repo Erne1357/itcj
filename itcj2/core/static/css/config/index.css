@@ -1,3 +1,25 @@
+/* ==================== EXTRAÍDO DE style="" INLINE (F2) ==================== */
+
+/* Stat icons */
+.stat-icon-apps   { background: rgba(13, 110, 253, 0.1); color: var(--config-primary); }
+.stat-icon-roles  { background: rgba(25, 135, 84, 0.1);  color: var(--config-success); }
+.stat-icon-users  { background: rgba(13, 202, 240, 0.1); color: var(--config-info); }
+.stat-icon-perms  { background: rgba(111, 66, 193, 0.1); color: var(--config-purple); }
+.stat-icon-online { background: rgba(255, 87, 34, 0.1);  color: #ff5722; }
+
+/* Nav-card icons (gradientes de acceso rápido) */
+.nav-card-icon-apps   { background: linear-gradient(135deg, #0d6efd, #0b5ed7); }
+.nav-card-icon-roles  { background: linear-gradient(135deg, #198754, #157347); }
+.nav-card-icon-users  { background: linear-gradient(135deg, #0dcaf0, #0aa2c0); }
+.nav-card-icon-depts  { background: linear-gradient(135deg, #6f42c1, #5a32a3); }
+.nav-card-icon-themes { background: linear-gradient(135deg, #e91e63, #c2185b); }
+.nav-card-icon-email  { background: linear-gradient(135deg, #0078d4, #005a9e); }
+
+/* Badges/acentos */
+.badge-purple    { background: var(--config-purple); }
+.badge-pink      { background: #e91e63; }
+.text-theme-pink { color: #e91e63; }
+
 /* ===== Estadisticas rapidas ===== */
 .stat-card {
     display: flex;
