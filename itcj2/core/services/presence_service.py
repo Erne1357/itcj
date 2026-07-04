@@ -45,15 +45,30 @@ def mark_offline(r, uid: int, bucket: str) -> None:
 
 
 def get_counts(r) -> dict:
-    """Conteos vigentes {"total","students","staff","admins"} con poda en lectura."""
+    """Conteos vigentes {"total","students","staff","admins"} con poda en lectura.
+
+    `total` es el tamaño de la UNIÓN de uids vigentes entre los 3 buckets, no la
+    suma de los conteos por bucket: un mismo uid puede aparecer transitoriamente
+    en 2 buckets a la vez (claims cambiaron —p.ej. cambio de rol— mientras la
+    entrada vieja seguía dentro de PRESENCE_WINDOW_SECONDS, o entrada "fantasma"
+    de un worker matado). En ese caso cada bucket lo sigue contando (semántica
+    documentada, no un bug), pero `total` lo cuenta UNA sola vez.
+
+    Una sola ida-vuelta a Redis vía pipeline: 3 podas (zremrangebyscore) + 3
+    lecturas de miembros vigentes (zrangebyscore), en ese orden.
+    """
     cutoff = time.time() - get_settings().PRESENCE_WINDOW_SECONDS
-    per_bucket = {}
+    pipe = r.pipeline()
     for bucket in BUCKETS:
-        key = _KEY.format(bucket=bucket)
-        r.zremrangebyscore(key, "-inf", cutoff)  # poda física en lectura
-        per_bucket[bucket] = int(r.zcard(key))
+        pipe.zremrangebyscore(_KEY.format(bucket=bucket), "-inf", cutoff)  # poda física en lectura
+    for bucket in BUCKETS:
+        pipe.zrangebyscore(_KEY.format(bucket=bucket), cutoff, "+inf")
+    results = pipe.execute()
+    members = dict(zip(BUCKETS, results[len(BUCKETS):]))
+    per_bucket = {bucket: len(members[bucket]) for bucket in BUCKETS}
+    uid_union = set().union(*members.values())
     return {
-        "total": per_bucket["students"] + per_bucket["staff"] + per_bucket["admins"],
+        "total": len(uid_union),
         "students": per_bucket["students"],
         "staff": per_bucket["staff"],
         "admins": per_bucket["admins"],

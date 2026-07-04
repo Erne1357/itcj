@@ -53,6 +53,20 @@ def test_mark_offline_remueve(r):
     assert counts["total"] == 0
 
 
+def test_mismo_uid_en_dos_buckets_total_es_union(r):
+    # simula claims cambiados en pleno vuelo (p.ej. cambio de rol): la entrada
+    # vieja sigue vigente en la ventana mientras ya se registró en el bucket
+    # nuevo. Cada bucket lo cuenta por separado (semántica documentada), pero
+    # el total NO debe duplicarlo.
+    ps.mark_online(r, 9910099, "staff")
+    ps.mark_online(r, 9910099, "students")
+    counts = ps.get_counts(r)
+    assert counts["staff"] == 1
+    assert counts["students"] == 1
+    assert counts["admins"] == 0
+    assert counts["total"] == 1  # unión, no suma (que daría 2)
+
+
 def test_poda_en_lectura_por_ventana_default(r):
     window = get_settings().PRESENCE_WINDOW_SECONDS
     # miembro "fantasma": score fuera de la ventana (simula worker matado sin disconnect)
