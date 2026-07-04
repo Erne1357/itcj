@@ -107,6 +107,35 @@ test.describe('config shell — estados hidden sin style inline', () => {
   });
 });
 
+test.describe('config shell — badges compartidos (C8)', () => {
+  test('scope-badge y app-badge resuelven con sus colores', async ({ page }) => {
+    await gotoCore(page, '/itcj/config');
+    const probe = await page.evaluate(() => {
+      const mk = (cls, colorVar) => {
+        const el = document.createElement('span');
+        el.className = cls;
+        if (colorVar) el.style.setProperty('--app-badge-color', colorVar);
+        document.body.appendChild(el);
+        const cs = getComputedStyle(el);
+        const out = { display: cs.display, bg: cs.backgroundColor };
+        el.remove();
+        return out;
+      };
+      return {
+        subtree: mk('scope-badge scope-subtree'),
+        own: mk('scope-badge scope-own'),
+        app: mk('app-badge', '#ff5722'),
+        appFallback: mk('app-badge'),
+      };
+    });
+    expect(probe.subtree.display).toBe('inline-block');
+    expect(probe.subtree.bg).toBe('rgb(111, 66, 193)');   // --config-purple
+    expect(probe.own.bg).toBe('rgb(13, 202, 240)');       // --config-info
+    expect(probe.app.bg).toBe('rgb(255, 87, 34)');        // var por-instancia
+    expect(probe.appFallback.bg).toBe('rgb(108, 117, 125)'); // fallback #6c757d
+  });
+});
+
 test.describe('config shell — controller ConfigPage (C2)', () => {
   test('expone register/navigate/page y lee la página actual', async ({ page }) => {
     await gotoCore(page, '/itcj/config');
