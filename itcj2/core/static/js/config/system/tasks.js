@@ -99,18 +99,18 @@ const Tasks = (() => {
                     <div class="fw-semibold">${esc(d.display_name)}</div>
                     <div class="text-muted small font-monospace">${esc(d.task_name)}</div>
                 </td>
-                <td><span class="app-badge" style="--app-badge-color: ${_appStyles[d.app_name] || '#6c757d'}">${esc(d.app_name)}</span></td>
-                <td><i class="bi ${catIcons[d.category] || 'bi-gear'} me-1"></i>${d.category}</td>
+                <td><span class="app-badge" style="--app-badge-color: ${esc(_appStyles[d.app_name] || '#6c757d')}">${esc(d.app_name)}</span></td>
+                <td><i class="bi ${catIcons[d.category] || 'bi-gear'} me-1"></i>${esc(d.category)}</td>
                 <td>
                     <span class="badge ${d.is_active ? 'bg-success' : 'bg-secondary'}">
                         ${d.is_active ? 'Activa' : 'Inactiva'}
                     </span>
                 </td>
                 <td class="text-end">
-                    <button class="btn btn-sm btn-outline-success me-1" onclick="Tasks.openExecuteModal('${d.task_name}')" title="Ejecutar ahora" ${!d.is_active ? 'disabled' : ''}>
+                    <button class="btn btn-sm btn-outline-success me-1" onclick="Tasks.openExecuteModal('${esc(d.task_name)}')" title="Ejecutar ahora" ${!d.is_active ? 'disabled' : ''}>
                         <i class="bi bi-play-fill"></i> Ejecutar
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" onclick="Tasks.openPeriodicModalFromDef('${d.task_name}')" title="Agendar">
+                    <button class="btn btn-sm btn-outline-primary" onclick="Tasks.openPeriodicModalFromDef('${esc(d.task_name)}')" title="Agendar">
                         <i class="bi bi-calendar-plus"></i>
                     </button>
                 </td>
@@ -193,14 +193,14 @@ const Tasks = (() => {
         const deptCheckboxes = depts.length
             ? depts.map(d => `<div class="form-check">
                 <input class="form-check-input f-dept-id" type="checkbox" value="${d.id}" id="fd_${d.id}">
-                <label class="form-check-label small" for="fd_${d.id}">${d.name}</label>
+                <label class="form-check-label small" for="fd_${d.id}">${esc(d.name)}</label>
               </div>`).join('')
             : '<span class="text-muted small">Sin departamentos</span>';
 
         const catCheckboxes = cats.length
             ? cats.map(c => `<div class="form-check">
                 <input class="form-check-input f-cat-id" type="checkbox" value="${c.id}" id="fc_${c.id}">
-                <label class="form-check-label small" for="fc_${c.id}">${c.name}</label>
+                <label class="form-check-label small" for="fc_${c.id}">${esc(c.name)}</label>
               </div>`).join('')
             : '<span class="text-muted small">Sin categorías</span>';
 
@@ -384,13 +384,13 @@ const Tasks = (() => {
                 ? entries.map(([k, v]) => {
                     if (typeof v === 'boolean') {
                         return `<div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="ep_${k}" ${v ? 'checked' : ''} data-key="${k}" data-type="bool">
-                            <label class="form-check-label" for="ep_${k}">${k.replace(/_/g, ' ')}</label>
+                            <input class="form-check-input" type="checkbox" id="ep_${esc(k)}" ${v ? 'checked' : ''} data-key="${esc(k)}" data-type="bool">
+                            <label class="form-check-label" for="ep_${esc(k)}">${esc(k.replace(/_/g, ' '))}</label>
                         </div>`;
                     }
                     return `<div class="mb-2">
-                        <label class="form-label small fw-semibold">${k.replace(/_/g, ' ')}</label>
-                        <input type="text" class="form-control form-control-sm" id="ep_${k}" value="${v ?? ''}" data-key="${k}" data-type="str">
+                        <label class="form-label small fw-semibold">${esc(k.replace(/_/g, ' '))}</label>
+                        <input type="text" class="form-control form-control-sm" id="ep_${esc(k)}" value="${esc(v ?? '')}" data-key="${esc(k)}" data-type="str">
                     </div>`;
                 }).join('')
                 : '<p class="text-muted small mb-0">Esta tarea no requiere parámetros adicionales.</p>';
@@ -519,7 +519,7 @@ const Tasks = (() => {
                     <div class="text-muted small">${esc(pt.display_name || pt.task_name)}</div>
                 </td>
                 <td>
-                    <code>${pt.cron_expression}</code>
+                    <code>${esc(pt.cron_expression)}</code>
                     <div class="text-muted small">${cronDesc(pt.cron_expression)}</div>
                 </td>
                 <td>${pt.last_run_at ? timeAgo(pt.last_run_at) : '<span class="text-muted">Nunca</span>'}</td>
@@ -537,7 +537,7 @@ const Tasks = (() => {
                     <button class="btn btn-sm btn-outline-secondary me-1" onclick="Tasks.openPeriodicModal(${pt.id})" title="Editar">
                         <i class="bi bi-pencil"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="Tasks.confirmDeletePeriodic(${pt.id}, '${pt.name.replace(/'/g, "\\'")}')" title="Eliminar">
+                    <button class="btn btn-sm btn-outline-danger" onclick="Tasks.confirmDeletePeriodic(${pt.id}, '${esc(pt.name.replace(/'/g, "\\'"))}')" title="Eliminar">
                         <i class="bi bi-trash"></i>
                     </button>
                 </td>
@@ -555,7 +555,7 @@ const Tasks = (() => {
         // Llenar select de tareas
         const select = document.getElementById('periodicTaskName');
         select.innerHTML = '<option value="">-- Seleccionar tarea --</option>' +
-            _definitions.map(d => `<option value="${d.task_name}">${d.display_name} (${d.app_name})</option>`).join('');
+            _definitions.map(d => `<option value="${esc(d.task_name)}">${esc(d.display_name)} (${esc(d.app_name)})</option>`).join('');
 
         if (id) {
             const res = await api('GET', '/periodic');
@@ -822,12 +822,12 @@ const Tasks = (() => {
             ${r.args_json && Object.keys(r.args_json).length ? `
                 <div class="mb-3">
                     <strong>Argumentos:</strong>
-                    <pre class="result-json mt-1">${JSON.stringify(r.args_json, null, 2)}</pre>
+                    <pre class="result-json mt-1">${esc(JSON.stringify(r.args_json, null, 2))}</pre>
                 </div>` : ''}
             ${resultJson ? `
                 <div class="mb-0">
                     <strong>Resultado:</strong>
-                    <pre class="result-json mt-1">${resultJson}</pre>
+                    <pre class="result-json mt-1">${esc(resultJson)}</pre>
                 </div>` : ''}
         `;
     };
