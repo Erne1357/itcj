@@ -372,16 +372,28 @@ class DashboardNotificationWidget {
                     <i class="${icon}"></i>
                 </div>
                 <div class="notification-content">
-                    <div class="notification-title">${notification.title}</div>
-                    ${notification.body ? `<div class="notification-body">${notification.body}</div>` : ''}
+                    <div class="notification-title">${this.escapeHtml(notification.title)}</div>
+                    ${notification.body ? `<div class="notification-body">${this.escapeHtml(notification.body)}</div>` : ''}
                     <div class="notification-meta">
-                        <span class="app-tag badge" style="background-color: ${color}">${notification.app_name}</span>
+                        <span class="app-tag badge" style="background-color: ${color}">${this.escapeHtml(notification.app_name)}</span>
                         <span class="time">${timeAgo}</span>
                     </div>
                 </div>
                 ${isUnread ? '<div class="unread-indicator"></div>' : ''}
             </div>
         `;
+    }
+
+    /**
+     * Escapa HTML para prevenir XSS al interpolar datos del servidor
+     */
+    escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     /**
@@ -542,8 +554,8 @@ class DashboardNotificationWidget {
             <div class="d-flex align-items-center">
                 <i class="${notification.app_icon || 'bi-bell'} me-2"></i>
                 <div>
-                    <div class="fw-bold">${notification.title}</div>
-                    ${notification.body ? `<div class="small">${notification.body}</div>` : ''}
+                    <div class="fw-bold">${this.escapeHtml(notification.title)}</div>
+                    ${notification.body ? `<div class="small">${this.escapeHtml(notification.body)}</div>` : ''}
                 </div>
             </div>
         `;

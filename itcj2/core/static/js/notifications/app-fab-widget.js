@@ -432,13 +432,25 @@ class AppNotificationFAB {
                     <i class="${icon}"></i>
                 </div>
                 <div style="flex:1;min-width:0;">
-                    <div style="font-size:13px;font-weight:600;color:#212529;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${notification.title}</div>
-                    ${notification.body ? `<div style="font-size:12px;color:#6c757d;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${notification.body}</div>` : ''}
+                    <div style="font-size:13px;font-weight:600;color:#212529;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(notification.title)}</div>
+                    ${notification.body ? `<div style="font-size:12px;color:#6c757d;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${this.escapeHtml(notification.body)}</div>` : ''}
                     <div style="font-size:11px;color:#adb5bd;margin-top:4px;">${timeAgo}</div>
                 </div>
                 ${isUnread ? '<div style="width:8px;height:8px;background:#0d6efd;border-radius:50%;margin-left:8px;"></div>' : ''}
             </div>
         `;
+    }
+
+    /**
+     * Escapa HTML para prevenir XSS al interpolar datos del servidor
+     */
+    escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     /**
