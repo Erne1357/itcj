@@ -264,20 +264,9 @@
     background: #555;
 }
 
-/* Animación de entrada para items */
+/* Animación de entrada para items (keyframe slideInFromLeft en helpdesk-components.css) */
 .equipment-modal-item {
     animation: slideInFromLeft 0.3s ease;
-}
-
-@keyframes slideInFromLeft {
-    from {
-        opacity: 0;
-        transform: translateX(-20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
 }
 
 /* Responsivo para modal de equipos */

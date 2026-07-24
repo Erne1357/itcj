@@ -1,8 +1,11 @@
-﻿// itcj/apps/helpdesk/static/js/helpdesk-utils.js
+// itcj/apps/helpdesk/static/js/helpdesk-utils.js
 
 /**
  * HelpDesk Utilities - Funciones compartidas para toda la app
+ * Módulo IIFE: expone SOLO window.HelpdeskUtils — ninguna función interna es global.
  */
+(function () {
+    'use strict';
 
 // ==================== API CLIENT ====================
 class HelpdeskAPI {
@@ -172,7 +175,7 @@ class HelpdeskAPI {
     }
 }
 
-// Instancia global
+// Instancia interna del módulo
 const api = new HelpdeskAPI();
 
 
@@ -238,7 +241,7 @@ function formatDate(dateString) {
 
 function formatTimeAgo(dateString) {
     if (!dateString) return 'N/A';
-    
+
     const date = new Date(dateString);
     const now = new Date();
     const diffMs = now - date;
@@ -250,7 +253,7 @@ function formatTimeAgo(dateString) {
     if (diffMins < 60) return `Hace ${diffMins} min`;
     if (diffHours < 24) return `Hace ${diffHours}h`;
     if (diffDays < 7) return `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
-    
+
     return formatDate(dateString);
 }
 
@@ -397,12 +400,18 @@ function goToTicketDetail(ticketId, fromPage = null) {
             fromPage = 'dashboard';
         }
     }
-    
-    const url = fromPage ? 
+
+    const url = fromPage ?
         `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
         `/help-desk/user/tickets/${ticketId}`;
-    
-    window.location.href = url;
+
+    // Navegación morph (como la navbar) hacia el detalle. Guard defensivo porque
+    // helpdesk-utils.js se carga antes que shared/base.js; en runtime siempre existe.
+    if (window.HelpdeskPage && typeof window.HelpdeskPage.navigate === 'function') {
+        window.HelpdeskPage.navigate(url);
+    } else {
+        window.location.href = url;
+    }
 }
 
 function goToTicketDetailNewTab(ticketId, fromPage = null) {
@@ -414,13 +423,14 @@ function goToTicketDetailNewTab(ticketId, fromPage = null) {
             fromPage = 'admin';
         }
     }
-    
-    const url = fromPage ? 
+
+    const url = fromPage ?
         `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
         `/help-desk/user/tickets/${ticketId}`;
-    
+
     window.open(url, '_blank');
 }
+
 async function getAttachments(ticketId) {
     const response = await fetch(`/api/help-desk/v2/attachments/ticket/${ticketId}`, {
         headers: {
@@ -510,3 +520,5 @@ window.HelpdeskUtils = {
     renderCollaborators,
     NavState
 };
+
+})();

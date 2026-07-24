@@ -4,9 +4,11 @@
    ============================================== */
 
 :root {
-    --mobile-primary: #059669;
-    --mobile-primary-dark: #047857;
-    --mobile-primary-light: #10b981;
+    /* Guinda institucional ITCJ (antes verde #059669). Tematiza todo el
+       shell móvil core: barra inferior, saludo, avatares, tarjetas, perfil. */
+    --mobile-primary: #941921;
+    --mobile-primary-dark: #7E141B;
+    --mobile-primary-light: #b5323b;
     --mobile-bg: #f3f4f6;
     --mobile-card-bg: #ffffff;
     --mobile-text: #1f2937;
@@ -375,12 +377,22 @@
     justify-content: center;
     font-size: 26px;
     overflow: hidden;
+    background: var(--app-badge-color, #6c757d);
+    color: #fff;
 }
 
-.mobile-app-card-icon img {
-    width: 36px;
-    height: 36px;
+/* Íconos raster personalizados (agendatec/helpdesk): tile blanco, imagen
+   contenida — se leen como app-icon en vez de forzarlos sobre el color. */
+.mobile-app-card-icon.has-img {
+    background: #fff;
+    border: 1px solid var(--mobile-border);
+}
+
+.mobile-app-card-img {
+    width: 74%;
+    height: 74%;
     object-fit: contain;
+    display: block;
 }
 
 .mobile-app-card-name {
@@ -424,11 +436,6 @@
         font-size: 30px;
     }
     
-    .mobile-app-card-icon img {
-        width: 42px;
-        height: 42px;
-    }
-    
     .mobile-app-card-name {
         font-size: 14px;
     }
@@ -446,11 +453,6 @@
         height: 68px;
         margin-bottom: 14px;
         font-size: 34px;
-    }
-    
-    .mobile-app-card-icon img {
-        width: 48px;
-        height: 48px;
     }
     
     .mobile-app-card-name {

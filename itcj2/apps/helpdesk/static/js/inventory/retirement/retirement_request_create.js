@@ -3,51 +3,43 @@
 
     const API_BASE = '/api/help-desk/v2/inventory';
 
-    const el = {
-        reasonInput:       document.getElementById('reason-input'),
-        reasonChars:       document.getElementById('reason-chars'),
-        itemSearch:        document.getElementById('item-search-input'),
-        searchResults:     document.getElementById('items-search-results'),
-        selectedList:      document.getElementById('selected-items-list'),
-        itemsCount:        document.getElementById('items-count'),
-        summaryCount:      document.getElementById('summary-items-count'),
-        docInput:          document.getElementById('document-input'),
-        btnDraft:          document.getElementById('btn-save-draft'),
-        btnSubmit:         document.getElementById('btn-save-submit'),
-        optOficio:         document.getElementById('opt-oficio'),
-        optDocumento:      document.getElementById('opt-documento'),
-        docUploadWrapper:  document.getElementById('doc-upload-wrapper'),
-        approvalModeError: document.getElementById('approval-mode-error'),
-    };
+    let el = {};
 
     // Selected items: Map<item_id, { item, notes }>
     const selectedItems = new Map();
     let searchTimer = null;
 
+    // Handlers stored by reference for cleanup
+    let _itemSearchHandler = null;
+    let _itemSearchKeydownHandler = null;
+    let _docClickHandler = null;
+    let _btnDraftHandler = null;
+    let _btnSubmitHandler = null;
+
     // ── Reason counter ────────────────────────────────────────────────────────
-    el.reasonInput.addEventListener('input', () => {
+    function onReasonInput() {
         const len = el.reasonInput.value.length;
         el.reasonChars.textContent = len;
         updateButtons();
-    });
+    }
 
     // ── Item search ───────────────────────────────────────────────────────────
-    el.itemSearch.addEventListener('input', () => {
+    function onItemSearchInput() {
         clearTimeout(searchTimer);
         const q = el.itemSearch.value.trim();
         if (!q) { hideResults(); return; }
         searchTimer = setTimeout(() => searchItems(q), 300);
-    });
+    }
 
-    el.itemSearch.addEventListener('keydown', e => {
+    function onItemSearchKeydown(e) {
         if (e.key === 'Escape') hideResults();
-    });
+    }
 
-    document.addEventListener('click', e => {
+    function onDocClick(e) {
         if (!el.itemSearch.contains(e.target) && !el.searchResults.contains(e.target)) {
             hideResults();
         }
-    });
+    }
 
     async function searchItems(q) {
         try {
@@ -81,9 +73,9 @@
                 itcj_serial: item.itcj_serial,
                 department: item.department ? item.department.name : null,
             }).replace(/'/g, '&#39;')}'>
-                <span class="font-weight-bold">${item.inventory_number}</span>
-                <span class="text-muted small ml-1">${item.brand || ''} ${item.model || ''}</span>
-                <span class="float-right text-muted small">${serial}</span>
+                <span class="fw-bold">${item.inventory_number}</span>
+                <span class="text-muted small ms-1">${item.brand || ''} ${item.model || ''}</span>
+                <span class="float-end text-muted small">${serial}</span>
             </div>`;
         }).join('') || `<div class="search-result-item text-muted small">Todos los resultados ya están seleccionados</div>`;
         el.searchResults.style.display = 'block';
@@ -133,12 +125,12 @@
             return `<div class="item-row" data-id="${item.id}">
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
-                        <span class="font-weight-bold">${item.inventory_number}</span>
-                        <span class="text-muted small ml-2">${item.brand || ''} ${item.model || ''}</span>
+                        <span class="fw-bold">${item.inventory_number}</span>
+                        <span class="text-muted small ms-2">${item.brand || ''} ${item.model || ''}</span>
                         <br>
                         <small class="text-muted">Serial: ${serial} &bull; Depto: ${dept}</small>
                     </div>
-                    <span class="remove-btn ml-2" data-remove="${item.id}" title="Quitar">
+                    <span class="remove-btn ms-2" data-remove="${item.id}" title="Quitar">
                         <i class="fas fa-times-circle"></i>
                     </span>
                 </div>
@@ -164,23 +156,21 @@
     }
 
     // ── Approval mode ─────────────────────────────────────────────────────────
-    document.querySelectorAll('input[name="approvalMode"]').forEach(radio => {
-        radio.addEventListener('change', () => {
-            const isDocumento = el.optDocumento.checked;
-            el.docUploadWrapper.style.display = isDocumento ? 'block' : 'none';
-            el.approvalModeError.classList.add('d-none');
-            updateButtons();
-            updateSummaryFlow();
-        });
-    });
+    function onApprovalModeChange() {
+        const isDocumento = el.optDocumento.checked;
+        el.docUploadWrapper.style.display = isDocumento ? 'block' : 'none';
+        el.approvalModeError.classList.add('d-none');
+        updateButtons();
+        updateSummaryFlow();
+    }
 
     function updateSummaryFlow() {
         const summaryFlow = document.getElementById('summary-flow');
         if (!summaryFlow) return;
         if (el.optOficio.checked) {
-            summaryFlow.textContent = 'Oficio \u2192 Jefe RM \u2192 Subdirector \u2192 Director';
+            summaryFlow.textContent = 'Oficio → Jefe RM → Subdirector → Director';
         } else if (el.optDocumento.checked) {
-            summaryFlow.textContent = 'Documento \u2192 Aprobaci\u00f3n Centro de C\u00f3mputo';
+            summaryFlow.textContent = 'Documento → Aprobación Centro de Cómputo';
         } else {
             summaryFlow.textContent = 'Selecciona un modo (Paso 3)';
         }
@@ -293,7 +283,7 @@
                 }
             }
 
-            window.location.href = `/help-desk/inventory/retirement-requests/${reqId}`;
+            window.HelpdeskPage.navigate(`/help-desk/inventory/retirement-requests/${reqId}`);
 
         } catch (err) {
             window.HelpdeskUtils.showToast('Error: ' + err.message, 'danger');
@@ -342,12 +332,74 @@
 
     // ── Init ──────────────────────────────────────────────────────────────────
     function init() {
-        el.btnDraft.addEventListener('click',  () => save(false));
-        el.btnSubmit.addEventListener('click', () => save(true));
+        el = {
+            reasonInput:       document.getElementById('reason-input'),
+            reasonChars:       document.getElementById('reason-chars'),
+            itemSearch:        document.getElementById('item-search-input'),
+            searchResults:     document.getElementById('items-search-results'),
+            selectedList:      document.getElementById('selected-items-list'),
+            itemsCount:        document.getElementById('items-count'),
+            summaryCount:      document.getElementById('summary-items-count'),
+            docInput:          document.getElementById('document-input'),
+            btnDraft:          document.getElementById('btn-save-draft'),
+            btnSubmit:         document.getElementById('btn-save-submit'),
+            optOficio:         document.getElementById('opt-oficio'),
+            optDocumento:      document.getElementById('opt-documento'),
+            docUploadWrapper:  document.getElementById('doc-upload-wrapper'),
+            approvalModeError: document.getElementById('approval-mode-error'),
+        };
+
+        _itemSearchHandler = onItemSearchInput;
+        _itemSearchKeydownHandler = onItemSearchKeydown;
+        _docClickHandler = onDocClick;
+        _btnDraftHandler = () => save(false);
+        _btnSubmitHandler = () => save(true);
+
+        el.reasonInput.addEventListener('input', onReasonInput);
+        el.itemSearch.addEventListener('input', _itemSearchHandler);
+        el.itemSearch.addEventListener('keydown', _itemSearchKeydownHandler);
+        document.addEventListener('click', _docClickHandler);
+
+        document.querySelectorAll('input[name="approvalMode"]').forEach(radio => {
+            radio.addEventListener('change', onApprovalModeChange);
+        });
+
+        el.btnDraft.addEventListener('click', _btnDraftHandler);
+        el.btnSubmit.addEventListener('click', _btnSubmitHandler);
+
         updateButtons();
         preloadItemsFromUrl();
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    // ── Destroy ───────────────────────────────────────────────────────────────
+    function destroy() {
+        clearTimeout(searchTimer);
+        searchTimer = null;
+
+        if (el.itemSearch && _itemSearchHandler) {
+            el.itemSearch.removeEventListener('input', _itemSearchHandler);
+        }
+        if (el.itemSearch && _itemSearchKeydownHandler) {
+            el.itemSearch.removeEventListener('keydown', _itemSearchKeydownHandler);
+        }
+        if (_docClickHandler) {
+            document.removeEventListener('click', _docClickHandler);
+        }
+        if (el.btnDraft && _btnDraftHandler) {
+            el.btnDraft.removeEventListener('click', _btnDraftHandler);
+        }
+        if (el.btnSubmit && _btnSubmitHandler) {
+            el.btnSubmit.removeEventListener('click', _btnSubmitHandler);
+        }
+
+        _itemSearchHandler = null;
+        _itemSearchKeydownHandler = null;
+        _docClickHandler = null;
+        _btnDraftHandler = null;
+        _btnSubmitHandler = null;
+        el = {};
+    }
+
+    window.HelpdeskPage.page('inventory_retirement_retirement_request_create', { init, destroy });
 
 })();

@@ -1,4 +1,4 @@
-<section class="dir-group dir-anim-in" id="dir-group-{{ group.department_id }}" role="rowgroup">
+<section class="dir-group dir-anim-in" id="dir-group-{{ group.department_id }}" role="rowgroup" style="--dir-depth: {{ group.depth }}">
   <h2 class="dir-dept">{{ group.department }} <span class="dir-dept-count">{{ group.rows|length }}</span></h2>
   {% for row in group.rows %}
   <div class="dir-row" role="row">

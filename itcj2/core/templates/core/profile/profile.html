@@ -305,8 +305,9 @@
                                 {% for app_key, app_data in profile.app_assignments.items() %}
                                 <div class="app-permission-section">
                                     <div class="d-flex align-items-center mb-3">
-                                        <div class="app-icon app-icon-{{ app_key }} me-3">
-                                            <i class="{{ app_data.app_icon }}"></i>
+                                        <div class="app-icon me-3" data-app-key="{{ app_key }}"
+                                             style="--app-badge-color: {{ app_data.app_color }}">
+                                            <i class="bi {{ app_data.app_icon }}"></i>
                                         </div>
                                         <div>
                                             <h6 class="mb-0 fw-bold">{{ app_data.app_name }}</h6>

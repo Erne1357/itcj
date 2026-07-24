@@ -1,4 +1,5 @@
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
 
 {% block title %}Inventario de Equipos - Help-Desk ITCJ{% endblock %}
 
@@ -7,7 +8,16 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid">
+{# Alpine root: el Set de selección vive en el PADRE (fuera de #hd-items-results,
+   el target HTMX) → sobrevive a los swaps; onSwap() lo limpia al filtrar/paginar. #}
+<div class="container-fluid"
+     x-data="{
+        sel: new Set(),
+        toggle(id, on) { on ? this.sel.add(id) : this.sel.delete(id); },
+        toggleAll(on) { document.querySelectorAll('#hd-items-results .hd-item-cb').forEach(cb => { cb.checked = on; on ? this.sel.add(+cb.value) : this.sel.delete(+cb.value); }); },
+        clear() { this.sel.clear(); const sa = document.getElementById('select-all'); if (sa) sa.checked = false; }
+     }"
+     @items-reset.window="clear()">
     <!-- Encabezado -->
     <div class="d-flex justify-content-between align-items-center mb-3 mb-md-4 flex-wrap gap-2">
         <div>
@@ -15,202 +25,66 @@
                 <i class="fas fa-boxes fa-fw"></i> <span class="d-none d-sm-inline">Inventario de </span>Equipos
             </h1>
             <p class="text-muted mb-0 small d-none d-sm-block">
-                <span id="total-items-text">Cargando...</span>
+                <span id="total-items-text">{{ total }} equipo{{ '' if total == 1 else 's' }} en total</span>
             </p>
         </div>
         <div class="d-flex gap-2 flex-wrap">
             {% if 'admin' in user_roles or 'secretary' in user_roles %}
-            <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" class="btn btn-primary btn-sm">
+            {% set create_url = url_for('helpdesk_pages.inventory_pages.item_create') %}
+            <a href="{{ create_url }}" class="btn btn-primary btn-sm" {{ hd_boost(create_url) }}>
                 <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Registrar</span>
             </a>
             {% endif %}
-            <button class="btn btn-outline-secondary btn-sm" onclick="exportToExcel()">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportToExcel()">
                 <i class="fas fa-file-excel"></i><span class="d-none d-sm-inline"> Exportar</span>
             </button>
         </div>
     </div>
 
-    <!-- Filtros -->
-    <div class="card shadow mb-3 mb-md-4">
-        <div class="card-header py-2 py-md-3 d-flex justify-content-between align-items-center">
-            <h6 class="m-0 font-weight-bold text-primary" style="font-size: 0.85rem;">
-                <i class="fas fa-filter"></i> Filtros
-            </h6>
-            <button class="btn btn-sm btn-link p-0" type="button" data-toggle="collapse" data-target="#filtersCollapse">
-                <i class="fas fa-chevron-down"></i>
-            </button>
-        </div>
-        <div class="collapse show" id="filtersCollapse">
-            <div class="card-body p-2 p-md-3">
-                <form id="filters-form">
-                    <div class="row g-2">
-                        <!-- Búsqueda -->
-                        <div class="col-12 col-md-4 mb-2 mb-md-3">
-                            <label for="search-input" class="form-label small mb-1">
-                                <i class="fas fa-search"></i> Buscar
-                            </label>
-                            <input 
-                                type="text" 
-                                class="form-control form-control-sm" 
-                                id="search-input" 
-                                placeholder="Número, marca, modelo...">
-                        </div>
+    <!-- Filtros: macro filter_bar (form HTMX → recarga #hd-items-results sin JS) -->
+    {{ filter_bar(
+        '/help-desk/inventory/items',
+        filter_fields,
+        target='#hd-items-results',
+        search_value=f_search,
+        search_placeholder='Número, marca, modelo, serie...'
+    ) }}
 
-                        <!-- Categoría -->
-                        <div class="col-6 col-md-3 mb-2 mb-md-3">
-                            <label for="category-filter" class="form-label small mb-1">
-                                <i class="fas fa-tag"></i> Categoría
-                            </label>
-                            <select class="form-control form-control-sm" id="category-filter">
-                                <option value="">Todas</option>
-                                <!-- Se llenarán con JavaScript -->
-                            </select>
-                        </div>
-
-                        <!-- Estado -->
-                        <div class="col-6 col-md-2 mb-2 mb-md-3">
-                            <label for="status-filter" class="form-label small mb-1">
-                                <i class="fas fa-toggle-on"></i> Estado
-                            </label>
-                            <select class="form-control form-control-sm" id="status-filter">
-                                <option value="">Todos</option>
-                                <option value="ACTIVE">Activo</option>
-                                <option value="MAINTENANCE">Mantenim.</option>
-                                <option value="DAMAGED">Dañado</option>
-                                <option value="LOST">Extraviado</option>
-                            </select>
-                        </div>
-
-                        <!-- Asignación -->
-                        <div class="col-12 col-md-3 mb-2 mb-md-3">
-                            <label for="assigned-filter" class="form-label small mb-1">
-                                <i class="fas fa-user"></i> Asignación
-                            </label>
-                            <select class="form-control form-control-sm" id="assigned-filter">
-                                <option value="">Todos</option>
-                                <option value="yes">Asignados</option>
-                                <option value="no">Globales</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {% if can_view_all %}
-                    <div class="row">
-                        <!-- Departamento -->
-                        <div class="col-md-4 mb-3">
-                            <label for="department-filter">
-                                <i class="fas fa-building"></i> Departamento
-                            </label>
-                            <select class="form-control" id="department-filter">
-                                <option value="">Todos los departamentos</option>
-                                <!-- Se llenarán con JavaScript -->
-                            </select>
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div id="active-filters">
-                            <!-- Chips de filtros activos -->
-                        </div>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
-                            <i class="fas fa-times"></i> Limpiar filtros
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+    <!-- Barra de acciones masivas (Alpine: visible al seleccionar equipos) -->
+    <div class="hd-bulk-bar" x-show="sel.size" x-cloak>
+        <span class="hd-bulk-bar__count text-primary">
+            <i class="fas fa-check-square me-1"></i><b x-text="sel.size"></b> seleccionado(s)
+        </span>
+        <button type="button" class="btn btn-sm btn-outline-primary" @click="window.hdItemsBulkTransfer([...sel])">
+            <i class="fas fa-exchange-alt"></i> Transferir depto.
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger" @click="window.hdItemsBulkBaja([...sel])">
+            <i class="fas fa-file-alt"></i> Solicitar Baja
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-warning" @click="window.hdItemsBulkLimbo([...sel])">
+            <i class="fas fa-inbox"></i> Limbo
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @click="clear()">
+            <i class="fas fa-times"></i> Deseleccionar
+        </button>
     </div>
 
-    <!-- Barra de acciones masivas (visible al seleccionar equipos) -->
-    <div id="bulk-action-bar" class="card shadow mb-3 border-left-primary" style="display:none;">
-        <div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
-            <span class="font-weight-bold text-primary mr-2">
-                <i class="fas fa-check-square"></i>
-                <span id="bulk-selected-count">0</span> seleccionado(s)
-            </span>
-            <button class="btn btn-sm btn-outline-primary" id="btn-bulk-transfer">
-                <i class="fas fa-exchange-alt"></i> Transferir depto.
-            </button>
-            <button class="btn btn-sm btn-outline-danger" id="btn-bulk-baja">
-                <i class="fas fa-file-alt"></i> Solicitar Baja
-            </button>
-            <button class="btn btn-sm btn-outline-warning" id="btn-bulk-limbo">
-                <i class="fas fa-inbox"></i> Limbo
-            </button>
-            <button class="btn btn-sm btn-outline-secondary" id="btn-bulk-deselect">
-                <i class="fas fa-times"></i> Deseleccionar
-            </button>
-        </div>
-    </div>
-
-    <!-- Tabla de Equipos -->
+    <!-- Tabla de Equipos (render server-side; macros + HTMX partial) -->
     <div class="card shadow mb-4">
         <div class="card-header py-3">
-            <h6 class="m-0 font-weight-bold text-primary">
+            <h6 class="m-0 fw-bold text-primary">
                 <i class="fas fa-list"></i> Equipos Registrados
             </h6>
         </div>
         <div class="card-body">
-            <!-- Loading -->
-            <div id="loading-container" class="text-center py-5">
-                <i class="fas fa-spinner fa-spin fa-2x fa-md-3x text-primary mb-2 mb-md-3"></i>
-                <p class="text-muted">Cargando inventario...</p>
-            </div>
-
-            <!-- Tabla -->
-            <div id="table-container" style="display: none;">
-                <div class="table-responsive">
-                    <table class="table table-hover" id="items-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 50px;">
-                                    <input type="checkbox" id="select-all">
-                                </th>
-                                <th>N° Inventario</th>
-                                <th>Categoría</th>
-                                <th>Equipo</th>
-                                <th>Seriales</th>
-                                <th>Departamento</th>
-                                <th>Asignado a</th>
-                                <th>Estado</th>
-                                <th>Garantía</th>
-                                <th class="text-center">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Se llenará con JavaScript -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Paginación -->
-                <div class="d-flex justify-content-between align-items-center mt-3">
-                    <div>
-                        <span class="text-muted">
-                            Mostrando <strong id="showing-from">0</strong> a <strong id="showing-to">0</strong> 
-                            de <strong id="showing-total">0</strong> equipos
-                        </span>
-                    </div>
-                    <nav>
-                        <ul class="pagination mb-0" id="pagination-container">
-                            <!-- Se llenará con JavaScript -->
-                        </ul>
-                    </nav>
-                </div>
-            </div>
-
-            <!-- Empty State -->
-            <div id="empty-state" style="display: none;" class="text-center py-5">
-                <i class="fas fa-inbox fa-4x text-muted mb-3"></i>
-                <h5 class="text-muted">No se encontraron equipos</h5>
-                <p class="text-muted">Intenta ajustar los filtros de búsqueda</p>
+            <div id="hd-items-results" class="hd-results">
+                {% include "helpdesk/inventory/items/_items_list_results.html" %}
             </div>
         </div>
     </div>
 </div>
 
-<!-- Modal: Acciones Rápidas -->
+<!-- Modal: Acciones Rápidas (isla de cliente; BS5) -->
 <div class="modal fade" id="quickActionsModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -218,9 +92,7 @@
                 <h5 class="modal-title">
                     <i class="fas fa-cog"></i> Acciones Rápidas
                 </h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body" id="quick-actions-body">
                 <!-- Se llenará dinámicamente -->
@@ -229,7 +101,7 @@
     </div>
 </div>
 
-<!-- Modal: Transferencia Masiva -->
+<!-- Modal: Transferencia Masiva (BS5) -->
 <div class="modal fade" id="bulkTransferModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -237,21 +109,21 @@
                 <h5 class="modal-title">
                     <i class="fas fa-exchange-alt"></i> Transferencia Masiva
                 </h5>
-                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
                 <p class="text-muted small">
                     Transferir <strong id="bulk-transfer-count">0</strong> equipo(s) al departamento:
                 </p>
-                <div class="form-group mb-0">
-                    <label for="bulk-transfer-dept">Departamento destino <span class="text-danger">*</span></label>
-                    <select class="form-control" id="bulk-transfer-dept">
+                <div class="mb-0">
+                    <label for="bulk-transfer-dept" class="form-label">Departamento destino <span class="text-danger">*</span></label>
+                    <select class="form-select" id="bulk-transfer-dept">
                         <option value="">Seleccionar...</option>
                     </select>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary" id="btn-confirm-bulk-transfer">
                     <i class="fas fa-exchange-alt"></i> Transferir
                 </button>
@@ -260,7 +132,7 @@
     </div>
 </div>
 
-<!-- Modal: Cambiar Estado -->
+<!-- Modal: Cambiar Estado (BS5) -->
 <div class="modal fade" id="changeStatusModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -268,17 +140,14 @@
                 <h5 class="modal-title">
                     <i class="fas fa-toggle-on"></i> Cambiar Estado
                 </h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <form id="change-status-form">
                 <div class="modal-body">
                     <input type="hidden" id="change-status-item-id">
-                    
-                    <div class="form-group">
-                        <label for="new-status">Nuevo Estado *</label>
-                        <select class="form-control" id="new-status" required>
+                    <div class="mb-3">
+                        <label for="new-status" class="form-label">Nuevo Estado *</label>
+                        <select class="form-select" id="new-status" required>
                             <option value="">Seleccionar...</option>
                             <option value="ACTIVE">Activo</option>
                             <option value="MAINTENANCE">En Mantenimiento</option>
@@ -286,17 +155,14 @@
                             <option value="LOST">Extraviado</option>
                         </select>
                     </div>
-
-                    <div class="form-group">
-                        <label for="status-notes">Observaciones</label>
-                        <textarea class="form-control" id="status-notes" rows="3" 
+                    <div class="mb-3">
+                        <label for="status-notes" class="form-label">Observaciones</label>
+                        <textarea class="form-control" id="status-notes" rows="3"
                             placeholder="Razón del cambio de estado..."></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
-                        Cancelar
-                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">
                         <i class="fas fa-save"></i> Guardar Cambio
                     </button>
@@ -307,6 +173,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/items_list.js') }}?v={{ sv('helpdesk', 'js/inventory/items/items_list.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-can-view-all="{{ 'true' if can_view_all else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

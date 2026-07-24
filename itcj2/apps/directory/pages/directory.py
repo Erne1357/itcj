@@ -35,8 +35,24 @@ def _can_manage(db: Session, user: dict) -> bool:
 
 
 def _departments(db: Session):
+    """Deptos OFICIALES activos, en orden jerárquico (para los <select> de filtro/alta).
+
+    Cada Department queda con `.dir_label` (nombre indentado con NBSP según su
+    profundidad en el árbol) — atributo transitorio, no columna. El indentado
+    se arma en Python (no en Jinja) para usar el caracter NBSP real sin líos
+    de escapes en el template.
+    """
     from itcj2.core.models.department import Department
-    return db.query(Department).filter_by(is_active=True).order_by(Department.name).all()
+    meta = directory_service.official_departments(db)
+    order = {d["id"]: i for i, d in enumerate(meta)}
+    depth_by_id = {d["id"]: d["depth"] for d in meta}
+    depts = db.query(Department).filter_by(is_active=True, is_official=True).all()
+    depts.sort(key=lambda d: order.get(d.id, len(order)))
+    for d in depts:
+        depth = depth_by_id.get(d.id, 0)
+        prefix = "  " * depth
+        d.dir_label = f"{prefix}{d.name}"
+    return depts
 
 
 def _render_list(request: Request, db: Session, user: dict, *, q=None, department_id=None, source="all"):

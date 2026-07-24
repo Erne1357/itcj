@@ -15,6 +15,7 @@ class User(Base):
         Integer,
         ForeignKey("core_roles.id", onupdate="CASCADE", ondelete="RESTRICT"),
         nullable=True,
+        index=True,
     )
     username = Column(Text, unique=True)
     control_number = Column(Text, unique=True)
@@ -94,14 +95,32 @@ class User(Base):
         return f"<User {self.id} {self.full_name}>"
 
     def get_current_position(self):
-        """Obtiene el puesto activo actual del usuario."""
+        """Obtiene el puesto vigente 'primario' del usuario (determinista).
+
+        Orden estable start_date ASC, id ASC + ventana de vigencia (end_date/start_date),
+        para no divergir del resolver canónico de departamento.
+        """
+        from sqlalchemy import and_, or_
+        from sqlalchemy.sql import func as _func
         from itcj2.core.models.position import UserPosition
         db = object_session(self)
-        return db.query(UserPosition).filter_by(user_id=self.id, is_active=True).first()
+        return (
+            db.query(UserPosition)
+            .filter(
+                UserPosition.user_id == self.id,
+                UserPosition.is_active == True,  # noqa: E712
+                or_(UserPosition.end_date.is_(None), UserPosition.end_date >= _func.current_date()),
+                UserPosition.start_date <= _func.current_date(),
+            )
+            .order_by(UserPosition.start_date.asc(), UserPosition.id.asc())
+            .first()
+        )
 
     def get_current_department(self):
-        pos = self.get_current_position()
-        return pos.position.department if pos and pos.position else None
+        """Departamento primario canónico del usuario."""
+        from itcj2.core.services.departments_service import get_primary_user_department
+        db = object_session(self)
+        return get_primary_user_department(db, self.id)
 
     def get_position_email(self):
         pos = self.get_current_position()

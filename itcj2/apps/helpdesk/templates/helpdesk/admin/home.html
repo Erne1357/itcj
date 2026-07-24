@@ -76,13 +76,13 @@
             </div>
             <div class="card-body p-2 p-md-3">
                 <div class="d-grid gap-2 gap-md-3">
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}" class="btn btn-primary btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.assign_tickets')) }} class="btn btn-primary btn-sm btn-md-lg">
                         <i class="fas fa-user-plus me-2"></i>Asignar Tickets
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.all_tickets') }}" class="btn btn-outline-primary btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.tickets_list') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.tickets_list')) }} class="btn btn-outline-primary btn-sm btn-md-lg">
                         <i class="fas fa-list me-2"></i>Ver Todos los Tickets
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.categories') }}" class="btn btn-outline-primary btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#categorias" {{ hd_boost(url_for('helpdesk_pages.admin_pages.config') ~ '#categorias') }} class="btn btn-outline-primary btn-sm btn-md-lg">
                         <i class="fas fa-tags me-2"></i>Gestionar Categorías
                     </a>
                 </div>
@@ -100,13 +100,13 @@
             </div>
             <div class="card-body p-2 p-md-3">
                 <div class="d-grid gap-2 gap-md-3">
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_list') }}" class="btn btn-success btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_list') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.inventory_list')) }} class="btn btn-success btn-sm btn-md-lg">
                         <i class="fas fa-boxes me-2"></i>Ver Inventario
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_create') }}" class="btn btn-outline-success btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_create') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.inventory_create')) }} class="btn btn-outline-success btn-sm btn-md-lg">
                         <i class="fas fa-plus me-2"></i>Registrar Equipo
                     </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_categories') }}" class="btn btn-outline-success btn-sm btn-md-lg">
+                    <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#inv-cat" {{ hd_boost(url_for('helpdesk_pages.admin_pages.config') ~ '#inv-cat') }} class="btn btn-outline-success btn-sm btn-md-lg">
                         <i class="fas fa-folder me-2"></i>Categorías de Inventario
                     </a>
                 </div>
@@ -127,12 +127,12 @@
             <div class="card-body p-2 p-md-3">
                 <div class="row g-2">
                     <div class="col-12 col-md-4 mb-2 mb-md-0">
-                        <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" class="btn btn-info w-100">
+                        <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.stats')) }} class="btn btn-info w-100">
                             <i class="fas fa-chart-line me-1 me-md-2"></i><span class="d-none d-sm-inline">Ver </span>Estadísticas
                         </a>
                     </div>
                     <div class="col-12 col-md-4 mb-2 mb-md-0">
-                        <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_reports') }}" class="btn btn-outline-info w-100">
+                        <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_reports') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.inventory_reports')) }} class="btn btn-outline-info w-100">
                             <i class="fas fa-file-export me-1 me-md-2"></i><span class="d-none d-sm-inline">Reportes </span>Inventario
                         </a>
                     </div>
@@ -153,11 +153,4 @@
 <link href="{{ url_for('static', filename='helpdesk/css/admin/home.css') }}?v={{ sv('helpdesk', 'css/admin/home.css') }}" rel="stylesheet">
 {% endblock %}
 
-{% block extra_js %}
-<script>
-function generateTicketsReport() {
-    window.location.href = "{{ url_for('helpdesk_pages.admin_pages.stats') }}";
-}
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/home.js') }}?v={{ sv('helpdesk', 'js/admin/home.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

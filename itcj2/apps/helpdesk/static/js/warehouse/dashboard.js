@@ -62,5 +62,13 @@
             </div>`;
     }
 
-    document.addEventListener('DOMContentLoaded', load);
+    function init() {
+        load();
+    }
+
+    function destroy() {
+        // No persistent listeners to remove for dashboard.
+    }
+
+    window.HelpdeskPage.page('warehouse_dashboard', { init: init, destroy: destroy });
 })();

@@ -1,0 +1,46 @@
+/* ============================================================================
+   helpdesk-tokens.css — Capa de design tokens (F0 del roadmap de componentes).
+   Tokens NEUTRALES y de escala (radius/shadow/superficie). El COLOR semántico
+   (estados/prioridad/área/marca) lo dan las clases de Bootstrap ya usadas en
+   toda la app (bg-secondary/info/warning/success/danger/dark/primary), así que
+   los componentes heredan el tema existente y NO inventan paleta nueva.
+   Ver docs/auditoria_ui_helpdesk.md.
+   ========================================================================== */
+:root {
+    /* Acento = el primary de Bootstrap que ya usa la app (azul por defecto).
+       DECISIÓN 2026-07-01 (usuario): la paleta de Help-Desk es ÚNICA = AZUL de
+       Bootstrap (#0d6efd) vía --bs-primary. El color semántico SIEMPRE se aplica
+       con clases de Bootstrap (btn-primary, text-primary, bg-color, badge bg-color),
+       NUNCA con hex ni verde. inventory (SB-Admin) converge a estas clases azules al
+       migrarlo. No cambiar el VALOR de --hd-primary; para un rebrand futuro se
+       cambia --bs-primary en un solo lugar. Ver docs/auditoria_ui_helpdesk.md §8.7. */
+    --hd-primary: var(--bs-primary, #0d6efd);
+
+    /* Neutrales de superficie/texto/borde */
+    --hd-muted: #6b7280;
+    --hd-dark: #374151;
+    --hd-surface: #ffffff;
+    --hd-surface-2: #f8fafc;
+    --hd-border: #e5e7eb;
+
+    /* Escala de radius (colapsa 26 valores → 5) */
+    --hd-r-sm: 0.25rem;
+    --hd-r-md: 0.5rem;
+    --hd-r-lg: 0.75rem;
+    --hd-r-xl: 1rem;
+    --hd-r-full: 999px;
+
+    /* Escala de sombra (colapsa ~40 → 3) */
+    --hd-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --hd-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+    --hd-shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.12);
+
+    /* Transición estándar */
+    --hd-transition: 0.18s ease;
+
+    /* Gradiente de acento (paleta AZUL Bootstrap). Reemplaza los gradientes
+       hardcodeados (morado #667eea→#764ba2 y variantes) que vivían inline en
+       inventory/. Definido UNA vez aquí; deriva de --bs-primary para converger
+       al tema. Ver docs/auditoria_ui_helpdesk.md §8.5. */
+    --hd-gradient-accent: linear-gradient(135deg, var(--bs-primary, #0d6efd) 0%, #0a58ca 100%);
+}

@@ -1,24 +1,32 @@
-.group-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 2rem;
-    border-radius: 0.5rem;
-    margin-bottom: 2rem;
-}
-.stat-card {
-    border-left: 4px solid #667eea;
-}
+/* Detalle de grupo (isla de cliente).
+   Color = clases de Bootstrap (el header/stat-cards usan bg-primary /
+   border-primary en el markup); estructura/escala = tokens --hd-*. Sin hex. */
+
 .equipment-item {
-    transition: background-color 0.2s;
+    transition: background-color var(--hd-transition);
 }
 .equipment-item:hover {
-    background-color: #f8f9fc;
+    background-color: var(--hd-surface-2);
 }
+
 .capacity-progress {
     height: 25px;
     font-size: 0.875rem;
 }
+
 .equipment-checkbox {
     transform: scale(1.2);
     cursor: pointer;
+}
+
+/* Reemplazos de estilos inline del template (medidas puntuales, sin color). */
+.hd-stat-label {
+    font-size: 0.65rem;
+}
+.hd-th-check {
+    width: 40px;
+}
+.hd-available-scroll {
+    max-height: 400px;
+    overflow-y: auto;
 }

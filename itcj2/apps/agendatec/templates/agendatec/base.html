@@ -101,7 +101,7 @@
         {% if current_user %}
         <div class="app-sidebar-user">
           <div class="app-sidebar-user-avatar">
-            {{ current_user.name[:1]|upper if current_user.name else 'U' }}
+            {{ initials(current_user.name) if current_user else 'U' }}
           </div>
           <div class="app-sidebar-user-info">
             <div class="app-sidebar-user-name">{{ current_user.name }}</div>
@@ -128,7 +128,7 @@
     <script src="{{ url_for('static', filename='core/js/shared/app-modal.js') }}?v={{ sv('core', 'js/shared/app-modal.js') }}"></script>
     <script src="{{ url_for('static', filename='agendatec/js/toast.js') }}?v={{ sv('agendatec', 'js/toast.js') }}"></script>
     <script src="{{ url_for('static', filename='agendatec/js/logout.js') }}?v={{ sv('agendatec', 'js/logout.js') }}"></script>
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='core/js/vendor/socket.io.min.js') }}?v={{ sv('core', 'js/vendor/socket.io.min.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ sv('core', 'js/socket-base.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/notifications/app-fab-widget.js') }}?v={{ sv('core', 'js/notifications/app-fab-widget.js') }}"></script>

@@ -40,6 +40,7 @@ class TestListNotifications:
         resp = app_client.get("/api/core/v2/notifications", headers=auth_headers)
 
         assert resp.status_code == 200
+        assert resp.json()["success"] is True
         data = resp.json()["data"]
         assert data["total"] == 1
         assert len(data["items"]) == 1
@@ -169,6 +170,7 @@ class TestUnreadCounts:
         )
 
         assert resp.status_code == 200
+        assert resp.json()["success"] is True
         data = resp.json()["data"]
         assert data["counts"]["helpdesk"] == 3
         assert data["total"] == 4
@@ -204,7 +206,7 @@ class TestMarkRead:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["success"] is True
         mock_svc.mark_read.assert_called_once_with(ANY, 1, 200)
 
     @patch("itcj2.core.services.notification_service.NotificationService")
@@ -217,6 +219,7 @@ class TestMarkRead:
         )
 
         assert resp.status_code == 404
+        assert resp.json()["error"] == "Notificación no encontrada"
 
     def test_unauthenticated(self, app_client):
         resp = app_client.patch("/api/core/v2/notifications/1/read")
@@ -237,6 +240,7 @@ class TestMarkAllRead:
         )
 
         assert resp.status_code == 200
+        assert resp.json()["success"] is True
         assert resp.json()["count"] == 5
         mock_svc.mark_all_read.assert_called_once_with(ANY, 200, None)
 
@@ -272,7 +276,7 @@ class TestDeleteNotification:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["success"] is True
         mock_svc.delete_notification.assert_called_once_with(ANY, 1, 200)
 
     @patch("itcj2.core.services.notification_service.NotificationService")

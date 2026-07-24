@@ -1,132 +1,49 @@
 // itcj2/apps/helpdesk/static/js/warehouse/products.js
+//
+// Isla de cliente de la vista de PRODUCTOS del almacén. La lista, los filtros y
+// la paginación se renderizan SERVER-SIDE (HTMX partial #hd-products-results);
+// aquí solo quedan los bits genuinamente de cliente: el modal Crear/Editar (BS5),
+// el modal de detalle de stock, y la delegación de los botones de las filas.
+// Tras una mutación se dispara `refresh` sobre el form de filtros → HTMX recarga
+// el fragmento con los filtros vigentes.
 
 const WarehouseProducts = (function () {
     'use strict';
 
     const API = '/api/warehouse/v2';
-    let currentPage = 1;
-    let totalPages = 1;
     let editingId = null;
+    let _onProductModalHidden = null;
+    let _resultsDelegate = null;
+    let _clearHandler = null;
 
-    async function loadCategories() {
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = String(text == null ? '' : text);
+        return div.innerHTML;
+    }
+
+    // Recarga el fragmento server-side manteniendo los filtros vigentes.
+    function refreshResults() {
+        const form = document.getElementById('hd-filter-form');
+        if (form && window.htmx) window.htmx.trigger(form, 'refresh');
+    }
+
+    // Puebla SOLO el select de subcategorías del modal (los filtros ya son server-side).
+    async function loadSubcategories() {
+        const subcatSelect = document.getElementById('prodSubcategory');
+        if (!subcatSelect) return;
         try {
             const res = await fetch(`${API}/categories?with_subcategories=true`);
             const d = await res.json();
-            const catFilter = document.getElementById('categoryFilter');
-            const subcatSelect = document.getElementById('prodSubcategory');
-
-            d.categories?.forEach(c => {
-                catFilter.insertAdjacentHTML('beforeend',
-                    `<option value="${c.id}">${c.name}</option>`);
-                c.subcategories?.forEach(s => {
-                    subcatSelect.insertAdjacentHTML('beforeend',
-                        `<option value="${s.id}">[${c.name}] ${s.name}</option>`);
+            (d.categories || []).forEach(c => {
+                (c.subcategories || []).forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = `[${c.name}] ${s.name}`;
+                    subcatSelect.appendChild(opt);
                 });
             });
-        } catch (e) { console.error('Error loading categories', e); }
-    }
-
-    async function load(page) {
-        page = page || currentPage;
-        currentPage = page;
-
-        const search = document.getElementById('searchInput').value.trim();
-        const category = document.getElementById('categoryFilter').value;
-        const stockF = document.getElementById('stockFilter').value;
-
-        const params = new URLSearchParams({ page, per_page: 20, include_stock: true });
-        if (search) params.set('search', search);
-        if (category) params.set('category_id', category);
-        if (stockF === 'low') params.set('below_restock', 'true');
-
-        document.getElementById('productsContainer').innerHTML = `
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="text-muted mt-2">Cargando...</p>
-            </div>`;
-
-        try {
-            const res = await fetch(`${API}/products?${params}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const d = await res.json();
-            totalPages = d.pages || 1;
-            console.log('Products loaded', d);
-            renderProducts(d.products || []);
-            renderPagination(d.total || 0, d.page || 1, d.pages || 1);
-        } catch (err) {
-            document.getElementById('productsContainer').innerHTML =
-                '<div class="alert alert-danger m-3">Error al cargar los productos.</div>';
-        }
-    }
-
-    function renderProducts(products) {
-        if (!products.length) {
-            document.getElementById('productsContainer').innerHTML = `
-                <div class="text-center py-5 text-muted">
-                    <i class="fas fa-cube fa-3x mb-3"></i>
-                    <p>No se encontraron productos.</p>
-                </div>`;
-            return;
-        }
-
-        const rows = products.map(p => {
-            const stock = p.total_stock ?? 0;
-            const below = p.is_below_restock;
-            const stockBadge = below
-                ? `<span class="badge bg-danger">${stock}</span>`
-                : `<span class="badge bg-success">${stock}</span>`;
-            return `
-                <tr>
-                    <td><code>${p.code || '-'}</code></td>
-                    <td>
-                        <strong>${p.name}</strong>
-                        ${p.description ? `<br><small class="text-muted">${p.description.substring(0,60)}</small>` : ''}
-                    </td>
-                    <td>${p.category_name || '-'}[ ${p.subcategory_name || '-'} ]</td>
-                    <td>${stockBadge} <small class="text-muted">${p.unit_of_measure || ''}</small></td>
-                    <td>${p.department_code || '<span class="text-muted">—</span>'}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="WarehouseProducts.showStock(${p.id}, '${p.name}')">
-                            <i class="fas fa-boxes"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="WarehouseProducts.edit(${p.id})">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                    </td>
-                </tr>`;
-        }).join('');
-
-        document.getElementById('productsContainer').innerHTML = `
-            <div class="table-responsive">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Código</th><th>Nombre</th><th>Categoría</th>
-                            <th>Stock</th><th>Dept.</th><th></th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>`;
-    }
-
-    function renderPagination(total, page, pages) {
-        const pag = document.getElementById('pagination');
-        pag.classList.remove('d-none');
-        document.getElementById('paginationInfo').textContent =
-            `Página ${page} de ${pages} (${total} productos)`;
-        document.getElementById('btnPrev').disabled = page <= 1;
-        document.getElementById('btnNext').disabled = page >= pages;
-    }
-
-    function prevPage() { if (currentPage > 1) load(currentPage - 1); }
-    function nextPage() { if (currentPage < totalPages) load(currentPage + 1); }
-
-    function reset() {
-        document.getElementById('searchInput').value = '';
-        document.getElementById('categoryFilter').value = '';
-        document.getElementById('stockFilter').value = '';
-        load(1);
+        } catch (e) { console.error('Error loading subcategories', e); }
     }
 
     async function showStock(productId, name) {
@@ -141,18 +58,18 @@ const WarehouseProducts = (function () {
 
             const rows = entries.map(e => `
                 <tr>
-                    <td>${e.purchase_folio || '-'}</td>
-                    <td>${e.purchase_date}</td>
-                    <td>${e.quantity_remaining} / ${e.quantity_original}</td>
+                    <td>${escapeHtml(e.purchase_folio || '-')}</td>
+                    <td>${escapeHtml(e.purchase_date || '')}</td>
+                    <td>${escapeHtml(e.quantity_remaining)} / ${escapeHtml(e.quantity_original)}</td>
                     <td>$${parseFloat(e.unit_cost || 0).toFixed(2)}</td>
-                    <td>${e.supplier || '-'}</td>
+                    <td>${escapeHtml(e.supplier || '-')}</td>
                     <td>${e.is_exhausted
                         ? '<span class="badge bg-secondary">Agotado</span>'
                         : '<span class="badge bg-success">Disponible</span>'}</td>
                 </tr>`).join('');
 
             document.getElementById('stockDetailBody').innerHTML = entries.length
-                ? `<h6 class="mb-3"><i class="fas fa-cube me-2"></i>${name} — Lotes</h6>
+                ? `<h6 class="mb-3"><i class="fas fa-cube me-2"></i>${escapeHtml(name)} — Lotes</h6>
                    <div class="table-responsive">
                      <table class="table table-sm table-hover">
                        <thead class="table-light">
@@ -174,10 +91,11 @@ const WarehouseProducts = (function () {
             '<i class="fas fa-edit me-2"></i>Editar Producto';
         try {
             const res = await fetch(`${API}/products/${productId}`);
-            const p = await res.json();
+            const body = await res.json();
+            const p = body.product || body;
             document.getElementById('prodName').value = p.name || '';
             document.getElementById('prodUnit').value = p.unit_of_measure || '';
-            document.getElementById('prodLeadTime').value = p.lead_time_days || 7;
+            document.getElementById('prodLeadTime').value = p.restock_lead_time_days || p.lead_time_days || 7;
             document.getElementById('prodDept').value = p.department_code || '';
             document.getElementById('prodDesc').value = p.description || '';
             if (p.subcategory_id) document.getElementById('prodSubcategory').value = p.subcategory_id;
@@ -191,7 +109,7 @@ const WarehouseProducts = (function () {
         const body = {
             name: document.getElementById('prodName').value.trim(),
             unit_of_measure: document.getElementById('prodUnit').value.trim(),
-            lead_time_days: parseInt(document.getElementById('prodLeadTime').value) || 7,
+            restock_lead_time_days: parseInt(document.getElementById('prodLeadTime').value) || 7,
             subcategory_id: parseInt(document.getElementById('prodSubcategory').value) || null,
             department_code: document.getElementById('prodDept').value.trim() || null,
             description: document.getElementById('prodDesc').value.trim() || null,
@@ -218,14 +136,22 @@ const WarehouseProducts = (function () {
             bootstrap.Modal.getInstance(document.getElementById('productModal')).hide();
             HelpdeskUtils.showToast('Producto guardado.', 'success');
             editingId = null;
-            load(1);
+            refreshResults();
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('productModal').addEventListener('hidden.bs.modal', function () {
+    function init() {
+        editingId = null;
+
+        // Limpiar opciones del select de subcategorías (evita duplicados al revisitar).
+        const subcatSelect = document.getElementById('prodSubcategory');
+        if (subcatSelect) {
+            while (subcatSelect.options.length > 1) subcatSelect.remove(1);
+        }
+
+        _onProductModalHidden = function () {
             editingId = null;
             document.getElementById('productModalTitle').innerHTML =
                 '<i class="fas fa-cube me-2"></i>Nuevo Producto';
@@ -235,10 +161,58 @@ const WarehouseProducts = (function () {
             document.getElementById('prodSubcategory').value = '';
             document.getElementById('prodDept').value = 'comp_center';
             document.getElementById('prodDesc').value = '';
-        });
-        loadCategories();
-        load(1);
-    });
+        };
+        const prodModal = document.getElementById('productModal');
+        if (prodModal) prodModal.addEventListener('hidden.bs.modal', _onProductModalHidden);
 
-    return { load, reset, prevPage, nextPage, showStock, edit, save };
+        // Botones de acción (server-rendered en cada fila) → delegación en el
+        // contenedor de resultados (sobrevive a los swaps HTMX del fragmento).
+        const results = document.getElementById('hd-products-results');
+        _resultsDelegate = function (ev) {
+            const btn = ev.target.closest('[data-action]');
+            if (!btn) return;
+            const id = parseInt(btn.dataset.productId, 10);
+            if (!id) return;
+            if (btn.dataset.action === 'stock') showStock(id, btn.dataset.productName || '');
+            else if (btn.dataset.action === 'edit') edit(id);
+        };
+        if (results) results.addEventListener('click', _resultsDelegate);
+
+        // Botón Limpiar del filter_bar → reset de selects/búsqueda + recarga.
+        const clearBtn = document.getElementById('btnClearFilters');
+        if (clearBtn) {
+            _clearHandler = function () {
+                const form = document.getElementById('hd-filter-form');
+                if (form) form.querySelectorAll('select').forEach((s) => { s.value = ''; });
+                const search = document.getElementById('searchInput');
+                if (search) search.value = '';
+                refreshResults();
+            };
+            clearBtn.addEventListener('click', _clearHandler);
+        }
+
+        loadSubcategories();
+    }
+
+    function destroy() {
+        const prodModal = document.getElementById('productModal');
+        if (prodModal && _onProductModalHidden) {
+            prodModal.removeEventListener('hidden.bs.modal', _onProductModalHidden);
+        }
+        const results = document.getElementById('hd-products-results');
+        if (results && _resultsDelegate) results.removeEventListener('click', _resultsDelegate);
+
+        const clearBtn = document.getElementById('btnClearFilters');
+        if (clearBtn && _clearHandler) clearBtn.removeEventListener('click', _clearHandler);
+
+        _onProductModalHidden = null;
+        _resultsDelegate = null;
+        _clearHandler = null;
+        editingId = null;
+    }
+
+    window.WarehouseProducts = { showStock, edit, save };
+    window.HelpdeskPage.page('warehouse_products', { init: init, destroy: destroy });
+
+    return { showStock, edit, save };
 })();

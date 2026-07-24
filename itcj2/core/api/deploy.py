@@ -28,9 +28,10 @@ async def notify_static_update(body: StaticUpdateBody):
     Emite evento `static_update` al namespace `/notify` via Socket.IO.
     """
     settings = get_settings()
-    deploy_secret = getattr(settings, "DEPLOY_SECRET", "")
+    deploy_secret = getattr(settings, "DEPLOY_SECRET", "") or ""
 
-    if deploy_secret and body.deploy_key != deploy_secret:
+    # Fail-closed: sin secreto configurado o con key inválida → 403.
+    if not deploy_secret or body.deploy_key != deploy_secret:
         raise HTTPException(403, detail={"error": "unauthorized", "message": "Invalid deploy key"})
 
     if not body.changed and not body.removed:

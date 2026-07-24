@@ -21,14 +21,21 @@ class DepartmentCreateBody(BaseModel):
     description: Optional[str] = None
     parent_id: Optional[int] = None
     icon_class: Optional[str] = None
+    is_official: bool = False  # UI crea sub-departamentos tuyos; admin puede marcar oficial
 
 
 class DepartmentUpdateBody(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_official: Optional[bool] = None  # promover/degradar a oficial
     parent_id: Optional[int] = None
     icon_class: Optional[str] = None
+
+
+# Campos que ADMITEN null explícito en PATCH (limpiar). name/is_active/is_official
+# son NOT NULL: un null explícito en ellos se ignora en vez de romper (F1b-D2).
+_NULLABLE_DEPT_FIELDS = {"parent_id", "description", "icon_class"}
 
 
 # ── Consultas jerárquicas ─────────────────────────────────────────────────────
@@ -43,7 +50,7 @@ def get_direction(
 
     direction = svc.get_direction(db)
     return {
-        "status": "ok",
+        "success": True,
         "data": direction.to_dict(include_children=True) if direction else None,
     }
 
@@ -58,7 +65,7 @@ def get_union_delegation(
 
     union_delegation = svc.get_union_delegation(db)
     return {
-        "status": "ok",
+        "success": True,
         "data": union_delegation.to_dict(include_children=True) if union_delegation else None,
     }
 
@@ -72,19 +79,63 @@ def list_subdirections(
     from itcj2.core.services import departments_service as svc
 
     subdirs = svc.list_subdirections(db)
-    return {"status": "ok", "data": [d.to_dict(include_children=True) for d in subdirs]}
+    return {"success": True, "data": [d.to_dict(include_children=True) for d in subdirs]}
 
 
 @router.get("/parent-options")
 def list_parent_options(
+    exclude_subtree_of: Optional[int] = None,
     user: dict = require_perms("itcj", ["core.departments.api.read"]),
     db: DbSession = None,
 ):
-    """Lista departamentos disponibles como padres (dirección y subdirecciones)."""
+    """Opciones de padre: árbol activo completo aplanado con depth (sin cap).
+
+    ``exclude_subtree_of``: excluye ese depto y su subtree (modo edición, F5).
+    """
     from itcj2.core.services import departments_service as svc
 
-    options = svc.list_parent_options(db)
-    return {"status": "ok", "data": [d.to_dict() for d in options]}
+    options = svc.list_parent_options(db, exclude_subtree_of=exclude_subtree_of)
+    return {"success": True, "data": options}
+
+
+@router.get("/tree")
+def get_departments_tree(
+    user: dict = require_perms("itcj", ["core.departments.api.read.hierarchy"]),
+    db: DbSession = None,
+):
+    """Árbol completo del organigrama (activos), anidado (contrato C3).
+
+    Endpoint NUEVO → envelope destino {"success": true} desde el inicio.
+    """
+    from itcj2.core.services import departments_service as svc
+
+    return {"success": True, "data": svc.build_tree(db)}
+
+
+@router.get("/{dept_id}/subtree")
+def get_department_subtree(
+    dept_id: int,
+    user: dict = require_perms("itcj", ["core.departments.api.read.hierarchy"]),
+    db: DbSession = None,
+):
+    """Preview del subtree (C3): ids + nodos DFS con depth relativa al root.
+
+    Consumido por position_detail (F5) para explicar el alcance de perms
+    `.subtree`. Perm de jerarquía existente (F1b-D3); la página consumidora
+    es admin-only. Endpoint NUEVO → envelope {"success": true} + detail string.
+    """
+    from itcj2.core.services import hierarchy_service as hs
+
+    nodes = hs.subtree_nodes(db, dept_id)
+    if not nodes:
+        raise HTTPException(404, detail="Departamento no encontrado o inactivo")
+    return {
+        "success": True,
+        "data": {
+            "department_ids": sorted(n["id"] for n in nodes),
+            "departments": nodes,
+        },
+    }
 
 
 @router.get("/by-parent")
@@ -97,7 +148,7 @@ def list_by_parent(
     from itcj2.core.services import departments_service as svc
 
     depts = svc.list_departments_by_parent(db, parent_id)
-    return {"status": "ok", "data": [d.to_dict() for d in depts]}
+    return {"success": True, "data": [d.to_dict() for d in depts]}
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -111,7 +162,7 @@ def list_departments(
     from itcj2.core.services import departments_service as svc
 
     depts = svc.list_departments(db)
-    return {"status": "ok", "data": [d.to_dict() for d in depts]}
+    return {"success": True, "data": [d.to_dict() for d in depts]}
 
 
 @router.get("/{dept_id}")
@@ -126,7 +177,7 @@ def get_department(
 
     dept = dept_svc.get_department(db, dept_id)
     if not dept:
-        raise HTTPException(404, detail={"status": "error", "error": "not_found"})
+        raise HTTPException(404, detail="Departamento no encontrado")
 
     positions = dept_svc.get_department_positions(db, dept_id)
     positions_data = [
@@ -145,7 +196,7 @@ def get_department(
     ]
 
     return {
-        "status": "ok",
+        "success": True,
         "data": {
             **dept.to_dict(include_children=True),
             "positions": positions_data,
@@ -165,7 +216,7 @@ def create_department(
     code = body.code.strip()
     name = body.name.strip()
     if not code or not name:
-        raise HTTPException(400, detail={"status": "error", "error": "code_and_name_required"})
+        raise HTTPException(400, detail="El código y el nombre son requeridos")
 
     try:
         dept = svc.create_department(
@@ -175,11 +226,12 @@ def create_department(
             body.description.strip() if body.description else None,
             body.parent_id,
             body.icon_class.strip() if body.icon_class else None,
+            is_official=body.is_official,
         )
         logger.info(f"Departamento '{name}' creado por usuario {int(user['sub'])}")
-        return {"status": "ok", "data": dept.to_dict()}
+        return {"success": True, "data": dept.to_dict()}
     except ValueError as e:
-        raise HTTPException(409, detail={"status": "error", "error": str(e)})
+        raise HTTPException(409, detail=str(e))
 
 
 @router.patch("/{dept_id}")
@@ -189,16 +241,26 @@ def update_department(
     user: dict = require_perms("itcj", ["core.departments.api.update"]),
     db: DbSession = None,
 ):
-    """Actualiza un departamento."""
+    """Actualiza un departamento.
+
+    Semántica null (F1b-D2): un campo AUSENTE del body no se toca;
+    `"parent_id": null` explícito limpia el padre (promueve a raíz).
+    """
     from itcj2.core.services import departments_service as svc
 
-    updates = body.model_dump(exclude_none=True)
+    # F1b-D2: exclude_unset — campo AUSENTE no se toca; "parent_id": null
+    # EXPLÍCITO limpia el padre (promueve a raíz). Null en campos NOT NULL se ignora.
+    updates = body.model_dump(exclude_unset=True)
+    updates = {
+        k: v for k, v in updates.items()
+        if v is not None or k in _NULLABLE_DEPT_FIELDS
+    }
     try:
         dept = svc.update_department(db, dept_id, **updates)
         logger.info(f"Departamento {dept_id} actualizado por usuario {int(user['sub'])}")
-        return {"status": "ok", "data": dept.to_dict()}
+        return {"success": True, "data": dept.to_dict()}
     except ValueError as e:
-        raise HTTPException(404, detail={"status": "error", "error": str(e)})
+        raise HTTPException(404, detail=str(e))
 
 
 # ── Usuarios del departamento ─────────────────────────────────────────────────
@@ -220,7 +282,7 @@ def get_department_users(
 
     dept = dept_svc.get_department(db, dept_id)
     if not dept:
-        raise HTTPException(404, detail={"status": "error", "error": "Department not found"})
+        raise HTTPException(404, detail="Departamento no encontrado")
 
     filters = [
         Position.department_id == dept_id,
@@ -274,6 +336,6 @@ def get_department_users(
         })
 
     return {
-        "status": "ok",
+        "success": True,
         "data": {"department": dept.to_dict(), "users": users_list, "total": len(users_list)},
     }

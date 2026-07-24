@@ -2,8 +2,8 @@
 {% block title %}Directorio de Extensiones · ITCJ{% endblock %}
 {% block body %}
 <div class="dir-wrap container-fluid py-3" id="dir-shell" hx-ext="morph">
-  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-    <h1 class="h4 mb-0"><i class="bi bi-telephone-fill me-2"></i>Directorio de Extensiones</h1>
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3 dir-page-head">
+    <h1 class="h4 mb-0 dir-page-title"><i class="bi bi-telephone-fill me-2"></i>Directorio de Extensiones</h1>
     {% if can_manage %}
     <button class="btn btn-primary btn-sm" data-dir-action="new-entry"
             data-bs-toggle="modal" data-bs-target="#dirEntryModal">
@@ -24,7 +24,7 @@
               hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
               hx-include="#dir-filters" hx-indicator="#dir-skel">
         <option value="">Todos los departamentos</option>
-        {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+        {% for d in departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
       </select>
     </div>
     <div class="col-6 col-md-auto">
@@ -58,7 +58,7 @@
      <div class="mb-2"><label class="form-label">Departamento</label>
        <select class="form-select" name="department_id" required>
          <option value="">Selecciona…</option>
-         {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+         {% for d in departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
        </select></div>
      <div class="mb-2"><label class="form-label">Etiqueta / Puesto</label>
        <input class="form-control" name="label" maxlength="120" required></div>

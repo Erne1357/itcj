@@ -7,6 +7,12 @@
  * de creación de tickets, desde el formulario hasta la encuesta de satisfacción.
  *
  * Flujo: create_ticket → my_tickets → ticket_detail
+ *
+ * NOTA (HTMX nav): Este módulo es una DEPENDENCIA COMPARTIDA, no una página.
+ * No llama a HelpdeskPage.page(). Es cargado secuencialmente antes del módulo
+ * de cada página (my_tickets, create_ticket, ticket_detail) por data-hd-modules.
+ * La instancia window.helpdeskTutorial se crea al evaluar el módulo (siempre
+ * disponible para el módulo de página que lo carga).
  */
 
 // ==================== CONFIGURACIÓN GLOBAL ====================
@@ -240,6 +246,21 @@ class HelpdeskTutorial {
         this.tour = null;
         this.currentPage = this.detectCurrentPage();
         this.tutorialTicketId = null;
+        // Tracking de timeouts internos para poder cancelarlos en teardown()
+        this._pendingTimeouts = [];
+    }
+
+    /**
+     * Registra un setTimeout interno y retorna su id (para poder cancelarlo en teardown)
+     */
+    _setTimeout(fn, delay) {
+        const id = setTimeout(() => {
+            // Remover de la lista cuando ejecuta
+            this._pendingTimeouts = this._pendingTimeouts.filter(t => t !== id);
+            fn();
+        }, delay);
+        this._pendingTimeouts.push(id);
+        return id;
     }
 
     /**
@@ -509,7 +530,7 @@ class HelpdeskTutorial {
             soporteCard.click();
         }
 
-        setTimeout(() => {
+        this._setTimeout(() => {
             // Llenar campos del paso 2
             document.getElementById('title').value = TUTORIAL_DATA.title;
             document.getElementById('description').value = TUTORIAL_DATA.description;
@@ -533,7 +554,10 @@ class HelpdeskTutorial {
             this.fillFormWithExampleData();
 
             // Esperar un momento para que se llene
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => {
+                const id = setTimeout(resolve, 1000);
+                this._pendingTimeouts.push(id);
+            });
 
             // Cargar el ticket de ejemplo desde JSON
             const exampleData = await this.loadExampleTicket();
@@ -1106,7 +1130,7 @@ class HelpdeskTutorial {
                                 this.hide();
 
                                 // Esperar un momento y navegar
-                                setTimeout(() => {
+                                window.helpdeskTutorial._setTimeout(() => {
                                     TutorialUtils.navigateTo('/help-desk/user/my-tickets');
                                 }, 1500);
                             }
@@ -1268,7 +1292,7 @@ class HelpdeskTutorial {
                                 // Ocultar tour sin marcar como completado
                                 this.hide();
 
-                                setTimeout(() => {
+                                window.helpdeskTutorial._setTimeout(() => {
                                     // Agregar parámetro tutorial=true para que el backend/frontend sepa que es modo tutorial
                                     TutorialUtils.navigateTo(`/help-desk/user/tickets/${ticketId}?from=my_tickets&tutorial=true`);
                                 }, 500);
@@ -1461,7 +1485,7 @@ class HelpdeskTutorial {
                             this.complete();
 
                             // Esperar un momento y navegar a create_ticket con mensaje
-                            setTimeout(() => {
+                            window.helpdeskTutorial._setTimeout(() => {
                                 TutorialUtils.navigateTo('/help-desk/user/create?tutorial_completed=true');
                             }, 500);
                         },
@@ -1506,16 +1530,20 @@ class HelpdeskTutorial {
     }
 
     /**
-     * Verifica si debe iniciar automáticamente el tutorial
+     * Inicia automáticamente si corresponde según el contexto de la página.
+     * Reemplaza el antiguo DOMContentLoaded auto-start.
+     * Llamado desde init() de cada módulo de página.
+     *
+     * @param {string} pageContext - 'create_ticket' | 'my_tickets' | 'ticket_detail'
      */
-    autoStartTutorial() {
+    maybeAutoStart(pageContext) {
         // Verificar si acabamos de completar el tutorial
         const urlParams = new URLSearchParams(window.location.search);
         const tutorialCompleted = urlParams.get('tutorial_completed') === 'true';
 
-        if (this.currentPage === 'create_ticket' && tutorialCompleted) {
+        if (pageContext === 'create_ticket' && tutorialCompleted) {
             // Mostrar mensaje de bienvenida después del tutorial
-            setTimeout(() => {
+            this._setTimeout(() => {
                 TutorialUtils.showModal(
                     '¡Ahora es tu turno!',
                     'Ahora que conoces el proceso, puedes empezar a crear tus propios tickets. ¡Adelante!',
@@ -1528,64 +1556,89 @@ class HelpdeskTutorial {
             return;
         }
 
-        // Solo en create_ticket y si no lo ha completado
-        if (this.currentPage === 'create_ticket' && !this.hasCompletedTutorial()) {
+        if (pageContext === 'create_ticket' && !this.hasCompletedTutorial()) {
             // Pequeño delay para que cargue la página
-            setTimeout(() => {
+            this._setTimeout(() => {
                 this.startTutorial();
             }, 1000);
-        }
-        // Si viene del tutorial de create_ticket
-        else if (this.currentPage === 'my_tickets') {
-            // Verificar si está en modo tutorial
+        } else if (pageContext === 'my_tickets') {
             if (this.isTutorialModeActive()) {
-                setTimeout(() => {
+                this._setTimeout(() => {
                     this.startTutorial();
 
                     // Forzar recarga de tickets después de iniciar el tutorial
-                    setTimeout(() => {
-                        if (typeof loadMyTickets === 'function') {
-                            loadMyTickets();
+                    this._setTimeout(() => {
+                        if (typeof window.loadMyTickets === 'function') {
+                            window.loadMyTickets();
                         }
                     }, 500);
                 }, 1000);
             }
-        }
-        // Si viene del tutorial de my_tickets
-        else if (this.currentPage === 'ticket_detail') {
-            const urlParams = new URLSearchParams(window.location.search);
+        } else if (pageContext === 'ticket_detail') {
             const fromParam = urlParams.get('from');
             const tutorialParam = urlParams.get('tutorial');
 
-            // Iniciar si:
-            // 1. Está en modo tutorial (sessionStorage)
-            // 2. O tiene el parámetro tutorial=true en la URL
-            // Y viene de my_tickets
             const shouldStart = (this.isTutorialModeActive() || tutorialParam === 'true') && fromParam === 'my_tickets';
 
             if (shouldStart) {
-                setTimeout(() => {
+                this._setTimeout(() => {
                     this.startTutorial();
-                }, 1500); // Dar más tiempo para que cargue el ticket desde JSON
+                }, 1500);
             }
         }
+    }
+
+    /**
+     * Limpia el tour activo y restaura el estado de la página.
+     * Seguro de llamar cuando no hay tour activo.
+     * Llamado desde destroy() de cada módulo de página al navegar fuera.
+     */
+    teardown() {
+        // Cancelar todos los timeouts internos pendientes
+        this._pendingTimeouts.forEach(id => clearTimeout(id));
+        this._pendingTimeouts = [];
+
+        // Cancelar/completar el tour activo (sin mostrar confirmación — es navegación programática)
+        if (this.tour) {
+            try {
+                // Marcar como navegando para que el handler de 'cancel' no muestre confirmación
+                this.isNavigating = true;
+                this.tour.cancel();
+            } catch (e) {
+                // Ignorar errores si el tour ya estaba cerrado
+            }
+            this.tour = null;
+        }
+
+        // CRÍTICO: re-habilitar todos los elementos interactivos que el tour deshabilitó
+        this.enableAllInteractiveElements();
+
+        // Limpiar el mapa de estados originales para la próxima visita
+        this.originalElementStates = null;
+
+        // Remover modales de Bootstrap del tutorial que se agregan al body dinámicamente
+        ['tutorialMessageModal', 'tutorialConfirmModal'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                // Cerrar instancia Bootstrap si existe, luego remover el DOM
+                try {
+                    const bsInstance = bootstrap.Modal.getInstance(el);
+                    if (bsInstance) bsInstance.dispose();
+                } catch (e) { /* ignorar */ }
+                el.remove();
+            }
+        });
+
+        // Resetear flag de navegación para el siguiente uso
+        this.isNavigating = false;
     }
 }
 
 // ==================== INICIALIZACIÓN GLOBAL ====================
-let helpdeskTutorial;
-
-// Inicializar cuando el DOM esté listo
-document.addEventListener('DOMContentLoaded', () => {
-    // Crear instancia global
-    window.helpdeskTutorial = new HelpdeskTutorial();
-    helpdeskTutorial = window.helpdeskTutorial;
-
-    // Auto-iniciar si corresponde
-    if (TUTORIAL_CONFIG.autoStart) {
-        helpdeskTutorial.autoStartTutorial();
-    }
-});
+// Crear instancia global al evaluar el módulo (sin esperar DOMContentLoaded).
+// Esto garantiza que window.helpdeskTutorial esté disponible cuando el módulo
+// de página (my_tickets.js / create_ticket.js) llame a maybeAutoStart() desde init().
+window.helpdeskTutorial = new HelpdeskTutorial();
 
 // ==================== FUNCIONES GLOBALES PARA OTRAS PÁGINAS ====================
 /**

@@ -1,7 +1,6 @@
 .user-avatar {
     width: 32px;
     height: 32px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
 .user-row {
@@ -18,30 +17,6 @@
 
 .badge-role {
     font-size: 0.75em;
-}
-
-.bg-agendatec {
-    background-color: #0d6efd !important;
-}
-
-.bg-helpdesk {
-    background-color: #198754 !important;
-}
-
-.bg-vistetec {
-    background-color: #8B1538 !important;
-}
-
-.bg-itcj {
-    background-color: #e61d1d !important;
-}
-
-.bg-warehouse {
-    background-color: #fd7e14 !important;
-}
-
-.bg-maint {
-    background-color: #546E7A !important;
 }
 
 /* ===== Responsive para Users ===== */

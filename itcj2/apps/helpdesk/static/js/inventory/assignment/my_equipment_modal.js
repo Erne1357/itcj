@@ -1,52 +1,38 @@
-// itcj2/apps/helpdesk/static/js/inventory/my_equipment_modal.js
-// Handles modal close behavior for the equipment detail modal in iframe contexts
+// itcj2/apps/helpdesk/static/js/inventory/assignment/my_equipment_modal.js
+// Reset del modal de detalle de equipo tras cerrarse (BS5, sin jQuery).
+// El cierre (X del header, botón Cerrar, ESC, backdrop) lo maneja Bootstrap 5
+// nativamente vía data-bs-dismiss="modal". Aquí solo re-seleccionamos la pestaña
+// "Información" cuando el modal termina de ocultarse, para que la próxima apertura
+// empiece siempre en la primera tab.
+// Expone window.MyEquipmentModal = { setup, teardown } — NO DOMContentLoaded.
 
-(function() {
-    document.addEventListener('DOMContentLoaded', function() {
-        // Botón de cerrar del footer
-        const closeBtn = document.getElementById('closeModalBtn');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                $('#equipmentDetailModal').modal('hide');
-            });
-        }
+(function () {
+    'use strict';
 
-        // Botón X del header
-        const closeHeaderBtn = document.getElementById('closeModalHeaderBtn');
-        if (closeHeaderBtn) {
-            closeHeaderBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                $('#equipmentDetailModal').modal('hide');
-            });
-        }
+    var _hiddenModalHandler = null;
 
-        // Resetear tabs cuando se cierra
-        $('#equipmentDetailModal').on('hidden.bs.modal', function() {
-            // Resetear al primer tab
-            setTimeout(() => {
-                $('#equipmentTabs a[href="#info-content"]').tab('show');
-            }, 200);
-        });
+    function setup() {
+        var modalEl = document.getElementById('equipmentDetailModal');
+        if (!modalEl) return;
 
-        // Manejar tecla ESC manualmente
-        $(document).on('keydown', function(e) {
-            if (e.key === 'Escape' || e.keyCode === 27) {
-                const $modal = $('#equipmentDetailModal');
-                if ($modal.hasClass('show')) {
-                    $modal.modal('hide');
-                }
+        _hiddenModalHandler = function () {
+            var infoTab = document.getElementById('info-tab');
+            if (infoTab && window.bootstrap) {
+                try { bootstrap.Tab.getOrCreateInstance(infoTab).show(); }
+                catch (e) { /* ignore */ }
             }
-        });
+        };
+        modalEl.addEventListener('hidden.bs.modal', _hiddenModalHandler);
+    }
 
-        // Manejar click en el backdrop (fondo oscuro)
-        $('#equipmentDetailModal').on('click', function(e) {
-            // Solo cerrar si se hace click directamente en el modal (no en su contenido)
-            if (e.target === this) {
-                $(this).modal('hide');
-            }
-        });
-    });
+    function teardown() {
+        var modalEl = document.getElementById('equipmentDetailModal');
+        if (modalEl && _hiddenModalHandler) {
+            modalEl.removeEventListener('hidden.bs.modal', _hiddenModalHandler);
+        }
+        _hiddenModalHandler = null;
+    }
+
+    window.MyEquipmentModal = { setup: setup, teardown: teardown };
+
 })();

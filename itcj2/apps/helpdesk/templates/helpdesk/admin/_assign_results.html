@@ -1,0 +1,84 @@
+{#
+  Fragmento de resultados de las listas de asignación (admin). Devuelto por
+  GET /help-desk/admin/assign-tickets?tab=<tab> cuando llega HX-Request (no boost).
+  Reemplaza el innerHTML del contenedor de esa pestaña.
+
+  El wrapper padre (.hd-assign-item) lleva los data-* que el JS de show/hide lee
+  para filtrar por área, técnico y búsqueda SIN round-trips al servidor.
+
+  Los onclick de los botones de acción invocan las funciones del módulo JS
+  (openAssignmentModal, openReassignmentModal, openEditTicketModal,
+  showTicketQuickView, showTicketDetail) que siguen leyendo los arrays JS por id.
+
+  Contexto esperado: tickets (list), tab ('queue'|'assigned'|'inprogress'),
+                     count (int), oob (bool).
+
+  Badges OOB:
+    tab=queue      → #queueBadge      (bg-danger)
+    tab=assigned   → #assignedBadge   (bg-warning)
+    tab=inprogress → #inprogressBadge (bg-primary)
+#}
+{% from "helpdesk/_components/ticket_card.html" import ticket_card %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob %}
+  {% if tab == 'queue' %}
+    <span class="badge bg-danger ms-1 ms-md-2" id="queueBadge" hx-swap-oob="true">{{ count }}</span>
+  {% elif tab == 'assigned' %}
+    <span class="badge bg-warning ms-1 ms-md-2" id="assignedBadge" hx-swap-oob="true">{{ count }}</span>
+  {% elif tab == 'inprogress' %}
+    <span class="badge bg-primary ms-1 ms-md-2" id="inprogressBadge" hx-swap-oob="true">{{ count }}</span>
+  {% endif %}
+{% endif %}
+
+{% if tickets %}
+  {% for t in tickets %}
+    <div class="hd-assign-item"
+         data-area="{{ t.area }}"
+         data-priority="{{ t.priority }}"
+         data-tech="{{ t.assigned_to.id if t.assigned_to else '' }}"
+         data-search="{{ ((t.title or '') ~ ' ' ~ (t.ticket_number or '') ~ ' ' ~ (t.requester.name if t.requester else '') ~ ' ' ~ (t.location or '')) | lower }}"
+         onclick="showTicketQuickView({{ t.id }})"
+         style="cursor:pointer">
+      {% set acts %}
+        {% if tab == 'queue' %}
+          <button type="button" class="btn btn-outline-info btn-sm"
+                  onclick="event.stopPropagation(); openEditTicketModal({{ t.id }})"
+                  title="Vista previa / Editar">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm"
+                  onclick="event.stopPropagation(); openAssignmentModal({{ t.id }})">
+            <i class="fas fa-user-plus me-1"></i>Asignar
+          </button>
+        {% else %}
+          <button type="button" class="btn btn-outline-warning btn-sm"
+                  onclick="event.stopPropagation(); openReassignmentModal({{ t.id }})"
+                  title="Reasignar">
+            <i class="fas fa-exchange-alt"></i>
+          </button>
+          <button type="button" class="btn btn-outline-primary btn-sm"
+                  onclick="event.stopPropagation(); showTicketDetail({{ t.id }})"
+                  title="Detalle">
+            <i class="fas fa-eye"></i>
+          </button>
+        {% endif %}
+      {% endset %}
+      {{ ticket_card(t,
+            href=None,
+            show_people=true,
+            show_assigned=(tab != 'queue'),
+            show_description=(tab == 'queue'),
+            show_location=true,
+            actions=acts) }}
+    </div>
+  {% endfor %}
+{% else %}
+  {% if tab == 'queue' %}
+    {{ empty_state('fa-check-circle', '¡Excelente trabajo!', 'No hay tickets pendientes de asignación.') }}
+  {% elif tab == 'assigned' %}
+    {{ empty_state('fa-inbox', 'Sin tickets asignados', 'No hay tickets en estado Asignado.') }}
+  {% else %}
+    {{ empty_state('fa-tasks', 'Sin tickets en proceso', 'No hay tickets en progreso.') }}
+  {% endif %}
+{% endif %}

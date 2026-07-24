@@ -108,3 +108,37 @@ def has_dept_inventory_access(
         return True
 
     return False
+
+
+# Permiso de scope por sub-departamento (jerárquico, por procedencia)
+_INVENTORY_SUBTREE_PERM = "helpdesk.inventory.api.read.subtree"
+
+
+def visible_department_ids(db, user: dict) -> set[int] | None:
+    """Departamentos de inventario visibles para el usuario.
+
+    Retorna ``None`` si ve TODO (acceso completo / admin global). En otro caso, el
+    set de department_ids visibles = (su departamento, si tiene acceso departamental)
+    ∪ (subárbol jerárquico por procedencia, si tiene el perm ``.read.subtree``).
+
+    ADITIVO/no-breaking: sin ``.subtree`` el resultado es el mismo depto de siempre.
+    Un set vacío ⇒ no ve nada (fail-closed; el caller filtra por ``id IN {-1}``).
+    """
+    from itcj2.dependencies import is_global_admin
+    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    uid = int(user["sub"])
+
+    if is_global_admin(user) or has_full_inventory_access(db, uid) or is_comp_center_user(db, uid):
+        return None
+
+    ids: set[int] = set()
+    # Acceso departamental "clásico" (.own_dept / department_head) → su depto primario.
+    if has_dept_inventory_access(db, uid):
+        dept = get_primary_user_department(db, uid)
+        if dept:
+            ids.add(dept.id)
+    # Scope jerárquico nuevo: subárbol de los puestos que otorgan .read.subtree.
+    ids |= subtree_scope_for(db, uid, "helpdesk", _INVENTORY_SUBTREE_PERM)
+    return ids

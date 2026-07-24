@@ -1,0 +1,123 @@
+{#
+  Fragmento de la lista de equipos del inventario. Devuelto por
+  GET /help-desk/inventory/items cuando llega HX-Request (no boost) — filtros y
+  paginación. Reemplaza el innerHTML de #hd-items-results. NO extiende base.
+
+  Bulk-select con Alpine (regla de zonas §4.2): el Set vive en el PADRE
+  (items_list.html) fuera de este target; los checkboxes de las filas hacen
+  toggle(id) y :checked="sel.has(id)". Color = clases Bootstrap; estructura = tokens.
+
+  Contexto: items (list de dicts to_dict), total, current_page, total_pages,
+  showing_from/to, oob (bool).
+#}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% set STATUS_INFO = {
+  'ACTIVE':      {'label': 'Activo',      'color': 'success'},
+  'MAINTENANCE': {'label': 'Mantenim.',   'color': 'warning'},
+  'DAMAGED':     {'label': 'Dañado',      'color': 'danger'},
+  'RETIRED':     {'label': 'Retirado',    'color': 'secondary'},
+  'LOST':        {'label': 'Extraviado',  'color': 'dark'},
+  'PENDING_ASSIGNMENT': {'label': 'Pendiente', 'color': 'info'}
+} %}
+
+{% if oob %}
+<span id="total-items-text" hx-swap-oob="true">{{ total }} equipo{{ '' if total == 1 else 's' }} en total</span>
+{% endif %}
+
+{% if items %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="hd-col-check">
+            <input class="form-check-input" type="checkbox" id="select-all"
+                   @change="toggleAll($event.target.checked)" aria-label="Seleccionar todos">
+          </th>
+          <th>N° Inventario</th>
+          <th>Categoría</th>
+          <th>Equipo</th>
+          <th>Seriales</th>
+          <th>Departamento</th>
+          <th>Asignado a</th>
+          <th>Estado</th>
+          <th>Garantía</th>
+          <th class="text-center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          {% set si = STATUS_INFO.get(item.status) or {'label': item.status, 'color': 'secondary'} %}
+          {% set detail_url = '/help-desk/inventory/items/' ~ item.id %}
+          <tr>
+            <td>
+              <input class="form-check-input hd-item-cb" type="checkbox" value="{{ item.id }}"
+                     :checked="sel.has({{ item.id }})" @change="toggle({{ item.id }}, $event.target.checked)"
+                     aria-label="Seleccionar equipo {{ item.inventory_number }}">
+            </td>
+            <td>
+              <a href="{{ detail_url }}" class="fw-bold text-decoration-none" {{ hd_boost(detail_url) }}>{{ item.inventory_number }}</a>
+            </td>
+            <td>
+              <i class="{{ item.category.icon if item.category else 'fas fa-box' }} me-1"></i>
+              <small>{{ item.category.name if item.category else 'N/A' }}</small>
+            </td>
+            <td>
+              <div class="fw-bold">{{ item.brand or 'N/A' }}</div>
+              <small class="text-muted">{{ item.model or '' }}</small>
+            </td>
+            <td>
+              {% set has_serial = item.supplier_serial or item.itcj_serial or item.id_tecnm %}
+              {% if item.supplier_serial %}<small class="d-block text-truncate hd-serial" title="Serial Proveedor: {{ item.supplier_serial }}"><span class="text-muted">Prov:</span> {{ item.supplier_serial }}</small>{% endif %}
+              {% if item.itcj_serial %}<small class="d-block text-truncate hd-serial" title="Serial ITCJ: {{ item.itcj_serial }}"><span class="text-muted">ITCJ:</span> {{ item.itcj_serial }}</small>{% endif %}
+              {% if item.id_tecnm %}<small class="d-block text-truncate hd-serial" title="ID TecNM: {{ item.id_tecnm }}"><span class="text-muted">TecNM:</span> {{ item.id_tecnm }}</small>{% endif %}
+              {% if not has_serial %}<small class="text-muted">—</small>{% endif %}
+            </td>
+            <td><small>{{ item.department.name if item.department else 'N/A' }}</small></td>
+            <td>
+              {% if item.assigned_to_user %}
+                <i class="fas fa-user-check text-info me-1"></i><small>{{ item.assigned_to_user.full_name }}</small>
+              {% else %}
+                <span class="badge bg-secondary">Global</span>
+              {% endif %}
+            </td>
+            <td><span class="badge bg-{{ si.color }}">{{ si.label }}</span></td>
+            <td>
+              {% if not item.warranty_expiration %}
+                <small class="text-muted">Sin info</small>
+              {% elif item.is_under_warranty and item.warranty_days_remaining <= 30 %}
+                <i class="fas fa-circle text-warning me-1 hd-dot"></i><small class="text-warning">{{ item.warranty_days_remaining }} días</small>
+              {% elif item.is_under_warranty %}
+                <i class="fas fa-circle text-success me-1 hd-dot"></i><small>{{ item.warranty_days_remaining }} días</small>
+              {% else %}
+                <i class="fas fa-circle text-danger me-1 hd-dot"></i><small class="text-danger">Vencida</small>
+              {% endif %}
+            </td>
+            <td class="text-center text-nowrap">
+              <div class="btn-group btn-group-sm">
+                <a href="{{ detail_url }}" class="btn btn-outline-primary" title="Ver detalle" {{ hd_boost(detail_url) }}>
+                  <i class="fas fa-eye"></i>
+                </a>
+                <button type="button" class="btn btn-outline-secondary" data-action="quick-actions" data-item-id="{{ item.id }}" title="Acciones">
+                  <i class="fas fa-ellipsis-v"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+    <small class="text-muted">
+      Mostrando <strong>{{ showing_from }}</strong> a <strong>{{ showing_to }}</strong> de <strong>{{ total }}</strong> equipos
+    </small>
+    {% if total_pages > 1 %}
+      {{ pagination(current_page, total_pages, '/help-desk/inventory/items', target='#hd-items-results', include='#hd-filter-form') }}
+    {% endif %}
+  </div>
+{% else %}
+  {{ empty_state('fa-inbox', 'No se encontraron equipos', 'Intenta ajustar los filtros de búsqueda.') }}
+{% endif %}

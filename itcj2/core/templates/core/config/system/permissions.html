@@ -1,7 +1,5 @@
 {% extends "core/config/config_base.html" %}
 
-{% set sidebar_active = 'apps' %}
-
 {% block title %}Permisos de {{ app.name }}{% endblock %}
 
 {% block breadcrumb %}
@@ -15,7 +13,11 @@
 
 {% block page_icon %}<i class="bi bi-key"></i>{% endblock %}
 {% block page_title %}Permisos de {{ app.name }}{% endblock %}
-{% block page_subtitle %}Aplicacion: <code>{{ app.key }}</code>{% endblock %}
+{% block page_subtitle %}Aplicacion:
+<span class="app-badge" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+    <i class="{{ app.icon_class or 'bi-app' }} me-1"></i>{{ app.key }}
+</span>
+{% endblock %}
 
 {% block page_actions %}
 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createPermModal">
@@ -64,6 +66,10 @@
                             <tr data-perm-code="{{ perm.code }}">
                                 <td class="px-4">
                                     <code class="bg-light px-2 py-1 rounded">{{ perm.code }}</code>
+                                    {% if perm.code.endswith('.subtree') %}<span class="scope-badge scope-subtree">subtree</span>
+                                    {% elif perm.code.endswith('.own_dept') %}<span class="scope-badge scope-dept">own dept</span>
+                                    {% elif perm.code.endswith('.own') %}<span class="scope-badge scope-own">own</span>
+                                    {% elif perm.code.endswith('.all') %}<span class="scope-badge scope-all">all</span>{% endif %}
                                 </td>
                                 <td>
                                     <strong>{{ perm.name }}</strong>
@@ -99,7 +105,7 @@
     <div class="tab-pane fade" id="role-permissions" role="tabpanel">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5>Asignaciones de Permisos por Rol</h5>
-            <select class="form-select" id="roleSelect" style="width: auto;">
+            <select class="form-select cfg-w-auto" id="roleSelect">
                 <option value="">Seleccionar rol...</option>
             </select>
         </div>
@@ -169,38 +175,4 @@
     </div>
 </div>
 
-<!-- Modal: Confirmar Eliminacion -->
-<div class="modal fade" id="deletePermModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-danger">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Confirmar Eliminacion
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p>Estas seguro de que deseas eliminar el permiso <strong id="deletePermName"></strong>?</p>
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle me-2"></i>
-                    Esta accion eliminara todas las asignaciones de este permiso.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-danger" id="confirmDeletePerm">
-                    <i class="bi bi-trash me-1"></i>Eliminar Permiso
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-    // Pass app key to JavaScript
-    window.appKey = '{{ app.key }}';
-</script>
-<script src="{{ url_for('static', filename='core/js/config/system/permissions.js') }}?v={{ sv('core', 'js/config/system/permissions.js') }}"></script>
 {% endblock %}

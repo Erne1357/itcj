@@ -1,0 +1,40 @@
+{#
+  Fragmento de la lista de tickets de "Generación de Documentos". Devuelto por
+  GET /help-desk/admin/documents cuando llega HX-Request (no boost). Reemplaza el
+  innerHTML de #hd-tickets-results. Filas compactas con checkbox (Alpine
+  bulk-select: @change toggle()). Badges = macros (fuente única; corrige el
+  getStatusBadge divergente del JS viejo). Contexto: tickets, total, oob.
+#}
+{% from "helpdesk/_components/badges.html" import status_badge, area_badge %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% if oob %}
+<span id="ticketsCount" class="badge bg-secondary ms-2" hx-swap-oob="true">{{ total }}</span>
+{% endif %}
+
+{% if tickets %}
+  {% for t in tickets %}
+  <label class="hd-doc-row border-bottom px-3 py-2 d-flex align-items-start gap-2 mb-0" for="doccb_{{ t.id }}">
+    <input class="form-check-input hd-doc-cb mt-1" type="checkbox" id="doccb_{{ t.id }}" value="{{ t.id }}"
+           data-status="{{ t.status }}" @change="toggle({{ t.id }}, '{{ t.status }}', $event.target.checked)">
+    <div class="flex-grow-1">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          <span class="fw-bold small">{{ t.ticket_number }}</span>
+          <span class="small text-muted ms-1">- {{ t.title | truncate(50, true, '…') }}</span>
+        </div>
+        <div class="d-flex gap-1 flex-shrink-0">{{ status_badge(t.status) }}{{ area_badge(t.area) }}</div>
+      </div>
+      <div class="small text-muted mt-1">
+        <i class="fas fa-user me-1"></i>{{ t.requester.name if t.requester else 'N/A' }}
+        <i class="fas fa-calendar ms-2 me-1"></i>{{ t.created_at | hd_date }}
+        {% if t.status.startswith('RESOLVED') or t.status == 'CLOSED' %}
+          <i class="fas fa-check-circle ms-2 text-success" title="Resuelto"></i>
+        {% endif %}
+      </div>
+    </div>
+  </label>
+  {% endfor %}
+{% else %}
+  {{ empty_state('fa-inbox', 'Sin tickets', 'No se encontraron tickets con los filtros seleccionados.') }}
+{% endif %}

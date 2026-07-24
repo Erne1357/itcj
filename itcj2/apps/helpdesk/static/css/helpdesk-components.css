@@ -1,0 +1,98 @@
+/* ============================================================================
+   helpdesk-components.css — Componentes UI compartidos (F0/F1).
+   Estructura/espaciado/estados; el COLOR semántico lo dan las clases Bootstrap
+   (badge bg-*) que ya usa la app. Prefijo .hd-* para no colisionar.
+   Consume tokens neutrales de helpdesk-tokens.css.
+   ========================================================================== */
+
+/* ---------- TICKET CARD — UNA tarjeta para las 7 vistas ---------- */
+.hd-ticket-card {
+    display: block;
+    padding: 1rem;
+    border: 0;
+    border-bottom: 1px solid var(--hd-border);
+    border-left: 3px solid transparent;   /* acento sutil sólo en hover */
+    background: var(--hd-surface);
+    color: inherit;
+    text-decoration: none;
+    transition: background var(--hd-transition), border-color var(--hd-transition);
+    cursor: pointer;
+}
+.hd-ticket-card:last-child { border-bottom: 0; }
+.hd-ticket-card:hover {
+    background: var(--hd-surface-2);
+    border-left-color: var(--hd-primary);  /* azul Bootstrap, como el resto de la app */
+}
+
+.hd-ticket-card__title { font-weight: 600; margin: 0.35rem 0 0.4rem; }
+.hd-ticket-card__desc  { color: var(--hd-muted); font-size: 0.85rem; }
+.hd-ticket-card__meta  { color: var(--hd-muted); font-size: 0.8rem; }
+.hd-ticket-card__label { color: var(--hd-muted); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+.hd-ticket-card__value { font-size: 0.85rem; }
+.hd-ticket-card__rating { background: var(--hd-surface-2); }
+
+/* ---------- EMPTY STATE — UNO para toda la app ---------- */
+.hd-empty-state {
+    text-align: center;
+    padding: 3.5rem 1.5rem;
+    color: var(--hd-muted);
+}
+.hd-empty-state__icon { font-size: 3.5rem; opacity: 0.35; margin-bottom: 0.75rem; }
+.hd-empty-state__title { font-weight: 600; margin-bottom: 0.25rem; }
+.hd-empty-state__msg { font-size: 0.9rem; margin: 0; }
+
+/* ---------- LOADING ---------- */
+.hd-loading { text-align: center; padding: 3rem 1rem; color: var(--hd-muted); }
+
+/* ---------- Indicador HTMX (atenúa resultados durante filtro/paginación) ---- */
+.hd-results.htmx-request { opacity: 0.55; transition: opacity var(--hd-transition); }
+
+/* ---------- Alpine.js: evita flash de contenido sin inicializar ---------- */
+[x-cloak] { display: none !important; }
+
+/* ---------- BULK BAR — barra de acciones masivas (Alpine bulk-select) ------- */
+/* El estado (Set de seleccionados) vive en un PADRE fuera del target HTMX; esta
+   barra se muestra cuando hay selección. Color = clases Bootstrap; medidas = tokens. */
+.hd-bulk-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    margin-bottom: 0.75rem;
+    background: var(--hd-surface-2);
+    border: 1px solid var(--hd-border);
+    border-radius: var(--hd-r-md);
+    box-shadow: var(--hd-shadow-sm);
+}
+.hd-bulk-bar__count { font-weight: 600; }
+
+/* ---------- DOC ROW — fila compacta seleccionable (documents) ---------- */
+.hd-doc-row {
+    cursor: pointer;
+    transition: background var(--hd-transition);
+}
+.hd-doc-row:hover { background: var(--hd-surface-2); }
+
+/* ---------- SCROLLBAR-HIDE — utilidad única (dedup de helpdesk.css + technician) ----
+   Oculta la barra de scroll sin perder el scroll (pestañas con overflow horizontal).
+   Los selectores legacy .nav-tabs-wrapper/.nav-tabs se incluyen para que el markup
+   existente siga funcionando sin editar cada template. En desktop .nav-tabs no
+   desborda (flex-wrap) → ocultar su scrollbar inexistente = sin cambio visual. */
+.hd-scrollbar-hide,
+.nav-tabs-wrapper,
+.nav-tabs {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.hd-scrollbar-hide::-webkit-scrollbar,
+.nav-tabs-wrapper::-webkit-scrollbar,
+.nav-tabs::-webkit-scrollbar { display: none; }
+
+/* ---------- @keyframes slideInFromLeft — definido UNA vez (dedup) ----------
+   Antes duplicado en user/ticket_detail.css y secretary/dashboard.css. */
+@keyframes slideInFromLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}

@@ -1,0 +1,37 @@
+{# Árbol colapsable de divisiones (subárbol) con conteos de tickets de mantenimiento.
+   Root + hijos inmediatos visibles; niveles más profundos (nodos depth>=1 con hijos)
+   en colapsable cerrado. Conteos = subtree (rollup). Macro recursiva. #}
+{% macro render_divtree(nodes) %}
+<ul class="mn-divtree">
+  {% for n in nodes %}
+  {% set has_kids = n.children|length > 0 %}
+  {% set collapsible = has_kids and n.depth >= 1 %}
+  <li class="mn-divnode">
+    <div class="mn-divrow">
+      {% if collapsible %}
+      <button class="mn-divtoggle collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#mndivc-{{ n.id }}" aria-expanded="false" aria-controls="mndivc-{{ n.id }}"
+              title="Mostrar sub-divisiones">
+        <i class="fas fa-chevron-right"></i>
+      </button>
+      {% else %}
+      <span class="mn-divtoggle-spacer" aria-hidden="true"></span>
+      {% endif %}
+      <span class="mn-divname" title="{{ n.name }}">{{ n.name }}</span>
+      <span class="mn-divcounts">
+        <span class="mn-c mn-c-total"    title="Total de tickets">{{ n.subtree.total }}</span>
+        <span class="mn-c mn-c-active"   title="Activos (pendiente/asignado/en progreso)">{{ n.subtree.active }}</span>
+        <span class="mn-c mn-c-resolved" title="Resueltos / cerrados">{{ n.subtree.resolved }}</span>
+      </span>
+    </div>
+    {% if has_kids %}
+      {% if collapsible %}
+      <div class="collapse" id="mndivc-{{ n.id }}">{{ render_divtree(n.children) }}</div>
+      {% else %}
+      {{ render_divtree(n.children) }}
+      {% endif %}
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}

@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111402"
+    STATIC_VERSION: str = "1.0.1111492"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -25,9 +25,28 @@ class Settings(BaseSettings):
     # invalidación; bajar para refrescar más rápido a costa de más misses.
     AUTHZ_CACHE_TTL: int = 300
 
+    # Presencia (core-config-revamp F6) — ventana en segundos para considerar
+    # "activo" a un usuario en los sorted-sets presence:notify:*. La poda ocurre
+    # EN LECTURA (presence_service.get_counts); no hay heartbeat.
+    PRESENCE_WINDOW_SECONDS: int = 300
+
+    # OAuth de correo (config → email, C6 core-config-revamp): TTL en segundos
+    # del nonce anti-CSRF guardado en Redis como oauth:state:{nonce} -> app_key.
+    EMAIL_OAUTH_STATE_TTL: int = 600
+
     # Cookies
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
+
+    # Secreto del endpoint interno /static-update. Antes NO era campo de Settings
+    # y extra="ignore" lo descartaba → el guard nunca disparaba (endpoint abierto).
+    # Vacío = fail-closed (rechaza todo) hasta configurarlo.
+    DEPLOY_SECRET: str = ""
+
+    # Rate limit de login (contador de FALLOS por IP y por cuenta en ventana móvil).
+    LOGIN_FAIL_WINDOW: int = 300          # segundos
+    LOGIN_FAIL_MAX_IP: int = 30           # fallos por IP antes de 429
+    LOGIN_FAIL_MAX_ACCOUNT: int = 8       # fallos por cuenta antes de 429
 
     # Environment
     FLASK_ENV: str = "production"

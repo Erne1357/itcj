@@ -61,29 +61,205 @@ async def dashboard(
     })
 
 
+# Estados de equipo (fuente única para el filtro server-side). El color de cada
+# estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_ITEM_STATUS_OPTIONS = [
+    ("", "Todos"),
+    ("ACTIVE", "Activo"),
+    ("MAINTENANCE", "Mantenim."),
+    ("DAMAGED", "Dañado"),
+    ("LOST", "Extraviado"),
+]
+_ITEM_ASSIGNED_OPTIONS = [
+    ("", "Todos"),
+    ("yes", "Asignados"),
+    ("no", "Globales"),
+]
+
+
+def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de equipos del inventario para la vista.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/category/status/assigned/department)
+    server-side y pagina. El scope replica EXACTAMENTE el del endpoint API
+    ``GET /inventory/items``: acceso completo = admin / técnicos / secretaría CC /
+    usuario del Centro de Cómputo; jefe de depto = solo su departamento; el resto
+    solo ve los equipos que tiene asignados (o un depto explícito).
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
+    from itcj2.apps.helpdesk.utils.inventory_access import (
+        has_full_inventory_access,
+        is_comp_center_user,
+    )
+    from itcj2.core.models.department import Department
+    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    category = (p.get("category", "") or "").strip() or None
+    status = (p.get("status", "") or "").strip() or None
+    assigned = (p.get("assigned", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
+        # visible: None = ve todo; set = deptos visibles (su depto ∪ subárbol jerárquico).
+        visible = visible_department_ids(_db, _user)
+        can_view_all = visible is None
+        user_dept = get_user_department(_db, user_id)
+        user_dept_id = user_dept.id if user_dept else None
+
+        q = _db.query(InventoryItem).filter_by(is_active=True)
+        if can_view_all:
+            if dept_param and dept_param.isdigit():
+                q = q.filter(InventoryItem.department_id == int(dept_param))
+        elif visible:
+            # Scope departamental/subárbol (jefe de depto y/o .read.subtree).
+            q = q.filter(InventoryItem.department_id.in_(visible))
+        elif "department_head" in user_roles:
+            # Jefe de depto sin departamento resuelto → no ve nada (comportamiento previo).
+            q = q.filter(InventoryItem.department_id == -1)
+        elif dept_param and dept_param.isdigit():
+            q = q.filter(InventoryItem.department_id == int(dept_param))
+        else:
+            q = q.filter(InventoryItem.assigned_to_user_id == user_id)
+
+        if category and category.isdigit():
+            q = q.filter(InventoryItem.category_id == int(category))
+        if status:
+            q = q.filter(InventoryItem.status == status.upper())
+        if assigned == "yes":
+            q = q.filter(InventoryItem.assigned_to_user_id.isnot(None))
+        elif assigned == "no":
+            q = q.filter(InventoryItem.assigned_to_user_id.is_(None))
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryItem.inventory_number.ilike(like),
+                InventoryItem.brand.ilike(like),
+                InventoryItem.model.ilike(like),
+                InventoryItem.supplier_serial.ilike(like),
+                InventoryItem.itcj_serial.ilike(like),
+                InventoryItem.id_tecnm.ilike(like),
+            ))
+
+        q = q.order_by(InventoryItem.id.asc())
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        items = (
+            q.offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        items_data = [i.to_dict(include_relations=True) for i in items]
+
+        categories = (
+            _db.query(InventoryCategory)
+            .filter_by(is_active=True)
+            .order_by(InventoryCategory.name)
+            .all()
+        )
+        categories_data = [{"id": c.id, "name": c.name} for c in categories]
+
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+            departments_data = [{"id": d.id, "name": d.name} for d in departments]
+        else:
+            departments_data = []
+    finally:
+        _db.close()
+
+    return {
+        "items": items_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "per_page": per_page,
+        "showing_from": (page - 1) * per_page + 1 if total else 0,
+        "showing_to": min(page * per_page, total),
+        "can_view_all": can_view_all,
+        "categories": categories_data,
+        "departments": departments_data,
+        "f_search": search or "",
+        "f_category": category or "",
+        "f_status": status or "",
+        "f_assigned": assigned or "",
+        "f_department": dept_param or "",
+    }
+
+
 @router.get("/items", name="helpdesk.pages.inventory.items_list")
 async def items_list(
     request: Request,
     user: dict = Depends(_require_helpdesk),
 ):
-    """Lista de equipos del inventario (admin/secretaría: todos; jefe depto: su depto)."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    """Lista de equipos del inventario (admin/secretaría: todos; jefe depto: su depto).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-items-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_items_ctx(request, user_id, user_roles)
 
-    _db = SessionLocal()
-    try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-    finally:
-        _db.close()
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/items/_items_list_results.html", ctx)
 
-    return render_helpdesk(request, "helpdesk/inventory/items/items_list.html", {
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    category_options = [("", "Todas")] + [
+        (str(c["id"]), c["name"]) for c in ctx["categories"]
+    ]
+    filter_fields = [{
+        "name": "category", "label": "Categoría", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_category"], "options": category_options,
+    }, {
+        "name": "status", "label": "Estado", "icon": "fa-toggle-on",
+        "col": "col-6 col-md-2", "selected": ctx["f_status"], "options": _ITEM_STATUS_OPTIONS,
+    }, {
+        "name": "assigned", "label": "Asignación", "icon": "fa-user",
+        "col": "col-6 col-md-2", "selected": ctx["f_assigned"], "options": _ITEM_ASSIGNED_OPTIONS,
+    }]
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-2", "selected": ctx["f_department"], "options": dept_options,
+        })
+
+    ctx.update({
         "user_roles": user_roles,
-        "can_view_all": can_view_all,
         "active_page": "inventory_items",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/items/items_list.html", ctx)
 
 
 @router.get("/items/create", name="helpdesk.pages.inventory.item_create")
@@ -172,32 +348,166 @@ async def assign_equipment(
     })
 
 
+# Tipos de grupo (fuente única, reusada por el filtro server-side). Los colores
+# son clases semánticas de Bootstrap (paleta azul; el color lo dan las clases,
+# nunca hex). El fragmento _groups_list_results.html tiene su propio mapa de
+# icono/etiqueta para pintar cada tarjeta.
+_GROUP_TYPE_OPTIONS = [
+    ("", "Todos tipos"),
+    ("CLASSROOM", "Salón"),
+    ("LABORATORY", "Laboratorio"),
+    ("OFFICE", "Oficina"),
+    ("MEETING_ROOM", "Sala"),
+    ("WORKSHOP", "Taller"),
+    ("OTHER", "Otro"),
+]
+
+
+def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de grupos para la vista de inventario.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/type/department) server-side y pagina.
+    El scope (todos los grupos vs. solo los del depto del usuario) replica el del
+    endpoint API de grupos: acceso completo = admin/técnicos/secretaría CC.
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryGroup
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    from itcj2.core.models.department import Department
+    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    gtype = (p.get("type", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 24
+
+    _db = SessionLocal()
+    try:
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
+        visible = visible_department_ids(_db, _user)   # None = ve todo
+        can_view_all = visible is None
+        user_dept = get_user_department(_db, user_id)
+        user_dept_id = user_dept.id if user_dept else None
+
+        q = _db.query(InventoryGroup).filter_by(is_active=True)
+        if can_view_all:
+            if dept_param and dept_param.isdigit():
+                q = q.filter(InventoryGroup.department_id == int(dept_param))
+        else:
+            # Sin acceso global: grupos de su departamento y su subárbol (o ninguno).
+            q = q.filter(InventoryGroup.department_id.in_(visible or {-1}))
+
+        if gtype:
+            q = q.filter(InventoryGroup.group_type == gtype)
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryGroup.name.ilike(like),
+                InventoryGroup.code.ilike(like),
+                InventoryGroup.description.ilike(like),
+            ))
+
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        groups = (
+            q.order_by(InventoryGroup.name)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        groups_data = [g.to_dict(include_capacities=True) for g in groups]
+
+        # Departamentos: para el filtro (solo si ve todos) y para el select del modal.
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+        elif visible:
+            departments = (
+                _db.query(Department)
+                .filter(Department.id.in_(visible), Department.is_active == True)  # noqa: E712
+                .order_by(Department.name)
+                .all()
+            )
+        else:
+            departments = [user_dept] if user_dept else []
+        departments_data = [{"id": d.id, "name": d.name} for d in departments]
+    finally:
+        _db.close()
+
+    return {
+        "groups": groups_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "can_view_all": can_view_all,
+        "department_id": user_dept_id,
+        "departments": departments_data,
+        "f_search": search or "",
+        "f_type": gtype or "",
+        "f_department": dept_param or "",
+    }
+
+
 @router.get("/groups", name="helpdesk.pages.inventory.groups_list")
 async def groups_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_groups.page.list"])),
 ):
-    """Lista de grupos de equipos (salones, laboratorios)."""
-    from itcj2.core.services.departments_service import get_user_department
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    """Lista de grupos de equipos (salones, laboratorios).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (grid server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-groups-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
-    _db = SessionLocal()
-    try:
-        user_dept = get_user_department(_db, user_id)
-        department_id = user_dept.id if user_dept else None
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-    finally:
-        _db.close()
+    ctx = _query_groups_ctx(request, user_id, user_roles)
 
-    return render_helpdesk(request, "helpdesk/inventory/groups/groups_list.html", {
-        "user_roles": user_roles,
-        "can_view_all": can_view_all,
-        "department_id": department_id,
-        "active_page": "inventory_groups",
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/groups/_groups_list_results.html", ctx)
+
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    filter_fields = []
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-3", "selected": ctx["f_department"], "options": dept_options,
+        })
+    filter_fields.append({
+        "name": "type", "label": "Tipo", "icon": "fa-layer-group",
+        "col": "col-6 col-md-3", "selected": ctx["f_type"], "options": _GROUP_TYPE_OPTIONS,
     })
+
+    ctx.update({
+        "user_roles": user_roles,
+        "active_page": "inventory_groups",
+        "filter_fields": filter_fields,
+    })
+    return render_helpdesk(request, "helpdesk/inventory/groups/groups_list.html", ctx)
 
 
 @router.get("/groups/{group_id}", name="helpdesk.pages.inventory.group_detail")
@@ -227,19 +537,156 @@ async def group_detail(
     })
 
 
+_PENDING_SORT_OPTIONS = [
+    ("newest", "Más recientes"),
+    ("oldest", "Más antiguos"),
+    ("category", "Por categoría"),
+]
+
+
+def _query_pending_ctx(request: Request) -> dict:
+    """Consulta los equipos pendientes de asignación (limbo del Centro de Cómputo).
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/category/sort) server-side y pagina.
+    El scope (equipos en estado PENDING_ASSIGNMENT del depto Centro de Cómputo)
+    replica el del endpoint API de pendientes.
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
+    from itcj2.core.models.department import Department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    category = (p.get("category", "") or "").strip() or None
+    sort = (p.get("sort", "") or "").strip() or "newest"
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        cc_department = _db.query(Department).filter_by(code="comp_center").first()
+        cc_dept_id = cc_department.id if cc_department else -1
+
+        q = _db.query(InventoryItem).filter(
+            InventoryItem.status == "PENDING_ASSIGNMENT",
+            InventoryItem.department_id == cc_dept_id,
+            InventoryItem.is_active.is_(True),
+        )
+        if category and category.isdigit():
+            q = q.filter(InventoryItem.category_id == int(category))
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryItem.inventory_number.ilike(like),
+                InventoryItem.brand.ilike(like),
+                InventoryItem.model.ilike(like),
+                InventoryItem.supplier_serial.ilike(like),
+                InventoryItem.itcj_serial.ilike(like),
+            ))
+
+        if sort == "oldest":
+            q = q.order_by(InventoryItem.created_at.asc())
+        elif sort == "category":
+            q = q.join(InventoryCategory, InventoryItem.category_id == InventoryCategory.id).order_by(
+                InventoryCategory.name.asc(), InventoryItem.created_at.desc()
+            )
+        else:
+            q = q.order_by(InventoryItem.created_at.desc())
+
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        items = (
+            q.offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        items_data = [i.to_dict(include_relations=True) for i in items]
+
+        # Total global (sin filtros) y nº de categorías, para las tarjetas de stats.
+        stat_total = _db.query(InventoryItem).filter(
+            InventoryItem.status == "PENDING_ASSIGNMENT",
+            InventoryItem.department_id == cc_dept_id,
+            InventoryItem.is_active.is_(True),
+        ).count()
+        stat_categories = _db.query(InventoryItem.category_id).filter(
+            InventoryItem.status == "PENDING_ASSIGNMENT",
+            InventoryItem.department_id == cc_dept_id,
+            InventoryItem.is_active.is_(True),
+        ).distinct().count()
+
+        categories = (
+            _db.query(InventoryCategory)
+            .filter_by(is_active=True)
+            .order_by(InventoryCategory.name)
+            .all()
+        )
+        categories_data = [{"id": c.id, "name": c.name} for c in categories]
+    finally:
+        _db.close()
+
+    return {
+        "items": items_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "stat_total": stat_total,
+        "stat_categories": stat_categories,
+        "categories": categories_data,
+        "f_search": search or "",
+        "f_category": category or "",
+        "f_sort": sort,
+    }
+
+
 @router.get("/pending", name="helpdesk.pages.inventory.pending_items")
 async def pending_items(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.read.pending"])),
 ):
-    """Equipos pendientes de asignación (limbo del Centro de Cómputo)."""
+    """Equipos pendientes de asignación (limbo del Centro de Cómputo).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-pending-results) + contadores OOB.
+    """
+    from itcj2.templates import render
+
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_pending_ctx(request)
 
-    return render_helpdesk(request, "helpdesk/inventory/items/pending_items.html", {
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/items/_pending_items_results.html", ctx)
+
+    category_options = [("", "Todas las categorías")] + [
+        (str(c["id"]), c["name"]) for c in ctx["categories"]
+    ]
+    filter_fields = [{
+        "name": "category", "label": "Categoría", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_category"], "options": category_options,
+    }, {
+        "name": "sort", "label": "Orden", "icon": "fa-sort",
+        "col": "col-6 col-md-2", "selected": ctx["f_sort"], "options": _PENDING_SORT_OPTIONS,
+    }]
+
+    ctx.update({
         "user_roles": user_roles,
         "active_page": "inventory_pending",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/items/pending_items.html", ctx)
 
 
 @router.get("/bulk-register", name="helpdesk.pages.inventory.bulk_register")
@@ -318,33 +765,145 @@ async def verification_report(
     return RedirectResponse("/help-desk/inventory/reports?tab=verificacion", status_code=302)
 
 
+# Estados de campaña (fuente única para el filtro server-side). El color de cada
+# estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_CAMPAIGN_STATUS_OPTIONS = [
+    ("", "Todos"),
+    ("OPEN", "Abierta"),
+    ("PENDING_VALIDATION", "Pendiente validación"),
+    ("VALIDATED", "Validada"),
+    ("REJECTED", "Rechazada"),
+]
+
+
+def _query_campaigns_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta la lista de campañas de inventario para la vista.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search=folio/status/department) server-side y
+    pagina. El scope replica el del endpoint API de campañas: los jefes de
+    departamento que NO son admin/Centro de Cómputo ven solo su departamento; el
+    resto (admin/CC/técnicos/secretaría CC) ve todas y puede filtrar por depto.
+    """
+    from itcj2.apps.helpdesk.services.campaign_service import CampaignService
+    from itcj2.apps.helpdesk.utils.inventory_access import (
+        has_full_inventory_access,
+        is_comp_center_user,
+    )
+    from itcj2.core.models.department import Department
+    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    status = (p.get("status", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        full_access = has_full_inventory_access(_db, user_id, user_roles)
+        is_admin_or_cc = "admin" in user_roles or is_comp_center_user(_db, user_id)
+        # Solo el jefe de depto SIN acceso global queda acotado a su departamento.
+        is_dept_head_scoped = "department_head" in user_roles and not is_admin_or_cc
+        can_view_all = not is_dept_head_scoped
+
+        forced_dept_id = None
+        if is_dept_head_scoped:
+            user_dept = get_user_department(_db, user_id)
+            forced_dept_id = user_dept.id if user_dept else -1
+
+        filters = {
+            "folio": search,
+            "status": status,
+            "department_id": (
+                int(dept_param) if (can_view_all and dept_param and dept_param.isdigit()) else None
+            ),
+            "page": page,
+            "per_page": per_page,
+        }
+        result = CampaignService.get_campaigns(_db, filters=filters, department_id=forced_dept_id)
+        campaigns = result["campaigns"]
+        total = result["total"]
+        total_pages = max(1, result["total_pages"])
+
+        # Departamentos para el filtro (solo si el usuario ve todos).
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+            departments_data = [{"id": d.id, "name": d.name} for d in departments]
+        else:
+            departments_data = []
+    finally:
+        _db.close()
+
+    return {
+        "campaigns": campaigns,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "can_view_all": can_view_all,
+        "can_create": "admin" in user_roles or full_access,
+        "f_search": search or "",
+        "f_status": status or "",
+        "f_department": dept_param or "",
+        "departments": departments_data,
+    }
+
+
 @router.get("/campaigns", name="helpdesk.pages.inventory.campaigns_list")
 async def campaigns_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.campaign.page.list"])),
 ):
-    """Lista de campañas de inventario (CC/Admin/Jefe de dpto)."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
-    from itcj2.core.services.departments_service import get_user_department
+    """Lista de campañas de inventario (CC/Admin/Jefe de dpto).
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-campaigns-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_campaigns_ctx(request, user_id, user_roles)
 
-    _db = SessionLocal()
-    try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-        user_dept = get_user_department(_db, user_id) if "department_head" in user_roles else None
-    finally:
-        _db.close()
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/campaigns/_campaigns_list_results.html", ctx)
 
-    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaigns_list.html", {
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    filter_fields = [{
+        "name": "status", "label": "Estado", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_status"], "options": _CAMPAIGN_STATUS_OPTIONS,
+    }]
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-3", "selected": ctx["f_department"], "options": dept_options,
+        })
+
+    ctx.update({
         "user_roles": user_roles,
-        "can_view_all": can_view_all,
-        "can_create": "admin" in user_roles or can_view_all,
-        "user_dept_id": user_dept.id if user_dept else None,
         "active_page": "inventory_campaigns",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/campaigns/campaigns_list.html", ctx)
 
 
 @router.get("/campaigns/create", name="helpdesk.pages.inventory.campaign_create")
@@ -435,31 +994,163 @@ async def campaign_detail(
     })
 
 
+# Estados de solicitud de baja (fuente única para el filtro server-side). El color
+# de cada estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_RETIREMENT_STATUS_OPTIONS = [
+    ("", "Todos"),
+    ("DRAFT", "Borrador"),
+    ("PENDING", "Pendiente de envío"),
+    ("AWAITING_RECURSOS_MATERIALES", "Firma — Rec. Materiales"),
+    ("AWAITING_SUBDIRECTOR", "Firma — Subdirector"),
+    ("AWAITING_DIRECTOR", "Firma — Director"),
+    ("AWAITING_COMP_CENTER", "Autorización — Jefe CC"),
+    ("APPROVED", "Aprobada"),
+    ("REJECTED", "Rechazada"),
+    ("CANCELLED", "Cancelada"),
+]
+_RETIREMENT_SCOPE_OPTIONS = [("all", "Todas"), ("mine", "Mis solicitudes")]
+
+
+def _query_retirement_ctx(request: Request, user_id: int) -> dict:
+    """Consulta las solicitudes de baja para la vista de inventario.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/status/scope) server-side y pagina.
+    El scope (todas vs. solo las propias) replica el del endpoint API de bajas:
+    acceso completo (`_is_admin`) = admin / secretaría CC / usuario del Centro de
+    Cómputo; el resto solo ve las suyas.
+    """
+    from sqlalchemy import func, or_
+
+    from itcj2.apps.helpdesk.api.inventory.retirement_requests import _is_admin
+    from itcj2.apps.helpdesk.models.inventory_retirement_request import (
+        InventoryRetirementRequest,
+        InventoryRetirementRequestItem,
+    )
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    status = (p.get("status", "") or "").strip() or None
+    scope = (p.get("scope", "") or "").strip() or "all"
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 20
+
+    _db = SessionLocal()
+    try:
+        can_view_all = _is_admin(_db, user_id)
+
+        q = _db.query(InventoryRetirementRequest)
+        if not can_view_all:
+            q = q.filter(InventoryRetirementRequest.requested_by_id == user_id)
+            scope = "mine"
+        elif scope == "mine":
+            q = q.filter(InventoryRetirementRequest.requested_by_id == user_id)
+
+        if status:
+            q = q.filter(InventoryRetirementRequest.status == status.upper())
+        if search:
+            like = f"%{search}%"
+            q = q.filter(or_(
+                InventoryRetirementRequest.folio.ilike(like),
+                InventoryRetirementRequest.reason.ilike(like),
+            ))
+
+        q = q.order_by(InventoryRetirementRequest.created_at.desc())
+
+        total = q.count()
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        rows = (
+            q.offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+
+        # Conteo de equipos por solicitud (una sola consulta agrupada para la página).
+        req_ids = [r.id for r in rows]
+        counts = {}
+        if req_ids:
+            counts = dict(
+                _db.query(
+                    InventoryRetirementRequestItem.request_id,
+                    func.count(InventoryRetirementRequestItem.id),
+                )
+                .filter(InventoryRetirementRequestItem.request_id.in_(req_ids))
+                .group_by(InventoryRetirementRequestItem.request_id)
+                .all()
+            )
+
+        requests_data = [{
+            "id": r.id,
+            "folio": r.folio,
+            "status": r.status,
+            "reason": r.reason,
+            "items_count": counts.get(r.id, 0),
+            "requested_by_name": r.requested_by.full_name if r.requested_by else "—",
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        } for r in rows]
+    finally:
+        _db.close()
+
+    return {
+        "requests": requests_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "can_view_all": can_view_all,
+        "f_search": search or "",
+        "f_status": status or "",
+        "f_scope": scope,
+    }
+
+
 @router.get("/retirement-requests", name="helpdesk.pages.inventory.retirement_requests_list")
 async def retirement_requests_list(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.retirement.page.list"])),
 ):
-    """Lista de solicitudes de baja del inventario."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    """Lista de solicitudes de baja del inventario.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-retirement-results) + contador OOB.
+    """
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    ctx = _query_retirement_ctx(request, user_id)
 
-    _db = SessionLocal()
-    try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-        can_approve = "admin" in user_roles
-    finally:
-        _db.close()
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/retirement/_retirement_requests_list_results.html", ctx)
 
-    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_requests_list.html", {
+    # Campos de la barra de filtros (macro filter_bar). El de visibilidad solo
+    # aparece si el usuario ve todas las solicitudes (no solo las suyas).
+    filter_fields = [{
+        "name": "status", "label": "Estado", "icon": "fa-tag",
+        "col": "col-6 col-md-3", "selected": ctx["f_status"], "options": _RETIREMENT_STATUS_OPTIONS,
+    }]
+    if ctx["can_view_all"]:
+        filter_fields.append({
+            "name": "scope", "label": "Visibilidad", "icon": "fa-eye",
+            "col": "col-6 col-md-3", "selected": ctx["f_scope"], "options": _RETIREMENT_SCOPE_OPTIONS,
+        })
+
+    ctx.update({
         "user_roles": user_roles,
-        "can_view_all": can_view_all,
-        "can_approve": can_approve,
+        "can_approve": "admin" in user_roles,
         "active_page": "inventory_retirement_requests",
+        "filter_fields": filter_fields,
     })
+    return render_helpdesk(request, "helpdesk/inventory/retirement/retirement_requests_list.html", ctx)
 
 
 @router.get("/retirement-requests/create", name="helpdesk.pages.inventory.retirement_request_create")
@@ -519,25 +1210,109 @@ async def retirement_request_detail(
     })
 
 
-@router.get("/verification", name="helpdesk.pages.inventory.verification")
-async def verification(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.verification"])),
-):
-    """
-    Página de verificación física de inventario.
-    Solo Admin y Secretaría del Centro de Cómputo.
-    """
-    from itcj2.database import SessionLocal
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+# Estado de verificación (fuente única para el filtro server-side). El color de
+# cada estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+_VERIFICATION_STATUS_OPTIONS = [
+    ("all", "Todos"),
+    ("recent", "Reciente (<30 días)"),
+    ("outdated", "Vencido (30-90 días)"),
+    ("critical", "Crítico (>90 días)"),
+    ("never", "Sin verificar"),
+]
 
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
+
+def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta los equipos con su estado de verificación para la vista.
+
+    Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
+    Aplica los filtros de la barra (search/department/status_filter) server-side y
+    pagina. Replica EXACTAMENTE la lógica del endpoint API
+    ``GET /inventory/verification/status`` (mismo cálculo de estado por umbral de
+    días y mismas stats globales), para que la tabla, las tarjetas de resumen y la
+    paginación se rindan desde el servidor sin JS.
+    """
+    from sqlalchemy import or_
+    from sqlalchemy.orm import joinedload
+
+    from itcj2.apps.helpdesk.api.inventory.verification import _verification_status
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    from itcj2.core.models.department import Department
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    search = (p.get("search", "") or "").strip() or None
+    dept_param = (p.get("department", "") or "").strip() or None
+    status_filter = (p.get("status_filter", "") or "").strip() or "all"
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+    per_page = 50
 
     _db = SessionLocal()
     try:
         can_view_all = has_full_inventory_access(_db, user_id, user_roles)
-        from itcj2.core.models.department import Department
+
+        base_filters = [InventoryItem.is_active.is_(True)]
+        if dept_param and dept_param.isdigit():
+            base_filters.append(InventoryItem.department_id == int(dept_param))
+        if search:
+            term = f"%{search}%"
+            base_filters.append(or_(
+                InventoryItem.inventory_number.ilike(term),
+                InventoryItem.brand.ilike(term),
+                InventoryItem.model.ilike(term),
+            ))
+
+        light_rows = (
+            _db.query(InventoryItem.id, InventoryItem.last_verified_at)
+            .filter(*base_filters)
+            .order_by(
+                InventoryItem.last_verified_at.asc().nullsfirst(),
+                InventoryItem.inventory_number,
+            )
+            .all()
+        )
+
+        stats = {"total": 0, "recent": 0, "outdated": 0, "critical": 0, "never": 0}
+        filtered = []
+        for item_id, lva in light_rows:
+            vs = _verification_status(lva)
+            stats["total"] += 1
+            stats[vs] += 1
+            if status_filter == "all" or vs == status_filter:
+                filtered.append((item_id, vs))
+
+        total = len(filtered)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        page_rows = filtered[(page - 1) * per_page:(page - 1) * per_page + per_page]
+        page_ids = [r[0] for r in page_rows]
+        vs_map = {r[0]: r[1] for r in page_rows}
+
+        items_data = []
+        if page_ids:
+            items = (
+                _db.query(InventoryItem)
+                .filter(InventoryItem.id.in_(page_ids))
+                .options(
+                    joinedload(InventoryItem.category),
+                    joinedload(InventoryItem.department),
+                    joinedload(InventoryItem.last_verified_by),
+                    joinedload(InventoryItem.group),
+                )
+                .all()
+            )
+            item_map = {i.id: i for i in items}
+            for iid in page_ids:
+                it = item_map.get(iid)
+                if not it:
+                    continue
+                d = it.to_dict(include_relations=True)
+                d["verification_status"] = vs_map[iid]
+                items_data.append(d)
+
         departments = (
             _db.query(Department)
             .filter_by(is_active=True)
@@ -548,9 +1323,75 @@ async def verification(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/inventory/reports/verification.html", {
-        "user_roles": user_roles,
+    # count-unverified (badge del header) = sin verificar + vencidos; urgencia para
+    # el color del badge = never + outdated + critical.
+    count_unverified = stats["never"] + stats["outdated"]
+    urgent = stats["never"] + stats["outdated"] + stats["critical"]
+
+    return {
+        "items": items_data,
+        "total": total,
+        "current_page": page,
+        "total_pages": total_pages,
+        "showing_from": (page - 1) * per_page + 1 if total else 0,
+        "showing_to": min(page * per_page, total),
+        "vr_stats": stats,
+        "vr_count_unverified": count_unverified,
+        "vr_urgent": urgent,
         "can_view_all": can_view_all,
         "departments": departments_data,
-        "active_page": "inventory_verification",
+        "f_search": search or "",
+        "f_department": dept_param or "",
+        "f_status_filter": status_filter,
+    }
+
+
+@router.get("/verification", name="helpdesk.pages.inventory.verification")
+async def verification(
+    request: Request,
+    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.page.verification"])),
+):
+    """
+    Página de verificación física de inventario.
+    Solo Admin y Secretaría del Centro de Cómputo.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa (tabla server-side).
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-verif-results) + tarjetas de resumen OOB.
+    """
+    from itcj2.templates import render
+
+    user_id = int(user["sub"])
+    user_roles = _helpdesk_roles(user_id)
+    ctx = _query_verification_ctx(request, user_id, user_roles)
+
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/inventory/reports/_verification_results.html", ctx)
+
+    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
+    # aparece si el usuario ve todos los departamentos.
+    filter_fields = []
+    if ctx["can_view_all"]:
+        dept_options = [("", "Todos los deptos.")] + [
+            (str(d["id"]), d["name"]) for d in ctx["departments"]
+        ]
+        filter_fields.append({
+            "name": "department", "label": "Depto.", "icon": "fa-building",
+            "col": "col-6 col-md-3", "selected": ctx["f_department"], "options": dept_options,
+        })
+    filter_fields.append({
+        "name": "status_filter", "label": "Verificación", "icon": "fa-clipboard-check",
+        "col": "col-6 col-md-3", "selected": ctx["f_status_filter"],
+        "options": _VERIFICATION_STATUS_OPTIONS,
     })
+
+    ctx.update({
+        "user_roles": user_roles,
+        "active_page": "inventory_verification",
+        "filter_fields": filter_fields,
+    })
+    return render_helpdesk(request, "helpdesk/inventory/reports/verification.html", ctx)

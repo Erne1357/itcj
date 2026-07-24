@@ -1,5 +1,10 @@
-<!-- itcj/apps/helpdesk/templates/user/my_tickets.html -->
+<!-- itcj/apps/helpdesk/templates/user/my_tickets.html
+     Migrado a arquitectura de componentes server-side + HTMX (ver
+     docs/auditoria_ui_helpdesk.md §8): tarjeta/filtros/paginación/empty son
+     macros (_components/), filtros y paginación van por HTMX (misma URL, 2
+     representaciones). El modo TUTORIAL conserva su render JS (isla, §4.3). -->
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
 
 {% block title %}Mis Tickets{% endblock %}
 
@@ -7,7 +12,7 @@
 {% block header_subtitle %}Seguimiento de mis Solicitudes{% endblock %}
 
 {% block header_actions %}
-<a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" class="btn btn-light btn-sm">
+<a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" {{ hd_boost(url_for('helpdesk_pages.user_pages.create_ticket')) }} class="btn btn-light btn-sm">
     <i class="fas fa-plus"></i><span class="d-none d-sm-inline ms-2">Nuevo Ticket</span>
 </a>
 {% endblock %}
@@ -81,82 +86,36 @@
     </div>
 </div>
 
-<!-- Filters and Search -->
-<!-- Filters and Search -->
-<div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-2 p-md-3">
-        <div class="row g-2 g-md-3 align-items-end">
-            <div class="col-6 col-md-4">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-filter me-1 d-none d-sm-inline"></i>Estado
-                </label>
-                <select class="form-select form-select-sm" id="filterStatus">
-                    <option value="">Todos</option>
-                    <option value="PENDING_RATING">⭐ Por Calificar</option>
-                    <option value="PENDING">Pendiente</option>
-                    <option value="ASSIGNED">Asignado</option>
-                    <option value="IN_PROGRESS">En Progreso</option>
-                    <option value="RESOLVED_SUCCESS">Resuelto</option>
-                    <option value="RESOLVED_FAILED">No Resuelto</option>
-                    <option value="CLOSED">Cerrado</option>
-                    <option value="CANCELED">Cancelado</option>
-                </select>
-            </div>
-            
-            <div class="col-6 col-md-4">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-layer-group me-1 d-none d-sm-inline"></i>Área
-                </label>
-                <select class="form-select form-select-sm" id="filterArea">
-                    <option value="">Todas</option>
-                    <option value="DESARROLLO">Desarrollo</option>
-                    <option value="SOPORTE">Soporte</option>
-                </select>
-            </div>
-            
-            <div class="col-12 col-md-4">
-                <label class="form-label fw-semibold small">
-                    <i class="fas fa-search me-1 d-none d-sm-inline"></i>Buscar
-                </label>
-                <input type="text" 
-                       class="form-control form-control-sm" 
-                       id="searchInput" 
-                       placeholder="Título o número...">
-            </div>
-        </div>
-    </div>
-</div>
+<!-- Filtros: macro filter_bar (form HTMX → recarga #hd-tickets-results sin JS) -->
+{{ filter_bar(
+    '/help-desk/user/my-tickets',
+    [
+        {'name': 'status', 'label': 'Estado', 'icon': 'fa-filter', 'col': 'col-6 col-md-3', 'selected': f_status,
+         'options': [('', 'Todos'), ('PENDING_RATING', '⭐ Por Calificar'), ('PENDING', 'Pendiente'), ('ASSIGNED', 'Asignado'),
+                     ('IN_PROGRESS', 'En Progreso'), ('RESOLVED_SUCCESS', 'Resuelto'), ('RESOLVED_FAILED', 'No Resuelto'),
+                     ('CLOSED', 'Cerrado'), ('CANCELED', 'Cancelado')]},
+        {'name': 'area', 'label': 'Área', 'icon': 'fa-layer-group', 'col': 'col-6 col-md-3', 'selected': f_area,
+         'options': [('', 'Todas'), ('DESARROLLO', 'Desarrollo'), ('SOPORTE', 'Soporte')]}
+    ],
+    search_value=f_search,
+    search_placeholder='Título o número...'
+) }}
 
-<!-- Tickets List -->
+<!-- Tickets List (render server-side; macros + HTMX partial) -->
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-bottom p-2 p-md-3">
         <div class="d-flex justify-content-between align-items-center">
             <h5 class="mb-0 fs-6 fs-md-5">
                 <i class="fas fa-list me-1 me-md-2"></i><span class="d-none d-sm-inline">Historial de </span>Tickets
             </h5>
-            <span class="badge bg-secondary" id="ticketCount">0</span>
+            <span class="badge bg-secondary" id="ticketCount">{{ total }} ticket{{ '' if total == 1 else 's' }}</span>
         </div>
     </div>
     <div class="card-body p-0">
-        <div id="ticketsList">
-            <!-- Loading state -->
-            <div class="text-center py-4 py-md-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Cargando...</span>
-                </div>
-                <p class="text-muted mt-2 mt-md-3 small">Cargando tickets...</p>
-            </div>
+        <div id="hd-tickets-results" class="hd-results">
+            {% include "helpdesk/user/_my_tickets_results.html" %}
         </div>
     </div>
-</div>
-
-<!-- Pagination -->
-<div class="d-flex justify-content-center mt-3 mt-md-4">
-    <nav id="paginationNav" style="display: none;">
-        <ul class="pagination pagination-sm" id="paginationList">
-            <!-- Se generará dinámicamente -->
-        </ul>
-    </nav>
 </div>
 
 {% endblock %}
@@ -334,11 +293,4 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-<!-- Shepherd.js Library (cargar primero) -->
-<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
-<!-- Tutorial Script (cargar segundo, antes de my_tickets.js) -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ sv('helpdesk', 'js/user/ticket_tutorial.js') }}"></script>
-<!-- My Tickets Script (cargar último, después del tutorial) -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/my_tickets.js') }}?v={{ sv('helpdesk', 'js/user/my_tickets.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

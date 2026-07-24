@@ -1,4 +1,4 @@
-﻿/* itcj/apps/helpdesk/static/helpdesk/js/admin/analysis.js */
+/* itcj/apps/helpdesk/static/helpdesk/js/admin/analysis.js */
 (function () {
     'use strict';
 
@@ -26,6 +26,7 @@
     // ── Estado de tabs ───────────────────────────────────────────
     let activeTab  = 'outliers';
     let loadedTabs = new Set();
+    let dateDebounce = null;
 
     // ── Colores ApexCharts ────────────────────────────────────────
     const CLUSTER_COLORS = ['#3b82f6','#059669','#f59e0b','#ec4899','#8b5cf6','#ef4444'];
@@ -154,7 +155,7 @@
         }
     }
 
-    window.showOutlierType = function (type) {
+    function _showOutlierType(type) {
         activeOutlier = type;
         if (!outlierData) return;
 
@@ -186,7 +187,7 @@
         if (badge) badge.textContent = section?.outlier_count || 0;
 
         renderOutlierTable(section?.tickets || [], type);
-    };
+    }
 
     function renderOutlierTable(tickets, type) {
         const tbody = document.getElementById('outlierTableBody');
@@ -283,7 +284,7 @@
             </div>`).join('');
     }
 
-    window.showClusterDetail = function (clusterIdx) {
+    function _showClusterDetail(clusterIdx) {
         if (!kmeansData?.clusters) return;
         const cluster = kmeansData.clusters[clusterIdx];
         if (!cluster) return;
@@ -312,7 +313,7 @@
             </tr>`).join('');
 
         card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    };
+    }
 
     function renderScatterChart(data) {
         scatterChart = destroyApex(scatterChart);
@@ -358,8 +359,8 @@
             const d    = json.data;
             if (!d) return;
 
-            renderApexBar('chartDistResolution', d.resolution_histogram, 'Rango', 'Tickets', '#3b82f6', 'range', 'count');
-            renderApexBar('chartDistInvested',   d.time_invested_histogram, 'Rango', 'Tickets', '#059669', 'range', 'count');
+            distResChart = renderApexBar('chartDistResolution', d.resolution_histogram, 'Rango', 'Tickets', '#3b82f6', 'range', 'count');
+            distInvChart = renderApexBar('chartDistInvested',   d.time_invested_histogram, 'Rango', 'Tickets', '#059669', 'range', 'count');
             showExclusionBanner(d.exclusion_info || null);
 
             // Weekday Chart.js
@@ -410,7 +411,7 @@
 
     function renderApexBar(containerId, data, xKey, yTitle, color, labelKey, valueKey) {
         const container = document.getElementById(containerId);
-        if (!container) return;
+        if (!container) return null;
         container.innerHTML = '';
         const chart = new ApexCharts(container, {
             chart: { type: 'bar', height: 300, toolbar: { show: false } },
@@ -423,6 +424,7 @@
             legend: { show: false },
         });
         chart.render();
+        return chart;
     }
 
     // ================================================================
@@ -541,10 +543,38 @@
         loadCurrentTab(true);
     }
 
+    // ── Destroy todos los charts ──────────────────────────────────
+    function destroyAllCharts() {
+        scatterChart    = destroyApex(scatterChart);
+        trend24Chart    = destroyApex(trend24Chart);
+        heatmapChart    = destroyApex(heatmapChart);
+        distResChart    = destroyApex(distResChart);
+        distInvChart    = destroyApex(distInvChart);
+        chartYoY        = destroyCjs(chartYoY);
+        chartSLATrend   = destroyCjs(chartSLATrend);
+        chartByWeekday  = destroyCjs(chartByWeekday);
+        chartByHour     = destroyCjs(chartByHour);
+        chartByCategory = destroyCjs(chartByCategory);
+    }
+
     // ================================================================
-    // Setup
+    // Setup HTMX
     // ================================================================
-    document.addEventListener('DOMContentLoaded', () => {
+    function init() {
+        // Reset estado para re-render en revisita
+        activeTab     = 'outliers';
+        activeOutlier = 'resolution';
+        loadedTabs    = new Set();
+        outlierData   = null;
+        kmeansData    = null;
+        clearTimeout(dateDebounce);
+        dateDebounce = null;
+        destroyAllCharts();
+
+        // Exponer window funcs en init
+        window.showOutlierType   = _showOutlierType;
+        window.showClusterDetail = _showClusterDetail;
+
         loadPeriods();
 
         // Tab listener
@@ -579,7 +609,6 @@
             reloadAll();
         });
 
-        let dateDebounce = null;
         ['filterStart', 'filterEnd'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
                 clearTimeout(dateDebounce);
@@ -618,5 +647,44 @@
 
         // Carga inicial
         loadCurrentTab();
-    });
+    }
+
+    function destroy() {
+        clearTimeout(dateDebounce);
+        dateDebounce = null;
+
+        // Remove window funcs
+        delete window.showOutlierType;
+        delete window.showClusterDetail;
+
+        // Remove tab listeners (clone)
+        document.querySelectorAll('#analysisTabs .nav-link').forEach(link => {
+            link.replaceWith(link.cloneNode(true));
+        });
+
+        // Remove preset listeners
+        document.querySelectorAll('.btn-preset').forEach(btn => {
+            btn.replaceWith(btn.cloneNode(true));
+        });
+
+        // Remove filter listeners
+        ['filterPeriod', 'filterStart', 'filterEnd', 'filterArea'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.replaceWith(el.cloneNode(true));
+        });
+
+        // Remove mode button listeners
+        document.querySelectorAll('#analysisModeBtns .btn').forEach(btn => {
+            btn.replaceWith(btn.cloneNode(true));
+        });
+
+        // Remove kmeans button listener
+        const kbtn = document.getElementById('runKmeans');
+        if (kbtn) kbtn.replaceWith(kbtn.cloneNode(true));
+
+        destroyAllCharts();
+    }
+
+    // Registrar en el controller HTMX
+    window.HelpdeskPage.page('admin_analysis', { init, destroy });
 })();

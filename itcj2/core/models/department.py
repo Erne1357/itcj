@@ -1,4 +1,6 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text,
+)
 from sqlalchemy.orm import relationship, object_session
 from sqlalchemy.sql import func, text
 
@@ -13,9 +15,18 @@ class Department(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text)
     icon_class = Column(String(50), nullable=True)
-    parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True)
+    parent_id = Column(Integer, ForeignKey("core_departments.id"), nullable=True, index=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    # True = parte del organigrama OFICIAL del ITCJ (seed). False = sub-departamento
+    # creado por un admin desde la UI. No afecta el scope (que camina parent_id);
+    # sirve para que config distinga lo oficial (read-only) de lo tuyo (editable).
+    is_official = Column(Boolean, default=True, server_default=text("TRUE"), nullable=False, index=True)
     created_at = Column(DateTime, default=func.now(), server_default=text("NOW()"), nullable=False)
+    updated_at = Column(DateTime, server_default=text("NOW()"), onupdate=func.now(), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("parent_id IS NULL OR parent_id <> id", name="ck_departments_no_self_parent"),
+    )
 
     positions = relationship("Position", back_populates="department", lazy="dynamic")
     parent = relationship("Department", remote_side=[id], backref="subdepartments")
@@ -29,6 +40,16 @@ class Department(Base):
         db = object_session(self)
         parent = db.get(Department, self.parent_id)
         return parent and parent.parent_id is None
+
+    def depth(self):
+        """Profundidad en el árbol (raíz = 0). Genérico para cualquier nivel.
+
+        Preferir esto sobre is_direction()/is_subdirection() para lógica que
+        dependa del nivel: esos helpers están fijos a 2 niveles por compat.
+        """
+        from itcj2.core.services.hierarchy_service import ancestor_department_ids
+        db = object_session(self)
+        return len(ancestor_department_ids(db, self.id, include_self=False))
 
     def get_children_count(self):
         db = object_session(self)
@@ -44,11 +65,21 @@ class Department(Base):
         head_position = self.get_head_position()
         if not head_position:
             return None
+        # Alineado con departments_service.build_tree (F1b-D5): misma ventana de
+        # puesto VIGENTE (respeta start_date/end_date, no solo is_active) y mismo
+        # orden determinista. Un jefe con puesto vencido/futuro ya no aparece.
         from itcj2.core.models.position import UserPosition
+        from itcj2.core.services.departments_service import _active_position_window
         db = object_session(self)
-        assignment = db.query(UserPosition).filter_by(
-            position_id=head_position.id, is_active=True
-        ).first()
+        assignment = (
+            db.query(UserPosition)
+            .filter(
+                UserPosition.position_id == head_position.id,
+                _active_position_window(),
+            )
+            .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
+            .first()
+        )
         return assignment.user if assignment else None
 
     def to_dict(self, include_children=False):
@@ -61,6 +92,7 @@ class Department(Base):
             "description": self.description,
             "icon_class": self.icon_class or "bi-building",
             "is_active": self.is_active,
+            "is_official": self.is_official,
             "is_subdirection": self.is_subdirection(),
             "parent_id": self.parent_id,
             "positions_count": self.positions.filter_by(is_active=True).count(),
@@ -69,7 +101,11 @@ class Department(Base):
             if head_user
             else None,
         }
-        if include_children and (self.is_direction() or self.is_subdirection()):
+        # SOLO UN nivel de hijos (compat con el drill-down clásico). La
+        # serialización recursiva del árbol vive en departments_service.build_tree
+        # (contrato C3) — NO hacer esto recursivo aquí: to_dict tiene N+1 por nodo
+        # (positions_count/children_count/head) y explotaría en árboles grandes.
+        if include_children:
             data["children"] = [
                 child.to_dict()
                 for child in db.query(Department).filter_by(

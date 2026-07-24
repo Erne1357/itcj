@@ -16,6 +16,12 @@
   --at-primary-100:     #cfe2ff;
   --at-primary-900:     #052c65;
 
+  /* ---- Mobile app shell (sidebar/drawer del iframe móvil) -------------- */
+  /* mobile-app-shell.css cae a verde #059669 si no se mapean estas vars.  */
+  --app-primary:        #0d6efd;
+  --app-primary-dark:   #0a58ca;
+  --app-primary-light:  #e7f1ff;
+
   /* ---- Color: Semantic ------------------------------------------------- */
   --at-success:         #198754;
   --at-success-50:      #f8fff9;

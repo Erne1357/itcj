@@ -159,8 +159,7 @@ class AppNotificationFAB {
             return new Promise((resolve, reject) => {
                 if (window.io) return resolve();
                 const script = document.createElement('script');
-                script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-                script.crossOrigin = 'anonymous';
+                script.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
                 script.onload = () => resolve();
                 script.onerror = reject;
                 document.head.appendChild(script);
@@ -420,7 +419,7 @@ class AppNotificationFAB {
     renderNotificationItem(notification) {
         const isUnread = !notification.is_read;
         const icon = notification.app_icon || 'bi-bell';
-        const color = notification.app_color || 'secondary';
+        const color = notification.app_color_hex || '#6c757d';
         const url = notification.action_url || '';
         const timeAgo = this.getTimeAgo(notification.created_at);
 
@@ -429,17 +428,29 @@ class AppNotificationFAB {
                  data-id="${notification.id}"
                  data-url="${url}"
                  style="display:flex;padding:12px 16px;border-bottom:1px solid #e9ecef;cursor:pointer;background:${isUnread ? '#f0f9ff' : 'white'};">
-                <div class="notification-icon bg-${color}" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;">
-                    <i class="${icon}"></i>
+                <div class="notification-icon" style="background-color:${color};width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;">
+                    <i class="bi ${icon}"></i>
                 </div>
                 <div style="flex:1;min-width:0;">
-                    <div style="font-size:13px;font-weight:600;color:#212529;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${notification.title}</div>
-                    ${notification.body ? `<div style="font-size:12px;color:#6c757d;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${notification.body}</div>` : ''}
+                    <div style="font-size:13px;font-weight:600;color:#212529;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.escapeHtml(notification.title)}</div>
+                    ${notification.body ? `<div style="font-size:12px;color:#6c757d;margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${this.escapeHtml(notification.body)}</div>` : ''}
                     <div style="font-size:11px;color:#adb5bd;margin-top:4px;">${timeAgo}</div>
                 </div>
                 ${isUnread ? '<div style="width:8px;height:8px;background:#0d6efd;border-radius:50%;margin-left:8px;"></div>' : ''}
             </div>
         `;
+    }
+
+    /**
+     * Escapa HTML para prevenir XSS al interpolar datos del servidor
+     */
+    escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     /**

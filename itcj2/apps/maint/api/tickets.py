@@ -70,6 +70,7 @@ async def list_tickets(
         "maint.tickets.api.read.own",
         "maint.tickets.api.read.department",
         "maint.tickets.api.read.all",
+        "maint.tickets.api.read.subtree",
     ]),
     db: DbSession = None,
 ):
@@ -406,6 +407,7 @@ async def get_ticket(
         "maint.tickets.api.read.own",
         "maint.tickets.api.read.department",
         "maint.tickets.api.read.all",
+        "maint.tickets.api.read.subtree",
     ]),
     db: DbSession = None,
 ):
@@ -607,6 +609,7 @@ async def get_ticket_materials(
         "maint.tickets.api.read.own",
         "maint.tickets.api.read.department",
         "maint.tickets.api.read.all",
+        "maint.tickets.api.read.subtree",
     ]),
     db: DbSession = None,
 ):

@@ -1,0 +1,102 @@
+{#
+  ticket_card — UNA tarjeta de ticket para las 7 vistas (reemplaza los 7
+  createTicketCard divergentes). Parametrizable por flags + slot de acciones.
+
+  Args:
+    ticket          dict del ticket (to_dict): ticket_number, area, priority,
+                    status, title, description, created_at, category, created_by,
+                    requester, assigned_to, assigned_to_team, id, location,
+                    resolution_notes, resolved_at, rating_attention/speed/efficiency.
+    href            si se da, la tarjeta es un <a> al detalle.
+    show_people     muestra creado_por / solicitante (default true).
+    show_assigned   muestra el asignado (default true).
+    show_description muestra la descripción truncada (default true).
+    show_location   muestra la ubicación si existe (default false).
+    show_resolution muestra la nota de resolución + fecha resuelto (default false).
+    show_rating     muestra la evaluación de 3 ejes si el ticket ya fue calificado (default false).
+    actions         bloque HTML (caller) con botones de acción (slot). Si se da,
+                    se renderiza en una zona que detiene la propagación del click.
+
+  Markup escapado por Jinja (autoescape) → corrige el XSS latente del render JS,
+  que metía title/description sin escapar a innerHTML.
+#}
+{% from "helpdesk/_components/badges.html" import status_badge, priority_badge, area_badge, category_badge, star_rating %}
+
+{% macro ticket_card(ticket, href=None, show_people=true, show_assigned=true, show_description=true, show_location=false, show_resolution=false, show_rating=false, show_department=false, own_department_id=None, actions=None) %}
+<{{ 'a' if href else 'div' }} class="hd-ticket-card" data-status="{{ ticket.status }}"{% if href %} href="{{ href }}" {{ hd_boost(href) }}{% endif %}>
+  <div class="row g-3">
+    <div class="col-md-{{ 6 if show_people else 9 }}">
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+        <span class="fw-bold text-primary">{{ ticket.ticket_number }}</span>
+        {{ area_badge(ticket.area) }}
+        {% if ticket.category %}{{ category_badge(ticket.category.name) }}{% endif %}
+        {{ priority_badge(ticket.priority) }}
+        {% if show_department and ticket.requester_department %}
+          {% set _own_dept = own_department_id and ticket.requester_department.id == own_department_id %}
+          <span class="badge rounded-pill {{ 'bg-primary' if _own_dept else 'bg-secondary-subtle text-secondary border' }}"
+                title="{{ 'Tu departamento' if _own_dept else 'Sub-departamento del subárbol' }}">
+            <i class="fas {{ 'fa-building' if _own_dept else 'fa-sitemap' }} me-1"></i>{{ ticket.requester_department.name }}
+          </span>
+        {% endif %}
+      </div>
+      <div class="hd-ticket-card__title">{{ ticket.title }}</div>
+      {% if show_description and ticket.description %}
+        <div class="hd-ticket-card__desc">{{ ticket.description | truncate(110, true, '…') }}</div>
+      {% endif %}
+      {% if show_location and ticket.location %}
+        <div class="hd-ticket-card__meta mt-1"><i class="fas fa-map-marker-alt me-1"></i>{{ ticket.location }}</div>
+      {% endif %}
+      <div class="hd-ticket-card__meta mt-1">
+        <i class="fas fa-calendar-alt me-1"></i>{{ ticket.created_at | hd_datetime }}
+        {% if show_resolution and ticket.resolved_at %}
+          <span class="ms-3"><i class="fas fa-check me-1"></i>Resuelto {{ ticket.resolved_at | hd_datetime }}</span>
+        {% endif %}
+      </div>
+      {% if show_resolution and ticket.resolution_notes %}
+        <div class="alert alert-success mt-2 mb-0 py-2 small">
+          <i class="fas fa-check-circle me-1"></i><strong>Solución:</strong>
+          {{ ticket.resolution_notes | truncate(200, true, '…') }}
+        </div>
+      {% endif %}
+      {% if show_rating and ticket.rating_attention is not none %}
+        <div class="hd-ticket-card__rating mt-2 p-2 rounded small">
+          <strong>Tu evaluación:</strong>
+          <div class="mt-1 d-flex flex-wrap gap-3">
+            <span><i class="fas fa-user-tie me-1"></i>Atención: {{ star_rating(ticket.rating_attention) }}</span>
+            <span><i class="fas fa-tachometer-alt me-1"></i>Rapidez: {{ star_rating(ticket.rating_speed) }}</span>
+            <span><i class="fas fa-check-circle me-1"></i>Eficiencia: {{ 'Sí' if ticket.rating_efficiency else 'No' }}</span>
+          </div>
+          {% if ticket.rating_comment %}
+            <div class="mt-1 text-muted"><i class="fas fa-comment me-1"></i>{{ ticket.rating_comment }}</div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+
+    {% if show_people %}
+    <div class="col-md-3">
+      <div class="hd-ticket-card__label"><i class="fas fa-user-edit me-1"></i>Creado por</div>
+      <div class="hd-ticket-card__value mb-2">{{ ticket.created_by.name if ticket.created_by else 'N/A' }}</div>
+      <div class="hd-ticket-card__label"><i class="fas fa-user-circle me-1"></i>Solicitante</div>
+      <div class="hd-ticket-card__value">{{ ticket.requester.name if ticket.requester else 'N/A' }}</div>
+    </div>
+    {% endif %}
+
+    <div class="col-md-3">
+      <div class="hd-ticket-card__label"><i class="fas fa-info-circle me-1"></i>Estado</div>
+      <div class="mb-2">{{ status_badge(ticket.status) }}</div>
+      {% if show_assigned %}
+        <div class="hd-ticket-card__label"><i class="fas fa-user-check me-1"></i>Asignado a</div>
+        <div class="hd-ticket-card__value">
+          {% if ticket.assigned_to %}{{ ticket.assigned_to.name }}
+          {% elif ticket.assigned_to_team %}<span class="badge bg-info">Equipo: {{ ticket.assigned_to_team }}</span>
+          {% else %}<span class="text-muted">Sin asignar</span>{% endif %}
+        </div>
+      {% endif %}
+      {% if actions %}
+        <div class="mt-2 d-flex flex-column gap-2" onclick="event.stopPropagation()">{{ actions }}</div>
+      {% endif %}
+    </div>
+  </div>
+</{{ 'a' if href else 'div' }}>
+{% endmacro %}

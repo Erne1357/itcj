@@ -289,14 +289,35 @@
         });
     }
 
+    // Firma del resultado para diffear: si la nueva respuesta es idéntica a lo ya
+    // pintado, no re-renderizamos (evita el parpadeo del mensaje vacío / cards).
+    var _lastSig = null;
+    function _ticketsSignature(data) {
+        return JSON.stringify({
+            total: data && data.total,
+            page:  data && data.page,
+            tickets: (data && data.tickets) || [],
+        });
+    }
+
     function _fetchTickets() {
         var container = document.getElementById('ticketList');
-        container.classList.remove('mn-stagger');
-        if (window.MaintUtils && MaintUtils.skeleton) {
-            MaintUtils.skeleton.show(container, 'ticket-card', 4);
-        } else {
-            container.innerHTML = _skeletonHTML();
-        }
+
+        // Skeleton DIFERIDO en JS: mantenemos el contenido actual y solo mostramos
+        // skeleton si la petición supera el umbral. En cargas rápidas nunca se hace
+        // el swap → no parpadea ni el skeleton ni el mensaje "sin tickets".
+        var skelShown = false;
+        var skelTimer = setTimeout(function () {
+            // Ya esperamos en JS: el skeleton debe aparecer YA (sin el retraso CSS).
+            container.style.setProperty('--itcj-loader-delay', '0s');
+            container.classList.remove('mn-stagger');
+            if (window.MaintUtils && MaintUtils.skeleton) {
+                MaintUtils.skeleton.show(container, 'ticket-card', 4);
+            } else {
+                container.innerHTML = _skeletonHTML();
+            }
+            skelShown = true;
+        }, 280);
 
         var params = new URLSearchParams({ page: _state.page, per_page: _state.per_page });
         if (_state.status)      params.set('status',      _state.status);
@@ -309,9 +330,18 @@
 
         MaintUtils.api.fetch(API_BASE + '/tickets?' + params.toString())
             .then(function (data) {
+                clearTimeout(skelTimer);
+                container.style.removeProperty('--itcj-loader-delay');
+                var sig = _ticketsSignature(data);
+                // Sin skeleton mostrado + resultado idéntico → no tocar el DOM.
+                if (!skelShown && sig === _lastSig) return;
+                _lastSig = sig;
                 _renderTickets(data);
             })
             .catch(function (err) {
+                clearTimeout(skelTimer);
+                container.style.removeProperty('--itcj-loader-delay');
+                _lastSig = null;
                 container.innerHTML =
                     '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>' +
                     'Error al cargar tickets: ' + _esc(err.message) + '</div>';

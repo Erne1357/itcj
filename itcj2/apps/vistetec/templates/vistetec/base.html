@@ -124,7 +124,7 @@
         <div class="app-sidebar-footer">
             <div class="app-sidebar-user">
                 <div class="app-sidebar-user-avatar" style="background: linear-gradient(135deg, #8B1538, #c4264a);">
-                    {{ current_user.name[:1]|upper if current_user and current_user.name else 'U' }}
+                    {{ initials(current_user.name) if current_user else 'U' }}
                 </div>
                 <div class="app-sidebar-user-info">
                     <div class="app-sidebar-user-name">{{ current_user.name if current_user else 'Usuario' }}</div>
@@ -155,7 +155,7 @@
     <script src="{{ url_for('static', filename='core/js/iframe_bridge.js') }}?v={{ sv('core', 'js/iframe_bridge.js') }}"></script>
 
     <!-- WebSocket - Socket.IO -->
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='core/js/vendor/socket.io.min.js') }}?v={{ sv('core', 'js/vendor/socket.io.min.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ sv('core', 'js/socket-base.js') }}"></script>
 
     <!-- VisteTec utilities (must load before page-specific scripts) -->

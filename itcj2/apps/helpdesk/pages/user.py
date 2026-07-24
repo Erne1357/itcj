@@ -24,6 +24,62 @@ MAX_UNRATED_TICKETS = 3
 _require_helpdesk = require_page_app("helpdesk")
 
 
+def _query_my_tickets_ctx(request: Request, user_id: int, user_roles: set) -> dict:
+    """Consulta los tickets del usuario (created_by_me) para "Mis Tickets".
+
+    Reusado por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento). Reusa
+    ``ticket_service.list_tickets`` (mismo motor que el endpoint API). Devuelve la
+    selección actual de filtros para prefijar el form en el render completo.
+    """
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.database import SessionLocal
+
+    p = request.query_params
+    raw_status = p.get("status", "")
+    if raw_status == "PENDING_RATING":
+        # Pseudo-filtro "Por Calificar" → tickets resueltos (con/ sin éxito).
+        status = ["RESOLVED_SUCCESS", "RESOLVED_FAILED"]
+    elif raw_status:
+        status = [s.strip().upper() for s in raw_status.split(",") if s.strip()] or None
+    else:
+        status = None
+
+    try:
+        page = max(1, int(p.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+
+    area = p.get("area") or None
+    search = (p.get("search", "") or "").strip() or None
+
+    _db = SessionLocal()
+    try:
+        result = ticket_service.list_tickets(
+            _db,
+            user_id=user_id,
+            user_roles=user_roles,
+            created_by_me=True,
+            status=status,
+            area=area,
+            search=search,
+            page=page,
+            per_page=10,
+        )
+    finally:
+        _db.close()
+
+    return {
+        "tickets": result["tickets"],
+        "total": result["total"],
+        "current_page": result["current_page"],
+        "total_pages": result["pages"],
+        "f_status": raw_status,
+        "f_area": p.get("area", ""),
+        "f_search": p.get("search", ""),
+        "has_filters": bool(raw_status or area or search),
+    }
+
+
 @router.get("/create", name="helpdesk.pages.user.create_ticket")
 async def create_ticket(
     request: Request,
@@ -83,9 +139,16 @@ async def my_tickets(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.my_tickets"])),
 ):
-    """Lista de tickets del usuario autenticado."""
+    """Lista de tickets del usuario autenticado.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX):
+      - petición normal o boosteada → PÁGINA completa.
+      - petición HTMX no-boost (filtros/paginación) → solo el FRAGMENTO de
+        resultados (#hd-tickets-results) + contador OOB.
+    """
     from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.database import SessionLocal
+    from itcj2.templates import render
 
     user_id = int(user["sub"])
     _db = SessionLocal()
@@ -94,11 +157,20 @@ async def my_tickets(
     finally:
         _db.close()
 
-    return render_helpdesk(request, "helpdesk/user/my_tickets.html", {
+    ctx = _query_my_tickets_ctx(request, user_id, user_roles)
+
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        ctx["oob"] = True
+        return render(request, "helpdesk/user/_my_tickets_results.html", ctx)
+
+    ctx.update({
         "title": "Mis Tickets",
         "user_roles": user_roles,
         "active_page": "my_tickets",
     })
+    return render_helpdesk(request, "helpdesk/user/my_tickets.html", ctx)
 
 
 @router.get("/tickets/{ticket_id}", name="helpdesk.pages.user.ticket_detail")
@@ -107,7 +179,7 @@ async def ticket_detail(
     ticket_id: int,
     user: dict = Depends(require_page_app(
         "helpdesk",
-        perms=["helpdesk.tickets.api.read.own", "helpdesk.tickets.api.read.all"],
+        perms=["helpdesk.tickets.api.read.own", "helpdesk.tickets.api.read.all", "helpdesk.tickets.api.read.subtree"],
     )),
 ):
     """Vista de detalle de un ticket específico."""

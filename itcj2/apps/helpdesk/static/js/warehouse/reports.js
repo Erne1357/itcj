@@ -162,7 +162,7 @@ const WarehouseReports = (function () {
         }
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
+    function init() {
         const t = today();
         const ago30 = daysAgo(30);
         document.getElementById('conFromDate').value = ago30;
@@ -170,7 +170,14 @@ const WarehouseReports = (function () {
         document.getElementById('movFromDate').value = ago30;
         document.getElementById('movToDate').value = t;
         loadValuation();
-    });
+    }
+
+    function destroy() {
+        // No persistent listeners to remove for reports.
+    }
+
+    window.WarehouseReports = { loadValuation, loadConsumption, loadMovements };
+    window.HelpdeskPage.page('warehouse_reports', { init: init, destroy: destroy });
 
     return { loadValuation, loadConsumption, loadMovements };
 })();

@@ -177,28 +177,22 @@ def get_item(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
 
     item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles and not is_comp_center:
-        if "department_head" in user_roles:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if not user_dept or item.department_id != user_dept.id:
-                raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este equipo"})
-        else:
-            if item.assigned_to_user_id != user_id:
-                raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este equipo"})
+    # visible None = ve todo (admin/tech/CC/read.all). Si no, sólo su departamento y
+    # su subárbol (∪ .read.subtree), o los equipos que tiene asignados. Consistente
+    # con el listado de items (visible_department_ids).
+    visible = visible_department_ids(db, user)
+    if visible is not None:
+        if item.department_id not in visible and item.assigned_to_user_id != user_id:
+            raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este equipo"})
 
     return {"success": True, "data": item.to_dict(include_relations=True)}
 

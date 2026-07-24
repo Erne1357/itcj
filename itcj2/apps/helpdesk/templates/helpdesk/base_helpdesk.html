@@ -13,13 +13,17 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link href="{{ url_for('static', filename='helpdesk/css/helpdesk.css') }}?v={{ sv('helpdesk', 'css/helpdesk.css') }}" rel="stylesheet">
+    <!-- Capa de componentes (F0/F1): design tokens + componentes .hd-* compartidos -->
+    <link href="{{ url_for('static', filename='helpdesk/css/helpdesk-tokens.css') }}?v={{ sv('helpdesk', 'css/helpdesk-tokens.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='helpdesk/css/helpdesk-components.css') }}?v={{ sv('helpdesk', 'css/helpdesk-components.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='core/css/apps/mobile-app-shell.css') }}?v={{ sv('core', 'css/apps/mobile-app-shell.css') }}" rel="stylesheet">
-    
+    <link href="{{ url_for('static', filename='core/css/shared/delayed-loaders.css') }}?v={{ sv('core', 'css/shared/delayed-loaders.css') }}" rel="stylesheet">
+
     {% block extra_css %}{% endblock %}
 </head>
 
-<body class="bg-light">
+<body class="bg-light" hx-ext="morph,head-support" hx-swap="morph:innerHTML" hx-target="body">
 
     <!-- Header con Navegación -->
     <header class="sitec-header-nav sticky-top shadow-sm mb-2 mb-md-4">
@@ -32,7 +36,7 @@
                     </button>
 
                     <!-- Logo y Título -->
-                    <a class="navbar-brand d-flex align-items-center gap-1 gap-md-2" href="{{ url_for('helpdesk_pages.home') }}">
+                    <a class="navbar-brand d-flex align-items-center gap-1 gap-md-2" href="{{ url_for('helpdesk_pages.home') }}"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>
                         <div class="sitec-logo-small">
                             <span class="fw-bold text-white">CC</span>
                         </div>
@@ -66,7 +70,7 @@
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             {% for sub_item in item.dropdown %}
                                             <li>
-                                                <a class="dropdown-item {% if current_route == sub_item.endpoint %}active{% endif %}" href="{{ sub_item.url }}">
+                                                <a class="dropdown-item {% if sub_item.is_active %}active{% endif %}" href="{{ sub_item.url }}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
                                                     <i class="fas {{ sub_item.icon }} me-1"></i>{{ sub_item.label }}
                                                 </a>
                                             </li>
@@ -75,7 +79,7 @@
                                     </li>
                                     {% else %}
                                     <li class="nav-item">
-                                        <a class="nav-link {% if current_route == item.endpoint %}active{% endif %}" href="{{ item.url }}">
+                                        <a class="nav-link {% if item.is_active %}active{% endif %}" href="{{ item.url }}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
                                             <i class="fas {{ item.icon }} me-1"></i>{{ item.label }}
                                         </a>
                                     </li>
@@ -113,7 +117,7 @@
                 {% if helpdesk_nav_items %}
                     {% for item in helpdesk_nav_items %}
                         {% if item.dropdown %}
-                            {% set group_active = current_route in item.dropdown | map(attribute='endpoint') | list %}
+                            {% set group_active = item.group_active %}
                             <div class="app-sidebar-group {% if group_active %}has-active{% endif %}">
                                 <button class="app-sidebar-group-toggle"
                                         type="button"
@@ -128,7 +132,7 @@
                                 <div class="collapse {% if group_active %}show{% endif %}" id="sidebarGroup{{ loop.index }}">
                                     <div class="app-sidebar-sub-items">
                                         {% for sub_item in item.dropdown %}
-                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if current_route == sub_item.endpoint %}active{% endif %}">
+                                        <a href="{{ sub_item.url }}" class="app-sidebar-item app-sidebar-sub-item {% if sub_item.is_active %}active{% endif %}"{% if htmx_boost_enabled and sub_item.hx_boost %} hx-boost="true"{% endif %}>
                                             <i class="fas {{ sub_item.icon }}"></i>
                                             <span>{{ sub_item.label }}</span>
                                         </a>
@@ -137,7 +141,7 @@
                                 </div>
                             </div>
                         {% else %}
-                            <a href="{{ item.url }}" class="app-sidebar-item {% if current_route == item.endpoint %}active{% endif %}">
+                            <a href="{{ item.url }}" class="app-sidebar-item {% if item.is_active %}active{% endif %}"{% if htmx_boost_enabled and item.hx_boost %} hx-boost="true"{% endif %}>
                                 <i class="fas {{ item.icon }}"></i>
                                 <span>{{ item.label }}</span>
                             </a>
@@ -150,7 +154,7 @@
         <div class="app-sidebar-footer">
             <div class="app-sidebar-user">
                 <div class="app-sidebar-user-avatar">
-                    {{ current_user.name[:1]|upper if current_user and current_user.name else 'U' }}
+                    {{ initials(current_user.name) if current_user else 'U' }}
                 </div>
                 <div class="app-sidebar-user-info">
                     <div class="app-sidebar-user-name">{{ current_user.name if current_user else 'Usuario' }}</div>
@@ -170,7 +174,7 @@
         <div class="container py-2">
             <ol class="breadcrumb mb-0">
                 {% block breadcrumb %}
-                <li class="breadcrumb-item"><a href="{{ url_for('helpdesk_pages.home') }}">Help-Desk</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('helpdesk_pages.home') }}"{% if htmx_boost_enabled %} hx-boost="true"{% endif %}>Help-Desk</a></li>
                 {% endblock %}
             </ol>
         </div>
@@ -178,7 +182,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-3 px-md-4 px-lg-5">
+    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" {% block hd_data %}{% endblock %}>
         {% block content %}{% endblock %}
     </main>
 
@@ -189,11 +193,23 @@
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <!-- HTMX (navegación sin recargar) + Idiomorph (swap por morphing) -->
+    <script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
+    <!-- Alpine.js — reactividad de CLIENTE (bulk-select, tabs, toggles, modales)
+         siguiendo la regla de zonas (docs/auditoria_ui_helpdesk.md §4.2). Auto-init
+         del DOM nuevo por MutationObserver → convive con los swaps HTMX/idiomorph. -->
+    <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <!-- head-support: fusiona el head del response en cada navegacion boosted.
+         Sin esto, el CSS del bloque extra_css de la pagina destino NO se aplica
+         hasta una recarga completa, porque hx-target="body" no toca el head. -->
+    <script src="https://unpkg.com/htmx-ext-head-support@2.0.4/head-support.js" integrity="sha384-alEpTwaoXBHw9xh1d3fDZ4lNnOqQYkcIaRQTSQXgSZnAhcnj1H4F27lOZ1Eci1Sp" crossorigin="anonymous"></script>
+    <!-- jQuery eliminado (cierre bloque E-G): inventory ya usa bootstrap.Modal (BS5) y
+         ningún JS de helpdesk depende de $/jQuery. Ver docs/auditoria_ui_helpdesk.md §8.4. -->
     <script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
 
     <!-- WebSocket - Socket.IO + Helpdesk Client -->
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='core/js/vendor/socket.io.min.js') }}?v={{ sv('core', 'js/vendor/socket.io.min.js') }}"></script>
     <script src="{{ url_for('static', filename='core/js/socket-base.js') }}?v={{ sv('core', 'js/socket-base.js') }}"></script>
     <script src="{{ url_for('static', filename='helpdesk/js/sockets/helpdesk_client.js') }}?v={{ sv('helpdesk', 'js/sockets/helpdesk_client.js') }}"></script>
 
@@ -210,6 +226,8 @@
     <script src="{{ url_for('static', filename='core/js/apps/mobile-app-shell.js') }}?v={{ sv('core', 'js/apps/mobile-app-shell.js') }}"></script>
 
     <script src="{{ url_for('static', filename='helpdesk/js/shared/base.js') }}?v={{ sv('helpdesk', 'js/shared/base.js') }}"></script>
+    {# Los módulos de página se cargan bajo demanda por el controller HelpdeskPage
+       (atributo data-hd-modules en <main>), no aquí. Ver pages/nav.py HD_PAGE_MODULES. #}
     {% block extra_js %}{% endblock %}
 </body>
 

@@ -67,7 +67,7 @@ def list_notifications(
         offset=offset,
         before_id=before_id,
     )
-    return {"status": "ok", "data": result}
+    return {"success": True, "data": result}
 
 
 @router.get("/unread-counts")
@@ -78,7 +78,7 @@ def unread_counts(user: CurrentUser, db: DbSession):
     user_id = int(user["sub"])
     counts = NotificationService.get_unread_counts_by_app(db, user_id)
     return {
-        "status": "ok",
+        "success": True,
         "data": {"counts": counts, "total": sum(counts.values())},
     }
 
@@ -91,11 +91,11 @@ def mark_read(notification_id: int, user: CurrentUser, db: DbSession):
     user_id = int(user["sub"])
     success = NotificationService.mark_read(db, notification_id, user_id)
     if not success:
-        raise HTTPException(404, detail="not_found")
+        raise HTTPException(404, detail="Notificación no encontrada")
 
     db.commit()
     _push_counts_to_user(db, user_id)
-    return {"status": "ok"}
+    return {"success": True}
 
 
 @router.patch("/mark-all-read")
@@ -107,7 +107,7 @@ def mark_all_read(user: CurrentUser, db: DbSession, app: str | None = None):
     count = NotificationService.mark_all_read(db, user_id, app)
     db.commit()
     _push_counts_to_user(db, user_id)
-    return {"status": "ok", "count": count}
+    return {"success": True, "count": count}
 
 
 @router.delete("/{notification_id}")
@@ -118,8 +118,8 @@ def delete_notification(notification_id: int, user: CurrentUser, db: DbSession):
     user_id = int(user["sub"])
     success = NotificationService.delete_notification(db, notification_id, user_id)
     if not success:
-        raise HTTPException(404, detail="not_found")
+        raise HTTPException(404, detail="Notificación no encontrada")
 
     db.commit()
     _push_counts_to_user(db, user_id)
-    return {"status": "ok"}
+    return {"success": True}

@@ -27,8 +27,7 @@
         const ensureIO = () => new Promise((resolve, reject) => {
             if (window.io) return resolve();
             const s = document.createElement('script');
-            s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-            s.crossOrigin = 'anonymous';
+            s.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
             s.onload = () => resolve();
             s.onerror = reject;
             document.head.appendChild(s);
@@ -250,16 +249,16 @@
         activities.forEach(activity => {
             html += `
                 <div class="activity-item">
-                    <div class="activity-icon app-icon-${activity.app_key}">
-                        <i class="${activity.icon || 'bi-circle'}"></i>
+                    <div class="activity-icon app-icon" style="background-color: ${this.escapeHtml(activity.app_color_hex || '#6c757d')}">
+                        <i class="bi ${this.escapeHtml(activity.icon || 'bi-circle')}"></i>
                     </div>
                     <div class="activity-content">
                         <div class="d-flex justify-content-between align-items-start mb-1">
-                            <h6 class="mb-0">${activity.action}</h6>
+                            <h6 class="mb-0">${this.escapeHtml(activity.action)}</h6>
                             <small class="text-muted">${this.formatTimeAgo(activity.created_at)}</small>
                         </div>
-                        <p class="text-muted small mb-1">${activity.description}</p>
-                        <span class="badge app-badge-${activity.app_key} small">${activity.app_name}</span>
+                        <p class="text-muted small mb-1">${this.escapeHtml(activity.description)}</p>
+                        <span class="badge small" style="background-color: ${this.escapeHtml(activity.app_color_hex || '#6c757d')}; color: #fff">${this.escapeHtml(activity.app_name)}</span>
                     </div>
                 </div>
             `;
@@ -338,8 +337,8 @@
         notifications.forEach(notif => {
             const unreadClass = notif.is_read ? 'read' : 'unread';
             const appKey = this.getAppKeyFromName(notif.app_name);
-            const icon = notif.app_icon || 'bi-bell';
-            const color = notif.app_color || 'secondary';
+            const icon = this.escapeHtml(notif.app_icon || 'bi-bell');
+            const color = this.escapeHtml(notif.app_color_hex || '#6c757d');
 
             html += `
                 <div class="notification-item ${unreadClass}"
@@ -347,17 +346,17 @@
                      data-notif-id="${notif.id}"
                      data-created="${notif.created_at}">
                     ${!notif.is_read ? '<div class="notification-indicator"></div>' : ''}
-                    <div class="notification-icon bg-${color}">
-                        <i class="${icon}"></i>
+                    <div class="notification-icon" style="background-color: ${color}">
+                        <i class="bi ${icon}"></i>
                     </div>
                     <div class="notification-content">
                         <div class="d-flex justify-content-between align-items-start mb-1">
-                            <h6 class="mb-0 ${notif.is_read ? 'text-muted' : ''}">${notif.title}</h6>
+                            <h6 class="mb-0 ${notif.is_read ? 'text-muted' : ''}">${this.escapeHtml(notif.title)}</h6>
                             <small class="text-muted">${this.formatTimeAgo(notif.created_at)}</small>
                         </div>
-                        ${notif.body ? `<p class="text-muted small mb-2">${notif.body}</p>` : ''}
+                        ${notif.body ? `<p class="text-muted small mb-2">${this.escapeHtml(notif.body)}</p>` : ''}
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="badge bg-${color}">${notif.app_name}</span>
+                            <span class="badge" style="background-color: ${color}">${this.escapeHtml(notif.app_name)}</span>
                             <div class="notification-actions">
                                 ${notif.action_url ? `<a href="${notif.action_url}"
                                     class="btn btn-sm btn-primary notification-action-link"
@@ -638,6 +637,15 @@
 
     getAppKeyFromName(appName) {
         return this.getAppKey(appName);
+    }
+
+    escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     getNotificationIcon(type) {

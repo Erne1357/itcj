@@ -6,7 +6,6 @@ class ThemesManager {
         this.apiBase = '/api/core/v2/themes';
         this.themes = [];
         this.editingThemeId = null;
-        this.deleteThemeId = null;
         this.decorationCounter = 0;
 
         // Plantillas de decoraciones predefinidas para sugerir
@@ -49,9 +48,6 @@ class ThemesManager {
         // Form submit
         this.themeForm.addEventListener('submit', (e) => this.handleSaveTheme(e));
 
-        // Delete confirmation
-        document.getElementById('confirmDeleteTheme').addEventListener('click', () => this.handleDeleteTheme());
-
         // Color picker sync
         this.setupColorSync('colorPrimary', 'colorPrimaryHex');
         this.setupColorSync('colorSecondary', 'colorSecondaryHex');
@@ -76,7 +72,6 @@ class ThemesManager {
 
     initModals() {
         this.themeModal = new bootstrap.Modal(document.getElementById('themeModal'));
-        this.deleteModal = new bootstrap.Modal(document.getElementById('deleteThemeModal'));
 
         // Reset form when modal closes
         document.getElementById('themeModal').addEventListener('hidden.bs.modal', () => {
@@ -182,19 +177,22 @@ class ThemesManager {
         }
     }
 
-    async handleDeleteTheme() {
-        if (!this.deleteThemeId) return;
+    async onDeleteTheme(themeId, themeName) {
+        const ok = await AppModal.confirm({
+            title: 'Eliminar tematica',
+            message: `Se eliminara la tematica "${themeName}"`,
+            confirmText: 'Eliminar',
+            confirmVariant: 'danger',
+        });
+        if (!ok) return;
 
         try {
-            document.getElementById('confirmDeleteTheme').disabled = true;
-
-            const response = await fetch(`${this.apiBase}/${this.deleteThemeId}`, {
+            const response = await fetch(`${this.apiBase}/${themeId}`, {
                 method: 'DELETE'
             });
 
             if (response.ok) {
                 showSuccess('Tematica eliminada correctamente');
-                this.deleteModal.hide();
                 await this.loadThemes();
                 await this.loadActiveTheme();
             } else {
@@ -204,8 +202,6 @@ class ThemesManager {
         } catch (error) {
             console.error('Error deleting theme:', error);
             showError(error.message || 'Error al eliminar la tematica');
-        } finally {
-            document.getElementById('confirmDeleteTheme').disabled = false;
         }
     }
 
@@ -238,6 +234,9 @@ class ThemesManager {
     createThemeCard(theme) {
         const isActive = theme.is_active;
         const colors = theme.colors || {};
+        const primaryColor = this.escapeHtml(colors.primary || '#0d6efd');
+        const secondaryColor = this.escapeHtml(colors.secondary || '#6c757d');
+        const accentColor = this.escapeHtml(colors.accent || '#ffc107');
 
         const statusBadge = isActive
             ? '<span class="badge bg-success theme-status-badge"><i class="bi bi-check-circle me-1"></i>Activa</span>'
@@ -246,7 +245,7 @@ class ThemesManager {
                 : '<span class="badge bg-dark theme-status-badge">Deshabilitada</span>';
 
         const previewGradient = colors.primary && colors.secondary
-            ? `linear-gradient(135deg, ${colors.primary} 0%, ${colors.secondary} 100%)`
+            ? `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`
             : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
 
         return `
@@ -255,9 +254,9 @@ class ThemesManager {
                     <div class="theme-preview" style="background: ${previewGradient}">
                         ${statusBadge}
                         <div class="preview-colors">
-                            <div class="preview-color-dot" style="background: ${colors.primary || '#0d6efd'}" title="Color primario"></div>
-                            <div class="preview-color-dot" style="background: ${colors.secondary || '#6c757d'}" title="Color secundario"></div>
-                            <div class="preview-color-dot" style="background: ${colors.accent || '#ffc107'}" title="Color acento"></div>
+                            <div class="preview-color-dot" style="background: ${primaryColor}" title="Color primario"></div>
+                            <div class="preview-color-dot" style="background: ${secondaryColor}" title="Color secundario"></div>
+                            <div class="preview-color-dot" style="background: ${accentColor}" title="Color acento"></div>
                         </div>
                     </div>
                     <div class="theme-info">
@@ -266,7 +265,7 @@ class ThemesManager {
                         ${theme.date_range_display ? `
                             <div class="theme-dates mt-2">
                                 <i class="bi bi-calendar-event me-1"></i>
-                                ${theme.date_range_display}
+                                ${this.escapeHtml(theme.date_range_display)}
                             </div>
                         ` : ''}
                         ${this.renderDecorationBadges(theme.decorations)}
@@ -286,7 +285,7 @@ class ThemesManager {
                             <button class="btn btn-outline-primary" onclick="themesManager.editTheme(${theme.id})" title="Editar">
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="themesManager.confirmDelete(${theme.id}, '${this.escapeHtml(theme.name)}')" title="Eliminar">
+                            <button class="btn btn-outline-danger" onclick="themesManager.onDeleteTheme(${theme.id}, '${this.escapeHtml(theme.name.replace(/'/g, "\\'"))}')" title="Eliminar">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -310,19 +309,22 @@ class ThemesManager {
         }
 
         const colors = theme.colors || {};
+        const primaryColor = this.escapeHtml(colors.primary || '#0d6efd');
+        const secondaryColor = this.escapeHtml(colors.secondary || '#6c757d');
+        const accentColor = this.escapeHtml(colors.accent || '#ffc107');
         this.activeThemeStatus.textContent = theme.is_manually_active ? 'Activada Manualmente' : 'Activada por Fechas';
 
         const previewGradient = colors.primary && colors.secondary
-            ? `linear-gradient(135deg, ${colors.primary} 0%, ${colors.secondary} 100%)`
+            ? `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`
             : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
 
         this.activeThemeContent.innerHTML = `
             <div class="active-theme-info">
                 <div class="active-theme-preview" style="background: ${previewGradient}">
                     <div class="preview-colors">
-                        <div class="preview-color-dot" style="background: ${colors.primary || '#0d6efd'}"></div>
-                        <div class="preview-color-dot" style="background: ${colors.secondary || '#6c757d'}"></div>
-                        <div class="preview-color-dot" style="background: ${colors.accent || '#ffc107'}"></div>
+                        <div class="preview-color-dot" style="background: ${primaryColor}"></div>
+                        <div class="preview-color-dot" style="background: ${secondaryColor}"></div>
+                        <div class="preview-color-dot" style="background: ${accentColor}"></div>
                     </div>
                 </div>
                 <div class="active-theme-details">
@@ -331,7 +333,7 @@ class ThemesManager {
                     <div class="active-theme-badges">
                         ${theme.date_range_display ? `
                             <span class="badge bg-info">
-                                <i class="bi bi-calendar me-1"></i>${theme.date_range_display}
+                                <i class="bi bi-calendar me-1"></i>${this.escapeHtml(theme.date_range_display)}
                             </span>
                         ` : ''}
                         <span class="badge bg-secondary">Prioridad: ${theme.priority}</span>
@@ -584,12 +586,6 @@ class ThemesManager {
         this.decorationCounter = 0;
     }
 
-    confirmDelete(themeId, themeName) {
-        this.deleteThemeId = themeId;
-        document.getElementById('deleteThemeName').textContent = themeName;
-        this.deleteModal.show();
-    }
-
     // ==================== Utilities ====================
 
     escapeHtml(text) {
@@ -600,8 +596,29 @@ class ThemesManager {
     }
 }
 
-// Initialize
-let themesManager;
-document.addEventListener('DOMContentLoaded', () => {
-    themesManager = new ThemesManager();
-});
+/* -----------------------------------------------------------------------------
+   Registro en el shell HTMX (ConfigPage). init() re-crea la instancia en cada
+   visita (los nodos del content se recrean por morph; el constructor cachea los
+   refs frescos y bind* solo toca elementos recreados — sin listeners de document
+   ni window que fuguen). destroy() dispone los modales para no dejar backdrops
+   huérfanos. Los onclick inline resuelven contra window.themesManager.
+   --------------------------------------------------------------------------- */
+function _cfgInitThemes() {
+    window.themesManager = new ThemesManager();
+}
+
+function _cfgDestroyThemes() {
+    var m = window.themesManager;
+    if (m) {
+        [m.themeModal].forEach(function (bm) {
+            if (bm) { try { bm.hide(); bm.dispose(); } catch (e) { /* noop */ } }
+        });
+    }
+    window.themesManager = null;
+}
+
+if (window.ConfigPage) {
+    window.ConfigPage.register('themes', { init: _cfgInitThemes, destroy: _cfgDestroyThemes });
+} else {
+    document.addEventListener('DOMContentLoaded', _cfgInitThemes);
+}

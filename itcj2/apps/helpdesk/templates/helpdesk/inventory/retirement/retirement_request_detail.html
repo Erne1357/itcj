@@ -20,7 +20,7 @@
         </div>
         <div class="d-flex gap-2 flex-wrap">
             <a href="{{ url_for('helpdesk_pages.inventory_pages.retirement_requests_list') }}"
-               class="btn btn-outline-secondary btn-sm">
+               class="btn btn-outline-secondary btn-sm" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.retirement_requests_list')) }}>
                 <i class="fas fa-arrow-left"></i> Volver
             </a>
             <!-- Acciones dinámicas se insertan aquí por JS -->
@@ -35,35 +35,35 @@
             <!-- Detalle de la solicitud -->
             <div class="card shadow mb-3">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold text-primary hd-panel-title">
                         <i class="fas fa-info-circle"></i> Información de la Solicitud
                     </h6>
                 </div>
-                <div class="card-body" style="font-size:.875rem;">
+                <div class="card-body hd-panel-body">
                     <div class="row">
                         <div class="col-sm-6 mb-2">
                             <span class="text-muted">Solicitante:</span>
-                            <span class="ml-1 font-weight-bold" id="detail-requested-by">...</span>
+                            <span class="ms-1 fw-bold" id="detail-requested-by">...</span>
                         </div>
                         <div class="col-sm-6 mb-2">
                             <span class="text-muted">Fecha de creación:</span>
-                            <span class="ml-1" id="detail-created-at">...</span>
+                            <span class="ms-1" id="detail-created-at">...</span>
                         </div>
                         <div class="col-12 mb-2">
                             <span class="text-muted">Motivo:</span>
-                            <p class="mb-0 mt-1" id="detail-reason" style="white-space:pre-wrap;">...</p>
+                            <p class="mb-0 mt-1 hd-prewrap" id="detail-reason">...</p>
                         </div>
                         <div class="col-sm-6 mb-2" id="reviewed-by-row" style="display:none;">
                             <span class="text-muted">Revisado por:</span>
-                            <span class="ml-1 font-weight-bold" id="detail-reviewed-by">...</span>
+                            <span class="ms-1 fw-bold" id="detail-reviewed-by">...</span>
                         </div>
                         <div class="col-sm-6 mb-2" id="reviewed-at-row" style="display:none;">
                             <span class="text-muted">Fecha de revisión:</span>
-                            <span class="ml-1" id="detail-reviewed-at">...</span>
+                            <span class="ms-1" id="detail-reviewed-at">...</span>
                         </div>
                         <div class="col-12" id="review-notes-row" style="display:none;">
                             <span class="text-muted">Notas de revisión:</span>
-                            <p class="mb-0 mt-1 text-info" id="detail-review-notes" style="white-space:pre-wrap;">...</p>
+                            <p class="mb-0 mt-1 text-info hd-prewrap" id="detail-review-notes">...</p>
                         </div>
                     </div>
                 </div>
@@ -72,13 +72,13 @@
             <!-- Equipos en la solicitud -->
             <div class="card shadow mb-3">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold text-primary hd-panel-title">
                         <i class="fas fa-desktop"></i> Equipos en esta Solicitud
-                        <span class="badge bg-secondary text-white ml-2" id="items-count-badge">0</span>
+                        <span class="badge bg-secondary ms-2" id="items-count-badge">0</span>
                     </h6>
                     <!-- Add item button (only DRAFT) -->
                     <button class="btn btn-sm btn-outline-primary" id="btn-add-item" style="display:none;"
-                            data-toggle="collapse" data-target="#add-item-panel">
+                            data-bs-toggle="collapse" data-bs-target="#add-item-panel">
                         <i class="fas fa-plus"></i> Agregar equipo
                     </button>
                 </div>
@@ -93,8 +93,7 @@
                                     <input type="text" class="form-control form-control-sm"
                                            id="add-item-search" placeholder="Número, marca, modelo, serial..."
                                            autocomplete="off">
-                                    <div id="add-item-results" class="position-absolute w-100 bg-white"
-                                         style="z-index:1000; display:none; border:1px solid #e3e6f0; border-top:none; max-height:220px; overflow-y:auto; border-radius:0 0 .35rem .35rem;"></div>
+                                    <div id="add-item-results" class="position-absolute w-100 bg-white"></div>
                                 </div>
                             </div>
                             <div class="col-12 col-md-4">
@@ -105,7 +104,7 @@
                         </div>
                         <div id="add-item-selected" class="mt-2 d-none">
                             <span class="badge bg-info text-dark" id="add-item-selected-label"></span>
-                            <button class="btn btn-sm btn-primary ml-2" id="btn-confirm-add-item">
+                            <button class="btn btn-sm btn-primary ms-2" id="btn-confirm-add-item">
                                 <i class="fas fa-plus"></i> Confirmar
                             </button>
                         </div>
@@ -115,9 +114,9 @@
                 <div class="card-body p-0">
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
-                            <thead class="thead-light">
+                            <thead class="table-light">
                                 <tr>
-                                    <th class="pl-3">Equipo</th>
+                                    <th class="ps-3">Equipo</th>
                                     <th class="d-none d-md-table-cell">Serial Proveedor</th>
                                     <th class="d-none d-md-table-cell">Serial ITCJ</th>
                                     <th class="d-none d-sm-table-cell">Departamento</th>
@@ -140,7 +139,7 @@
             <!-- Panel de firma multi-paso -->
             <div class="card shadow mb-3 border-warning" id="signing-panel" style="display:none;">
                 <div class="card-header py-2 bg-warning bg-opacity-10">
-                    <h6 class="m-0" style="font-size:.85rem;">
+                    <h6 class="m-0 hd-panel-title">
                         <i class="fas fa-signature"></i> Autorización Pendiente
                     </h6>
                 </div>
@@ -167,7 +166,7 @@
             <!-- Timeline de firmas -->
             <div class="card shadow mb-3" id="signatures-timeline" style="display:none;">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold text-primary hd-panel-title">
                         <i class="fas fa-tasks"></i> Estado de Autorizaciones
                     </h6>
                 </div>
@@ -179,11 +178,11 @@
             <!-- Documento adjunto -->
             <div class="card shadow mb-3" id="document-card">
                 <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                    <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold text-primary hd-panel-title">
                         <i class="fas fa-paperclip"></i> Documento Adjunto
                     </h6>
                     <button class="btn btn-sm btn-outline-secondary" id="btn-attach-doc" style="display:none;"
-                            data-toggle="collapse" data-target="#attach-doc-panel">
+                            data-bs-toggle="collapse" data-bs-target="#attach-doc-panel">
                         <i class="fas fa-upload"></i> Subir documento
                     </button>
                 </div>
@@ -191,7 +190,7 @@
                     <div class="card-body border-bottom py-2">
                         <div class="row g-2 align-items-end">
                             <div class="col-12 col-md-8">
-                                <input type="file" class="form-control-file" id="doc-file-input"
+                                <input type="file" class="form-control form-control-sm" id="doc-file-input"
                                        accept=".pdf,.doc,.docx">
                                 <small class="text-muted">PDF o DOCX, máx. 10 MB</small>
                             </div>
@@ -206,7 +205,7 @@
                 <div class="card-body py-2" id="doc-info">
                     <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
                         <p class="text-muted small mb-0">
-                            <i class="fas fa-file-alt mr-1"></i>
+                            <i class="fas fa-file-alt me-1"></i>
                             <span id="doc-name">Sin documento adjunto</span>
                         </p>
                         <a id="btn-download-doc" class="btn btn-sm btn-outline-primary" style="display:none;">
@@ -224,7 +223,7 @@
             {% if can_approve %}
             <div class="card shadow mb-3" id="review-panel" style="display:none!important;">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-warning" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold text-warning hd-panel-title">
                         <i class="fas fa-gavel"></i> Revisión
                     </h6>
                 </div>
@@ -249,11 +248,11 @@
             <!-- Estado / historial -->
             <div class="card shadow mb-3">
                 <div class="card-header py-2">
-                    <h6 class="m-0 font-weight-bold text-secondary" style="font-size:.85rem;">
+                    <h6 class="m-0 fw-bold text-secondary hd-panel-title">
                         <i class="fas fa-history"></i> Estado
                     </h6>
                 </div>
-                <div class="card-body" id="status-timeline" style="font-size:.8rem;">
+                <div class="card-body hd-note-sm" id="status-timeline">
                     <p class="text-muted">Cargando...</p>
                 </div>
             </div>
@@ -268,11 +267,11 @@
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h6 class="modal-title" id="confirm-modal-title">Confirmar</h6>
-                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body" id="confirm-modal-body">¿Confirmas esta acción?</div>
             <div class="modal-footer py-2">
-                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-sm btn-primary" id="confirm-modal-ok">Confirmar</button>
             </div>
         </div>
@@ -280,11 +279,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const REQUEST_ID = {{ request_id }};
-    const CAN_APPROVE = {{ 'true' if can_approve else 'false' }};
-    const CURRENT_USER_PERMS = {{ sign_perms | tojson }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_request_detail.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_request_detail.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-request-id="{{ request_id }}" data-can-approve="{{ 'true' if can_approve else 'false' }}" data-current-user-perms="{{ sign_perms | tojson | forceescape }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

@@ -1,4 +1,5 @@
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
 
 {% block title %}Almacén - Entradas de Stock{% endblock %}
 {% block header_title %}Entradas de Stock{% endblock %}
@@ -12,49 +13,24 @@
 
 {% block content %}
 
-<!-- Filters -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2">
-        <div class="row g-2 align-items-end">
-            <div class="col-12 col-md-4">
-                <select class="form-select form-select-sm" id="productFilter">
-                    <option value="">Todos los productos</option>
-                </select>
-            </div>
-            <div class="col-6 col-md-3">
-                <div class="form-check ms-1">
-                    <input class="form-check-input" type="checkbox" id="includeVoided">
-                    <label class="form-check-label small" for="includeVoided">Incluir anuladas</label>
-                </div>
-            </div>
-            <div class="col-6 col-md-2">
-                <button class="btn btn-primary btn-sm w-100" onclick="WarehouseEntries.load()">
-                    <i class="fas fa-search me-1"></i>Buscar
-                </button>
-            </div>
-        </div>
-    </div>
+<div class="d-flex align-items-center gap-2 mb-3">
+    <h1 class="h5 mb-0 text-gray-800"><i class="fas fa-truck-loading fa-fw"></i> Entradas</h1>
+    <span id="hd-entries-count" class="badge bg-secondary">{{ total }} entrada{{ '' if total == 1 else 's' }}</span>
 </div>
 
-<!-- Entries Table -->
+<!-- Filtros: macro filter_bar (form HTMX → recarga #hd-entries-results sin JS) -->
+{{ filter_bar(
+    '/help-desk/warehouse/entries',
+    filter_fields,
+    target='#hd-entries-results',
+    search=false
+) }}
+
+<!-- Tabla de entradas (render server-side; macros + HTMX partial) -->
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
-        <div id="entriesContainer">
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="text-muted mt-2">Cargando entradas...</p>
-            </div>
-        </div>
-        <div id="pagination" class="d-flex justify-content-between align-items-center px-3 py-2 border-top d-none">
-            <span class="text-muted small" id="paginationInfo"></span>
-            <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="WarehouseEntries.prevPage()">
-                    <i class="fas fa-chevron-left"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="WarehouseEntries.nextPage()">
-                    <i class="fas fa-chevron-right"></i>
-                </button>
-            </div>
+        <div id="hd-entries-results" class="hd-results">
+            {% include "helpdesk/warehouse/_entries_results.html" %}
         </div>
     </div>
 </div>
@@ -62,7 +38,7 @@
 {% endblock %}
 
 {% block modals %}
-<!-- New Entry Modal -->
+<!-- New Entry Modal (isla de cliente; BS5) -->
 <div class="modal fade" id="entryModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -142,6 +118,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/warehouse/entries.js') }}?v={{ sv('helpdesk', 'js/warehouse/entries.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

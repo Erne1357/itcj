@@ -7,7 +7,7 @@
 {% block header_subtitle %}Nueva Solicitud de Soporte{% endblock %}
 
 {% block header_back %}
-<a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" class="btn btn-outline-light btn-sm">
+<a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" {{ hd_boost(url_for('helpdesk_pages.user_pages.my_tickets')) }} class="btn btn-outline-light btn-sm">
     <i class="fas fa-list"></i><span class="d-none d-sm-inline ms-2">Mis Tickets</span>
 </a>
 <button id="tutorialButton" class="btn btn-outline-light btn-sm ms-1 ms-md-2" onclick="window.helpdeskTutorial?.resetTutorial()">
@@ -32,12 +32,12 @@
                     Tienes <strong>{{ unrated_count }}</strong> tickets sin evaluar.
                     <br>Debes evaluar tus tickets resueltos antes de poder crear uno nuevo.
                 </div>
-                <a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}"
+                <a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" {{ hd_boost(url_for('helpdesk_pages.user_pages.my_tickets')) }}
                    class="btn btn-warning btn-lg">
                     <i class="fas fa-star me-2"></i>Ir a evaluar mis tickets
                 </a>
                 <div class="mt-3">
-                    <a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" class="btn btn-outline-secondary">
+                    <a href="{{ url_for('helpdesk_pages.user_pages.my_tickets') }}" {{ hd_boost(url_for('helpdesk_pages.user_pages.my_tickets')) }} class="btn btn-outline-secondary">
                         <i class="fas fa-list me-2"></i>Ver mis tickets
                     </a>
                 </div>
@@ -694,10 +694,4 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/user/create_ticket.js') }}?v={{ sv('helpdesk', 'js/user/create_ticket.js') }}"></script>
-<!-- Shepherd.js Library -->
-<script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
-<!-- Tutorial Script -->
-<script src="{{ url_for('static', filename='helpdesk/js/user/ticket_tutorial.js') }}?v={{ sv('helpdesk', 'js/user/ticket_tutorial.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

@@ -16,6 +16,7 @@ var _dashLevel     = null;   // 'full' | 'summary'
 var _charts        = {};
 var _myDeptIds     = [];     // U6: departamentos del usuario (para join de rooms WS)
 var _realtimeBound = false;
+var _scope         = 'all';  // ámbito: 'own' | 'all' | 'below' (sub-árbol)
 
 // === COLORES ===
 var STATUS_COLORS = {
@@ -58,6 +59,14 @@ function setupEventListeners() {
     if (sel) {
         sel.addEventListener('change', function () {
             _currentDeptId = this.value || null;
+            loadDashboard(_currentDeptId);
+        });
+    }
+
+    var scopeSel = document.getElementById('scopeSelector');
+    if (scopeSel) {
+        scopeSel.addEventListener('change', function () {
+            _scope = this.value || 'all';
             loadDashboard(_currentDeptId);
         });
     }
@@ -125,6 +134,11 @@ function loadDepartments() {
             _myDeptIds = depts.map(function (d) { return d.id; });
             initDashboardRealtime();
 
+            // El selector de ámbito solo aplica a jefes/secretarias (no admin global,
+            // que ya ve todo). Permite alternar propio / sub-árbol / solo sub-deptos.
+            var scopeWrap = document.getElementById('scopeSelectorWrap');
+            if (scopeWrap && !isAdminGlb) scopeWrap.classList.remove('d-none');
+
             var sel  = document.getElementById('deptSelector');
             var wrap = document.getElementById('deptSelectorWrap');
 
@@ -178,7 +192,9 @@ function loadDepartments() {
 function loadDashboard(deptId) {
     showLoading(true);
 
-    var qs = deptId ? ('?dept=' + encodeURIComponent(deptId)) : '';
+    var params = ['scope=' + encodeURIComponent(_scope)];
+    if (deptId) params.push('dept=' + encodeURIComponent(deptId));
+    var qs = '?' + params.join('&');
 
     MaintUtils.api.fetch(API_BASE + '/full' + qs)
         .then(function (resp) {
@@ -298,6 +314,22 @@ function hideFullKpis() {
 // U3 fix: el badge usa el KPI real (kpiTotal), no tickets.length,
 // ya que la API devuelve máximo ~10 tickets en la lista pero el total
 // puede ser mayor. El KPI viene de data.kpis.unassigned.
+// Badge de división (depto solicitante): distingue TU depto vs sub-departamento
+// del subárbol. Neutro si el usuario no tiene deptos propios (admin global).
+function deptBadge(t) {
+    var name = t && t.requester_department_name;
+    if (!name) return '';
+    var neutral = _myDeptIds.length === 0;
+    var isOwn   = !neutral && _myDeptIds.indexOf(t.requester_department_id) !== -1;
+    var cls  = neutral ? 'bg-light text-dark border'
+                       : (isOwn ? 'bg-primary' : 'bg-secondary-subtle text-secondary border');
+    var icon = isOwn ? 'fa-building' : 'fa-sitemap';
+    var title = neutral ? 'División' : (isOwn ? 'Tu departamento' : 'Sub-departamento');
+    return ' <span class="badge rounded-pill ' + cls + '" title="' + title +
+           '" style="font-size:0.62rem;"><i class="fas ' + icon + ' me-1"></i>' +
+           escapeHtml(name) + '</span>';
+}
+
 function renderUnassigned(tickets, kpiTotal) {
     var tbody   = document.getElementById('unassignedBody');
     var countEl = document.getElementById('unassignedCount');
@@ -314,7 +346,7 @@ function renderUnassigned(tickets, kpiTotal) {
     tbody.innerHTML = tickets.map(function (t) {
         return '<tr class="mn-dash-row-clickable" onclick="goTicket(' + t.id + ')" style="cursor:pointer;">' +
             '<td><span class="fw-semibold text-primary small">' + escapeHtml(t.ticket_number || ('#' + t.id)) + '</span>' +
-            '<br><span class="text-muted" style="font-size:0.78rem;">' + escapeHtml(truncate(t.title, 40)) + '</span></td>' +
+            '<br><span class="text-muted" style="font-size:0.78rem;">' + escapeHtml(truncate(t.title, 40)) + '</span>' + deptBadge(t) + '</td>' +
             '<td>' + priorityBadge(t.priority) + '</td>' +
             '<td class="d-none d-md-table-cell small">' + escapeHtml(t.category_name || '—') + '</td>' +
             '<td class="d-none d-sm-table-cell small">' + escapeHtml(t.requester_name || '—') + '</td>' +
@@ -337,7 +369,7 @@ function renderRecentOpen(tickets, kpiTotal) {
     tbody.innerHTML = tickets.map(function (t) {
         return '<tr class="mn-dash-row-clickable" onclick="goTicket(' + t.id + ')" style="cursor:pointer;">' +
             '<td><span class="fw-semibold text-primary small">' + escapeHtml(t.ticket_number || ('#' + t.id)) + '</span>' +
-            '<br><span class="text-muted" style="font-size:0.78rem;">' + escapeHtml(truncate(t.title, 40)) + '</span></td>' +
+            '<br><span class="text-muted" style="font-size:0.78rem;">' + escapeHtml(truncate(t.title, 40)) + '</span>' + deptBadge(t) + '</td>' +
             '<td>' + statusBadge(t.status) + '</td>' +
             '<td class="d-none d-md-table-cell small">' + escapeHtml(t.category_name || '—') + '</td>' +
             '<td class="d-none d-sm-table-cell small">' + escapeHtml(t.requester_name || '—') + '</td>' +
@@ -396,7 +428,7 @@ function renderOverdue(tickets, kpiTotal) {
     tbody.innerHTML = tickets.map(function (t) {
         return '<tr class="mn-dash-row-clickable" onclick="goTicket(' + t.id + ')" style="cursor:pointer;">' +
             '<td><span class="fw-semibold text-primary small">' + escapeHtml(t.ticket_number || ('#' + t.id)) + '</span>' +
-            '<br><span class="text-muted" style="font-size:0.78rem;">' + escapeHtml(truncate(t.title, 40)) + '</span></td>' +
+            '<br><span class="text-muted" style="font-size:0.78rem;">' + escapeHtml(truncate(t.title, 40)) + '</span>' + deptBadge(t) + '</td>' +
             '<td>' + priorityBadge(t.priority) + '</td>' +
             '<td class="d-none d-md-table-cell">' + statusBadge(t.status) + '</td>' +
             '<td class="d-none d-sm-table-cell small">' + escapeHtml(t.requester_name || '—') + '</td>' +

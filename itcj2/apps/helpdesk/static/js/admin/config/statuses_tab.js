@@ -91,7 +91,18 @@
         return chips.join('');
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized = false;
+        if (sortableInstance) {
+            try { sortableInstance.destroy(); } catch (_) {}
+            sortableInstance = null;
+        }
+        statuses     = [];
+        showInactive = false;
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#estados') {
             if (!initialized) {
@@ -101,16 +112,8 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '';
-        if (hash === '#estados') {
-            if (!initialized) {
-                initialized = true;
-                initStatusesSection();
-            }
-        }
-        bindEditModal();
-    });
+    // Bind modal una sola vez al evaluar el IIFE (guard dataset.statusListenerBound)
+    bindEditModal();
 
     function initStatusesSection() {
         renderShell();

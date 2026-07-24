@@ -3,9 +3,7 @@ Páginas del área de técnicos de Help-Desk.
 Equivalente a itcj/apps/helpdesk/routes/pages/technician.py.
 
 Rutas:
-  GET /help-desk/technician/dashboard        → Dashboard personal del técnico
-  GET /help-desk/technician/my-assignments   → Tickets asignados al técnico
-  GET /help-desk/technician/team             → Vista de tickets del equipo
+  GET /help-desk/technician/dashboard        → Dashboard personal del técnico (hace todo)
   GET /help-desk/technician/tickets/{id}     → Detalle de ticket (vista técnico)
 """
 import logging
@@ -31,14 +29,106 @@ def _helpdesk_roles(user_id: int) -> set:
         _db.close()
 
 
+def _tech_team(user_roles: set):
+    if "tech_desarrollo" in user_roles:
+        return "desarrollo"
+    if "tech_soporte" in user_roles:
+        return "soporte"
+    return None
+
+
+def _query_tech_tickets(user_id: int, user_roles: set, tab: str, hist: str = "all", search: str = None) -> list:
+    """Devuelve la lista de tickets para una pestaña del dashboard de técnico.
+
+    Reemplaza los 4 ``loadX`` del JS por consultas server-side (mismo
+    ``ticket_service.list_tickets`` que llamaba el endpoint API). ``resolved``
+    aplica el filtro de fecha (hist) sobre ``resolved_at`` (prefijo de fecha).
+    """
+    from datetime import date, timedelta
+
+    from itcj2.apps.helpdesk.services import ticket_service
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        if tab == "assigned":
+            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
+                                              assigned_to_me=True, status=["ASSIGNED"], per_page=100)
+            return res["tickets"]
+        if tab == "inProgress":
+            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
+                                              assigned_to_me=True, status=["IN_PROGRESS"], per_page=100)
+            return res["tickets"]
+        if tab == "team":
+            team = _tech_team(user_roles)
+            if not team:
+                return []
+            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
+                                              assigned_to_team=team, status=["ASSIGNED"],
+                                              search=search or None, per_page=100)
+            return res["tickets"]
+        if tab == "resolved":
+            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
+                                              assigned_to_me=True,
+                                              status=["RESOLVED_SUCCESS", "RESOLVED_FAILED", "CLOSED"],
+                                              search=search or None, per_page=50)
+            tickets = res["tickets"]
+            today = date.today()
+            cutoff = None
+            if hist == "today":
+                cutoff = today
+            elif hist == "week":
+                cutoff = today - timedelta(days=7)
+            elif hist == "month":
+                cutoff = today - timedelta(days=30)
+            if cutoff is not None:
+                cs = cutoff.isoformat()
+                tickets = [t for t in tickets if (t.get("resolved_at") or "")[:10] >= cs]
+            return tickets[:20]
+        return []
+    finally:
+        _db.close()
+
+
+_BADGE_MAP = {
+    "assigned": ("queueBadge", "bg-warning"),
+    "inProgress": ("workingBadge", "bg-info"),
+    "team": ("teamBadge", "bg-secondary"),
+}
+
+
 @router.get("/dashboard", name="helpdesk.pages.technician.dashboard")
 async def dashboard(
     request: Request,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.dashboard.technician"])),
 ):
-    """Dashboard personal del técnico."""
+    """Dashboard personal del técnico.
+
+    Una sola URL sirve dos representaciones (patrón canónico HTMX): petición HTMX
+    no-boost con ``?tab=`` → solo el FRAGMENTO de esa lista; si no → la PÁGINA con
+    las 4 listas renderizadas server-side.
+    """
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    p = request.query_params
+
+    is_htmx = request.headers.get("hx-request") == "true"
+    is_boost = request.headers.get("hx-boosted") == "true"
+    if is_htmx and not is_boost:
+        from itcj2.templates import render
+
+        tab = p.get("tab", "assigned")
+        hist = p.get("hist", "all")
+        search = (p.get("search", "") or "").strip() or None
+        tickets = _query_tech_tickets(user_id, user_roles, tab, hist, search)
+        badge_id, badge_cls = _BADGE_MAP.get(tab, (None, None))
+        return render(request, "helpdesk/technician/_dashboard_list.html", {
+            "tickets": tickets,
+            "tab": tab,
+            "oob": bool(badge_id),
+            "badge_id": badge_id,
+            "badge_cls": badge_cls,
+        })
 
     can_consume_warehouse = False
     if user.get("role") == "admin":
@@ -57,36 +147,10 @@ async def dashboard(
         "user_roles": user_roles,
         "active_page": "tech_dashboard",
         "can_consume_warehouse": can_consume_warehouse,
-    })
-
-
-@router.get("/my-assignments", name="helpdesk.pages.technician.my_assignments")
-async def my_assignments(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.my_tickets"])),
-):
-    """Tickets asignados al técnico actual."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/technician/my_assignments.html", {
-        "user_roles": user_roles,
-        "active_page": "tech_assignments",
-    })
-
-
-@router.get("/team", name="helpdesk.pages.technician.team")
-async def team(
-    request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.team"])),
-):
-    """Vista de tickets del equipo técnico."""
-    user_id = int(user["sub"])
-    user_roles = _helpdesk_roles(user_id)
-
-    return render_helpdesk(request, "helpdesk/technician/team.html", {
-        "user_roles": user_roles,
-        "active_page": "tech_team",
+        "t_assigned": _query_tech_tickets(user_id, user_roles, "assigned"),
+        "t_inprogress": _query_tech_tickets(user_id, user_roles, "inProgress"),
+        "t_team": _query_tech_tickets(user_id, user_roles, "team"),
+        "t_resolved": _query_tech_tickets(user_id, user_roles, "resolved", "week"),
     })
 
 

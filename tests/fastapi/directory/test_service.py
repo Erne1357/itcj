@@ -11,15 +11,27 @@ class _Dept:
         self.name = name
 
 
-def test_group_by_department_sorts_and_groups():
+def test_group_by_department_orders_by_hierarchy_and_head_first():
     rows = [
-        {"department_id": 2, "department": "Sistemas", "title": "A", "holder": "", "extension": "2002", "notes": "", "source": "position", "position_id": 1, "entry_id": None},
-        {"department_id": 1, "department": "Dirección", "title": "B", "holder": "", "extension": "2001", "notes": "", "source": "entry", "position_id": None, "entry_id": 5},
-        {"department_id": 2, "department": "Sistemas", "title": "C", "holder": "", "extension": "2000", "notes": "", "source": "entry", "position_id": None, "entry_id": 6},
+        {"department_id": 2, "department": "Sistemas", "title": "A", "holder": "", "extension": "2002", "notes": "", "source": "position", "position_id": 1, "entry_id": None, "is_head": False},
+        {"department_id": 1, "department": "Dirección", "title": "B", "holder": "", "extension": "2001", "notes": "", "source": "entry", "position_id": None, "entry_id": 5, "is_head": False},
+        {"department_id": 2, "department": "Sistemas", "title": "C (jefe)", "holder": "", "extension": "2000", "notes": "", "source": "position", "position_id": 2, "entry_id": None, "is_head": True},
     ]
-    groups = svc.group_by_department(rows)
-    assert [g["department"] for g in groups] == ["Dirección", "Sistemas"]
-    assert [r["extension"] for r in groups[1]["rows"]] == ["2000", "2002"]
+    # dept_order fija jerarquía: Sistemas (0) antes que Dirección (1), sin importar nombre/id
+    dept_order = {2: 0, 1: 1}
+    groups = svc.group_by_department(rows, dept_order)
+    assert [g["department"] for g in groups] == ["Sistemas", "Dirección"]
+    # dentro de Sistemas: el jefe primero aunque su extensión ordene después
+    assert [r["title"] for r in groups[0]["rows"]] == ["C (jefe)", "A"]
+
+
+def test_group_by_department_drops_rows_outside_official_order():
+    rows = [
+        {"department_id": 1, "department": "Dirección", "title": "A", "holder": "", "extension": "2001", "notes": "", "source": "entry", "position_id": None, "entry_id": 5, "is_head": False},
+        {"department_id": 9, "department": "No oficial", "title": "B", "holder": "", "extension": "2002", "notes": "", "source": "entry", "position_id": None, "entry_id": 6, "is_head": False},
+    ]
+    groups = svc.group_by_department(rows, {1: 0})
+    assert [g["department"] for g in groups] == ["Dirección"]
 
 
 def test_set_position_extension_writes_and_commits():

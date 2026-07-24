@@ -150,7 +150,8 @@
 .mn-skeleton {
     background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
     background-size: 200% 100%;
-    animation: mn-shimmer 1.4s infinite;
+    animation: mn-shimmer 1.4s infinite,
+               itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
     border-radius: 4px;
     display: block;
 }
@@ -176,3 +177,55 @@
 .card-header .fw-semibold {
     color: var(--maint-primary-dark);
 }
+
+/* ── Árbol de divisiones (resumen jerárquico del subárbol) ───────────── */
+.mn-divtree-body { max-height: 460px; overflow-y: auto; }
+.mn-divtree { list-style: none; margin: 0; padding: 0; }
+.mn-divtree .mn-divtree {
+    margin-left: 14px;
+    padding-left: 10px;
+    border-left: 1px dashed #d3dce1;
+}
+.mn-divnode { position: relative; }
+.mn-divrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 8px;
+    transition: background .12s ease;
+}
+.mn-divrow:hover { background: var(--maint-primary-light, #ECEFF1); }
+.mn-divtoggle {
+    flex: none;
+    width: 24px; height: 24px;
+    border: none; background: transparent;
+    color: #607d8b;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .12s ease;
+}
+.mn-divtoggle:hover { background: #dfe6ea; color: #263238; }
+.mn-divtoggle .fa-chevron-right { transition: transform .18s ease; font-size: .8rem; }
+.mn-divtoggle:not(.collapsed) .fa-chevron-right { transform: rotate(90deg); }
+.mn-divtoggle-spacer { flex: none; width: 24px; height: 24px; }
+.mn-divname {
+    flex: 1 1 auto; min-width: 0;
+    font-size: .9rem; font-weight: 600; color: #2d3a41;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mn-divtree > .mn-divnode > .mn-divrow > .mn-divname { font-size: .98rem; font-weight: 700; }
+.mn-divcounts { flex: none; display: flex; align-items: center; gap: 5px; }
+.mn-c {
+    min-width: 26px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: .72rem; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: center; line-height: 1.5;
+}
+.mn-c-total    { background: #eceff1; color: #37474f; }
+.mn-c-active   { background: #fff3cd; color: #8a6d00; }
+.mn-c-resolved { background: #d7f0dd; color: #1b5e34; }
+.mn-divlegend .mn-c { min-width: 0; padding: 0 6px; }

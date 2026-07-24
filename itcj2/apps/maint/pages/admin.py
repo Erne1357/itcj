@@ -66,4 +66,19 @@ async def admin_dashboard(
 ) -> HTMLResponse:
     """Dashboard departamental. Sirve la misma página para `full` y `summary`;
     el JS detecta vía API qué nivel mostrar (full gana si user tiene ambos)."""
-    return render_maint(request, "maint/admin/dashboard.html", {"active_page": "admin_dashboard"})
+    from itcj2.dependencies import is_global_admin
+    from itcj2.apps.maint.services.department_dashboard_service import subtree_department_summary
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        division_tree = subtree_department_summary(
+            _db, int(user["sub"]), is_admin_global=is_global_admin(user),
+        )
+    finally:
+        _db.close()
+
+    return render_maint(request, "maint/admin/dashboard.html", {
+        "active_page": "admin_dashboard",
+        "division_tree": division_tree,
+    })

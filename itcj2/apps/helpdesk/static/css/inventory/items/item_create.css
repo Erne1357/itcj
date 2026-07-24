@@ -1,18 +1,17 @@
+/* Registrar Equipo (isla de cliente de-jQuery-zada). Estructura via tokens --hd-*;
+   color semántico via variables de Bootstrap (--bs-*). Sin hex de marca. */
+
 /* ── Modal de predecesor ─────────────────────────────────────── */
 .pred-item-card {
     cursor: pointer;
-    transition: background .12s;
+    transition: background var(--hd-transition);
 }
 .pred-item-card:hover {
-    background: #f0f4ff;
+    background: var(--hd-surface-2);
 }
 .pred-item-card.selected {
-    background: #e8f0fe;
-    border-left: 3px solid #4e73df !important;
-}
-#predecessor-detail-panel {
-    overflow-y: auto;
-    max-height: 420px;
+    background: var(--hd-surface-2);
+    border-left: 3px solid var(--bs-primary);
 }
 .pred-spec-grid {
     display: grid;
@@ -22,26 +21,57 @@
 .pred-spec-item small { font-size: .72rem; }
 .pred-spec-item span  { font-size: .85rem; }
 
+/* Cuerpo del modal de predecesor (reemplaza estilos inline). */
+.hd-pred-body { min-height: 420px; }
+.hd-pred-list { overflow-y: auto; flex: 1; max-height: 380px; }
+.hd-pred-panel,
+#predecessor-detail-panel { overflow-y: auto; max-height: 420px; }
+
+/* ── Combo de usuarios (reemplaza estilos inline + hover JS) ──── */
+.user-combo-dropdown {
+    z-index: 1050;
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--hd-border);
+    border-top: none;
+    border-radius: 0 0 var(--hd-r-sm) var(--hd-r-sm);
+    top: 100%;
+}
+.user-combo-item { cursor: pointer; }
+.user-combo-item:hover { background: var(--hd-surface-2); }
+.hd-combo-sub { font-size: .78rem; }
+
+/* Input de predecesor: clic abre el buscador. */
+.hd-clickable { background: var(--bs-white, #fff); cursor: pointer; }
+
+/* Barra de progreso del registro masivo (reemplaza style="height"). */
+.hd-progress-lg { height: 25px; }
+
+/* Captions de las tarjetas de preview (reemplaza font-size/opacity inline). */
+.hd-preview-cap { font-size: 0.9rem; opacity: 0.85; }
+.hd-preview-sub { font-size: 0.85rem; opacity: 0.75; }
+.hd-scroll-300 { max-height: 300px; overflow-y: auto; }
+
 /* ── Form sections ───────────────────────────────────────────── */
 .form-section {
-    background: #f8f9fc;
-    border-radius: 0.35rem;
+    background: var(--hd-surface-2);
+    border-radius: var(--hd-r-sm);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
 }
 .form-section-title {
     font-size: 1rem;
     font-weight: 600;
-    color: #5a5c69;
+    color: var(--hd-dark);
     margin-bottom: 1rem;
     padding-bottom: 0.5rem;
-    border-bottom: 2px solid #e3e6f0;
+    border-bottom: 2px solid var(--hd-border);
 }
 .inventory-preview {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: var(--bs-primary);
+    color: var(--bs-white, #fff);
     padding: 1.5rem;
-    border-radius: 0.5rem;
+    border-radius: var(--hd-r-md);
     text-align: center;
 }
 .inventory-preview .number {
@@ -52,7 +82,7 @@
 }
 .required-field::after {
     content: ' *';
-    color: #e74a3b;
+    color: var(--bs-danger);
 }
 .spec-field {
     margin-bottom: 1rem;
@@ -65,48 +95,36 @@
     margin: 1rem 0;
 }
 .mode-selector {
-    background: #f8f9fc;
-    border-radius: 0.5rem;
+    background: var(--hd-surface-2);
+    border-radius: var(--hd-r-md);
     padding: 1rem;
     margin-bottom: 2rem;
 }
 .mode-btn {
     padding: 0.75rem 1.5rem;
-    border: 2px solid #e3e6f0;
-    background: white;
+    border: 2px solid var(--hd-border);
+    background: var(--bs-white, #fff);
     cursor: pointer;
-    transition: all 0.3s;
+    transition: all var(--hd-transition);
 }
 .mode-btn.active {
-    border-color: #4e73df;
-    background: #4e73df;
-    color: white;
+    border-color: var(--bs-primary);
+    background: var(--bs-primary);
+    color: var(--bs-white, #fff);
 }
 .mode-btn:hover:not(.active) {
-    border-color: #4e73df;
-    background: #f8f9fc;
+    border-color: var(--bs-primary);
+    background: var(--hd-surface-2);
 }
 .bulk-item-preview {
-    background: #fff;
-    border: 1px solid #e3e6f0;
-    border-radius: 0.35rem;
+    background: var(--bs-white, #fff);
+    border: 1px solid var(--hd-border);
+    border-radius: var(--hd-r-sm);
     padding: 0.75rem;
     margin-bottom: 0.5rem;
 }
 .quantity-preview {
     font-size: 3rem;
     font-weight: bold;
-    color: #4e73df;
-}
-.bulk-item-preview {
-    background: #fff;
-    border: 1px solid #e3e6f0;
-    border-radius: 0.35rem;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-.quantity-preview {
-    font-size: 3rem;
-    font-weight: bold;
-    color: #4e73df;
+    color: var(--bs-primary);
 }

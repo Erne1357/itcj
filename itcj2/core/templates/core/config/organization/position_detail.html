@@ -1,7 +1,5 @@
 {% extends "core/config/config_base.html" %}
 
-{% set sidebar_active = 'departments' %}
-
 {% block title %}Detalle del Puesto{% endblock %}
 
 {% block breadcrumb %}
@@ -109,6 +107,18 @@
         </div>
     </div>
 
+    <!-- Departamento ancla y alcance (scope) -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0 fs-6"><i class="bi bi-diagram-3 me-2"></i>Departamento ancla y alcance de permisos</h5>
+            </div>
+            <div class="card-body" id="anchorPanel">
+                <div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Aplicaciones y Permisos -->
     <div class="col-12">
         <div class="card">
@@ -171,28 +181,6 @@
     </div>
 </div>
 
-<!-- Modal: Confirmacion -->
-<div class="modal fade" id="confirmModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header bg-warning bg-opacity-10">
-                <h5 class="modal-title">
-                    <i class="bi bi-exclamation-triangle text-warning me-2"></i>
-                    Confirmar Accion
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p id="confirmMessage" class="mb-0">Estas seguro de realizar esta accion?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-warning" id="confirmActionBtn">Confirmar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Modal: Gestionar Apps/Roles -->
 <div class="modal fade" id="manageAppsModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
@@ -216,7 +204,7 @@
                     </div>
 
                     <!-- Panel de Asignaciones -->
-                    <div class="col-12 col-md-8" id="appAssignmentPanel" style="display: none;">
+                    <div class="col-12 col-md-8 cfg-hidden" id="appAssignmentPanel">
                         <h6>Asignaciones para: <span id="selectedAppName"></span></h6>
 
                         <!-- Roles -->
@@ -278,16 +266,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-    const POSITION_ID = {{ position_id }};
-    const AVAILABLE_ROLES = [
-        {% for role in roles %}
-            { name: "{{ role.name }}" }{% if not loop.last %}, {% endif %}
-        {% endfor %}
-    ];
-</script>
-<script src="{{ url_for('static', filename='core/js/config/organization/position_detail.js') }}?v={{ sv('core', 'js/config/organization/position_detail.js') }}"></script>
 {% endblock %}

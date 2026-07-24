@@ -17,7 +17,7 @@
       <h4 class="mb-0 fw-bold"><i class="fas fa-brain me-2 text-primary"></i>Análisis de Datos</h4>
       <small class="text-muted">Outliers, clustering, distribuciones y tendencias</small>
     </div>
-    <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" class="btn btn-outline-success btn-sm">
+    <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.stats')) }} class="btn btn-outline-success btn-sm">
       <i class="fas fa-chart-pie me-1"></i>Ver Estadísticas
     </a>
   </div>
@@ -338,10 +338,4 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<!-- Chart.js para gráficas básicas -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<!-- ApexCharts para scatter, heatmap, sparklines -->
-<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/analysis.js') }}?v={{ sv('helpdesk', 'js/admin/analysis.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

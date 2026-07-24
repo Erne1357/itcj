@@ -1,4 +1,8 @@
-<!-- itcj/apps/helpdesk/templates/admin/documents.html -->
+<!-- itcj/apps/helpdesk/templates/admin/documents.html
+     Migrado a componentes server-side + HTMX + Alpine (docs/auditoria_ui_helpdesk.md §8):
+     la lista la rinde el server (badges = macros, corrige el getStatusBadge divergente);
+     filtros por HTMX (misma URL); la selección masiva + opciones de documento son estado
+     de cliente en Alpine (regla de zonas §4.2: el Map vive en el PADRE fuera del target). -->
 {% extends "helpdesk/base_helpdesk.html" %}
 
 {% block title %}Generación de Documentos{% endblock %}
@@ -17,10 +21,25 @@
     </div>
 </div>
 
-<div class="row">
+<!-- Alpine root: el estado de selección (Map id→status) + opciones de documento
+     viven aquí (PADRE), fuera de #hd-tickets-results (target HTMX) → sobreviven
+     a los swaps; reset() en cada filtro (evento docs-reset). -->
+<div class="row"
+     x-data="{
+        sel: new Map(),
+        docType: 'solicitud',
+        docFormat: 'pdf',
+        outputMode: 'zip',
+        toggle(id, status, on) { on ? this.sel.set(id, status) : this.sel.delete(id); },
+        toggleAll(on) { this.$root.querySelectorAll('.hd-doc-cb').forEach(cb => { cb.checked = on; on ? this.sel.set(+cb.value, cb.dataset.status) : this.sel.delete(+cb.value); }); },
+        reset() { this.sel.clear(); const sa = this.$root.querySelector('#selectAll'); if (sa) sa.checked = false; },
+        generate() { window.hdDocsGenerate([...this.sel].map(([id, status]) => ({ id, status })), this.docType, this.docFormat, this.sel.size > 1 ? this.outputMode : 'zip'); }
+     }"
+     x-effect="if (docFormat === 'docx' && outputMode === 'concatenated') outputMode = 'zip'"
+     @docs-reset.window="reset()">
     <!-- Panel izquierdo: Filtros y Opciones -->
     <div class="col-lg-4 mb-4">
-        <!-- Filtros -->
+        <!-- Filtros (form HTMX → recarga #hd-tickets-results sin JS) -->
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom">
                 <h6 class="mb-0">
@@ -28,54 +47,63 @@
                 </h6>
             </div>
             <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label small fw-bold">Rango de Fechas</label>
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <input type="date" class="form-control form-control-sm" id="filterDateFrom">
-                            <small class="text-muted">Desde</small>
-                        </div>
-                        <div class="col-6">
-                            <input type="date" class="form-control form-control-sm" id="filterDateTo">
-                            <small class="text-muted">Hasta</small>
+                <form id="hd-docs-filter-form"
+                      hx-get="/help-desk/admin/documents"
+                      hx-target="#hd-tickets-results"
+                      hx-swap="innerHTML"
+                      hx-trigger="submit, change, keyup changed delay:400ms from:#filterSearch"
+                      hx-push-url="true"
+                      hx-indicator="#hd-tickets-results"
+                      hx-on::after-request="window.dispatchEvent(new CustomEvent('docs-reset'))">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Rango de Fechas</label>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <input type="date" class="form-control form-control-sm" id="filterDateFrom" name="date_from" value="{{ f_date_from }}">
+                                <small class="text-muted">Desde</small>
+                            </div>
+                            <div class="col-6">
+                                <input type="date" class="form-control form-control-sm" id="filterDateTo" name="date_to" value="{{ f_date_to }}">
+                                <small class="text-muted">Hasta</small>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="mb-3">
-                    <label class="form-label small fw-bold">Estado</label>
-                    <select class="form-select form-select-sm" id="filterStatus">
-                        <option value="">Todos</option>
-                        <option value="PENDING">Pendiente</option>
-                        <option value="ASSIGNED">Asignado</option>
-                        <option value="IN_PROGRESS">En Progreso</option>
-                        <option value="RESOLVED_SUCCESS">Resuelto Exitosamente</option>
-                        <option value="RESOLVED_FAILED">Atendido pero no Resuelto</option>
-                        <option value="CLOSED">Cerrado</option>
-                    </select>
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Estado</label>
+                        <select class="form-select form-select-sm" id="filterStatus" name="status">
+                            <option value="">Todos</option>
+                            <option value="PENDING" {{ 'selected' if f_status == 'PENDING' }}>Pendiente</option>
+                            <option value="ASSIGNED" {{ 'selected' if f_status == 'ASSIGNED' }}>Asignado</option>
+                            <option value="IN_PROGRESS" {{ 'selected' if f_status == 'IN_PROGRESS' }}>En Progreso</option>
+                            <option value="RESOLVED_SUCCESS" {{ 'selected' if f_status == 'RESOLVED_SUCCESS' }}>Resuelto Exitosamente</option>
+                            <option value="RESOLVED_FAILED" {{ 'selected' if f_status == 'RESOLVED_FAILED' }}>Atendido pero no Resuelto</option>
+                            <option value="CLOSED" {{ 'selected' if f_status == 'CLOSED' }}>Cerrado</option>
+                        </select>
+                    </div>
 
-                <div class="mb-3">
-                    <label class="form-label small fw-bold">Área</label>
-                    <select class="form-select form-select-sm" id="filterArea" disabled>
-                        <option value="SOPORTE" selected>Soporte</option>
-                    </select>
-                    <small class="text-muted">Solo tickets de Soporte generan documentos oficiales</small>
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Área</label>
+                        <select class="form-select form-select-sm" disabled>
+                            <option value="SOPORTE" selected>Soporte</option>
+                        </select>
+                        <small class="text-muted">Solo tickets de Soporte generan documentos oficiales</small>
+                    </div>
 
-                <div class="mb-3">
-                    <label class="form-label small fw-bold">Buscar</label>
-                    <input type="text" class="form-control form-control-sm" id="filterSearch"
-                           placeholder="Número, título o descripción...">
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Buscar</label>
+                        <input type="text" class="form-control form-control-sm" id="filterSearch" name="search"
+                               value="{{ f_search }}" placeholder="Número, título o descripción...">
+                    </div>
 
-                <button class="btn btn-primary btn-sm w-100" onclick="loadTickets()">
-                    <i class="fas fa-search me-2"></i>Buscar Tickets
-                </button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="fas fa-search me-2"></i>Buscar Tickets
+                    </button>
+                </form>
             </div>
         </div>
 
-        <!-- Opciones de documento -->
+        <!-- Opciones de documento (estado Alpine) -->
         <div class="card border-0 shadow-sm mt-3">
             <div class="card-header bg-white border-bottom">
                 <h6 class="mb-0">
@@ -86,16 +114,14 @@
                 <div class="mb-3">
                     <label class="form-label small fw-bold">Tipo de Documento</label>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="docType" id="docTypeSolicitud"
-                               value="solicitud" checked>
+                        <input class="form-check-input" type="radio" name="docType" id="docTypeSolicitud" value="solicitud" x-model="docType">
                         <label class="form-check-label small" for="docTypeSolicitud">
                             <i class="fas fa-file-invoice me-1 text-primary"></i>
                             Solicitud de Mantenimiento
                         </label>
                     </div>
                     <div class="form-check mt-1">
-                        <input class="form-check-input" type="radio" name="docType" id="docTypeOrden"
-                               value="orden_trabajo">
+                        <input class="form-check-input" type="radio" name="docType" id="docTypeOrden" value="orden_trabajo" x-model="docType">
                         <label class="form-check-label small" for="docTypeOrden">
                             <i class="fas fa-clipboard-list me-1 text-success"></i>
                             Orden de Trabajo
@@ -103,8 +129,7 @@
                         <small class="text-muted d-block ms-4">Solo tickets resueltos/cerrados</small>
                     </div>
                     <div class="form-check mt-1">
-                        <input class="form-check-input" type="radio" name="docType" id="docTypeCombinado"
-                               value="combinado">
+                        <input class="form-check-input" type="radio" name="docType" id="docTypeCombinado" value="combinado" x-model="docType">
                         <label class="form-check-label small" for="docTypeCombinado">
                             <i class="fas fa-file-alt me-1 text-warning"></i>
                             Combinado (Solicitud + Orden)
@@ -116,32 +141,28 @@
                 <div class="mb-3">
                     <label class="form-label small fw-bold">Formato de Salida</label>
                     <div class="btn-group w-100" role="group">
-                        <input type="radio" class="btn-check" name="docFormat" id="formatPdf"
-                               value="pdf" checked>
+                        <input type="radio" class="btn-check" name="docFormat" id="formatPdf" value="pdf" x-model="docFormat">
                         <label class="btn btn-outline-danger btn-sm" for="formatPdf">
                             <i class="fas fa-file-pdf me-1"></i>PDF
                         </label>
-                        <input type="radio" class="btn-check" name="docFormat" id="formatDocx"
-                               value="docx">
+                        <input type="radio" class="btn-check" name="docFormat" id="formatDocx" value="docx" x-model="docFormat">
                         <label class="btn btn-outline-primary btn-sm" for="formatDocx">
                             <i class="fas fa-file-word me-1"></i>DOCX
                         </label>
                     </div>
                 </div>
 
-                <div class="mb-3" id="outputModeContainer" style="display: none;">
+                <div class="mb-3" id="outputModeContainer" x-show="sel.size > 1" x-cloak>
                     <label class="form-label small fw-bold">Modo de Salida (Múltiples)</label>
                     <div class="form-check">
-                        <input class="form-check-input" type="radio" name="outputMode"
-                               id="outputZip" value="zip" checked>
+                        <input class="form-check-input" type="radio" name="outputMode" id="outputZip" value="zip" x-model="outputMode">
                         <label class="form-check-label small" for="outputZip">
                             <i class="fas fa-file-archive me-1"></i>
                             ZIP (un archivo por ticket)
                         </label>
                     </div>
                     <div class="form-check mt-1">
-                        <input class="form-check-input" type="radio" name="outputMode"
-                               id="outputConcatenated" value="concatenated">
+                        <input class="form-check-input" type="radio" name="outputMode" id="outputConcatenated" value="concatenated" x-model="outputMode" :disabled="docFormat === 'docx'">
                         <label class="form-check-label small" for="outputConcatenated">
                             <i class="fas fa-file-pdf me-1"></i>
                             PDF único concatenado
@@ -150,36 +171,35 @@
                     </div>
                 </div>
 
-                <button class="btn btn-success btn-sm w-100" onclick="generateDocuments()" id="btnGenerate" disabled>
+                <button class="btn btn-success btn-sm w-100" id="btnGenerate" :disabled="sel.size === 0" @click="generate()">
                     <i class="fas fa-file-download me-2"></i>Generar Documentos
                 </button>
 
                 <div class="mt-2 text-center">
-                    <small class="text-muted" id="selectionCount">Selecciona tickets para generar</small>
+                    <small id="selectionCount"
+                           :class="sel.size === 0 ? 'text-muted' : 'text-primary fw-bold'"
+                           x-text="sel.size === 0 ? 'Selecciona tickets para generar' : (sel.size + (sel.size > 1 ? ' tickets seleccionados' : ' ticket seleccionado'))">Selecciona tickets para generar</small>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Panel derecho: Lista de tickets -->
+    <!-- Panel derecho: Lista de tickets (render server-side; macros + HTMX partial) -->
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
                 <h6 class="mb-0">
                     <i class="fas fa-list me-2"></i>Tickets
-                    <span class="badge bg-secondary ms-2" id="ticketsCount">0</span>
+                    <span class="badge bg-secondary ms-2" id="ticketsCount">{{ total }}</span>
                 </h6>
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="selectAll">
+                    <input class="form-check-input" type="checkbox" id="selectAll" @change="toggleAll($event.target.checked)">
                     <label class="form-check-label small" for="selectAll">Seleccionar todos</label>
                 </div>
             </div>
             <div class="card-body p-0">
-                <div id="ticketsList" style="max-height: 75vh; overflow-y: auto;">
-                    <div class="text-center py-5 text-muted">
-                        <i class="fas fa-search fa-3x mb-3 d-block"></i>
-                        <p>Usa los filtros para buscar tickets</p>
-                    </div>
+                <div id="hd-tickets-results" class="hd-results" style="max-height: 75vh; overflow-y: auto;">
+                    {% include "helpdesk/admin/_documents_results.html" %}
                 </div>
             </div>
         </div>
@@ -188,7 +208,4 @@
 
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/helpdesk-utils.js') }}?v={{ sv('helpdesk', 'js/helpdesk-utils.js') }}"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/admin/documents.js') }}?v={{ sv('helpdesk', 'js/admin/documents.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

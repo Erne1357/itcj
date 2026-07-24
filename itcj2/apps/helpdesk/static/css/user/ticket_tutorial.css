@@ -26,7 +26,7 @@
 
 /* ==================== HEADER ==================== */
 .shepherd-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    background: var(--hd-gradient-accent) !important;
     color: white !important;
     padding: 20px;
     border-radius: 12px 12px 0 0;
@@ -78,7 +78,7 @@
 }
 
 .shepherd-text strong {
-    color: #667eea;
+    color: var(--bs-primary, #0d6efd);
     font-weight: 600;
 }
 
@@ -136,7 +136,7 @@
 
 /* Botón primario */
 .shepherd-button.btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--hd-gradient-accent);
     color: white;
 }
 
@@ -203,7 +203,7 @@
 /* ==================== BOTÓN DE TUTORIAL EN HEADER ==================== */
 #tutorialButton {
     position: relative;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--hd-gradient-accent);
     color: white;
     border: none;
     padding: 10px 20px;
@@ -276,12 +276,12 @@
 
 /* ==================== MEJORAS DE ACCESIBILIDAD ==================== */
 .shepherd-button:focus {
-    outline: 2px solid #667eea;
+    outline: 2px solid var(--bs-primary, #0d6efd);
     outline-offset: 2px;
 }
 
 .shepherd-text a {
-    color: #667eea;
+    color: var(--bs-primary, #0d6efd);
     text-decoration: underline;
 }
 
@@ -316,7 +316,7 @@
 }
 
 .shepherd-text::-webkit-scrollbar-thumb {
-    background: #667eea;
+    background: var(--bs-primary, #0d6efd);
     border-radius: 10px;
 }
 

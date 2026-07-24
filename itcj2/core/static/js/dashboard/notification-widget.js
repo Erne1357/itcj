@@ -141,8 +141,7 @@ class DashboardNotificationWidget {
             return new Promise((resolve, reject) => {
                 if (window.io) return resolve();
                 const script = document.createElement('script');
-                script.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-                script.crossOrigin = 'anonymous';
+                script.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
                 script.onload = () => resolve();
                 script.onerror = reject;
                 document.head.appendChild(script);
@@ -361,7 +360,7 @@ class DashboardNotificationWidget {
     renderNotificationItem(notification) {
         const isUnread = !notification.is_read;
         const icon = notification.app_icon || 'bi-bell';
-        const color = notification.app_color || 'secondary';
+        const color = notification.app_color_hex || '#6c757d';
         const url = notification.action_url || '';
         const timeAgo = this.getTimeAgo(notification.created_at);
 
@@ -369,20 +368,32 @@ class DashboardNotificationWidget {
             <div class="notification-item ${isUnread ? 'unread' : 'read'}"
                  data-id="${notification.id}"
                  data-url="${url}">
-                <div class="notification-icon bg-${color}">
-                    <i class="${icon}"></i>
+                <div class="notification-icon" style="background-color: ${color}">
+                    <i class="bi ${icon}"></i>
                 </div>
                 <div class="notification-content">
-                    <div class="notification-title">${notification.title}</div>
-                    ${notification.body ? `<div class="notification-body">${notification.body}</div>` : ''}
+                    <div class="notification-title">${this.escapeHtml(notification.title)}</div>
+                    ${notification.body ? `<div class="notification-body">${this.escapeHtml(notification.body)}</div>` : ''}
                     <div class="notification-meta">
-                        <span class="app-tag badge bg-${color}">${notification.app_name}</span>
+                        <span class="app-tag badge" style="background-color: ${color}">${this.escapeHtml(notification.app_name)}</span>
                         <span class="time">${timeAgo}</span>
                     </div>
                 </div>
                 ${isUnread ? '<div class="unread-indicator"></div>' : ''}
             </div>
         `;
+    }
+
+    /**
+     * Escapa HTML para prevenir XSS al interpolar datos del servidor
+     */
+    escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     /**
@@ -541,10 +552,10 @@ class DashboardNotificationWidget {
         toast.className = 'notification-toast';
         toast.innerHTML = `
             <div class="d-flex align-items-center">
-                <i class="${notification.app_icon || 'bi-bell'} me-2"></i>
+                <i class="bi ${notification.app_icon || 'bi-bell'} me-2"></i>
                 <div>
-                    <div class="fw-bold">${notification.title}</div>
-                    ${notification.body ? `<div class="small">${notification.body}</div>` : ''}
+                    <div class="fw-bold">${this.escapeHtml(notification.title)}</div>
+                    ${notification.body ? `<div class="small">${this.escapeHtml(notification.body)}</div>` : ''}
                 </div>
             </div>
         `;

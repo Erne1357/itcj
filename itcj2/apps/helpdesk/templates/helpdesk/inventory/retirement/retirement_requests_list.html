@@ -1,4 +1,5 @@
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
 
 {% block title %}Solicitudes de Baja - Inventario Help-Desk ITCJ{% endblock %}
 
@@ -14,6 +15,7 @@
         <div>
             <h1 class="h4 h3-md mb-0 text-gray-800">
                 <i class="fas fa-file-alt fa-fw"></i> Solicitudes de Baja
+                <span class="badge bg-secondary ms-2" id="total-count">{{ total }}</span>
             </h1>
             <p class="text-muted mb-0 small d-none d-sm-block">
                 Gestión de solicitudes de retiro de equipos del inventario
@@ -21,113 +23,29 @@
         </div>
         {% if 'admin' in user_roles or 'tech_soporte' in user_roles or 'tech_desarrollo' in user_roles %}
         <a href="{{ url_for('helpdesk_pages.inventory_pages.retirement_request_create') }}"
-           class="btn btn-primary btn-sm">
+           class="btn btn-primary btn-sm" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.retirement_request_create')) }}>
             <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Nueva Solicitud</span>
         </a>
         {% endif %}
     </div>
 
-    <!-- Filtros -->
-    <div class="card shadow mb-3">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center">
-            <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
-                <i class="fas fa-filter"></i> Filtros
-            </h6>
-            <button class="btn btn-sm btn-link p-0" type="button" data-toggle="collapse" data-target="#filtersCollapse">
-                <i class="fas fa-chevron-down"></i>
-            </button>
-        </div>
-        <div class="collapse show" id="filtersCollapse">
-            <div class="card-body p-2 p-md-3">
-                <div class="row g-2">
-                    <div class="col-12 col-md-4 mb-2">
-                        <label class="form-label small mb-1"><i class="fas fa-search"></i> Buscar folio / motivo</label>
-                        <input type="text" class="form-control form-control-sm" id="search-input"
-                               placeholder="BAJA-2026-001 o motivo...">
-                    </div>
-                    <div class="col-6 col-md-3 mb-2">
-                        <label class="form-label small mb-1"><i class="fas fa-tag"></i> Estado</label>
-                        <select class="form-control form-control-sm" id="status-filter">
-                            <option value="">Todos</option>
-                            <option value="DRAFT">Borrador</option>
-                            <option value="PENDING">Pendiente de envío</option>
-                            <option value="AWAITING_RECURSOS_MATERIALES">Firma — Rec. Materiales</option>
-                            <option value="AWAITING_SUBDIRECTOR">Firma — Subdirector</option>
-                            <option value="AWAITING_DIRECTOR">Firma — Director</option>
-                            <option value="AWAITING_COMP_CENTER">Autorización — Jefe CC</option>
-                            <option value="APPROVED">Aprobada</option>
-                            <option value="REJECTED">Rechazada</option>
-                            <option value="CANCELLED">Cancelada</option>
-                        </select>
-                    </div>
-                    {% if can_view_all %}
-                    <div class="col-6 col-md-3 mb-2">
-                        <label class="form-label small mb-1"><i class="fas fa-eye"></i> Visibilidad</label>
-                        <select class="form-control form-control-sm" id="scope-filter">
-                            <option value="all">Todas</option>
-                            <option value="mine">Mis solicitudes</option>
-                        </select>
-                    </div>
-                    {% endif %}
-                    <div class="col-12 col-md-2 mb-2 d-flex align-items-end">
-                        <button class="btn btn-sm btn-outline-secondary w-100" id="btn-clear-filters">
-                            <i class="fas fa-times"></i> Limpiar
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Filtros: macro filter_bar (form HTMX → recarga #hd-retirement-results sin JS) -->
+    {{ filter_bar(
+        '/help-desk/inventory/retirement-requests',
+        filter_fields,
+        target='#hd-retirement-results',
+        search_value=f_search,
+        search_placeholder='Buscar folio o motivo...'
+    ) }}
 
-    <!-- Tabla -->
-    <div class="card shadow mb-4">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center">
-            <h6 class="m-0 font-weight-bold text-primary" style="font-size:.85rem;">
-                <i class="fas fa-list"></i> Solicitudes
-                <span class="badge bg-secondary text-white ml-2" id="total-count">0</span>
-            </h6>
-        </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover table-sm mb-0" id="requests-table">
-                    <thead class="thead-light">
-                        <tr>
-                            <th class="pl-3">Folio</th>
-                            <th>Estado</th>
-                            <th class="d-none d-md-table-cell">Motivo</th>
-                            <th class="d-none d-sm-table-cell">Equipos</th>
-                            <th class="d-none d-md-table-cell">Solicitante</th>
-                            <th class="d-none d-lg-table-cell">Fecha</th>
-                            <th class="text-center">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="requests-tbody">
-                        <tr id="loading-row">
-                            <td colspan="7" class="text-center py-4">
-                                <i class="fas fa-spinner fa-spin text-primary"></i> Cargando...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- Paginación -->
-    <div class="d-flex justify-content-between align-items-center mb-4" id="pagination-container" style="display:none!important;">
-        <small class="text-muted" id="pagination-info"></small>
-        <nav>
-            <ul class="pagination pagination-sm mb-0" id="pagination-list"></ul>
-        </nav>
+    <!-- Tabla de solicitudes (render server-side; macros + HTMX partial) -->
+    <div id="hd-retirement-results" class="hd-results">
+        {% include "helpdesk/inventory/retirement/_retirement_requests_list_results.html" %}
     </div>
 
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const CAN_VIEW_ALL = {{ 'true' if can_view_all else 'false' }};
-    const CAN_APPROVE  = {{ 'true' if can_approve else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/retirement/retirement_requests_list.js') }}?v={{ sv('helpdesk', 'js/inventory/retirement/retirement_requests_list.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-can-view-all="{{ 'true' if can_view_all else 'false' }}" data-can-approve="{{ 'true' if can_approve else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

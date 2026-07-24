@@ -87,19 +87,19 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link active px-2 px-md-3" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button">
                 <i class="fas fa-inbox me-1 me-md-2"></i><span class="d-none d-sm-inline">En Espera</span><span class="d-sm-none">Espera</span>
-                <span class="badge bg-warning ms-1 ms-md-2" id="queueBadge">0</span>
+                <span class="badge bg-warning ms-1 ms-md-2" id="queueBadge">{{ t_assigned|length }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link px-2 px-md-3" id="working-tab" data-bs-toggle="tab" data-bs-target="#working" type="button">
                 <i class="fas fa-cog me-1 me-md-2"></i><span class="d-none d-sm-inline">Trabajando</span><span class="d-sm-none">Trabajo</span>
-                <span class="badge bg-info ms-1 ms-md-2" id="workingBadge">0</span>
+                <span class="badge bg-info ms-1 ms-md-2" id="workingBadge">{{ t_inprogress|length }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link px-2 px-md-3" id="team-tab" data-bs-toggle="tab" data-bs-target="#team" type="button">
                 <i class="fas fa-users me-1 me-md-2"></i><span class="d-none d-sm-inline">Del Equipo</span><span class="d-sm-none">Equipo</span>
-                <span class="badge bg-secondary ms-1 ms-md-2" id="teamBadge">0</span>
+                <span class="badge bg-secondary ms-1 ms-md-2" id="teamBadge">{{ t_team|length }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -127,11 +127,8 @@
                 </h5>
             </div>
             <div class="card-body p-0">
-                <div id="queueList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets...</p>
-                    </div>
+                <div id="hd-tab-queue" class="hd-results">
+                    {% with tickets=t_assigned, tab='assigned' %}{% include "helpdesk/technician/_dashboard_list.html" %}{% endwith %}
                 </div>
             </div>
         </div>
@@ -146,11 +143,8 @@
                 </h5>
             </div>
             <div class="card-body p-0">
-                <div id="workingList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-info" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets...</p>
-                    </div>
+                <div id="hd-tab-working" class="hd-results">
+                    {% with tickets=t_inprogress, tab='inProgress' %}{% include "helpdesk/technician/_dashboard_list.html" %}{% endwith %}
                 </div>
             </div>
         </div>
@@ -171,11 +165,8 @@
                 </h5>
             </div>
             <div class="card-body p-0">
-                <div id="teamList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-secondary" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets del equipo...</p>
-                    </div>
+                <div id="hd-tab-team" class="hd-results">
+                    {% with tickets=t_team, tab='team' %}{% include "helpdesk/technician/_dashboard_list.html" %}{% endwith %}
                 </div>
             </div>
         </div>
@@ -185,7 +176,10 @@
     <div class="tab-pane fade" id="history" role="tabpanel">
         <div class="row mb-3">
             <div class="col-md-6">
-                <select class="form-select" id="historyFilter">
+                <select class="form-select" id="historyFilter" name="hist"
+                        hx-get="/help-desk/technician/dashboard?tab=resolved"
+                        hx-target="#hd-tab-history" hx-swap="innerHTML"
+                        hx-include="#historySearch" hx-trigger="change" hx-indicator="#hd-tab-history">
                     <option value="today">Hoy</option>
                     <option value="week" selected>Esta Semana</option>
                     <option value="month">Este Mes</option>
@@ -193,7 +187,10 @@
                 </select>
             </div>
             <div class="col-md-6">
-                <input type="text" class="form-control" id="historySearch" placeholder="Buscar en historial...">
+                <input type="text" class="form-control" id="historySearch" name="search" placeholder="Buscar en historial..."
+                       hx-get="/help-desk/technician/dashboard?tab=resolved"
+                       hx-target="#hd-tab-history" hx-swap="innerHTML"
+                       hx-include="#historyFilter" hx-trigger="keyup changed delay:400ms" hx-indicator="#hd-tab-history">
             </div>
         </div>
 
@@ -204,11 +201,8 @@
                 </h5>
             </div>
             <div class="card-body p-0">
-                <div id="historyList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-success" role="status"></div>
-                        <p class="text-muted mt-3">Cargando historial...</p>
-                    </div>
+                <div id="hd-tab-history" class="hd-results">
+                    {% with tickets=t_resolved, tab='resolved' %}{% include "helpdesk/technician/_dashboard_list.html" %}{% endwith %}
                 </div>
             </div>
         </div>
@@ -573,9 +567,4 @@
     href="{{ url_for('static', filename='helpdesk/css/technician/dashboard.css') }}?v={{ sv('helpdesk', 'css/technician/dashboard.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-{% if can_consume_warehouse %}
-<script src="{{ url_for('static', filename='helpdesk/js/technician/warehouse_ticket.js') }}?v={{ sv('helpdesk', 'js/technician/warehouse_ticket.js') }}"></script>
-{% endif %}
-<script src="{{ url_for('static', filename='helpdesk/js/technician/dashboard.js') }}?v={{ sv('helpdesk', 'js/technician/dashboard.js') }}"></script>
-{% endblock %}
+{% block extra_js %}{% endblock %}

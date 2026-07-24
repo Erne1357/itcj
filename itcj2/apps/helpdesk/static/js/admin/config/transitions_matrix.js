@@ -73,7 +73,15 @@
         transitionsMap.delete(matrixKey(fromId, toId));
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized     = false;
+        matrixStatuses  = [];
+        transitionsMap  = new Map();
+        pendingChanges  = false;
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#estados') {
             if (!initialized) {
@@ -83,16 +91,8 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '';
-        if (hash === '#estados') {
-            if (!initialized) {
-                initialized = true;
-                initMatrixSection();
-            }
-        }
-        bindTransitionModal();
-    });
+    // Bind modal una sola vez al evaluar el IIFE (guard dataset.transListenerBound)
+    bindTransitionModal();
 
     function initMatrixSection() {
         renderShell();

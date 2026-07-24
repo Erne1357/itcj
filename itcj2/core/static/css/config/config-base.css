@@ -157,15 +157,7 @@
 .config-sidebar-user .user-avatar {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
     margin-right: 0.75rem;
-    color: white;
-    font-size: 0.875rem;
 }
 
 .config-sidebar-user-info {
@@ -366,11 +358,6 @@
     font-weight: 600;
 }
 
-/* App colors */
-.bg-agendatec { background-color: #0d6efd !important; }
-.bg-helpdesk { background-color: #198754 !important; }
-.bg-itcj { background-color: #e61d1d !important; }
-
 /* ==================== FORMULARIOS ==================== */
 .form-control:focus,
 .form-select:focus {
@@ -548,15 +535,39 @@
     border-bottom-color: var(--config-primary);
 }
 
+/* Boton de toggle para movil */
+.config-mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 1001;
+    background: var(--config-primary);
+    color: white;
+    border: none;
+    border-radius: var(--config-radius);
+    padding: 0.5rem 0.75rem;
+    box-shadow: var(--config-shadow);
+    font-size: 1.25rem;
+}
+
+.config-mobile-toggle:hover,
+.config-mobile-toggle:focus {
+    background: var(--config-primary-hover);
+    outline: none;
+}
+
 /* ==================== RESPONSIVE ==================== */
 
-/* Tablet: 992px - Sidebar colapsado con hover */
+/* Tablet: ≤992px — rail colapsado + toggle explícito.
+   NO hover-expand: hover no existe en touch; el botón .config-mobile-toggle
+   abre/cierra con la clase .open (mismo mecanismo que móvil). */
 @media (max-width: 992px) {
     .config-sidebar {
         width: var(--config-sidebar-collapsed-width);
     }
 
-    .config-sidebar:hover {
+    .config-sidebar.open {
         width: var(--config-sidebar-width);
     }
 
@@ -567,15 +578,30 @@
         display: none;
     }
 
-    .config-sidebar:hover .config-sidebar-brand h5,
-    .config-sidebar:hover .config-nav-link span,
-    .config-sidebar:hover .config-nav-section-title,
-    .config-sidebar:hover .config-sidebar-user-info {
+    .config-sidebar.open .config-sidebar-brand h5,
+    .config-sidebar.open .config-nav-link span,
+    .config-sidebar.open .config-nav-section-title,
+    .config-sidebar.open .config-sidebar-user-info {
         display: block;
     }
 
     .config-main {
         margin-left: var(--config-sidebar-collapsed-width);
+    }
+
+    /* Toggle visible desde tablet, a la derecha del rail.
+       'left' fuerza !important para ganarle al bloque ≤768px en ese rango.
+       'display' ya no necesita !important: la regla base .config-mobile-toggle
+       (display:none) ahora vive antes de esta sección "RESPONSIVE", así que
+       el orden de cascada basta (mismo ajuste aplicado al bloque ≤768px). */
+    .config-mobile-toggle {
+        display: block;
+        left: calc(var(--config-sidebar-collapsed-width) + 0.75rem) !important;
+    }
+
+    /* El contenido no queda debajo del toggle fijo */
+    .config-content {
+        padding-top: 3.5rem;
     }
 
     /* Ajustes de tablas para tablet */
@@ -599,13 +625,15 @@
         backface-visibility: hidden;
         -webkit-backface-visibility: hidden;
         -webkit-transform: translateX(-100%);
-        visibility: hidden;
+        /* Off-canvas SOLO por transform (sin visibility:hidden): el shell HTMX
+           mantiene el sidebar renderizado en todo breakpoint para que el harness
+           e2e (gotoCore → [data-cfg-page], .config-sidebar) no lo vea "hidden" a
+           375px. El overlay + el foco delegado gestionan el cierre en móvil. */
     }
 
     .config-sidebar.open {
         transform: translateX(0);
         -webkit-transform: translateX(0);
-        visibility: visible;
     }
     
     /* IMPORTANTE: Restaurar visibilidad de textos en móvil */
@@ -672,9 +700,10 @@
         display: none;
     }
 
-    /* Mostrar boton de menu */
+    /* Mostrar boton de menu pegado al borde (sidebar off-canvas) */
     .config-mobile-toggle {
-        display: block !important;
+        display: block;
+        left: 0.75rem;
     }
 
     /* Tablas responsivas */
@@ -953,28 +982,6 @@
     }
 }
 
-/* Boton de toggle para movil */
-.config-mobile-toggle {
-    display: none;
-    position: fixed;
-    top: 0.75rem;
-    left: 0.75rem;
-    z-index: 1001;
-    background: var(--config-primary);
-    color: white;
-    border: none;
-    border-radius: var(--config-radius);
-    padding: 0.5rem 0.75rem;
-    box-shadow: var(--config-shadow);
-    font-size: 1.25rem;
-}
-
-.config-mobile-toggle:hover,
-.config-mobile-toggle:focus {
-    background: var(--config-primary-hover);
-    outline: none;
-}
-
 /* Overlay para movil */
 .config-overlay {
     position: fixed;
@@ -1064,10 +1071,64 @@
     border-radius: 3px;
 }
 
+/* ==================== BADGES COMPARTIDOS (C8) ==================== */
+/* Scope de permisos: sufijo del código de permiso -> modificador.
+   Uso: <span class="scope-badge scope-subtree">subtree</span> */
+.scope-badge {
+    display: inline-block;
+    padding: 0.2em 0.55em;
+    font-size: 0.72em;
+    font-weight: 600;
+    line-height: 1.2;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #fff;
+    background: var(--config-secondary);
+    vertical-align: middle;
+}
+
+.scope-badge.scope-subtree { background: var(--config-purple); }
+.scope-badge.scope-own     { background: var(--config-info); color: var(--config-dark); }
+.scope-badge.scope-all     { background: var(--config-danger); }
+.scope-badge.scope-dept    { background: var(--config-success); }
+
+/* Badge de app DB-driven (D7). El color viaja por CSS var por-instancia:
+   <span class="app-badge" style="--app-badge-color: #198754">helpdesk</span>
+   Fallback si la app no tiene color en BD: #6c757d (spec §2 D7). */
+.app-badge {
+    display: inline-block;
+    padding: 0.25em 0.6em;
+    font-size: 0.75em;
+    font-weight: 600;
+    line-height: 1.2;
+    border-radius: 0.375rem;
+    color: #fff;
+    background: var(--app-badge-color, #6c757d);
+}
+
 /* ==================== UTILIDADES ==================== */
 .cursor-pointer {
     cursor: pointer;
 }
+
+/* Iconos de empty-state (antes font-size inline) */
+.cfg-icon-xl  { font-size: 2rem; }
+.cfg-icon-xxl { font-size: 2.5rem; }
+
+/* ==================== UTILIDADES cfg-* (extraídas de style inline, F2) ==== */
+.cfg-minw-200 { min-width: 200px; }
+.cfg-maxw-150 { max-width: 150px; }
+.cfg-maxw-250 { max-width: 250px; }
+.cfg-w-auto   { width: auto; }
+.cfg-scroll-300 { max-height: 300px; overflow-y: auto; }
+/* footer de runs de tasks: flex SIN !important (d-flex de Bootstrap ganaría
+   a .cfg-hidden; por eso el template cambia d-flex -> cfg-runs-footer) */
+.cfg-runs-footer { display: flex; }
+/* Oculto por defecto SIN !important: el JS de página muestra con
+   style.display='block|inline-block' (inline gana a la clase) o con
+   classList.remove('cfg-hidden'). DEBE declararse después de cfg-runs-footer. */
+.cfg-hidden { display: none; }
 
 .text-truncate-2 {
     display: -webkit-box;

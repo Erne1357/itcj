@@ -85,6 +85,7 @@ def my_departments(
 @router.get("/summary")
 def dashboard_summary(
     dept: int | None = Query(None, description="ID de departamento; vacío = todos los del user"),
+    scope: str = Query("all", description="Ámbito: own | all | below (sub-árbol, requiere perm .read.subtree)"),
     user: dict = require_perms("maint", [
         "maint.dashboard.api.summary",
         "maint.dashboard.api.full",
@@ -115,6 +116,7 @@ def dashboard_summary(
             user_id=user_id,
             is_admin_global=has_full_scope,
             dept_filter=dept,
+            scope=(scope if scope in ("own", "all", "below") else "all"),
         )
         return {
             "success": True,
@@ -135,6 +137,7 @@ def dashboard_summary(
 @router.get("/full")
 def dashboard_full(
     dept: int | None = Query(None, description="ID de departamento; vacío = todos los del user"),
+    scope: str = Query("all", description="Ámbito: own | all | below (sub-árbol, requiere perm .read.subtree)"),
     user: dict = require_perms("maint", ["maint.dashboard.api.full"]),
     db: DbSession = None,
 ):
@@ -162,6 +165,7 @@ def dashboard_full(
             user_id=user_id,
             is_admin_global=has_full_scope,
             dept_filter=dept,
+            scope=(scope if scope in ("own", "all", "below") else "all"),
         )
         # Solo admin en maint ve "Por técnico" (info gerencial reservada).
         # dh con scope dept o admin con puesto → NO ve by_technician aunque sea full.

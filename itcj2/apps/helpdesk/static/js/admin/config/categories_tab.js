@@ -56,20 +56,25 @@
         }
     }
 
-    // === INIT ===
-    document.addEventListener('config:tab-shown', function (e) {
-        if (e.detail && e.detail.tab === '#categorias') {
-            if (!initialized) {
-                initialized = true;
-                initCategoriesTab();
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized = false;
+        // Destruir instancias Sortable
+        Object.keys(sortableInstances).forEach(function (area) {
+            if (sortableInstances[area]) {
+                try { sortableInstances[area].destroy(); } catch (_) {}
             }
-        }
+        });
+        sortableInstances = {};
+        // Resetear datos locales
+        statsMap       = {};
+        categoriesData = { DESARROLLO: [], SOPORTE: [] };
+        showInactive   = false;
     });
 
-    // También carga si el tab ya está activo al cargar la página
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '#categorias';
-        if (hash === '#categorias') {
+    // === INIT (lazy por config:tab-shown) ===
+    document.addEventListener('config:tab-shown', function (e) {
+        if (e.detail && e.detail.tab === '#categorias') {
             if (!initialized) {
                 initialized = true;
                 initCategoriesTab();
@@ -479,11 +484,10 @@
         bsModal.show();
     }
 
-    // === BIND MODALES (se ejecuta cuando el DOM está listo) ===
-    document.addEventListener('DOMContentLoaded', function () {
-        bindCreateModal();
-        bindEditModal();
-    });
+    // === BIND MODALES (se ejecuta una sola vez al evaluar el IIFE) ===
+    // Los guards dataset.listenerBound en los modales hacen que sea morph-safe.
+    bindCreateModal();
+    bindEditModal();
 
     function bindCreateModal() {
         const modal = document.getElementById('modal-cat-create');

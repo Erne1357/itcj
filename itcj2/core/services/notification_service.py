@@ -123,6 +123,7 @@ class NotificationService:
 
         notification.is_read = True
         notification.read_at = datetime.now()
+        db.commit()  # commit-in-service (antes dependía de que el endpoint commiteara)
 
         return True
 
@@ -151,6 +152,7 @@ class NotificationService:
             },
             synchronize_session=False
         )
+        db.commit()  # commit-in-service
 
         return count
 
@@ -239,8 +241,13 @@ class NotificationService:
         has_more = len(items) > limit
         items = items[:limit]
 
+        # Estilos de apps UNA sola vez para toda la página (evita 1 GET Redis por
+        # notificación en la serialización — antes N+1 en el hot path de lista).
+        from itcj2.core.services.app_style_cache import cached_app_styles
+        styles = cached_app_styles(db)
+
         return {
-            'items': [n.to_dict() for n in items],
+            'items': [n.to_dict(styles=styles) for n in items],
             'total': total_count,
             'unread': unread_count,
             'has_more': has_more
@@ -265,4 +272,5 @@ class NotificationService:
             return False
 
         db.delete(notification)
+        db.commit()  # commit-in-service
         return True

@@ -1,0 +1,63 @@
+{#
+  Fragmento de resultados del historial de movimientos del almacén. Devuelto por
+  GET /help-desk/warehouse/movements cuando llega HX-Request (no boost) — filtros
+  y paginación. Reemplaza el innerHTML de #hd-movements-results. NO extiende base.
+
+  Contexto esperado: movements (list de dicts), total, current_page, total_pages,
+  oob (bool). El color es siempre clase de Bootstrap.
+#}
+{% from "helpdesk/_components/pagination.html" import pagination %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
+
+{% set TYPE_INFO = {
+  'ENTRY':        {'label': 'Entrada', 'color': 'success'},
+  'CONSUMED':     {'label': 'Consumo', 'color': 'primary'},
+  'ADJUSTED_IN':  {'label': 'Ajuste +', 'color': 'info'},
+  'ADJUSTED_OUT': {'label': 'Ajuste -', 'color': 'warning'},
+  'RETURNED':     {'label': 'Devolución', 'color': 'secondary'},
+  'VOIDED':       {'label': 'Anulado', 'color': 'dark'}
+} %}
+
+{% if oob %}
+<span id="hd-movements-count" class="badge bg-secondary" hx-swap-oob="true">{{ total }} movimiento{{ '' if total == 1 else 's' }}</span>
+{% endif %}
+
+{% if movements %}
+<div class="table-responsive">
+  <table class="table table-hover table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Fecha</th><th>Producto</th><th>Tipo</th>
+        <th class="text-end">Cantidad</th><th>Origen</th><th>Notas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in movements %}
+        {% set ti = TYPE_INFO.get(m.movement_type) or {'label': m.movement_type, 'color': 'secondary'} %}
+      <tr>
+        <td><small>{{ m.performed_at | hd_datetime }}</small></td>
+        <td>
+          {% if m.product_code %}<span class="badge bg-light text-dark">{{ m.product_code }}</span>{% endif %}
+          <small>{{ m.product_name or m.product_id }}</small>
+        </td>
+        <td><span class="badge bg-{{ ti.color }}{{ ' text-dark' if ti.color in ('warning', 'light', 'info') }}">{{ ti.label }}</span></td>
+        <td class="text-end">{{ m.quantity }}</td>
+        <td>
+          {% if m.source_ticket_id %}<small class="text-muted">{{ m.source_app }} #{{ m.source_ticket_id }}</small>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-muted small">{{ m.notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if total_pages > 1 %}
+  <div class="d-flex justify-content-center py-3">
+    {{ pagination(current_page, total_pages, '/help-desk/warehouse/movements', target='#hd-movements-results', include='#hd-filter-form') }}
+  </div>
+{% endif %}
+{% else %}
+  {{ empty_state('fa-exchange-alt', 'Sin movimientos', 'No hay movimientos que coincidan con los filtros aplicados.') }}
+{% endif %}

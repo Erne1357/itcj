@@ -27,7 +27,7 @@ from itcj2.exceptions import PageForbidden
 # usan otro role).
 # Grep: TEMP_TEST_GATE  → borrar este bloque + sus llamadas.
 # ============================================================
-TEMP_TEST_GATE_CONTROL_NUMBER = "22111360"
+TEMP_TEST_GATE_CONTROL_NUMBER = ("22111360", "94110667", "21111182")
 
 
 def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = False) -> None:
@@ -45,7 +45,7 @@ def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = Fal
     if "student" not in roles:
         return  # no es estudiante — pasa
     u = db.query(User).get(uid)
-    if u and u.control_number == TEMP_TEST_GATE_CONTROL_NUMBER:
+    if u and u.control_number in TEMP_TEST_GATE_CONTROL_NUMBER:
         return
     if is_page:
         raise PageForbidden(has_app_access=False)
@@ -67,7 +67,7 @@ def TEMP_TEST_GATE_check_student_sync(user: dict) -> bool:
         if "student" not in roles:
             return True
         u = db.query(User).get(uid)
-        return bool(u and u.control_number == TEMP_TEST_GATE_CONTROL_NUMBER)
+        return bool(u and u.control_number in TEMP_TEST_GATE_CONTROL_NUMBER)
 # ============================================================
 
 

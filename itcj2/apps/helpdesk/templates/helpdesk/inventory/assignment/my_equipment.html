@@ -28,7 +28,7 @@
     </div>
 
     <!-- Empty State -->
-    <div id="empty-state" class="card shadow" style="display: none;">
+    <div id="empty-state" class="card shadow d-none">
         <div class="card-body empty-state">
             <div class="empty-state-icon">
                 <i class="fas fa-laptop-slash"></i>
@@ -38,20 +38,20 @@
                 Actualmente no hay ningún equipo de cómputo registrado a tu nombre.<br>
                 Si crees que esto es un error, contacta al departamento de Sistemas.
             </p>
-            <a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" class="btn btn-primary">
+            <a href="{{ url_for('helpdesk_pages.user_pages.create_ticket') }}" {{ hd_boost(url_for('helpdesk_pages.user_pages.create_ticket')) }} class="btn btn-primary">
                 <i class="fas fa-ticket-alt"></i> Crear Ticket de Soporte
             </a>
         </div>
     </div>
 
     <!-- Equipment Cards -->
-    <div id="equipment-container" class="row" style="display: none;">
+    <div id="equipment-container" class="row d-none">
         <!-- Se llenará dinámicamente con JavaScript -->
     </div>
 </div>
 
 <!-- Modal: Equipment Detail -->
-<div class="modal fade equipment-detail-modal" id="equipmentDetailModal" tabindex="-1" role="dialog" aria-labelledby="modal-title" aria-hidden="true" data-backdrop="true" data-keyboard="true">
+<div class="modal fade equipment-detail-modal" id="equipmentDetailModal" tabindex="-1" role="dialog" aria-labelledby="modal-title" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
         <div class="modal-content">
             <div class="modal-header">
@@ -59,9 +59,7 @@
                     <i class="fas fa-info-circle"></i>
                     <span id="modal-title">Detalle del Equipo</span>
                 </h5>
-                <button type="button" class="close" id="closeModalHeaderBtn" aria-label="Cerrar">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+                <button type="button" class="btn-close" id="closeModalHeaderBtn" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
                 <!-- Loading -->
@@ -71,28 +69,28 @@
                 </div>
 
                 <!-- Content -->
-                <div id="modal-content" style="display: none;">
+                <div id="modal-content" class="d-none">
                     <!-- Tabs -->
                     <ul class="nav nav-tabs mb-3" id="equipmentTabs" role="tablist">
                         <li class="nav-item">
-                            <a class="nav-link active" id="info-tab" data-toggle="tab" href="#info-content" role="tab" aria-controls="info-content" aria-selected="true">
+                            <a class="nav-link active" id="info-tab" data-bs-toggle="tab" href="#info-content" role="tab" aria-controls="info-content" aria-selected="true">
                                 <i class="fas fa-info-circle"></i> Información
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="specs-tab" data-toggle="tab" href="#specs-content" role="tab" aria-controls="specs-content" aria-selected="false">
+                            <a class="nav-link" id="specs-tab" data-bs-toggle="tab" href="#specs-content" role="tab" aria-controls="specs-content" aria-selected="false">
                                 <i class="fas fa-microchip"></i> Especificaciones
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="history-tab" data-toggle="tab" href="#history-content" role="tab" aria-controls="history-content" aria-selected="false">
+                            <a class="nav-link" id="history-tab" data-bs-toggle="tab" href="#history-content" role="tab" aria-controls="history-content" aria-selected="false">
                                 <i class="fas fa-history"></i> Historial
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="tickets-tab" data-toggle="tab" href="#tickets-content" role="tab" aria-controls="tickets-content" aria-selected="false">
+                            <a class="nav-link" id="tickets-tab" data-bs-toggle="tab" href="#tickets-content" role="tab" aria-controls="tickets-content" aria-selected="false">
                                 <i class="fas fa-ticket-alt"></i> Tickets
-                                <span class="badge bg-info text-dark ml-1" id="tickets-count">0</span>
+                                <span class="badge bg-info text-dark ms-1" id="tickets-count">0</span>
                             </a>
                         </li>
                     </ul>
@@ -130,14 +128,13 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" id="closeModalBtn">Cerrar</button>
+                <button type="button" class="btn btn-secondary" id="closeModalBtn" data-bs-dismiss="modal">Cerrar</button>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/assignment/my_equipment.js') }}?v={{ sv('helpdesk', 'js/inventory/assignment/my_equipment.js') }}"></script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/assignment/my_equipment_modal.js') }}?v={{ sv('helpdesk', 'js/inventory/assignment/my_equipment_modal.js') }}"></script>
-{% endblock %}
+{% block hd_data %}{% endblock %}
+
+{% block extra_js %}{% endblock %}

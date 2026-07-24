@@ -1,22 +1,19 @@
 {# Macro para renderizar una tarjeta de aplicacion mobile #}
 {% macro render_app_card(app) %}
+{# Íconos raster personalizados por app-key (espejo del dashboard desktop). Si
+   la app tiene imagen, se muestra en tile blanco; el resto usa icono bootstrap. #}
+{% set icon_img = {
+     'agendatec': 'agendatec/icon/agendatec.ico',
+     'helpdesk':  'helpdesk/images/help-desk.png',
+   }.get(app.key) %}
 <a href="{{ app.mobile_url or '#' }}"
     class="mobile-app-card"
     data-app-key="{{ app.key }}">
-    <div class="mobile-app-card-icon"
-        style="background: {% if app.key == 'agendatec' %}#f0fdf4{% elif app.key == 'helpdesk' %}#eff6ff{% elif app.key == 'vistetec' %}#fdf2f8{% else %}#f3f4f6{% endif %};">
-        {% if app.key == 'agendatec' %}
-        <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec">
-        {% elif app.key == 'helpdesk' %}
-        <img src="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}" alt="Help Desk">
-        {% elif app.key == 'vistetec' %}
-        <i class="bi bi-bag-heart-fill" style="font-size: 2rem; color: #ec4899;"></i>
-        {% elif app.mobile_icon and app.mobile_icon.startswith('bi-') %}
-        <i class="bi {{ app.mobile_icon }}" style="font-size: 2rem; color: var(--mobile-primary);"></i>
-        {% elif app.mobile_icon %}
-        <img src="{{ url_for('static', filename=app.mobile_icon) }}" alt="{{ app.name }}">
+    <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+        {% if icon_img %}
+        <img src="{{ url_for('static', filename=icon_img) }}" alt="{{ app.name }}" class="mobile-app-card-img">
         {% else %}
-        <i class="bi bi-app" style="color: var(--mobile-primary);"></i>
+        <i class="bi {{ app.icon_class or 'bi-app' }}"></i>
         {% endif %}
     </div>
     <span class="mobile-app-card-name">{{ app.name }}</span>

@@ -1,509 +1,215 @@
 /**
- * Equipos Pendientes de Asignación
- * Gestión de equipos en "limbo" del Centro de Cómputo
+ * Equipos Pendientes de Asignación — migrada a componentes server-side + HTMX + Alpine.
+ * La tabla, los filtros y la paginación los rinde el servidor (ver
+ * _pending_items_results.html + pages/inventory.py). La selección masiva es estado
+ * de cliente en Alpine (Set en el PADRE, regla de zonas §4.2). Este módulo conserva
+ * SOLO la lógica de cliente: modales BS5 (sin jQuery) de asignación individual/masiva.
  */
 
-let pendingItems = [];
-let allCategories = [];
-let allDepartments = [];
-let selectedItems = new Set();
-let currentFilters = {};
+(function () {
+    'use strict';
 
-document.addEventListener('DOMContentLoaded', function() {
-    loadCategories();
-    loadDepartments();
-    loadPendingItems();
-    
-    // Event listeners
-    document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 500));
-    document.getElementById('category-filter').addEventListener('change', applyFilters);
-    document.getElementById('sort-filter').addEventListener('change', applyFilters);
-    
-    // Select all checkbox
-    document.getElementById('select-all-checkbox').addEventListener('change', function(e) {
-        if (e.target.checked) {
-            selectAll();
-        } else {
-            deselectAll();
-        }
-    });
+    // === MODULE STATE ===
+    let allDepartments = [];
 
-    // Form submits
-    document.getElementById('assign-form').addEventListener('submit', handleAssign);
-    document.getElementById('bulk-assign-form').addEventListener('submit', handleBulkAssign);
-});
+    // === LISTENER TEARDOWN REFS ===
+    let _assignDelegate = null;
+    let _assignSubmit = null;
+    let _bulkSubmit = null;
 
-// ==================== CARGAR DATOS ====================
-async function loadPendingItems() {
-    showLoading();
-
-    try {
-        const params = new URLSearchParams(currentFilters);
-
-        const qs = params.toString();
-        const url = qs
-            ? `/api/help-desk/v2/inventory/pending?${qs}`
-            : '/api/help-desk/v2/inventory/pending';
-        const response = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar equipos pendientes');
-        }
-
-        const result = await response.json();
-        pendingItems = result.data || [];
-
-        renderTable();
-        updateStatistics();
-        hideLoading();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los equipos pendientes: ${errorMessage}`);
-        hideLoading();
+    // === BS5 MODAL HELPERS ===
+    function modalShow(id) { bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show(); }
+    function modalHide(id) {
+        const el = document.getElementById(id);
+        if (el) { try { bootstrap.Modal.getInstance(el)?.hide(); } catch (_) { /* ignore */ } }
     }
-}
-
-async function loadCategories() {
-    try {
-        const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
-        }
-
-        const result = await response.json();
-        allCategories = result.data;
-
-        const select = document.getElementById('category-filter');
-        select.innerHTML = '<option value="">Todas las categorías</option>';
-
-        allCategories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat.id;
-            option.textContent = cat.name;
-            select.appendChild(option);
-        });
-
-    } catch (error) {
-        console.error('Error cargando categorías:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
+    function modalDispose(id) {
+        const el = document.getElementById(id);
+        if (el) { try { bootstrap.Modal.getInstance(el)?.dispose(); } catch (_) { /* ignore */ } }
     }
-}
 
-async function loadDepartments() {
-    try {
-        const response = await fetch('/api/core/v2/departments?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
+    // Recarga el fragmento server-side y limpia la selección Alpine (evento que el
+    // x-data del padre escucha con @items-reset.window).
+    function refreshList() {
+        window.dispatchEvent(new CustomEvent('items-reset'));
+        const form = document.getElementById('hd-filter-form');
+        if (form && window.htmx) window.htmx.trigger(form, 'refresh');
+    }
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
-        }
-
-        const result = await response.json();
-        allDepartments = result.data;
-
-        // Llenar selects de los modales
-        const selects = ['assign-department', 'bulk-department'];
-        selects.forEach(selectId => {
-            const select = document.getElementById(selectId);
-            select.innerHTML = '<option value="">Seleccionar departamento...</option>';
-
-            allDepartments.forEach(dept => {
-                const option = document.createElement('option');
-                option.value = dept.id;
-                option.textContent = dept.name;
-                select.appendChild(option);
+    // === DATA ===
+    async function loadDepartments() {
+        try {
+            const response = await fetch('/api/core/v2/departments?active=true', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
-        });
-
-    } catch (error) {
-        console.error('Error cargando departamentos:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
-    }
-}
-
-// ==================== RENDERIZADO ====================
-function renderTable() {
-    const tbody = document.querySelector('#pending-table tbody');
-    
-    if (pendingItems.length === 0) {
-        document.getElementById('table-container').style.display = 'none';
-        document.getElementById('empty-state').style.display = 'block';
-        return;
-    }
-
-    document.getElementById('table-container').style.display = 'block';
-    document.getElementById('empty-state').style.display = 'none';
-
-    // Aplicar ordenamiento
-    let sortedItems = [...pendingItems];
-    const sortType = document.getElementById('sort-filter').value;
-
-    if (sortType === 'newest') {
-        sortedItems.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    } else if (sortType === 'oldest') {
-        sortedItems.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    } else if (sortType === 'category') {
-        sortedItems.sort((a, b) => {
-            const catA = allCategories.find(c => c.id === a.category_id)?.name || '';
-            const catB = allCategories.find(c => c.id === b.category_id)?.name || '';
-            return catA.localeCompare(catB);
-        });
-    }
-
-    tbody.innerHTML = sortedItems.map(item => {
-        const category = allCategories.find(c => c.id === item.category_id);
-        const isSelected = selectedItems.has(item.id);
-
-        return `
-            <tr class="pending-item ${isSelected ? 'selected' : ''}" data-item-id="${item.id}">
-                <td>
-                    <input 
-                        type="checkbox" 
-                        class="form-check-input item-checkbox" 
-                        data-item-id="${item.id}"
-                        ${isSelected ? 'checked' : ''}
-                        onchange="toggleItemSelection(${item.id})"
-                    >
-                </td>
-                <td>
-                    <span class="font-weight-bold">${item.inventory_number}</span>
-                    <br>
-                    <span class="badge bg-warning text-dark limbo-badge">
-                        <i class="fas fa-hourglass-half"></i> Limbo
-                    </span>
-                </td>
-                <td>
-                    <i class="${category?.icon || 'fas fa-box'} mr-1"></i>
-                    ${category?.name || 'N/A'}
-                </td>
-                <td>
-                    <div class="font-weight-bold">${item.brand || 'N/A'}</div>
-                    <small class="text-muted">${item.model || ''}</small>
-                </td>
-                <td>
-                    <small>${item.supplier_serial || item.itcj_serial || 'N/A'}</small>
-                </td>
-                <td>
-                    <small>${formatDate(item.created_at)}</small>
-                    <br>
-                    <small class="text-muted">${formatTimeAgo(item.created_at)}</small>
-                </td>
-                <td>
-                    <small>${item.registered_by?.full_name || 'N/A'}</small>
-                </td>
-                <td class="text-center">
-                    <div class="btn-group btn-group-sm">
-                        <button 
-                            class="btn btn-sm btn-success quick-assign-btn" 
-                            onclick="openAssignModal(${item.id})"
-                            title="Asignar a departamento"
-                        >
-                            <i class="fas fa-building"></i>
-                        </button>
-                        <a 
-                            href="/help-desk/inventory/items/${item.id}" 
-                            class="btn btn-sm btn-outline-primary"
-                            title="Ver detalle"
-                        >
-                            <i class="fas fa-eye"></i>
-                        </a>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-function updateStatistics() {
-    document.getElementById('pending-count').textContent = pendingItems.length;
-    document.getElementById('stat-total').textContent = pendingItems.length;
-    document.getElementById('stat-selected').textContent = selectedItems.size;
-    
-    // Contar categorías únicas
-    const uniqueCategories = new Set(pendingItems.map(item => item.category_id));
-    document.getElementById('stat-categories').textContent = uniqueCategories.size;
-
-    // TODO: Obtener estadística de asignados hoy (requiere endpoint adicional)
-    document.getElementById('stat-assigned-today').textContent = '0';
-
-    // Actualizar botón de asignación masiva
-    const assignBtn = document.getElementById('assign-selected-btn');
-    assignBtn.disabled = selectedItems.size === 0;
-    assignBtn.innerHTML = selectedItems.size > 0 
-        ? `<i class="fas fa-users"></i> Asignar ${selectedItems.size} Seleccionados`
-        : '<i class="fas fa-users"></i> Asignar Seleccionados';
-}
-
-// ==================== FILTROS ====================
-function applyFilters() {
-    const search = document.getElementById('search-input').value.trim();
-    const categoryId = document.getElementById('category-filter').value;
-
-    currentFilters = {};
-
-    if (search) currentFilters.search = search;
-    if (categoryId) currentFilters.category_id = categoryId;
-
-    loadPendingItems();
-}
-
-// ==================== SELECCIÓN ====================
-function toggleItemSelection(itemId) {
-    if (selectedItems.has(itemId)) {
-        selectedItems.delete(itemId);
-    } else {
-        selectedItems.add(itemId);
-    }
-    updateStatistics();
-    renderTable(); // Re-renderizar para actualizar clases CSS
-}
-
-function selectAll() {
-    pendingItems.forEach(item => selectedItems.add(item.id));
-    document.querySelectorAll('.item-checkbox').forEach(cb => cb.checked = true);
-    updateStatistics();
-    renderTable();
-}
-
-function deselectAll() {
-    selectedItems.clear();
-    document.querySelectorAll('.item-checkbox').forEach(cb => cb.checked = false);
-    document.getElementById('select-all-checkbox').checked = false;
-    updateStatistics();
-    renderTable();
-}
-
-// ==================== ASIGNACIÓN INDIVIDUAL ====================
-function openAssignModal(itemId) {
-    const item = pendingItems.find(i => i.id === itemId);
-    if (!item) return;
-
-    document.getElementById('assign-item-id').value = itemId;
-    document.getElementById('assign-item-number').textContent = item.inventory_number;
-    document.getElementById('assign-department').value = '';
-    document.getElementById('assign-notes').value = '';
-
-    $('#assignModal').modal('show');
-}
-
-async function handleAssign(e) {
-    e.preventDefault();
-
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Asignando...';
-
-    try {
-        const itemId = document.getElementById('assign-item-id').value;
-        const departmentId = document.getElementById('assign-department').value;
-        const notes = document.getElementById('assign-notes').value.trim();
-
-        if (!departmentId) {
-            throw new Error('Selecciona un departamento');
+            if (!response.ok) return;
+            const result = await response.json();
+            allDepartments = result.data || [];
+            ['assign-department', 'bulk-department'].forEach(selectId => {
+                const select = document.getElementById(selectId);
+                if (!select) return;
+                select.innerHTML = '<option value="">Seleccionar departamento...</option>';
+                allDepartments.forEach(dept => {
+                    const option = document.createElement('option');
+                    option.value = dept.id;
+                    option.textContent = dept.name;
+                    select.appendChild(option);
+                });
+            });
+        } catch (error) {
+            console.error('Error cargando departamentos:', error);
         }
-
-        const response = await fetch('/api/help-desk/v2/inventory/pending/assign-to-department', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                item_ids: [parseInt(itemId)],
-                department_id: parseInt(departmentId),
-                notes: notes || null
-            })
-        });
-
-        if (!response.ok) {
-            let errData = {};
-            try { errData = await response.json(); } catch (_) {}
-            const d = errData.detail || errData;
-            const msg = (typeof d === 'string') ? d : (d.error || d.message || 'Error al asignar equipo');
-            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-        }
-
-        $('#assignModal').modal('hide');
-        showSuccess('Equipo asignado exitosamente');
-
-        // Remover de la lista local
-        selectedItems.delete(parseInt(itemId));
-        loadPendingItems();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al asignar equipo: ${errorMessage}`);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-check"></i> Asignar';
-    }
-}
-
-// ==================== ASIGNACIÓN MASIVA ====================
-function openBulkAssignModal() {
-    if (selectedItems.size === 0) {
-        showError('Selecciona al menos un equipo');
-        return;
     }
 
-    document.getElementById('bulk-count').textContent = selectedItems.size;
-    document.getElementById('bulk-department').value = '';
-    document.getElementById('bulk-notes').value = '';
-
-    // Mostrar preview de equipos
-    const preview = document.getElementById('bulk-items-preview');
-    const selectedItemsData = pendingItems.filter(item => selectedItems.has(item.id));
-    
-    preview.innerHTML = selectedItemsData.map(item => {
-        const category = allCategories.find(c => c.id === item.category_id);
-        return `
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                    <strong>${item.inventory_number}</strong> - 
-                    ${item.brand || 'N/A'} ${item.model || ''}
-                </div>
-                <span class="badge bg-primary text-white">
-                    ${category?.name || 'N/A'}
-                </span>
-            </div>
-        `;
-    }).join('');
-
-    $('#bulkAssignModal').modal('show');
-}
-
-async function handleBulkAssign(e) {
-    e.preventDefault();
-
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Asignando...';
-
-    try {
-        const departmentId = document.getElementById('bulk-department').value;
-        const notes = document.getElementById('bulk-notes').value.trim();
-
-        if (!departmentId) {
-            throw new Error('Selecciona un departamento');
-        }
-
-        const itemIds = Array.from(selectedItems);
-
-        const response = await fetch('/api/help-desk/v2/inventory/pending/assign-to-department', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                item_ids: itemIds,
-                department_id: parseInt(departmentId),
-                notes: notes || null
-            })
-        });
-
-        if (!response.ok) {
-            let errData = {};
-            try { errData = await response.json(); } catch (_) {}
-            const d = errData.detail || errData;
-            const msg = (typeof d === 'string') ? d : (d.error || d.message || 'Error al asignar equipos');
-            throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
-        }
-
-        const result = await response.json();
-
-        $('#bulkAssignModal').modal('hide');
-        showSuccess(result.message || `${result.items?.length || 0} equipo(s) asignado(s) exitosamente`);
-
-        // Limpiar selección y recargar
-        selectedItems.clear();
-        loadPendingItems();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al asignar equipos: ${errorMessage}`);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-check"></i> Asignar Todo';
+    // === ASIGNACIÓN INDIVIDUAL ===
+    function openAssignModal(itemId, itemNumber) {
+        document.getElementById('assign-item-id').value = itemId;
+        document.getElementById('assign-item-number').textContent = itemNumber || itemId;
+        document.getElementById('assign-department').value = '';
+        document.getElementById('assign-notes').value = '';
+        modalShow('assignModal');
     }
-}
 
-// ==================== HELPERS ====================
-function formatDate(dateString) {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-MX', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+    async function handleAssign(e) {
+        e.preventDefault();
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Asignando...';
+        try {
+            const itemId = document.getElementById('assign-item-id').value;
+            const departmentId = document.getElementById('assign-department').value;
+            const notes = document.getElementById('assign-notes').value.trim();
+            if (!departmentId) throw new Error('Selecciona un departamento');
+
+            const response = await fetch('/api/help-desk/v2/inventory/pending/assign-to-department', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    item_ids: [parseInt(itemId, 10)],
+                    department_id: parseInt(departmentId, 10),
+                    notes: notes || null
+                })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                const d = err.detail || err;
+                const msg = (typeof d === 'string') ? d : (d.error || d.message || 'Error al asignar equipo');
+                throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
+            modalHide('assignModal');
+            showToast('Equipo asignado exitosamente', 'success');
+            refreshList();
+        } catch (error) {
+            console.error('Error:', error);
+            showToast(`Error al asignar equipo: ${error.message || 'Error desconocido'}`, 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-check"></i> Asignar';
+        }
+    }
+
+    // === ASIGNACIÓN MASIVA (Alpine pasa los ids) ===
+    function openBulkAssignModal(ids) {
+        if (!ids || !ids.length) { showToast('Selecciona al menos un equipo', 'error'); return; }
+        document.getElementById('bulk-count').textContent = ids.length;
+        document.getElementById('bulk-department').value = '';
+        document.getElementById('bulk-notes').value = '';
+        const form = document.getElementById('bulk-assign-form');
+        form.dataset.ids = ids.join(',');
+        modalShow('bulkAssignModal');
+    }
+
+    async function handleBulkAssign(e) {
+        e.preventDefault();
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Asignando...';
+        try {
+            const departmentId = document.getElementById('bulk-department').value;
+            const notes = document.getElementById('bulk-notes').value.trim();
+            if (!departmentId) throw new Error('Selecciona un departamento');
+
+            const itemIds = (e.target.dataset.ids || '').split(',').filter(Boolean).map(Number);
+
+            const response = await fetch('/api/help-desk/v2/inventory/pending/assign-to-department', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    item_ids: itemIds,
+                    department_id: parseInt(departmentId, 10),
+                    notes: notes || null
+                })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                const d = err.detail || err;
+                const msg = (typeof d === 'string') ? d : (d.error || d.message || 'Error al asignar equipos');
+                throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
+            const result = await response.json();
+            modalHide('bulkAssignModal');
+            showToast(result.message || `${result.items?.length || 0} equipo(s) asignado(s) exitosamente`, 'success');
+            refreshList();
+        } catch (error) {
+            console.error('Error:', error);
+            showToast(`Error al asignar equipos: ${error.message || 'Error desconocido'}`, 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-check"></i> Asignar Todo';
+        }
+    }
+
+    // === HTMX PAGE LIFECYCLE ===
+    window.HelpdeskPage.page('inventory_items_pending_items', {
+        init() {
+            allDepartments = [];
+            loadDepartments();
+
+            // Delegación: botón "Asignar" de cada fila (server-rendered, sobrevive swaps).
+            const results = document.getElementById('hd-pending-results');
+            _assignDelegate = function (e) {
+                const btn = e.target.closest('[data-action="assign-item"]');
+                if (!btn) return;
+                e.preventDefault();
+                openAssignModal(parseInt(btn.dataset.itemId, 10), btn.dataset.itemNumber);
+            };
+            if (results) results.addEventListener('click', _assignDelegate);
+
+            const assignForm = document.getElementById('assign-form');
+            if (assignForm) { _assignSubmit = handleAssign; assignForm.addEventListener('submit', _assignSubmit); }
+
+            const bulkForm = document.getElementById('bulk-assign-form');
+            if (bulkForm) { _bulkSubmit = handleBulkAssign; bulkForm.addEventListener('submit', _bulkSubmit); }
+
+            // Expuesta para Alpine (@click).
+            window.hdPendingBulkAssign = openBulkAssignModal;
+        },
+
+        destroy() {
+            const results = document.getElementById('hd-pending-results');
+            if (results && _assignDelegate) results.removeEventListener('click', _assignDelegate);
+
+            const assignForm = document.getElementById('assign-form');
+            if (assignForm && _assignSubmit) assignForm.removeEventListener('submit', _assignSubmit);
+
+            const bulkForm = document.getElementById('bulk-assign-form');
+            if (bulkForm && _bulkSubmit) bulkForm.removeEventListener('submit', _bulkSubmit);
+
+            modalDispose('assignModal');
+            modalDispose('bulkAssignModal');
+
+            delete window.hdPendingBulkAssign;
+
+            allDepartments = [];
+            _assignDelegate = null;
+            _assignSubmit = null;
+            _bulkSubmit = null;
+        }
     });
-}
-
-function formatTimeAgo(dateString) {
-    if (!dateString) return 'N/A';
-    
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Hace un momento';
-    if (diffMins < 60) return `Hace ${diffMins} min`;
-    if (diffHours < 24) return `Hace ${diffHours}h`;
-    if (diffDays === 1) return 'Ayer';
-    if (diffDays < 7) return `Hace ${diffDays} días`;
-    if (diffDays < 30) return `Hace ${Math.floor(diffDays / 7)} semanas`;
-    
-    return formatDate(dateString);
-}
-
-function showLoading() {
-    document.getElementById('loading-container').style.display = 'block';
-    document.getElementById('table-container').style.display = 'none';
-    document.getElementById('empty-state').style.display = 'none';
-}
-
-function hideLoading() {
-    document.getElementById('loading-container').style.display = 'none';
-}
-
-function showSuccess(message) {
-    showToast(message, 'success'); // Reemplazar con tu sistema de notificaciones
-}
-
-function showError(message) {
-    showToast(message, 'error'); // Reemplazar con tu sistema de notificaciones
-}
-
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
+})();

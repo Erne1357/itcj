@@ -88,7 +88,18 @@
         return '<select class="form-select form-select-sm" id="' + selectId + '">' + opts + '</select>';
     }
 
-    // === INIT ===
+    // === TEARDOWN (morph-safe) ===
+    document.addEventListener('config:teardown', function () {
+        initialized = false;
+        if (sortableInstance) {
+            try { sortableInstance.destroy(); } catch (_) {}
+            sortableInstance = null;
+        }
+        priorities   = [];
+        showInactive = false;
+    });
+
+    // === INIT (lazy por config:tab-shown) ===
     document.addEventListener('config:tab-shown', function (e) {
         if (e.detail && e.detail.tab === '#prioridades') {
             if (!initialized) {
@@ -98,17 +109,9 @@
         }
     });
 
-    document.addEventListener('DOMContentLoaded', function () {
-        const hash = window.location.hash || '';
-        if (hash === '#prioridades') {
-            if (!initialized) {
-                initialized = true;
-                initPrioritiesTab();
-            }
-        }
-        bindCreateModal();
-        bindEditModal();
-    });
+    // Bind modales una sola vez al evaluar el IIFE (guards dataset.*Bound hacen morph-safe)
+    bindCreateModal();
+    bindEditModal();
 
     function initPrioritiesTab() {
         renderShell();

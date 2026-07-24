@@ -199,7 +199,11 @@ async def create_ticket(
 @router.get("/")
 def list_tickets(
     request: Request,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app

@@ -1,5 +1,7 @@
 <!-- itcj/apps/helpdesk/templates/department_head/dashboard.html -->
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
+{% from "helpdesk/department_head/_division_tree.html" import render_divtree with context %}
 
 {% block title %}Jefe de Departamento - Dashboard{% endblock %}
 
@@ -89,7 +91,7 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link px-2 px-md-3" id="tickets-tab" data-bs-toggle="tab" data-bs-target="#tickets" type="button">
                 <i class="fas fa-ticket-alt me-1 me-md-2"></i>Tickets
-                <span class="badge bg-secondary ms-1 ms-md-2" id="ticketsBadge">0</span>
+                <span class="badge rounded-pill bg-primary ms-1 ms-md-2" id="ticketsBadge">{{ total }}</span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -117,6 +119,29 @@
     <div class="tab-pane fade show active" id="overview" role="tabpanel">
         <!-- Lado a lado en escritorio, apilado en móvil -->
         <div class="row g-3">
+
+            <!-- Card: Divisiones del área (resumen jerárquico del subárbol) -->
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3 flex-wrap gap-2">
+                        <h5 class="mb-0">
+                            <i class="fas fa-sitemap me-2 text-primary"></i>Divisiones del área
+                        </h5>
+                        <div class="hd-divlegend small text-muted d-flex align-items-center gap-3">
+                            <span><span class="hd-c hd-c-total">#</span> Total</span>
+                            <span><span class="hd-c hd-c-active">#</span> Activos</span>
+                            <span><span class="hd-c hd-c-resolved">#</span> Resueltos</span>
+                        </div>
+                    </div>
+                    <div class="card-body hd-divtree-body">
+                        {% if division_tree %}
+                            {{ render_divtree(division_tree) }}
+                        {% else %}
+                            <p class="text-muted mb-0 text-center py-3">Sin divisiones en tu área.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
 
             <!-- Card: Tareas Pendientes (prioridad alta) -->
             <div class="col-lg-6 d-flex">
@@ -158,58 +183,28 @@
     
     <!-- Tickets Tab -->
     <div class="tab-pane fade" id="tickets" role="tabpanel">
-        <!-- Filters -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold">Estado</label>
-                        <select class="form-select form-select-sm" id="filterStatus">
-                            <option value="">Todos</option>
-                            <option value="PENDING">Pendiente</option>
-                            <option value="ASSIGNED">Asignado</option>
-                            <option value="IN_PROGRESS">En Progreso</option>
-                            <option value="RESOLVED_SUCCESS">Resuelto</option>
-                            <option value="CLOSED">Cerrado</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold">Área</label>
-                        <select class="form-select form-select-sm" id="filterArea">
-                            <option value="">Todas</option>
-                            <option value="DESARROLLO">Desarrollo</option>
-                            <option value="SOPORTE">Soporte</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label small fw-semibold">Buscar</label>
-                        <input type="text" class="form-control form-control-sm" id="searchTickets" 
-                               placeholder="Buscar por título o usuario...">
-                    </div>
-                </div>
+
+        {{ filter_bar(
+            '/help-desk/department/',
+            [
+                {'name': 'scope', 'label': 'Ámbito', 'icon': 'fa-sitemap', 'col': 'col-6 col-md-3', 'selected': f_scope,
+                 'options': [('all', 'Mi depto + sub-deptos'), ('own', 'Solo mi departamento'), ('below', 'Solo sub-departamentos')]},
+                {'name': 'status', 'label': 'Estado', 'icon': 'fa-filter', 'col': 'col-6 col-md-3', 'selected': f_status,
+                 'options': [('', 'Todo estatus'), ('PENDING', 'Pendiente'), ('ASSIGNED', 'Asignado'), ('IN_PROGRESS', 'En Progreso'),
+                             ('RESOLVED_SUCCESS', 'Resuelto (Éxito)'), ('RESOLVED_FAILED', 'Resuelto (Fallido)'), ('CLOSED', 'Cerrado')]},
+                {'name': 'area', 'label': 'Área', 'icon': 'fa-layer-group', 'col': 'col-6 col-md-3', 'selected': f_area,
+                 'options': [('', 'Toda área'), ('DESARROLLO', 'Desarrollo'), ('SOPORTE', 'Soporte')]}
+            ],
+            search_value=f_search,
+            search_placeholder='Buscar por título, # ticket, solicitante...'
+        ) }}
+
+        <div class="list-container" style="max-height: 600px; overflow-y: auto;">
+            <div id="hd-tickets-results" class="hd-results">
+                {% include "helpdesk/department_head/_dashboard_tickets_results.html" %}
             </div>
         </div>
-        
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
-                        <i class="fas fa-list me-2"></i>Tickets del Departamento
-                    </h5>
-                    <button class="btn btn-sm btn-primary" onclick="openCreateTicketModal()">
-                        <i class="fas fa-plus me-1"></i>Nuevo
-                    </button>
-                </div>
-            </div>
-            <div class="card-body p-0">
-                <div id="ticketsList">
-                    <div class="text-center py-5">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="text-muted mt-3">Cargando tickets...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
+
     </div>
     
     <!-- Users Tab -->
@@ -231,7 +226,10 @@
                                 Ver inactivos
                             </label>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()">
+                        {# Botón oculto: no existe endpoint de creación de usuario accesible al dept head.
+                           El core requiere permiso global `core.users.api.create` (solo admin).
+                           Re-habilitar cuando exista un endpoint helpdesk-específico para crear usuarios de departamento. #}
+                        <button class="btn btn-sm btn-primary d-none" onclick="openCreateUserModal()" disabled>
                             <i class="fas fa-plus me-1"></i>Nuevo Usuario
                         </button>
                     </div>
@@ -422,11 +420,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='helpdesk/css/department_head/dashboard.css') }}?v={{ sv('helpdesk', 'css/department_head/dashboard.css') }}">
 {% endblock %}
 
-{% block extra_js %}
-<script>
-// Pass department info from Flask
-const DEPARTMENT_ID = {{ department.id }};
-const DEPARTMENT_NAME = "{{ department.name }}";
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/department_head/dashboard.js') }}?v={{ sv('helpdesk', 'js/department_head/dashboard.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-department-id="{{ department.id }}" data-department-name="{{ department.name }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

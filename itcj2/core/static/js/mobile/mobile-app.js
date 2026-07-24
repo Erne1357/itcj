@@ -134,8 +134,7 @@ class MobileApp {
             return new Promise((resolve, reject) => {
                 if (window.io) return resolve();
                 const s = document.createElement('script');
-                s.src = 'https://cdn.socket.io/4.7.5/socket.io.min.js';
-                s.crossOrigin = 'anonymous';
+                s.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
                 s.onload = () => resolve();
                 s.onerror = reject;
                 document.head.appendChild(s);
@@ -294,14 +293,23 @@ class MobileApp {
                 return;
             }
 
-            list.innerHTML = notifications.map(n => `
-                <div class="mobile-notification-item ${n.read_at ? '' : 'unread'}" 
-                     data-id="${n.id}" data-url="${n.action_url || ''}">
-                    <div class="mobile-notification-title">${this.escapeHtml(n.title)}</div>
-                    <div class="mobile-notification-body">${this.escapeHtml(n.body || '')}</div>
-                    <div class="mobile-notification-time">${this.formatDate(n.created_at)}</div>
-                </div>
-            `).join('');
+            list.innerHTML = notifications.map(n => {
+                const unread = !n.is_read;
+                const url = n.action_url || '';
+                const color = n.app_color_hex || '#6c757d';
+                const icon = n.app_icon || 'bi-bell';
+                return `
+                <div class="mobile-notification-item ${unread ? 'unread' : ''} ${url ? 'clickable' : ''}"
+                     data-id="${n.id}" data-url="${this.escapeHtml(url)}" style="--notif-color:${color}">
+                    <div class="mobile-notification-icon"><i class="bi ${icon}"></i></div>
+                    <div class="mobile-notification-content">
+                        <div class="mobile-notification-title">${this.escapeHtml(n.title)}</div>
+                        <div class="mobile-notification-body">${this.escapeHtml(n.body || '')}</div>
+                        <div class="mobile-notification-time">${this.formatDate(n.created_at)}${url ? ' <i class="bi bi-box-arrow-up-right"></i>' : ''}</div>
+                    </div>
+                    ${unread ? '<span class="mobile-notification-dot"></span>' : ''}
+                </div>`;
+            }).join('');
 
             // Bind click events
             list.querySelectorAll('.mobile-notification-item').forEach(item => {
@@ -613,19 +621,19 @@ class MobileApp {
      * Realiza el logout
      */
     async doLogout() {
+        // POST best-effort. El endpoint exige sesión (CurrentUser): si la cookie
+        // ya fue borrada por la app del iframe, responde 401. NO condicionar el
+        // redirect a res.ok — la sesión debe terminar SIEMPRE en /itcj/login,
+        // si no la ventana top se queda pegada en /itcj/m/ (bug "se queda así").
         try {
-            const res = await fetch('/api/core/v2/auth/logout', {
+            await fetch('/api/core/v2/auth/logout', {
                 method: 'POST',
                 credentials: 'include'
             });
-            if (res.ok) {
-                window.location.href = '/itcj/login';
-            }
         } catch (e) {
-            console.error('[MobileApp] Error logging out:', e);
-            // Intentar redirigir de todas formas
-            window.location.href = '/itcj/login';
+            console.warn('[MobileApp] Logout POST falló (redirigiendo igual):', e);
         }
+        window.location.replace('/itcj/login');
     }
 
     /**

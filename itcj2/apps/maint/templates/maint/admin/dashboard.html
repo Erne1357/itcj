@@ -1,4 +1,5 @@
 {% extends "maint/base_maint.html" %}
+{% from "maint/admin/_division_tree.html" import render_divtree with context %}
 {% block title %}Dashboard{% endblock %}
 
 {% block extra_css %}
@@ -17,6 +18,14 @@
       <small class="text-muted">Estado operativo por departamento</small>
     </div>
     <div class="d-flex align-items-center gap-2 flex-wrap">
+      <!-- Selector de ámbito (propio vs sub-árbol) -->
+      <div id="scopeSelectorWrap" class="d-none">
+        <select id="scopeSelector" class="form-select form-select-sm mn-dash-dept-select" title="Ámbito de los tickets">
+          <option value="all">Mi depto + sub-deptos</option>
+          <option value="own">Solo mi departamento</option>
+          <option value="below">Solo sub-departamentos</option>
+        </select>
+      </div>
       <!-- Selector de departamento -->
       <div id="deptSelectorWrap" class="d-none">
         <select id="deptSelector" class="form-select form-select-sm mn-dash-dept-select">
@@ -29,6 +38,25 @@
       </button>
     </div>
   </div>
+
+  <!-- ── Divisiones del área (resumen jerárquico del subárbol, server-rendered) ── -->
+  {% if division_tree %}
+  <div class="card border-0 shadow-sm mb-4 mn-divcard">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3 flex-wrap gap-2">
+      <h6 class="mb-0 fw-bold">
+        <i class="fas fa-sitemap me-2" style="color:var(--maint-primary);"></i>Divisiones del área
+      </h6>
+      <div class="mn-divlegend small text-muted d-flex align-items-center gap-3">
+        <span><span class="mn-c mn-c-total">#</span> Total</span>
+        <span><span class="mn-c mn-c-active">#</span> Activos</span>
+        <span><span class="mn-c mn-c-resolved">#</span> Resueltos</span>
+      </div>
+    </div>
+    <div class="card-body mn-divtree-body">
+      {{ render_divtree(division_tree) }}
+    </div>
+  </div>
+  {% endif %}
 
   <!-- ── Spinner de carga inicial ───────────────────────────────────────── -->
   <div id="dashLoadingState" class="text-center py-5">

@@ -194,13 +194,13 @@
                         >
                     </div>
 
-                    <div class="custom-control custom-checkbox mb-3">
-                        <input 
-                            type="checkbox" 
-                            class="custom-control-input" 
+                    <div class="form-check mb-3">
+                        <input
+                            type="checkbox"
+                            class="form-check-input"
                             id="assign-to-user-check"
                         >
-                        <label class="custom-control-label" for="assign-to-user-check">
+                        <label class="form-check-label" for="assign-to-user-check">
                             Asignar a un usuario específico
                         </label>
                     </div>
@@ -216,26 +216,21 @@
                                            id="user-combo-input"
                                            placeholder="Buscar por nombre, usuario o email..."
                                            autocomplete="off">
-                                    <div class="input-group-append">
-                                        <button type="button" class="btn btn-outline-secondary"
-                                                id="user-combo-clear" title="Quitar selección" style="display:none;">
-                                            <i class="fas fa-times"></i>
-                                        </button>
-                                        <button type="button" class="btn btn-outline-secondary"
-                                                id="btn-create-inactive-user"
-                                                title="Crear nuevo usuario inactivo">
-                                            <i class="fas fa-user-plus"></i>
-                                        </button>
-                                    </div>
+                                    <button type="button" class="btn btn-outline-secondary d-none"
+                                            id="user-combo-clear" title="Quitar selección">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary"
+                                            id="btn-create-inactive-user"
+                                            title="Crear nuevo usuario inactivo">
+                                        <i class="fas fa-user-plus"></i>
+                                    </button>
                                 </div>
                                 <div id="user-combo-dropdown"
-                                     class="position-absolute bg-white shadow-sm w-100 d-none"
-                                     style="z-index:1050; max-height:260px; overflow-y:auto;
-                                            border:1px solid #ced4da; border-top:none;
-                                            border-radius:0 0 .25rem .25rem; top:100%;"></div>
+                                     class="user-combo-dropdown position-absolute bg-white shadow-sm w-100 d-none"></div>
                             </div>
                             <select id="assigned-to-user-id" name="assigned_to_user_id"
-                                    style="display:none;" tabindex="-1" aria-hidden="true">
+                                    class="d-none" tabindex="-1" aria-hidden="true">
                                 <option value=""></option>
                             </select>
                             <small class="form-text text-muted">
@@ -257,22 +252,19 @@
 
                     <!-- Predecesor: ¿Reemplaza a un equipo? -->
                     <div class="form-group">
-                        <label><i class="fas fa-history mr-1 text-muted"></i> ¿Reemplaza a un equipo? <small class="text-muted font-weight-normal">(opcional)</small></label>
+                        <label><i class="fas fa-history me-1 text-muted"></i> ¿Reemplaza a un equipo? <small class="text-muted fw-normal">(opcional)</small></label>
                         <div class="input-group">
-                            <input type="text" class="form-control" id="predecessor-display"
+                            <input type="text" class="form-control hd-clickable" id="predecessor-display"
                                    placeholder="Buscar equipo predecesor..." readonly
-                                   style="background:#fff; cursor:pointer;"
                                    onclick="document.getElementById('btn-search-predecessor').click()">
-                            <div class="input-group-append">
-                                <button type="button" class="btn btn-outline-secondary" id="btn-search-predecessor"
-                                        title="Buscar equipo predecesor">
-                                    <i class="fas fa-search"></i>
-                                </button>
-                                <button type="button" class="btn btn-outline-danger d-none" id="btn-clear-predecessor"
-                                        title="Quitar predecesor">
-                                    <i class="fas fa-times"></i>
-                                </button>
-                            </div>
+                            <button type="button" class="btn btn-outline-secondary" id="btn-search-predecessor"
+                                    title="Buscar equipo predecesor">
+                                <i class="fas fa-search"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger d-none" id="btn-clear-predecessor"
+                                    title="Quitar predecesor">
+                                <i class="fas fa-times"></i>
+                            </button>
                         </div>
                         <input type="hidden" id="predecessor-item-id">
                     </div>
@@ -556,7 +548,7 @@
                 <div class="form-section">
                     <div class="form-section-title">
                         <i class="fas fa-barcode"></i> Identificadores de Serie
-                        <span class="badge bg-secondary text-white ml-2" style="font-size:0.7rem;">Opcional</span>
+                        <span class="badge bg-secondary ms-2">Opcional</span>
                     </div>
 
                     <div class="alert alert-info">
@@ -670,13 +662,13 @@
                 <!-- Preview de Número de Inventario -->
                 <div class="card shadow mb-4">
                     <div class="card-body inventory-preview">
-                        <div class="text-uppercase mb-2" style="font-size: 0.9rem; opacity: 0.9;">
+                        <div class="text-uppercase mb-2 hd-preview-cap">
                             Número de Inventario
                         </div>
                         <div class="number" id="preview-inventory-number">
                             ---
                         </div>
-                        <div class="mt-2" style="font-size: 0.85rem; opacity: 0.8;">
+                        <div class="mt-2 hd-preview-sub">
                             Se generará al guardar
                         </div>
                     </div>
@@ -735,13 +727,13 @@
                 <!-- Preview de Cantidad -->
                 <div class="card shadow mb-4">
                     <div class="card-body text-center">
-                        <div class="text-uppercase mb-2" style="font-size: 0.9rem; opacity: 0.7;">
+                        <div class="text-uppercase mb-2 hd-preview-cap">
                             Equipos a Registrar
                         </div>
                         <div class="quantity-preview" id="preview-bulk-quantity">
                             0
                         </div>
-                        <div class="mt-2" style="font-size: 0.85rem; opacity: 0.7;">
+                        <div class="mt-2 hd-preview-sub">
                             equipos del mismo tipo
                         </div>
                     </div>
@@ -798,7 +790,7 @@
 
 {% block modals %}
 <!-- Modal: Éxito Individual -->
-<div class="modal fade" id="successModal" tabindex="-1" data-backdrop="static">
+<div class="modal fade" id="successModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-body text-center py-5">
@@ -822,7 +814,7 @@
 </div>
 
 <!-- Modal: Éxito Masivo -->
-<div class="modal fade" id="bulkSuccessModal" tabindex="-1" data-backdrop="static">
+<div class="modal fade" id="bulkSuccessModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-body text-center py-5">
@@ -832,12 +824,12 @@
                     Se han registrado exitosamente <strong id="bulk-success-count">0</strong> equipos
                 </p>
                 
-                <div id="bulk-success-details" class="text-left mb-4" style="max-height: 300px; overflow-y: auto;">
+                <div id="bulk-success-details" class="text-start mb-4 hd-scroll-300">
                     <!-- Se llenará con JavaScript -->
                 </div>
 
                 <div class="d-flex justify-content-center gap-2">
-                    <a href="/help-desk/inventory/items" class="btn btn-primary">
+                    <a href="/help-desk/inventory/items" class="btn btn-primary" {{ hd_boost('/help-desk/inventory/items') }}>
                         <i class="fas fa-list"></i> Ver Inventario
                     </a>
                     <button type="button" class="btn btn-outline-secondary" onclick="location.reload()">
@@ -850,18 +842,18 @@
 </div>
 
 <!-- Modal: Progreso -->
-<div class="modal fade" id="progressModal" tabindex="-1" data-backdrop="static" data-keyboard="false">
+<div class="modal fade" id="progressModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-body text-center py-5">
                 <i class="fas fa-cog fa-spin fa-2x fa-md-3x text-primary mb-3 mb-md-4"></i>
                 <h5 class="mb-3">Registrando Equipos...</h5>
-                <div class="progress mb-3" style="height: 25px;">
-                    <div 
-                        id="progress-bar" 
-                        class="progress-bar progress-bar-striped progress-bar-animated" 
-                        role="progressbar" 
-                        style="width: 0%"
+                <div class="progress mb-3 hd-progress-lg">
+                    <div
+                        id="progress-bar"
+                        class="progress-bar progress-bar-striped progress-bar-animated"
+                        role="progressbar"
+                        data-hd-width="0"
                     >
                         <span id="progress-text">0%</span>
                     </div>
@@ -878,14 +870,14 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h5 class="modal-title"><i class="fas fa-history mr-1"></i> Seleccionar equipo predecesor</h5>
-                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                <h5 class="modal-title"><i class="fas fa-history me-1"></i> Seleccionar equipo predecesor</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body p-0">
-                <div class="row no-gutters" style="min-height:420px;">
+                <div class="row g-0 hd-pred-body">
 
                     <!-- Izquierda: búsqueda + lista -->
-                    <div class="col-md-5 border-right d-flex flex-column">
+                    <div class="col-md-5 border-end d-flex flex-column">
                         <div class="p-3 border-bottom">
                             <input type="text" class="form-control form-control-sm"
                                    id="predecessor-search-input"
@@ -894,9 +886,7 @@
                                 Filtrado por el departamento seleccionado.
                             </small>
                         </div>
-                        <div id="predecessor-results"
-                             style="overflow-y:auto; flex:1; max-height:380px;">
-                        </div>
+                        <div id="predecessor-results" class="hd-pred-list"></div>
                     </div>
 
                     <!-- Derecha: detalle del equipo seleccionado -->
@@ -906,7 +896,7 @@
                             <i class="fas fa-hand-pointer fa-3x mb-3 d-block"></i>
                             <p class="mb-0 small">Selecciona un equipo de la lista<br>para revisar sus detalles</p>
                         </div>
-                        <div id="predecessor-detail-panel" class="p-3" style="display:none; overflow-y:auto; max-height:420px;">
+                        <div id="predecessor-detail-panel" class="p-3 d-none hd-pred-panel">
                             <!-- llenado por JS -->
                         </div>
                     </div>
@@ -914,9 +904,9 @@
                 </div>
             </div>
             <div class="modal-footer py-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary btn-sm d-none" id="btn-confirm-predecessor">
-                    <i class="fas fa-check mr-1"></i> Confirmar como predecesor
+                    <i class="fas fa-check me-1"></i> Confirmar como predecesor
                 </button>
             </div>
         </div>
@@ -931,7 +921,7 @@
                 <h5 class="modal-title">
                     <i class="fas fa-user-plus"></i> Registrar nuevo personal
                 </h5>
-                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <form id="create-inactive-user-form">
                 <div class="modal-body">
@@ -966,12 +956,10 @@
                         <div class="input-group">
                             <input type="text" class="form-control" id="inactive-username"
                                 placeholder="Se genera automáticamente" required>
-                            <div class="input-group-append">
-                                <button type="button" class="btn btn-outline-secondary" id="btn-next-username"
-                                    title="Probar siguiente variante">
-                                    <i class="fas fa-sync-alt"></i>
-                                </button>
-                            </div>
+                            <button type="button" class="btn btn-outline-secondary" id="btn-next-username"
+                                title="Probar siguiente variante">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
                         </div>
                         <small class="form-text text-muted" id="username-hint">
                             Generado automáticamente. Puedes editarlo si hay conflicto.
@@ -984,7 +972,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary" id="btn-confirm-inactive-user">
                         <i class="fas fa-save"></i> Crear usuario
                     </button>
@@ -995,9 +983,6 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    const BULK_MODE = {{ 'true' if bulk_mode else 'false' }};
-</script>
-<script src="{{ url_for('static', filename='helpdesk/js/inventory/items/item_create.js') }}?v={{ sv('helpdesk', 'js/inventory/items/item_create.js') }}"></script>
-{% endblock %}
+{% block hd_data %}data-bulk-mode="{{ 'true' if bulk_mode else 'false' }}"{% endblock %}
+
+{% block extra_js %}{% endblock %}

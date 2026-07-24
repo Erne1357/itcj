@@ -41,6 +41,67 @@ templates = Jinja2Templates(
     ]
 )
 
+
+# ---------------------------------------------------------------------------
+# Filtros Jinja compartidos para componentes server-side (prefijo hd_*).
+# Usados por los macros de helpdesk/_components/ (ticket_card, etc.).
+# ---------------------------------------------------------------------------
+from datetime import datetime as _dt  # noqa: E402
+
+
+def _hd_parse_dt(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, _dt):
+        return value
+    try:
+        return _dt.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def hd_datetime(value, fmt: str = "%d/%m/%Y %H:%M") -> str:
+    d = _hd_parse_dt(value)
+    return d.strftime(fmt) if d else ""
+
+
+def hd_date(value, fmt: str = "%d/%m/%Y") -> str:
+    d = _hd_parse_dt(value)
+    return d.strftime(fmt) if d else ""
+
+
+import markupsafe  # noqa: E402
+
+_HD_BOOST_ATTR = markupsafe.Markup('hx-boost="true"')
+_HD_BOOST_EMPTY = markupsafe.Markup("")
+
+
+def hd_boost(url) -> markupsafe.Markup:
+    """Devuelve ``hx-boost="true"`` si ``url`` apunta a una página de Help-Desk
+    migrada (morph-navegable), o cadena vacía si no.
+
+    Uso en templates: ``<a href="{{ url }}" {{ hd_boost(url) }}>`` (los enlaces de
+    CONTENIDO helpdesk→helpdesk navegan con morph, igual que la navbar). Reusa la
+    MISMA lógica que decide el boost del nav (``is_boostable_url`` en
+    ``pages/nav.py``); import perezoso para evitar el import circular (nav.py
+    importa de este módulo), igual que ``hd_datetime`` se registra aquí.
+    """
+    try:
+        from itcj2.apps.helpdesk.pages.nav import is_boostable_url
+
+        if is_boostable_url(url):
+            return _HD_BOOST_ATTR
+    except Exception:  # pragma: no cover - defensivo: nunca romper el render
+        logger.debug("hd_boost no pudo resolver %r", url, exc_info=True)
+    return _HD_BOOST_EMPTY
+
+
+templates.env.filters["hd_datetime"] = hd_datetime
+templates.env.filters["hd_date"] = hd_date
+# Registrado como global (uso `{{ hd_boost(url) }}`) y como filtro (`{{ url | hd_boost }}`).
+templates.env.globals["hd_boost"] = hd_boost
+templates.env.filters["hd_boost"] = hd_boost
+
 # ---------------------------------------------------------------------------
 # Static versioning
 # ---------------------------------------------------------------------------
@@ -125,6 +186,9 @@ ENDPOINT_MAP: dict[str, str] = {
     "pages_core.pages_mobile.mobile_switch_desktop":     "/itcj/m/switch-desktop",
     "pages_core.pages_mobile.mobile_switch_mobile":      "/itcj/m/switch-mobile",
 
+    # ── Help-Desk: Landing ──────────────────────────────────────────────────
+    "helpdesk_pages.home":                               "/help-desk/",
+
     # ── Help-Desk: Páginas de usuario ───────────────────────────────────────
     "helpdesk_pages.user_pages.create_ticket":           "/help-desk/user/create",
     "helpdesk_pages.user_pages.my_tickets":              "/help-desk/user/my-tickets",
@@ -133,8 +197,6 @@ ENDPOINT_MAP: dict[str, str] = {
     # ── Help-Desk: Dashboards por rol ────────────────────────────────────────
     "helpdesk_pages.secretary_pages.dashboard":          "/help-desk/secretary/",
     "helpdesk_pages.technician_pages.dashboard":         "/help-desk/technician/dashboard",
-    "helpdesk_pages.technician_pages.my_assignments":    "/help-desk/technician/my-assignments",
-    "helpdesk_pages.technician_pages.team":              "/help-desk/technician/team",
     "helpdesk_pages.department_pages.tickets":           "/help-desk/department/",
     "helpdesk_pages.department_pages.reports":           "/help-desk/department/reports",
 
@@ -147,6 +209,8 @@ ENDPOINT_MAP: dict[str, str] = {
     "helpdesk_pages.admin_pages.analysis":               "/help-desk/admin/analysis",
     "helpdesk_pages.admin_pages.documents":              "/help-desk/admin/documents",
     "helpdesk_pages.admin_pages.config":                 "/help-desk/admin/config",
+    "helpdesk_pages.admin_pages.inventory_categories":   "/help-desk/admin/inventory/categories",
+    "helpdesk_pages.admin_pages.inventory_reports":      "/help-desk/admin/inventory/reports",
 
     # ── Help-Desk: Almacén (Warehouse) ──────────────────────────────────────
     "helpdesk_pages.warehouse_pages.dashboard":          "/help-desk/warehouse/dashboard",
@@ -403,6 +467,22 @@ def _get_active_theme() -> dict | None:
 # ---------------------------------------------------------------------------
 
 
+def initials(name: str | None) -> str:
+    """Iniciales de 2 letras para avatares (coherencia móvil/desktop).
+
+    ``full_name`` del sistema viene "APELLIDOS ... NOMBRE(S)", así que
+    ``ultima_palabra + primera_palabra`` = nombre + apellido paterno → mismo
+    resultado que ``first_name[:1] + last_name[:1]`` del dashboard. Un solo
+    token → primeras 2 letras. Sin nombre → 'U'.
+    """
+    parts = (name or "").split()
+    if not parts:
+        return "U"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[-1][:1] + parts[0][:1]).upper()
+
+
 def render(
     request: Request,
     template: str,
@@ -433,6 +513,7 @@ def render(
         "static_version": get_settings().STATIC_VERSION,
         "url_for": _make_url_for(),
         "is_active": _make_is_active(request.url.path),
+        "initials": initials,
         "nav_for": _make_nav_for(current_user),
         "active_theme": _get_active_theme(),
         # Flash messages no existen en FastAPI; retorna lista vacía para

@@ -1,24 +1,38 @@
 /* Help-Desk - Centro de Cómputo ITCJ */
 /* Nota: Las variables y clases CSS mantienen el prefijo "sitec" por compatibilidad */
 
-/* App-level color vars (extracted from base_helpdesk.html) */
+/* Paleta (corregido 2026-07-01) - DOS ejes, no uno:
+   1) MARCA SITEC = VERDE (#059669 / #10b981): header de base_helpdesk, home_landing
+      y el gradiente .sitec-bg. Vive en los tokens legacy --app- y --sitec- (62 usos).
+      Es el look de marca que el usuario quiere conservar en verde.
+   2) PRIMARY de COMPONENTES = AZUL Bootstrap (--bs-primary): lo usan las 7 vistas de
+      tickets + inventory + warehouse ya migrados via CLASES Bootstrap (btn-primary,
+      badge bg-...), NO via estos vars. Por eso restaurar el verde aqui NO afecta esas
+      vistas. Los dos bloques :root previos se unieron en uno. Ver seccion 8.5.
+   NOTA: no escribir la secuencia de cierre-de-comentario dentro de un comentario
+   (p.ej. "app-" + "/" pegado a un asterisco) porque corta el comentario y rompe el
+   :root siguiente -> las variables quedan indefinidas y los verdes se ven blancos. */
 :root {
-    --app-primary: #059669;
-    --app-primary-dark: #047857;
-    --app-primary-light: #ecfdf5;
-}
-
-:root {
+  /* Marca SITEC = VERDE (restaurado; el barrido lo habia aliaseado a azul por error) */
+  --app-primary: #059669;
+  --app-primary-dark: #047857;
+  --app-primary-light: #ecfdf5;
   --sitec-primary: #059669;
   --sitec-secondary: #10b981;
   --sitec-accent: #0891b2;
   --sitec-danger: #dc2626;
   --sitec-warning: #f59e0b;
   --sitec-success: #10b981;
-  --sitec-light: #f1f5f9;
-  --sitec-dark: #374151;
-  --sitec-muted: #6b7280;
+  /* Neutrales (alias directo de --hd-*; mismo valor, sin cambio visual) */
+  --sitec-light: var(--hd-surface-2, #f8fafc);
+  --sitec-dark: var(--hd-dark, #374151);
+  --sitec-muted: var(--hd-muted, #6b7280);
 }
+
+/* Reserva SIEMPRE el espacio de la barra de scroll: al cambiar de tab/página
+   entre una vista con scroll y otra sin, no aparece/desaparece la barra ni se
+   recorre todo ~15px de lado. */
+html { scrollbar-gutter: stable; }
 
 body {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -65,16 +79,8 @@ body {
     }
 }
 
-/* Nav tabs scrollable wrapper */
-.nav-tabs-wrapper {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-
-.nav-tabs-wrapper::-webkit-scrollbar {
-    display: none;
-}
+/* Nav tabs scrollable wrapper — scrollbar-hide en la utilidad .hd-scrollbar-hide
+   de helpdesk-components.css (dedup; incluye .nav-tabs-wrapper y .nav-tabs). */
 
 /* Background gradient */
 .sitec-bg {
@@ -409,7 +415,9 @@ body {
 .loading-shimmer {
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200px 100%;
-  animation: shimmer 1.5s infinite;
+  /* shimmer + revelado diferido (anti-parpadeo, ver core/.../delayed-loaders.css) */
+  animation: shimmer 1.5s infinite,
+             itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
 }
 
 @keyframes shimmer {
@@ -459,7 +467,9 @@ body {
 .shimmer {
     background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    /* shimmer + revelado diferido (anti-parpadeo, ver core/.../delayed-loaders.css) */
+    animation: shimmer 1.5s infinite,
+               itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
 }
 
 @keyframes shimmer {
@@ -654,17 +664,10 @@ body {
         bottom: 1rem !important;
     }
 
-    /* Nav tabs - Scrollable on mobile */
+    /* Nav tabs - Scrollable on mobile (scrollbar-hide en .hd-scrollbar-hide utility) */
     .nav-tabs {
         flex-wrap: nowrap;
         overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-    }
-
-    .nav-tabs::-webkit-scrollbar {
-        display: none;
     }
 
     .nav-tabs .nav-link {
@@ -840,15 +843,24 @@ body {
     }
 }
 
-/* ── Compatibilidad de clases badge Bootstrap 4 → Bootstrap 5 ────────────
-   El proyecto usa BS5 pero varios módulos JS generan clases BS4
-   (badge-success, badge-warning, etc.) que BS5 no incluye.
-   ─────────────────────────────────────────────────────────────────────── */
-.badge-primary   { background-color: #4e73df; color: #fff; }
-.badge-success   { background-color: #1cc88a; color: #fff; }
-.badge-warning   { background-color: #f6c23e; color: #212529; }
-.badge-danger    { background-color: #e74a3b; color: #fff; }
-.badge-info      { background-color: #36b9cc; color: #fff; }
-.badge-secondary { background-color: #858796; color: #fff; }
-.badge-dark      { background-color: #5a5c69; color: #fff; }
-.badge-light     { background-color: #f8f9fc; color: #5a5c69; border: 1px solid #e3e6f0; }
+/* Shim BS4 .badge-* eliminado (cierre bloque E-G): inventory ya usa `badge bg-*`
+   (BS5). Grep confirmó 0 usos de badge-* sin bg- en templates/JS. */
+
+/* === Barra de progreso de navegación HTMX (hx-boost) === */
+body.hd-navigating::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    width: 100%;
+    z-index: 20000;
+    background: linear-gradient(90deg, var(--bs-primary, #0d6efd), #6ea8fe);
+    transform-origin: left;
+    animation: hd-nav-progress 1s ease-out infinite;
+}
+@keyframes hd-nav-progress {
+    0%   { transform: scaleX(0);  opacity: 1; }
+    80%  { transform: scaleX(0.9); }
+    100% { transform: scaleX(1);  opacity: 0.4; }
+}

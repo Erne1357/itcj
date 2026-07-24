@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable, Optional, Tuple, Set, Dict
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import union
+from sqlalchemy import and_, or_, func, union
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
@@ -16,6 +16,19 @@ from itcj2.core.models.user_app_perm import UserAppPerm
 from itcj2.core.models.position import Position, UserPosition, PositionAppRole, PositionAppPerm
 
 logger = logging.getLogger(__name__)
+
+
+def _active_position_filter():
+    """Cláusula canónica de puesto VIGENTE: activo y dentro de [start_date, end_date].
+
+    Reemplaza el patrón disperso ``UserPosition.is_active == True`` que ignoraba
+    end_date/start_date (permitía accesos vencidos o futuros). Ver spec §7.
+    """
+    return and_(
+        UserPosition.is_active == True,  # noqa: E712
+        or_(UserPosition.end_date.is_(None), UserPosition.end_date >= func.current_date()),
+        UserPosition.start_date <= func.current_date(),
+    )
 
 
 def _bust_user_app(user_id: int, app_key: str) -> None:
@@ -142,7 +155,7 @@ def user_roles_via_positions(db: Session, user_id: int, app_key: str) -> Set[str
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             PositionAppRole.app_id == app.id
         )
         .all()
@@ -158,7 +171,7 @@ def user_perms_via_positions_direct(db: Session, user_id: int, app_key: str) -> 
         .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             PositionAppPerm.app_id == app.id,
             PositionAppPerm.allow == True,
             Permission.app_id == app.id
@@ -177,7 +190,7 @@ def user_perms_via_position_roles(db: Session, user_id: int, app_key: str) -> Se
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             PositionAppRole.app_id == app.id,
             Permission.app_id == app.id
         )
@@ -219,7 +232,7 @@ def _get_users_with_roles_in_app(db: Session, app_key: str, role_names: list[str
             .join(Role, PositionAppRole.role_id == Role.id)
             .filter(
                 User.is_active == True,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 PositionAppRole.app_id == app.id,
                 Role.name.in_(role_names)
             )
@@ -250,7 +263,7 @@ def _get_users_with_position(db: Session, position_codes: list[str]) -> list[int
             .join(Position, UserPosition.position_id == Position.id)
             .filter(
                 User.is_active == True,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 Position.is_active == True,
                 Position.code.in_(position_codes)
             )
@@ -342,20 +355,65 @@ def perms_via_roles(db: Session, user_id: int, app_key: str, include_positions: 
 
     return perms
 
+def denied_perms_in_app(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Set[str]:
+    """Permisos EXPLÍCITAMENTE denegados (allow=False), a usuario o a sus puestos.
+
+    Un deny remueve el permiso aunque se otorgue por otra vía (rol/puesto).
+    Precedencia: deny gana (RBAC "explicit deny wins"). Ver spec org-scoped-authz §7.
+    """
+    app = get_or_404_app(db, app_key)
+
+    user_denied = (
+        db.query(Permission.code)
+        .join(UserAppPerm, UserAppPerm.perm_id == Permission.id)
+        .filter(
+            UserAppPerm.user_id == user_id,
+            UserAppPerm.app_id == app.id,
+            UserAppPerm.allow == False,  # noqa: E712
+            Permission.app_id == app.id,
+        )
+        .all()
+    )
+    denied = {r[0] for r in user_denied}
+
+    if include_positions:
+        pos_denied = (
+            db.query(Permission.code)
+            .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
+            .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
+            .filter(
+                UserPosition.user_id == user_id,
+                _active_position_filter(),
+                PositionAppPerm.app_id == app.id,
+                PositionAppPerm.allow == False,  # noqa: E712
+                Permission.app_id == app.id,
+            )
+            .all()
+        )
+        denied |= {r[0] for r in pos_denied}
+
+    return denied
+
+
 def effective_perms(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Dict[str, Iterable[str]]:
     """
-    Retorna detallado: roles, direct_perms, via_roles y union.
+    Retorna detallado: roles, direct_perms, via_roles, denied y union.
     Por defecto incluye todo lo heredado de puestos.
+
+    ``effective = (direct | via_roles) - denied`` — un deny explícito (allow=False)
+    gana sobre cualquier otorgamiento.
     """
     roles = user_roles_in_app(db, user_id, app_key, include_positions)
     direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
     via = perms_via_roles(db, user_id, app_key, include_positions)
-    effective = direct | via
+    denied = denied_perms_in_app(db, user_id, app_key, include_positions)
+    effective = (direct | via) - denied
 
     result = {
         "roles": sorted(list(roles)),
         "direct_perms": sorted(list(direct)),
         "via_roles": sorted(list(via)),
+        "denied": sorted(list(denied)),
         "effective": sorted(list(effective)),
     }
 
@@ -409,7 +467,7 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
             .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
             .filter(
                 UserPosition.user_id == user_id,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 PositionAppRole.app_id == app.id
             )
             .count() > 0
@@ -419,7 +477,7 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
             .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
             .filter(
                 UserPosition.user_id == user_id,
-                UserPosition.is_active == True,
+                _active_position_filter(),
                 PositionAppPerm.app_id == app.id,
                 PositionAppPerm.allow == True
             )
@@ -430,13 +488,26 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
 
     return False
 
+def effective_perm_set(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Set[str]:
+    """Set de permisos efectivos (hot path), SIN computar roles ni el breakdown.
+
+    ``(directos | por_rol) - denegados`` — idéntico a ``effective_perms(...)["effective"]``
+    pero evita el set de roles y las 3 queries de desglose que ``effective_perms`` calcula
+    y luego descarta. Es lo que consume ``cached_perms`` en cada request protegido.
+    """
+    direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
+    via = perms_via_roles(db, user_id, app_key, include_positions)
+    denied = denied_perms_in_app(db, user_id, app_key, include_positions)
+    return (direct | via) - denied
+
+
 def get_user_permissions_for_app(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> set[str]:
     """
     Obtiene el conjunto de todos los códigos de permiso efectivos
     para un usuario en una app específica.
     Por defecto incluye permisos heredados de puestos.
     """
-    return set(effective_perms(db, user_id, app_key, include_positions)["effective"])
+    return effective_perm_set(db, user_id, app_key, include_positions)
 
 def get_user_active_positions(db: Session, user_id: int) -> list[dict]:
     """Obtiene los puestos activos del usuario"""
@@ -445,7 +516,7 @@ def get_user_active_positions(db: Session, user_id: int) -> list[dict]:
         .join(UserPosition, UserPosition.position_id == Position.id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             Position.is_active == True
         )
         .all()
@@ -470,10 +541,97 @@ def user_has_position(db: Session, user_id: int, position_codes: list[str]) -> b
         .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_filter(),
             Position.code.in_(position_codes),
             Position.is_active == True
         )
         .count()
     )
     return count > 0
+
+
+# ---------------------------
+# Batch para la UI de config (C3 core-config-revamp, anti-429 BUG A)
+# ---------------------------
+
+def user_app_assignments_map(db: Session, user_id: int) -> Dict[str, Dict[str, list]]:
+    """{app_key: {"roles": [...], "perms": [...], "effective": [...]}} para
+    TODAS las apps activas (llaves presentes aunque vacías — 1 card por app).
+
+    Reemplaza los 3 GETs × app de user_detail. "perms" = directos allow=True;
+    "effective" = effective_perm_set (directos ∪ vía roles ∪ puestos vigentes,
+    menos denies) como lista plana (decisión F1a-D5, contrato C3).
+    """
+    out: Dict[str, Dict[str, list]] = {}
+    apps = db.query(App).filter_by(is_active=True).order_by(App.key.asc()).all()
+    for app in apps:
+        # Un solo cómputo de las piezas por app. Antes "perms" llamaba a
+        # user_direct_perms_in_app y "effective" volvía a calcularlo DENTRO de
+        # effective_perm_set (directos duplicados). Derivamos ambos del mismo
+        # trío con las MISMAS primitivas/filtros — sin drift de procedencia (C3):
+        #   perms      = directos
+        #   effective  = (directos | vía_roles) - denegados   (== effective_perm_set)
+        direct = user_direct_perms_in_app(db, user_id, app.key)
+        via = perms_via_roles(db, user_id, app.key)
+        denied = denied_perms_in_app(db, user_id, app.key)
+        out[app.key] = {
+            "roles": sorted(user_roles_in_app(db, user_id, app.key)),
+            "perms": sorted(direct),
+            "effective": sorted((direct | via) - denied),
+        }
+    return out
+
+
+def users_apps_summary(db: Session, user_ids: list[int]) -> Dict[int, list[str]]:
+    """user_id -> app keys ACTIVAS donde el usuario tiene alguna asignación:
+    rol directo ∪ perm directo allow=True ∪ rol/perm vía puesto VIGENTE
+    (_active_position_filter). Espejo de has_any_assignment (F1a-D4).
+    4 queries set-based — badges de la lista de usuarios en 1 request.
+    """
+    result: Dict[int, list[str]] = {uid: [] for uid in user_ids}
+    if not user_ids:
+        return result
+
+    pairs: Set[Tuple[int, str]] = set()
+    pairs.update(
+        db.query(UserAppRole.user_id, App.key)
+        .join(App, App.id == UserAppRole.app_id)
+        .filter(UserAppRole.user_id.in_(user_ids), App.is_active == True)  # noqa: E712
+        .all()
+    )
+    pairs.update(
+        db.query(UserAppPerm.user_id, App.key)
+        .join(App, App.id == UserAppPerm.app_id)
+        .filter(
+            UserAppPerm.user_id.in_(user_ids),
+            UserAppPerm.allow == True,  # noqa: E712
+            App.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+    pairs.update(
+        db.query(UserPosition.user_id, App.key)
+        .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
+        .join(App, App.id == PositionAppRole.app_id)
+        .filter(
+            UserPosition.user_id.in_(user_ids),
+            _active_position_filter(),
+            App.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+    pairs.update(
+        db.query(UserPosition.user_id, App.key)
+        .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
+        .join(App, App.id == PositionAppPerm.app_id)
+        .filter(
+            UserPosition.user_id.in_(user_ids),
+            _active_position_filter(),
+            PositionAppPerm.allow == True,  # noqa: E712
+            App.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+    for uid, key in pairs:
+        result[uid].append(key)
+    return {uid: sorted(keys) for uid, keys in result.items()}

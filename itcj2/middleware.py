@@ -56,6 +56,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         token = request.cookies.get("itcj_token")
         data = _decode_jwt(token)
+
+        # Revocación de sesión: si el token trae claim `sv` y no coincide con la
+        # versión vigente del usuario, está revocado (logout/desactivación/cambio de
+        # rol). Tokens viejos sin `sv` no se revisan (compat). Fail-open si Redis cae.
+        if data and "sv" in data:
+            try:
+                from itcj2.core.services.session_service import current_version
+                if int(data.get("sv", 0)) != current_version(int(data["sub"])):
+                    data = None
+            except Exception:
+                pass
+
         request.state.current_user = data
 
         # Detectar si el token necesita refresh
@@ -69,19 +81,23 @@ class JWTMiddleware(BaseHTTPMiddleware):
 
         # Refrescar cookie si es necesario (misma lógica que Flask)
         if needs_refresh and data:
-            from itcj2.core.services.authz_service import user_roles_in_app
+            from itcj2.core.models.user import User
             from itcj2.database import SessionLocal
 
-            _refresh_roles: list[str] = []
+            # El claim `role` debe conservar el ROL GLOBAL string (como en login),
+            # no la lista de roles de la app 'itcj'. Muchos checks hacen
+            # `user.get("role") == "admin"`; una lista los rompía a mitad de sesión.
+            _global_role: str | None = None
+            _user_active = False
             _db = SessionLocal()
             try:
-                _refresh_roles = list(user_roles_in_app(_db, int(data["sub"]), "itcj"))
-                # Read-only path: release implicit BEGIN explicitly so pgbouncer
-                # no deja la conexión en "idle in transaction" si la tarea es
-                # cancelada por desconexión del cliente.
+                _u = _db.get(User, int(data["sub"]))
+                if _u is not None:
+                    _user_active = bool(_u.is_active)
+                    _global_role = _u.role.name if _u.role else None
                 _db.rollback()
             except Exception as e:
-                logger.warning("JWT refresh roles query failed: %s", e)
+                logger.warning("JWT refresh user query failed: %s", e)
                 try:
                     _db.rollback()
                 except Exception:
@@ -92,16 +108,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 except Exception:
                     pass
 
-            if not _refresh_roles:
-                # Si la consulta falló, no rotamos cookie. Mejor renovar en próximo request.
+            if not _user_active:
+                # Usuario inexistente/inactivo o consulta fallida: no rotamos.
                 return response
 
+            from itcj2.core.services.session_service import current_version
             new_token = _encode_jwt(
                 {
                     "sub": data["sub"],
-                    "role": _refresh_roles,
+                    "role": _global_role,
                     "cn": data.get("cn"),
                     "name": data.get("name"),
+                    "sv": current_version(int(data["sub"])),
                 },
                 hours=_settings.JWT_EXPIRES_HOURS,
             )

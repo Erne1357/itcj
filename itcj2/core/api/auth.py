@@ -4,7 +4,7 @@ Auth API v2 - Login, logout, me.
 Comparte la misma cookie (itcj_token) con Flask para que la sesión
 sea transparente entre ambos servidores.
 """
-from fastapi import APIRouter, Response, HTTPException
+from fastapi import APIRouter, Request, Response, HTTPException
 from sqlalchemy.orm import Session
 
 from itcj2.config import get_settings
@@ -18,7 +18,7 @@ _settings = get_settings()
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, response: Response, db: DbSession):
+def login(body: LoginRequest, request: Request, response: Response, db: DbSession):
     """Autenticación por número de control (alumno) o username (staff)."""
     raw_id = body.control_number.strip()
     nip = body.nip.strip()
@@ -27,19 +27,31 @@ def login(body: LoginRequest, response: Response, db: DbSession):
         raise HTTPException(400, detail="invalid_format")
 
     from itcj2.core.services.auth_service import authenticate, authenticate_by_username
+    from itcj2.core.utils import rate_limit
+
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit: demasiados fallos por IP o por cuenta → 429 (anti fuerza bruta).
+    if not rate_limit.check_login_allowed(client_ip, raw_id):
+        raise HTTPException(429, detail="too_many_attempts")
 
     is_student = raw_id.isdigit() and len(raw_id) == 8
     user = authenticate(db, raw_id, nip) if is_student else authenticate_by_username(db, raw_id, nip)
 
     if not user:
+        rate_limit.note_login_failure(client_ip, raw_id)
         raise HTTPException(401, detail="invalid_credentials")
 
+    rate_limit.reset_login_failures(client_ip, raw_id)
+
+    from itcj2.core.services.session_service import current_version
     token = _encode_jwt(
         {
             "sub": str(user["id"]),
             "role": user["role"],
             "cn": user.get("control_number"),
             "name": user["full_name"],
+            "sv": current_version(user["id"]),
         },
         hours=_settings.JWT_EXPIRES_HOURS,
     )
@@ -78,7 +90,12 @@ def me(user: CurrentUser):
 
 @router.post("/logout", status_code=204)
 def logout(user: CurrentUser, response: Response):
-    """Cierra la sesión eliminando la cookie JWT."""
+    """Cierra la sesión: elimina la cookie y revoca todos los tokens del usuario."""
+    from itcj2.core.services.session_service import bump_version
+    try:
+        bump_version(int(user["sub"]))
+    except Exception:
+        pass
     response.delete_cookie(
         "itcj_token",
         httponly=True,

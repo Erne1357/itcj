@@ -253,7 +253,7 @@
     }
     const ok = await AppModal.confirm({
       title: "Salir sin guardar",
-      message: "Perderás los datos ingresados en esta solicitud. ¿Continuar?",
+      message: "Perderás los datos ingresados en esta solicitud. ¿Deseas continuar?",
       confirmText: "Sí, salir",
       confirmVariant: "danger",
       cancelText: "Permanecer",

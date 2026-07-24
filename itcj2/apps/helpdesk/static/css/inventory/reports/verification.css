@@ -1,68 +1,41 @@
 /* ═══════════════════════════════════════════════════════════
    Verificación de Inventario — Estilos
+   Color = clases/variables de Bootstrap (paleta azul); estructura/escala =
+   tokens --hd-*. Sin hex hardcodeado, sin estilos inline.
    ═══════════════════════════════════════════════════════════ */
+
+/* Etiqueta pequeña de las tarjetas de resumen (SB-Admin .text-xs). */
+.text-xs { font-size: 0.65rem; }
 
 /* ── Header ── */
 .verif-header {
-    background: linear-gradient(135deg, #2c6fad 0%, #1a4a7a 100%);
+    background: var(--hd-gradient-accent);
     color: #fff;
-    border-radius: .5rem;
+    border-radius: var(--hd-r-md);
     padding: 1rem 1.25rem;
 }
 
 .verif-header h1 { color: #fff; }
 .verif-header .opacity-75 { opacity: .75; }
 
-/* ── Badges de estado de verificación ── */
-.badge-verif-recent {
-    background-color: #28a745;
-    color: #fff;
-    font-size: .7rem;
-    padding: .25em .55em;
-}
+/* ── Columna de selección (checkbox) ── */
+.hd-verif-col-check { width: 40px; }
 
-.badge-verif-outdated {
-    background-color: #ffc107;
-    color: #212529;
-    font-size: .7rem;
-    padding: .25em .55em;
-}
-
-.badge-verif-critical {
-    background-color: #dc3545;
-    color: #fff;
-    font-size: .7rem;
-    padding: .25em .55em;
-}
-
-.badge-verif-never {
-    background-color: #6c757d;
-    color: #fff;
-    font-size: .7rem;
-    padding: .25em .55em;
-}
-
-/* ── Highlighting de filas en la tabla ── */
-#verif-tbody tr.row-recent  { border-left: 3px solid #28a745; }
-#verif-tbody tr.row-outdated { border-left: 3px solid #ffc107; }
-#verif-tbody tr.row-critical { border-left: 3px solid #dc3545; }
-#verif-tbody tr.row-never   { border-left: 3px solid #6c757d; }
+/* ── Highlighting de filas en la tabla (por estado de verificación) ── */
+#verif-tbody tr.row-recent   { border-left: 3px solid var(--bs-success); }
+#verif-tbody tr.row-outdated { border-left: 3px solid var(--bs-warning); }
+#verif-tbody tr.row-critical { border-left: 3px solid var(--bs-danger); }
+#verif-tbody tr.row-never    { border-left: 3px solid var(--bs-secondary); }
 
 /* ── Modal — identificación del equipo ── */
 .verif-item-header {
-    background: #f8f9fc;
-    border-radius: .4rem;
+    background: var(--hd-surface-2);
+    border-radius: var(--hd-r-md);
     padding: .6rem .9rem;
 }
 
 /* ── Alert de cambios detectados ── */
 .alert-sm { padding: .4rem .75rem; font-size: .85rem; }
-
-/* ── Spinner de carga ── */
-#loading-state { min-height: 180px; }
-
-/* ── Paginación ── */
-#pagination-controls .btn { min-width: 2rem; }
 
 /* ── Responsive helpers ── */
 @media (max-width: 576px) {

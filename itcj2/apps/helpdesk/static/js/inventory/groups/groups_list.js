@@ -1,599 +1,352 @@
 /**
- * Lista de Grupos de Equipos
- * Gestión de salones, laboratorios y agrupaciones
+ * Lista de Grupos de Equipos — migrada a componentes server-side + HTMX.
+ * El grid, los filtros y la paginación los rinde el servidor (ver
+ * _groups_list_results.html + pages/inventory.py). Este módulo conserva SOLO la
+ * lógica genuinamente de cliente: el modal Crear/Editar grupo (BS5, sin jQuery)
+ * y el ancho de las barras de ocupación (data-driven).
  */
 
-let allGroups = [];
-let allDepartments = [];
-let allCategories = [];
-let currentFilters = {};
+(function () {
+    'use strict';
 
-// Inicializar department_id: admin (canViewAll) arranca sin filtro;
-// resto pre-filtra por su propio dpto.
-const _canSeeAll = (typeof canViewAll !== 'undefined' && canViewAll === true);
-currentFilters.department_id = _canSeeAll
-    ? null
-    : ((typeof departmentId !== 'undefined' && departmentId !== null) ? departmentId : null);
+    // === MODULE STATE ===
+    // Categorías: se usan para pintar el form de capacidades del modal (dinámico
+    // por grupo). El resto de los datos (grupos/departamentos) los rinde el server.
+    let allCategories = [];
 
+    // === LISTENER TEARDOWN REFS ===
+    let _formSubmitHandler = null;
+    let _editDelegate = null;
+    let _clearHandler = null;
+    let _barsHandler = null;
 
-document.addEventListener('DOMContentLoaded', function () {
-    loadDepartments();
-    loadCategories();
-    loadGroups();
-
-    // Event listeners
-    document.getElementById('search-input').addEventListener('input', debounce(applyFilters, 500));
-    document.getElementById('type-filter').addEventListener('change', applyFilters);
-
-    const deptFilter = document.getElementById('department-filter');
-    if (deptFilter) {
-        deptFilter.addEventListener('change', applyFilters);
+    // === HELPERS ===
+    function escapeHtml(text) {
+        if (!text) return '';
+        return String(text).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
     }
 
-    // Form submit
-    document.getElementById('group-form').addEventListener('submit', handleSubmit);
-});
-
-// ==================== CARGAR DATOS ====================
-async function loadGroups() {
-    showLoading();
-
-    try {
-        const params = new URLSearchParams();
-
-        if (currentFilters.search) params.append('search', currentFilters.search);
-        if (currentFilters.type) params.append('type', currentFilters.type);
-        if (currentFilters.department_id) params.append('department_id', currentFilters.department_id);
-
-        const canSeeAll = (typeof canViewAll !== 'undefined' && canViewAll === true);
-        let url;
-        if (canSeeAll) {
-            const qs = params.toString();
-            url = qs ? `/api/help-desk/v2/inventory/groups?${qs}` : '/api/help-desk/v2/inventory/groups';
-        } else {
-            if (!currentFilters.department_id) {
-                allGroups = [];
-                renderGroups(allGroups);
-                hideLoading();
-                return;
-            }
-            url = `/api/help-desk/v2/inventory/groups/department/${currentFilters.department_id}`;
-        }
-
-        const response = await fetch(url, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            const msg = (errorData.detail && errorData.detail.error) || errorData.error || errorData.message || `HTTP ${response.status}`;
-            throw new Error(msg);
-        }
-
-        const result = await response.json();
-        allGroups = result.data || [];
-
-        renderGroups(allGroups);
-        hideLoading();
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los grupos: ${errorMessage}`);
-        hideLoading();
-    }
-}
-
-async function loadDepartments() {
-    try {
-        const response = await fetch('/api/core/v2/departments?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar departamentos');
-        }
-
-        const result = await response.json();
-        allDepartments = result.data;
-
-        // Llenar filtro
-        const deptFilter = document.getElementById('department-filter');
-        if (deptFilter) {
-            deptFilter.innerHTML = '<option value="">Todos los departamentos</option>';
-            allDepartments.forEach(dept => {
-                const option = document.createElement('option');
-                option.value = dept.id;
-                option.textContent = dept.name;
-                deptFilter.appendChild(option);
-            });
-            if (currentFilters.department_id) {
-                deptFilter.value = String(currentFilters.department_id);
-            }
-        }
-
-        // Llenar select del modal
-        const modalSelect = document.getElementById('group-department');
-        modalSelect.innerHTML = '<option value="">Seleccionar...</option>';
-        allDepartments.forEach(dept => {
-            const option = document.createElement('option');
-            option.value = dept.id;
-            option.textContent = dept.name;
-            modalSelect.appendChild(option);
-        });
-
-    } catch (error) {
-        console.error('Error cargando departamentos:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar los departamentos: ${errorMessage}`);
-    }
-}
-
-async function loadCategories() {
-    try {
-        const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar categorías');
-        }
-
-        const result = await response.json();
-        allCategories = result.data;
-
-    } catch (error) {
-        console.error('Error cargando categorías:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudieron cargar las categorías: ${errorMessage}`);
-    }
-}
-
-// ==================== RENDERIZADO ====================
-function renderGroups(groups) {
-    const container = document.getElementById('groups-container');
-
-    if (groups.length === 0) {
-        container.style.display = 'none';
-        document.getElementById('empty-state').style.display = 'block';
-        return;
+    function getGroupModal() {
+        return bootstrap.Modal.getOrCreateInstance(document.getElementById('groupModal'));
     }
 
-    container.style.display = 'flex';
-    document.getElementById('empty-state').style.display = 'none';
-
-    container.innerHTML = groups.map(group => {
-        const typeInfo = getGroupTypeInfo(group.group_type);
-        const occupancy = calculateOccupancy(group);
-        const occupancyClass = getOccupancyClass(occupancy.percentage);
-
-        return `
-            <div class="col-md-6 col-lg-4 mb-4">
-                <div class="card shadow group-card h-100" onclick="goToGroupDetail(${group.id})">
-                    <div class="card-body">
-                        <!-- Header -->
-                        <div class="d-flex justify-content-between align-items-start mb-3">
-                            <div>
-                                <h5 class="card-title mb-1">
-                                    <i class="${typeInfo.icon} text-primary mr-2"></i>
-                                    ${group.name}
-                                </h5>
-                                <small class="text-muted">
-                                    <i class="fas fa-building mr-1"></i>
-                                    ${group.department?.name || 'Sin departamento'}
-                                </small>
-                            </div>
-                            <span class="badge bg-${typeInfo.color} text-white">
-                                ${typeInfo.label}
-                            </span>
-                        </div>
-
-                        <!-- Descripción -->
-                        ${group.description ? `
-                            <p class="card-text text-muted small mb-3">
-                                ${group.description}
-                            </p>
-                        ` : ''}
-
-                        <!-- Ubicación -->
-                        ${group.building || group.floor ? `
-                            <div class="mb-3">
-                                <small class="text-muted">
-                                    <i class="fas fa-map-marker-alt mr-1"></i>
-                                    ${group.building ? `Edificio ${group.building}` : ''}
-                                    ${group.floor ? ` - Piso ${group.floor}` : ''}
-                                </small>
-                            </div>
-                        ` : ''}
-
-                        <!-- Estadísticas -->
-                        <div class="group-stats">
-                            <div class="group-stat">
-                                <div class="group-stat-value">${occupancy.current}</div>
-                                <div class="group-stat-label">Equipos</div>
-                            </div>
-                            <div class="group-stat">
-                                <div class="group-stat-value">${occupancy.total}</div>
-                                <div class="group-stat-label">Capacidad</div>
-                            </div>
-                            <div class="group-stat">
-                                <div class="group-stat-value ${occupancyClass}">
-                                    ${occupancy.percentage}%
-                                </div>
-                                <div class="group-stat-label">Ocupación</div>
-                            </div>
-                        </div>
-
-                        <!-- Barra de ocupación -->
-                        <div class="progress" style="height: 6px;">
-                            <div 
-                                class="progress-bar bg-${occupancyClass === 'text-success' ? 'success' : occupancyClass === 'text-warning' ? 'warning' : 'danger'}" 
-                                style="width: ${occupancy.percentage}%"
-                            ></div>
-                        </div>
-
-                        <!-- Capacidades por categoría -->
-                        ${group.capacities && group.capacities.length > 0 ? `
-                            <div class="mt-3">
-                                <small class="text-muted d-block mb-2">Capacidades:</small>
-                                <div class="d-flex flex-wrap gap-1">
-                                    ${group.capacities.slice(0, 3).map(cap => {
-            const cat = allCategories.find(c => c.id === cap.category_id);
-            return `
-                                            <span class="capacity-badge badge bg-light text-dark">
-                                                <i class="${cat?.icon || 'fas fa-box'} mr-1"></i>
-                                                ${cat?.name || 'N/A'}: ${cap.current_count}/${cap.max_capacity}
-                                            </span>
-                                        `;
-        }).join('')}
-                                    ${group.capacities.length > 3 ? `
-                                        <span class="capacity-badge badge bg-secondary text-white">
-                                            +${group.capacities.length - 3} más
-                                        </span>
-                                    ` : ''}
-                                </div>
-                            </div>
-                        ` : ''}
-                    </div>
-
-                    <!-- Footer con acciones -->
-                    <div class="card-footer bg-transparent border-top-0">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <small class="text-muted">
-                                <i class="fas fa-calendar mr-1"></i>
-                                ${formatDate(group.created_at)}
-                            </small>
-                            <div class="btn-group btn-group-sm" onclick="event.stopPropagation()">
-                                <button 
-                                    class="btn btn-sm btn-outline-primary" 
-                                    onclick="goToGroupDetail(${group.id})"
-                                    title="Ver detalle"
-                                >
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button 
-                                    class="btn btn-sm btn-outline-secondary" 
-                                    onclick="openEditGroupModal(${group.id})"
-                                    title="Editar"
-                                >
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// ==================== FILTROS ====================
-function applyFilters() {
-    currentFilters = {
-        search: document.getElementById('search-input').value.trim() || null,
-        type: document.getElementById('type-filter').value || null
-    };
-
-    const deptFilter = document.getElementById('department-filter');
-    if (deptFilter) {
-        currentFilters.department_id = deptFilter.value || null;
-    }
-
-    loadGroups();
-}
-
-// ==================== MODAL CREATE/EDIT ====================
-function openCreateGroupModal() {
-    resetGroupForm();
-    document.getElementById('modal-title').textContent = 'Crear Grupo';
-    document.getElementById('group-id').value = '';
-
-    // Renderizar capacidades vacías
-    renderCapacitiesForm();
-
-    $('#groupModal').modal('show');
-}
-
-async function openEditGroupModal(groupId) {
-    try {
-        const response = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || errorData.message || 'Error al cargar grupo');
-        }
-
-        const result = await response.json();
-        const group = result.data;
-
-        // Llenar formulario
-        document.getElementById('modal-title').textContent = 'Editar Grupo';
-        document.getElementById('group-id').value = group.id;
-        document.getElementById('group-name').value = group.name;
-        document.getElementById('group-type').value = group.group_type || '';
-        document.getElementById('group-department').value = group.department_id;
-        document.getElementById('group-description').value = group.description || '';
-        document.getElementById('group-building').value = group.building || '';
-        document.getElementById('group-floor').value = group.floor || '';
-        document.getElementById('group-location-notes').value = group.location_notes || '';
-
-        // Renderizar capacidades con datos existentes
-        renderCapacitiesForm(group.capacities);
-
-        $('#groupModal').modal('show');
-
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`No se pudo cargar el grupo: ${errorMessage}`);
-    }
-}
-
-function resetGroupForm() {
-    document.getElementById('group-form').reset();
-    document.getElementById('group-id').value = '';
-}
-
-function renderCapacitiesForm(existingCapacities = []) {
-    const container = document.getElementById('capacities-container');
-
-    if (allCategories.length === 0) {
-        container.innerHTML = '<p class="text-muted">Cargando categorías...</p>';
-        return;
-    }
-
-    container.innerHTML = allCategories.map(category => {
-        const existing = existingCapacities.find(c => c.category_id === category.id);
-        const maxCapacity = existing?.max_capacity || '';
-
-        return `
-            <div class="form-row align-items-center mb-2">
-                <div class="col-md-6">
-                    <label class="mb-0">
-                        <i class="${category.icon || 'fas fa-box'} mr-1"></i>
-                        ${category.name}
-                    </label>
-                </div>
-                <div class="col-md-4">
-                    <input 
-                        type="number" 
-                        class="form-control form-control-sm" 
-                        name="capacity_${category.id}" 
-                        placeholder="Capacidad máxima"
-                        min="0"
-                        value="${maxCapacity}"
-                    >
-                </div>
-                <div class="col-md-2">
-                    ${existing ? `
-                        <small class="text-muted">
-                            Actual: ${existing.current_count}
-                        </small>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// ==================== SUBMIT ====================
-async function handleSubmit(e) {
-    e.preventDefault();
-
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
-
-    try {
-        const formData = collectGroupFormData();
-
-        if (!validateGroupData(formData)) {
-            throw new Error('Complete todos los campos requeridos');
-        }
-
-        const groupId = document.getElementById('group-id').value;
-        const isEdit = !!groupId;
-
-        const authHeaders = {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            'Content-Type': 'application/json',
-        };
-
-        if (isEdit) {
-            // Edit: primero campos básicos (incluido department_id), después capacidades.
-            const { capacities, ...basic } = formData;
-
-            const resBasic = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}`, {
-                method: 'PUT',
-                headers: authHeaders,
-                body: JSON.stringify(basic),
-            });
-            if (!resBasic.ok) {
-                const err = await resBasic.json().catch(() => ({}));
-                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al actualizar grupo');
-            }
-
-            const resCap = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}/capacities`, {
-                method: 'PUT',
-                headers: authHeaders,
-                body: JSON.stringify({ capacities: capacities || [] }),
-            });
-            if (!resCap.ok) {
-                const err = await resCap.json().catch(() => ({}));
-                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al actualizar capacidades');
-            }
-        } else {
-            const response = await fetch('/api/help-desk/v2/inventory/groups', {
-                method: 'POST',
-                headers: authHeaders,
-                body: JSON.stringify(formData),
+    // ==================== CARGAR DATOS ====================
+    async function loadCategories() {
+        try {
+            const response = await fetch('/api/help-desk/v2/inventory/categories?active=true', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
             });
             if (!response.ok) {
                 const err = await response.json().catch(() => ({}));
-                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al crear grupo');
+                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al cargar categorías');
             }
+            const result = await response.json();
+            allCategories = result.data || [];
+        } catch (error) {
+            console.error('Error cargando categorías:', error);
+            showError(`No se pudieron cargar las categorías: ${error.message || 'Error desconocido'}`);
+        }
+    }
+
+    // ==================== MODAL CREATE/EDIT ====================
+    function openCreateGroupModal() {
+        resetGroupForm();
+        document.getElementById('modal-title').textContent = 'Crear Grupo';
+        document.getElementById('group-id').value = '';
+        renderCapacitiesForm();
+        getGroupModal().show();
+    }
+
+    async function openEditGroupModal(groupId) {
+        try {
+            const response = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al cargar grupo');
+            }
+
+            const result = await response.json();
+            const group = result.data;
+
+            document.getElementById('modal-title').textContent = 'Editar Grupo';
+            document.getElementById('group-id').value = group.id;
+            document.getElementById('group-name').value = group.name || '';
+            document.getElementById('group-type').value = group.group_type || '';
+            document.getElementById('group-department').value = group.department_id || '';
+            document.getElementById('group-description').value = group.description || '';
+            document.getElementById('group-building').value = group.building || '';
+            document.getElementById('group-floor').value = group.floor || '';
+            document.getElementById('group-location-notes').value = group.location_notes || '';
+
+            renderCapacitiesForm(group.capacities || []);
+
+            getGroupModal().show();
+        } catch (error) {
+            console.error('Error:', error);
+            showError(`No se pudo cargar el grupo: ${error.message || 'Error desconocido'}`);
+        }
+    }
+
+    function resetGroupForm() {
+        document.getElementById('group-form').reset();
+        document.getElementById('group-id').value = '';
+    }
+
+    function renderCapacitiesForm(existingCapacities = []) {
+        const container = document.getElementById('capacities-container');
+
+        if (allCategories.length === 0) {
+            container.innerHTML = '<p class="text-muted">Cargando categorías...</p>';
+            return;
         }
 
-        $('#groupModal').modal('hide');
-        showSuccess(isEdit ? 'Grupo actualizado' : 'Grupo creado exitosamente');
-        loadGroups(); // Recargar lista
+        container.innerHTML = allCategories.map(category => {
+            const existing = existingCapacities.find(c => c.category_id === category.id);
+            const maxCapacity = existing?.max_capacity || '';
+            const icon = escapeHtml(category.icon || 'fas fa-box');
 
-    } catch (error) {
-        console.error('Error:', error);
-        const errorMessage = error.message || 'Error desconocido';
-        showError(`Error al guardar grupo: ${errorMessage}`);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-save"></i> Guardar Grupo';
+            return `
+            <div class="row g-2 align-items-center mb-2">
+                <div class="col-md-6">
+                    <label class="mb-0">
+                        <i class="${icon} me-1"></i>
+                        ${escapeHtml(category.name || '')}
+                    </label>
+                </div>
+                <div class="col-md-4">
+                    <input
+                        type="number"
+                        class="form-control form-control-sm"
+                        name="capacity_${category.id}"
+                        placeholder="Capacidad máxima"
+                        min="0"
+                        value="${escapeHtml(String(maxCapacity))}"
+                    >
+                </div>
+                <div class="col-md-2">
+                    ${existing ? `<small class="text-muted">Actual: ${existing.current_count}</small>` : ''}
+                </div>
+            </div>
+        `;
+        }).join('');
     }
-}
 
-function collectGroupFormData() {
-    const form = document.getElementById('group-form');
+    // ==================== SUBMIT ====================
+    async function handleSubmit(e) {
+        e.preventDefault();
 
-    const data = {
-        name: form.querySelector('#group-name').value.trim(),
-        group_type: form.querySelector('#group-type').value,
-        department_id: parseInt(form.querySelector('#group-department').value),
-        description: form.querySelector('#group-description').value.trim() || null,
-        building: form.querySelector('#group-building').value.trim() || null,
-        floor: form.querySelector('#group-floor').value.trim() || null,
-        location_notes: form.querySelector('#group-location-notes').value.trim() || null
-    };
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
 
-    // Capacidades: backend espera lista [{category_id, max_capacity}]
-    const capacities = [];
-    allCategories.forEach(cat => {
-        const input = form.querySelector(`[name="capacity_${cat.id}"]`);
-        if (input && input.value) {
-            const value = parseInt(input.value);
-            if (value > 0) {
-                capacities.push({ category_id: cat.id, max_capacity: value });
+        try {
+            const formData = collectGroupFormData();
+
+            if (!validateGroupData(formData)) {
+                throw new Error('Complete todos los campos requeridos');
             }
+
+            const groupId = document.getElementById('group-id').value;
+            const isEdit = !!groupId;
+
+            const authHeaders = {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+                'Content-Type': 'application/json',
+            };
+
+            if (isEdit) {
+                // Edit: primero campos básicos (incluido department_id), después capacidades.
+                const { capacities, ...basic } = formData;
+
+                const resBasic = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}`, {
+                    method: 'PUT',
+                    headers: authHeaders,
+                    body: JSON.stringify(basic),
+                });
+                if (!resBasic.ok) {
+                    const err = await resBasic.json().catch(() => ({}));
+                    throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al actualizar grupo');
+                }
+
+                const resCap = await fetch(`/api/help-desk/v2/inventory/groups/${groupId}/capacities`, {
+                    method: 'PUT',
+                    headers: authHeaders,
+                    body: JSON.stringify({ capacities: capacities || [] }),
+                });
+                if (!resCap.ok) {
+                    const err = await resCap.json().catch(() => ({}));
+                    throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al actualizar capacidades');
+                }
+            } else {
+                const response = await fetch('/api/help-desk/v2/inventory/groups', {
+                    method: 'POST',
+                    headers: authHeaders,
+                    body: JSON.stringify(formData),
+                });
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error((err.detail && err.detail.error) || err.error || err.message || 'Error al crear grupo');
+                }
+            }
+
+            getGroupModal().hide();
+            showSuccess(isEdit ? 'Grupo actualizado' : 'Grupo creado exitosamente');
+            refreshList(); // recarga el fragmento server-side vía HTMX
+
+        } catch (error) {
+            console.error('Error:', error);
+            showError(`Error al guardar grupo: ${error.message || 'Error desconocido'}`);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> Guardar Grupo';
+        }
+    }
+
+    function collectGroupFormData() {
+        const form = document.getElementById('group-form');
+
+        const data = {
+            name: form.querySelector('#group-name').value.trim(),
+            group_type: form.querySelector('#group-type').value,
+            department_id: parseInt(form.querySelector('#group-department').value),
+            description: form.querySelector('#group-description').value.trim() || null,
+            building: form.querySelector('#group-building').value.trim() || null,
+            floor: form.querySelector('#group-floor').value.trim() || null,
+            location_notes: form.querySelector('#group-location-notes').value.trim() || null
+        };
+
+        // Capacidades: backend espera lista [{category_id, max_capacity}]
+        const capacities = [];
+        allCategories.forEach(cat => {
+            const input = form.querySelector(`[name="capacity_${cat.id}"]`);
+            if (input && input.value) {
+                const value = parseInt(input.value);
+                if (value > 0) {
+                    capacities.push({ category_id: cat.id, max_capacity: value });
+                }
+            }
+        });
+        data.capacities = capacities;
+
+        return data;
+    }
+
+    function validateGroupData(data) {
+        if (!data.name) {
+            showError('El nombre es requerido');
+            return false;
+        }
+        if (!data.group_type) {
+            showError('El tipo es requerido');
+            return false;
+        }
+        if (!data.department_id || Number.isNaN(data.department_id)) {
+            showError('El departamento es requerido');
+            return false;
+        }
+        return true;
+    }
+
+    // ==================== FILTROS (HTMX) ====================
+    function refreshList() {
+        const form = document.getElementById('hd-filter-form');
+        if (form && window.htmx) window.htmx.trigger(form, 'refresh');
+    }
+
+    function bindClearButton() {
+        const btn = document.getElementById('btnClearFilters');
+        const form = document.getElementById('hd-filter-form');
+        if (!btn || !form) return;
+        _clearHandler = function () {
+            form.querySelectorAll('select').forEach((s) => { s.value = ''; });
+            const search = document.getElementById('searchInput');
+            if (search) search.value = '';
+            refreshList();
+        };
+        btn.addEventListener('click', _clearHandler);
+    }
+
+    // Aplica el ancho (data-driven) a las barras de ocupación del grid. Se re-aplica
+    // tras cada swap HTMX (filtro/paginación) porque el fragmento se re-renderiza.
+    function applyOccupancyBars() {
+        document.querySelectorAll('#hd-groups-results [data-hd-width]').forEach((bar) => {
+            const w = parseInt(bar.getAttribute('data-hd-width'), 10) || 0;
+            bar.style.width = Math.max(0, Math.min(100, w)) + '%';
+        });
+    }
+
+    // ==================== HELPERS UI ====================
+    function showSuccess(message) { showToast(message, 'success'); }
+    function showError(message) { showToast(message, 'error'); }
+
+    // ==================== HTMX PAGE LIFECYCLE ====================
+    window.HelpdeskPage.page('inventory_groups_groups_list', {
+        init() {
+            allCategories = [];
+            loadCategories();
+            applyOccupancyBars();
+
+            const formEl = document.getElementById('group-form');
+            if (formEl) {
+                _formSubmitHandler = handleSubmit;
+                formEl.addEventListener('submit', _formSubmitHandler);
+            }
+
+            // Botones Editar (server-rendered en cada tarjeta) → delegación en el
+            // contenedor de resultados (sobrevive a los swaps HTMX del fragmento).
+            const results = document.getElementById('hd-groups-results');
+            _editDelegate = function (e) {
+                const btn = e.target.closest('[data-action="edit-group"]');
+                if (!btn) return;
+                e.preventDefault();
+                openEditGroupModal(parseInt(btn.dataset.groupId, 10));
+            };
+            if (results) results.addEventListener('click', _editDelegate);
+
+            // Re-aplicar anchos de barras tras cada settle HTMX (filtro/paginación).
+            _barsHandler = function () { applyOccupancyBars(); };
+            document.body.addEventListener('htmx:afterSettle', _barsHandler);
+
+            bindClearButton();
+
+            // Expuestas para los onclick del template (crear grupo).
+            window.openCreateGroupModal = openCreateGroupModal;
+            window.openEditGroupModal = openEditGroupModal;
+
+            // Si se llegó con ?edit=ID (desde el botón "Editar" del detalle), abrir el modal.
+            try {
+                const editId = new URLSearchParams(window.location.search).get('edit');
+                if (editId) openEditGroupModal(parseInt(editId, 10));
+            } catch (_) { /* noop */ }
+        },
+
+        destroy() {
+            const formEl = document.getElementById('group-form');
+            if (formEl && _formSubmitHandler) formEl.removeEventListener('submit', _formSubmitHandler);
+
+            const results = document.getElementById('hd-groups-results');
+            if (results && _editDelegate) results.removeEventListener('click', _editDelegate);
+
+            if (_barsHandler) document.body.removeEventListener('htmx:afterSettle', _barsHandler);
+
+            const btn = document.getElementById('btnClearFilters');
+            if (btn && _clearHandler) btn.removeEventListener('click', _clearHandler);
+
+            const modalEl = document.getElementById('groupModal');
+            if (modalEl) {
+                try { bootstrap.Modal.getInstance(modalEl)?.dispose(); } catch (_) { /* ignore */ }
+            }
+
+            delete window.openCreateGroupModal;
+            delete window.openEditGroupModal;
+
+            allCategories = [];
+            _formSubmitHandler = null;
+            _editDelegate = null;
+            _clearHandler = null;
+            _barsHandler = null;
         }
     });
-    data.capacities = capacities;
-
-    return data;
-}
-
-function validateGroupData(data) {
-    if (!data.name) {
-        showError('El nombre es requerido');
-        return false;
-    }
-
-    if (!data.group_type) {
-        showError('El tipo es requerido');
-        return false;
-    }
-
-    if (!data.department_id || Number.isNaN(data.department_id)) {
-        showError('El departamento es requerido');
-        return false;
-    }
-
-    return true;
-}
-
-// ==================== NAVEGACIÓN ====================
-function goToGroupDetail(groupId) {
-    window.location.href = `/help-desk/inventory/groups/${groupId}`;
-}
-
-// ==================== HELPERS ====================
-function getGroupTypeInfo(type) {
-    const types = {
-        'CLASSROOM': { icon: 'fas fa-chalkboard-teacher', label: 'Salón', color: 'primary' },
-        'LABORATORY': { icon: 'fas fa-flask', label: 'Laboratorio', color: 'success' },
-        'OFFICE': { icon: 'fas fa-briefcase', label: 'Oficina', color: 'info' },
-        'MEETING_ROOM': { icon: 'fas fa-users', label: 'Sala de Reuniones', color: 'warning' },
-        'WORKSHOP': { icon: 'fas fa-tools', label: 'Taller', color: 'danger' },
-        'OTHER': { icon: 'fas fa-folder', label: 'Otro', color: 'secondary' }
-    };
-    return types[type] || types['OTHER'];
-}
-
-function calculateOccupancy(group) {
-    if (!group.capacities || group.capacities.length === 0) {
-        return { current: 0, total: 0, percentage: 0 };
-    }
-
-    const current = group.capacities.reduce((sum, cap) => sum + (cap.current_count || 0), 0);
-    const total = group.capacities.reduce((sum, cap) => sum + (cap.max_capacity || 0), 0);
-    const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
-
-    return { current, total, percentage };
-}
-
-function getOccupancyClass(percentage) {
-    if (percentage <= 50) return 'text-success';
-    if (percentage <= 80) return 'text-warning';
-    return 'text-danger';
-}
-
-function formatDate(dateString) {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-MX', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-    });
-}
-
-function showLoading() {
-    document.getElementById('loading-container').style.display = 'block';
-    document.getElementById('groups-container').style.display = 'none';
-    document.getElementById('empty-state').style.display = 'none';
-}
-
-function hideLoading() {
-    document.getElementById('loading-container').style.display = 'none';
-}
-
-function showSuccess(message) {
-    showToast(message, 'success');
-}
-
-function showError(message) {
-    showToast(message, 'error');
-}
-
-function debounce(func, wait) {
-    let timeout;
-    return function (...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
+})();

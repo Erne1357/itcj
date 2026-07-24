@@ -318,6 +318,7 @@ def list_tickets(
     assigned_to_team: str = None,
     created_by_me: bool = False,
     department_id: int = None,
+    department_ids: set = None,
     search: str = None,
     page: int = 1,
     per_page: int = 20,
@@ -336,19 +337,26 @@ def list_tickets(
         pass
     elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
         pass
-    elif 'department_head' in user_roles:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=user_id,
-            is_active=True
-        ).first()
-
-        if user_position and user_position.position:
-            query = query.filter(Ticket.requester_department_id == user_position.position.department_id)
-        else:
-            query = query.filter(Ticket.id == -1)
     else:
-        query = query.filter(Ticket.requester_id == user_id)
+        # Scope departamental/subárbol: jefe de depto (su depto) + cualquiera que
+        # tenga helpdesk.tickets.api.read.subtree (su depto + sub-departamentos, por
+        # procedencia). Aditivo: sin .subtree, el jefe de depto ve su depto como antes.
+        from itcj2.core.services.departments_service import get_primary_user_department
+        from itcj2.core.services.scope_service import subtree_scope_for
+
+        dept_ids: set[int] = set()
+        if 'department_head' in user_roles:
+            _dept = get_primary_user_department(db, user_id)
+            if _dept:
+                dept_ids.add(_dept.id)
+        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+
+        if dept_ids:
+            query = query.filter(Ticket.requester_department_id.in_(dept_ids))
+        elif 'department_head' in user_roles:
+            query = query.filter(Ticket.id == -1)   # jefe sin depto resuelto → nada
+        else:
+            query = query.filter(Ticket.requester_id == user_id)   # dueño
 
     if status:
         if isinstance(status, list):
@@ -377,8 +385,17 @@ def list_tickets(
     if created_by_me:
         query = query.filter(Ticket.requester_id == user_id)
 
-    if department_id:
-        query = query.filter(Ticket.requester_department_id == department_id)
+    if department_ids is not None:
+        # Conjunto explícito de departamentos (el caller ya resolvió el ámbito:
+        # propio / subárbol / solo sub-departamentos). Vacío → 0 resultados.
+        query = query.filter(Ticket.requester_department_id.in_(department_ids or {-1}))
+    elif department_id:
+        # Filtro por departamento = su SUBÁRBOL (depto + sub-departamentos), coherente
+        # con el scope jerárquico. Un depto sin hijos = sólo él (comportamiento previo).
+        from itcj2.core.services.hierarchy_service import descendant_department_ids
+        query = query.filter(
+            Ticket.requester_department_id.in_(descendant_department_ids(db, department_id, include_self=True))
+        )
 
     if search:
         search_term = f"%{search}%"
@@ -403,6 +420,46 @@ def list_tickets(
         'has_next': pagination.has_next,
         'has_prev': pagination.has_prev
     }
+
+
+# Buckets de estatus para el resumen por divisiones (jefe/director).
+_SUMMARY_ACTIVE = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
+_SUMMARY_RESOLVED = ('RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED')
+
+
+def subtree_department_summary(db: Session, root_department_id: int) -> list[dict]:
+    """Árbol de divisiones del subárbol de ``root_department_id`` con conteos de
+    tickets por departamento (total / activos / resueltos) + rollup de subtree.
+
+    Incluye TODAS las divisiones del subárbol (aunque tengan 0 tickets) en orden
+    jerárquico. Para el resumen del dashboard del jefe/director: el root ve el
+    total de su área y puede desplegar las divisiones internas.
+    """
+    from sqlalchemy import func
+    from itcj2.core.services.hierarchy_service import subtree_nodes, build_dept_forest
+
+    nodes = subtree_nodes(db, root_department_id)
+    if not nodes:
+        return []
+
+    dept_ids = [n["id"] for n in nodes]
+    rows = (
+        db.query(Ticket.requester_department_id, Ticket.status, func.count(Ticket.id))
+        .filter(Ticket.requester_department_id.in_(dept_ids))
+        .group_by(Ticket.requester_department_id, Ticket.status)
+        .all()
+    )
+
+    counts: dict[int, dict] = {}
+    for dept_id, status, n in rows:
+        c = counts.setdefault(dept_id, {"total": 0, "active": 0, "resolved": 0})
+        c["total"] += n
+        if status in _SUMMARY_ACTIVE:
+            c["active"] += n
+        elif status in _SUMMARY_RESOLVED:
+            c["resolved"] += n
+
+    return build_dept_forest(nodes, counts)
 
 
 # ==================== CAMBIAR ESTADO ====================
@@ -719,16 +776,19 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     if ticket.assigned_to_user_id == user_id:
         return True
 
-    if 'department_head' in user_roles:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=user_id,
-            is_active=True
-        ).first()
+    # Scope departamental/subárbol (debe seguir en sync con list_tickets).
+    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.scope_service import subtree_scope_for
 
-        if user_position and user_position.position:
-            if ticket.requester_department_id == user_position.position.department_id:
-                return True
+    dept_ids: set[int] = set()
+    if 'department_head' in user_roles:
+        _dept = get_primary_user_department(db, user_id)
+        if _dept:
+            dept_ids.add(_dept.id)
+    dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+
+    if ticket.requester_department_id in dept_ids:
+        return True
 
     return False
 

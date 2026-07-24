@@ -21,21 +21,15 @@ logger = logging.getLogger(__name__)
 
 def _get_user_department_id(db, user_id: int):
     """
-    Retorna el department_id del puesto activo del usuario, o None si no tiene puesto.
-    """
-    from itcj2.core.models.position import UserPosition, Position
+    Retorna el department_id primario del usuario, o None si no tiene puesto vigente.
 
-    row = (
-        db.query(Position.department_id)
-        .join(UserPosition, UserPosition.position_id == Position.id)
-        .filter(
-            UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
-            Position.is_active == True,
-        )
-        .first()
-    )
-    return row[0] if row else None
+    Delega en el resolver canónico (departments_service.get_primary_user_department)
+    para no divergir del resto del sistema (antes usaba .first() sin orden ni ventana).
+    """
+    from itcj2.core.services.departments_service import get_primary_user_department
+
+    dept = get_primary_user_department(db, user_id)
+    return dept.id if dept else None
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────

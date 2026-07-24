@@ -1,7 +1,7 @@
 :root {
-    --app-primary: #6366f1;
-    --app-primary-dark: #4f46e5;
-    --app-primary-light: #eef2ff;
+    --app-primary: var(--config-primary);
+    --app-primary-dark: var(--config-primary-hover);
+    --app-primary-light: #e7f1ff;
 }
 
 /* Header móvil con flecha de regreso (solo en iframe) */
@@ -12,7 +12,7 @@
     left: 0;
     right: 0;
     height: 56px;
-    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    background: linear-gradient(135deg, var(--app-primary) 0%, var(--app-primary-dark) 100%);
     z-index: 1050;
     align-items: center;
     padding: 0 12px;
