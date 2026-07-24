@@ -293,14 +293,23 @@ class MobileApp {
                 return;
             }
 
-            list.innerHTML = notifications.map(n => `
-                <div class="mobile-notification-item ${n.read_at ? '' : 'unread'}" 
-                     data-id="${n.id}" data-url="${n.action_url || ''}">
-                    <div class="mobile-notification-title">${this.escapeHtml(n.title)}</div>
-                    <div class="mobile-notification-body">${this.escapeHtml(n.body || '')}</div>
-                    <div class="mobile-notification-time">${this.formatDate(n.created_at)}</div>
-                </div>
-            `).join('');
+            list.innerHTML = notifications.map(n => {
+                const unread = !n.is_read;
+                const url = n.action_url || '';
+                const color = n.app_color_hex || '#6c757d';
+                const icon = n.app_icon || 'bi-bell';
+                return `
+                <div class="mobile-notification-item ${unread ? 'unread' : ''} ${url ? 'clickable' : ''}"
+                     data-id="${n.id}" data-url="${this.escapeHtml(url)}" style="--notif-color:${color}">
+                    <div class="mobile-notification-icon"><i class="bi ${icon}"></i></div>
+                    <div class="mobile-notification-content">
+                        <div class="mobile-notification-title">${this.escapeHtml(n.title)}</div>
+                        <div class="mobile-notification-body">${this.escapeHtml(n.body || '')}</div>
+                        <div class="mobile-notification-time">${this.formatDate(n.created_at)}${url ? ' <i class="bi bi-box-arrow-up-right"></i>' : ''}</div>
+                    </div>
+                    ${unread ? '<span class="mobile-notification-dot"></span>' : ''}
+                </div>`;
+            }).join('');
 
             // Bind click events
             list.querySelectorAll('.mobile-notification-item').forEach(item => {

@@ -145,29 +145,18 @@ class MobileNotifications {
      */
     renderNotification(n) {
         const isUnread = !n.is_read;
-        const icon = this.getAppIcon(n.app_key);
+        // La API ya provee ícono y color por app (to_dict); si no, fallback local.
+        const icon = n.app_icon || this.getAppIcon(n.app_name);
+        const color = n.app_color_hex || '#6c757d';
         const time = this.formatTime(n.created_at);
-        
-        // Extraer URL del data si existe
-        let dataUrl = '';
-        let dataJson = '';
-        if (n.data) {
-            try {
-                const data = typeof n.data === 'string' ? JSON.parse(n.data) : n.data;
-                if (data.url) {
-                    dataUrl = data.url;
-                }
-                dataJson = JSON.stringify(data);
-            } catch (e) {
-                console.warn('[MobileNotifications] Error parsing data:', e);
-            }
-        }
+        const dataUrl = n.action_url || '';
 
         return `
             <div class="mobile-notification-item ${isUnread ? 'unread' : ''} ${dataUrl ? 'clickable' : ''}"
-                 data-id="${n.id}" 
+                 data-id="${n.id}"
                  data-url="${this.escape(dataUrl)}"
-                 data-app-key="${n.app_key || ''}"
+                 data-app-key="${n.app_name || ''}"
+                 style="--notif-color:${color}"
                  role="button">
                 <div class="mobile-notification-icon">
                     <i class="bi ${icon}"></i>
@@ -180,6 +169,7 @@ class MobileNotifications {
                         ${dataUrl ? '<i class="bi bi-box-arrow-up-right ms-1"></i>' : ''}
                     </div>
                 </div>
+                ${isUnread ? '<span class="mobile-notification-dot"></span>' : ''}
             </div>
         `;
     }
