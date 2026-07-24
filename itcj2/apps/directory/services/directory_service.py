@@ -6,6 +6,37 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+def official_departments(db: Session) -> list[dict]:
+    """Deptos OFICIALES activos en orden jerárquico (DFS preorden), con `depth` del árbol completo.
+
+    Reusa el árbol ya calculado en departments_service (contrato C3); solo filtra
+    los no-oficiales, preservando el orden relativo del recorrido del árbol.
+    """
+    from itcj2.core.services.departments_service import list_parent_options
+    return [d for d in list_parent_options(db) if d["is_official"]]
+
+
+def official_department_order(db: Session) -> dict[int, int]:
+    """{department_id: índice} — orden jerárquico de deptos oficiales."""
+    return {d["id"]: i for i, d in enumerate(official_departments(db))}
+
+
+# Puestos legacy que NO siguen la convención head_{dept.code} y no se pueden
+# renombrar sin tocar el approval chain de bajas de inventario en helpdesk
+# (AWAITING_DIRECTOR/AWAITING_SUBDIRECTOR — ver database/DML/core/config_2026_07/
+# subtree/03_fix_subdirector_head_codes.sql para el detalle y los otros 2 que
+# sí se renombraron).
+_LEGACY_HEAD_CODES = {"director", "subdirector_admin_services"}
+
+
+def _is_head_position(position) -> bool:
+    """True si `position` es el jefe de su departamento (code == head_{dept.code})."""
+    dept = position.department
+    if not dept:
+        return False
+    return position.code == f"head_{dept.code}" or position.code in _LEGACY_HEAD_CODES
+
+
 def _position_row(position, holder_name):
     return {
         "source": "position",
@@ -17,6 +48,7 @@ def _position_row(position, holder_name):
         "notes": position.phone_notes or "",
         "position_id": position.id,
         "entry_id": None,
+        "is_head": _is_head_position(position),
     }
 
 
@@ -31,26 +63,41 @@ def _entry_row(entry):
         "notes": entry.notes or "",
         "position_id": entry.position_id,
         "entry_id": entry.id,
+        "is_head": False,
     }
 
 
-def group_by_department(rows):
-    """Agrupa filas por departamento; ordena grupos por nombre y filas por extensión."""
+def group_by_department(rows, dept_order: dict[int, int]):
+    """Agrupa filas por departamento OFICIAL, en orden jerárquico.
+
+    Descarta filas de deptos no-oficiales (o sin depto). Dentro de cada grupo,
+    el puesto de jefe del depto (`is_head`) va primero; el resto ordenado por
+    extensión.
+    """
     groups = {}
     for r in rows:
-        groups.setdefault((r["department_id"], r["department"]), []).append(r)
+        dep_id = r["department_id"]
+        if dep_id not in dept_order:
+            continue
+        groups.setdefault((dep_id, r["department"]), []).append(r)
     out = []
-    for (dep_id, dep_name) in sorted(groups, key=lambda k: (k[1] or "").lower()):
-        group_rows = sorted(groups[(dep_id, dep_name)], key=lambda x: x["extension"])
+    for (dep_id, dep_name) in sorted(groups, key=lambda k: dept_order[k[0]]):
+        group_rows = sorted(
+            groups[(dep_id, dep_name)],
+            key=lambda x: (0 if x["is_head"] else 1, x["extension"]),
+        )
         out.append({"department_id": dep_id, "department": dep_name, "rows": group_rows})
     return out
 
 
 def list_directory(db: Session, *, q=None, department_id=None, source="all"):
-    """Lista unificada agrupada por departamento: puestos con extensión + extras."""
+    """Lista unificada agrupada por departamento oficial, en orden jerárquico."""
     from itcj2.core.models.position import Position, UserPosition
     from itcj2.apps.directory.models import DirectoryEntry
 
+    depts = official_departments(db)
+    dept_order = {d["id"]: i for i, d in enumerate(depts)}
+    dept_depth = {d["id"]: d["depth"] for d in depts}
     rows = []
 
     if source in ("all", "position"):
@@ -85,7 +132,10 @@ def list_directory(db: Session, *, q=None, department_id=None, source="all"):
             if ql in f"{r['title']} {r['holder']} {r['extension']} {r['notes']} {r['department']}".lower()
         ]
 
-    return group_by_department(rows)
+    groups = group_by_department(rows, dept_order)
+    for g in groups:
+        g["depth"] = dept_depth.get(g["department_id"], 0)
+    return groups
 
 
 def set_position_extension(db: Session, position_id, extension, notes, by_user_id):

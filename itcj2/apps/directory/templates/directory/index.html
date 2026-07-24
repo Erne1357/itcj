@@ -24,7 +24,7 @@
               hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
               hx-include="#dir-filters" hx-indicator="#dir-skel">
         <option value="">Todos los departamentos</option>
-        {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+        {% for d in departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
       </select>
     </div>
     <div class="col-6 col-md-auto">
@@ -58,7 +58,7 @@
      <div class="mb-2"><label class="form-label">Departamento</label>
        <select class="form-select" name="department_id" required>
          <option value="">Selecciona…</option>
-         {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+         {% for d in departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
        </select></div>
      <div class="mb-2"><label class="form-label">Etiqueta / Puesto</label>
        <input class="form-control" name="label" maxlength="120" required></div>
