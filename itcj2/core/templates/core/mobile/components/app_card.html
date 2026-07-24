@@ -1,10 +1,20 @@
 {# Macro para renderizar una tarjeta de aplicacion mobile #}
 {% macro render_app_card(app) %}
+{# Íconos raster personalizados por app-key (espejo del dashboard desktop). Si
+   la app tiene imagen, se muestra en tile blanco; el resto usa icono bootstrap. #}
+{% set icon_img = {
+     'agendatec': 'agendatec/icon/agendatec.ico',
+     'helpdesk':  'helpdesk/images/help-desk.png',
+   }.get(app.key) %}
 <a href="{{ app.mobile_url or '#' }}"
     class="mobile-app-card"
     data-app-key="{{ app.key }}">
-    <div class="mobile-app-card-icon" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+    <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+        {% if icon_img %}
+        <img src="{{ url_for('static', filename=icon_img) }}" alt="{{ app.name }}" class="mobile-app-card-img">
+        {% else %}
         <i class="bi {{ app.icon_class or 'bi-app' }}"></i>
+        {% endif %}
     </div>
     <span class="mobile-app-card-name">{{ app.name }}</span>
     <span class="mobile-app-card-badge" id="mobile-badge-{{ app.key }}" style="display:none;">0</span>

@@ -381,6 +381,20 @@
     color: #fff;
 }
 
+/* Íconos raster personalizados (agendatec/helpdesk): tile blanco, imagen
+   contenida — se leen como app-icon en vez de forzarlos sobre el color. */
+.mobile-app-card-icon.has-img {
+    background: #fff;
+    border: 1px solid var(--mobile-border);
+}
+
+.mobile-app-card-img {
+    width: 74%;
+    height: 74%;
+    object-fit: contain;
+    display: block;
+}
+
 .mobile-app-card-name {
     font-size: 13px;
     font-weight: 600;
