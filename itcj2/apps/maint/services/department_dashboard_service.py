@@ -104,6 +104,28 @@ def _dept_ids_for_query(
     return user_dept_ids
 
 
+def _effective_dept_ids(db: Session, user_id: int, base_dept_ids, scope: str):
+    """Aplica el ámbito (own/all/below) sobre los deptos base, RESPETANDO el
+    permiso maint.tickets.api.read.subtree (autorización). Espeja el criterio de
+    ticket_service.list_tickets: el usuario solo ve sub-departamentos si tiene el
+    perm (subtree_scope_for lo resuelve por procedencia).
+
+    base_dept_ids: salida de _dept_ids_for_query (None = todos/admin; [-1] = nada;
+    lista de ids en otro caso). Devuelve el conjunto efectivo (mismo formato).
+    """
+    if base_dept_ids is None:
+        return None                      # admin/dispatcher: ve todo, scope no aplica
+    if scope == "own":
+        return base_dept_ids
+    from itcj2.core.services.scope_service import subtree_scope_for
+    authorized = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
+    base = set(base_dept_ids)
+    if scope == "below":
+        below = authorized - base
+        return list(below) if below else [-1]
+    return list(base | authorized)       # all: propio + sub-árbol autorizado
+
+
 def _serialize_ticket_summary(ticket, now: datetime) -> dict:
     """Serializa un MaintTicket a dict ligero para las listas del dashboard."""
     due_at = ensure_local_timezone(ticket.due_at) if ticket.due_at else None
@@ -121,6 +143,12 @@ def _serialize_ticket_summary(ticket, now: datetime) -> dict:
     except Exception:
         requester_name = None
 
+    # División (depto solicitante) — para distinguir propio vs sub-departamento.
+    try:
+        dept_name = ticket.requester_department.name if ticket.requester_department else None
+    except Exception:
+        dept_name = None
+
     return {
         "id": ticket.id,
         "ticket_number": ticket.ticket_number,
@@ -129,6 +157,8 @@ def _serialize_ticket_summary(ticket, now: datetime) -> dict:
         "priority": ticket.priority,
         "category_name": category_name,
         "requester_name": requester_name,
+        "requester_department_id": ticket.requester_department_id,
+        "requester_department_name": dept_name,
         "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
         "due_at": due_at.isoformat() if due_at else None,
         "is_overdue": is_overdue,
@@ -148,11 +178,93 @@ def get_user_departments(db: Session, user_id: int) -> list[dict]:
     return _resolve_user_departments(db, user_id)
 
 
+_SUMMARY_ACTIVE = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
+_SUMMARY_RESOLVED = ('RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED')
+
+
+def subtree_department_summary(
+    db: Session,
+    user_id: int,
+    *,
+    is_admin_global: bool = False,
+    dept_filter: int | None = None,
+) -> list[dict]:
+    """Bosque de divisiones con conteos de tickets de mantenimiento por depto
+    (total / activos / resueltos) + rollup de subtree. Para el dashboard depto.
+
+    Roots (top-most, sin solapar):
+      - admin global      → departamentos raíz (todo el ITCJ).
+      - dept_filter        → ese depto.
+      - resto              → deptos de sus puestos ∪ anclas de .read.subtree.
+    Incluye TODAS las divisiones de cada subárbol (aunque tengan 0 tickets).
+    """
+    from sqlalchemy import func
+    from itcj2.core.models.department import Department
+    from itcj2.apps.maint.models.ticket import MaintTicket
+    from itcj2.core.services.hierarchy_service import (
+        subtree_nodes, build_dept_forest, department_descendants_map,
+    )
+    from itcj2.core.services.scope_service import granting_departments
+
+    if is_admin_global:
+        roots = [
+            r[0] for r in db.query(Department.id)
+            .filter(Department.parent_id.is_(None), Department.is_active.is_(True)).all()
+        ]
+    elif dept_filter is not None:
+        roots = [dept_filter]
+    else:
+        roots = {d["id"] for d in _resolve_user_departments(db, user_id)}
+        roots |= granting_departments(db, user_id, "maint", "maint.tickets.api.read.subtree")
+        roots = list(roots)
+
+    if not roots:
+        return []
+
+    # Quitar roots que sean descendientes de otro root (evita duplicar ramas).
+    dmap = department_descendants_map(db)
+    roots_set = set(roots)
+    topmost = [
+        r for r in roots
+        if not any(o != r and r in dmap.get(o, set()) for o in roots_set)
+    ]
+
+    node_lists, all_ids = [], set()
+    for root in sorted(topmost):
+        nodes = subtree_nodes(db, root)
+        if nodes:
+            node_lists.append(nodes)
+            all_ids |= {n["id"] for n in nodes}
+    if not all_ids:
+        return []
+
+    rows = (
+        db.query(MaintTicket.requester_department_id, MaintTicket.status, func.count(MaintTicket.id))
+        .filter(MaintTicket.requester_department_id.in_(all_ids))
+        .group_by(MaintTicket.requester_department_id, MaintTicket.status)
+        .all()
+    )
+    counts: dict[int, dict] = {}
+    for dept_id, status, n in rows:
+        c = counts.setdefault(dept_id, {"total": 0, "active": 0, "resolved": 0})
+        c["total"] += n
+        if status in _SUMMARY_ACTIVE:
+            c["active"] += n
+        elif status in _SUMMARY_RESOLVED:
+            c["resolved"] += n
+
+    forest: list[dict] = []
+    for nodes in node_lists:
+        forest += build_dept_forest(nodes, counts)
+    return forest
+
+
 def get_summary(
     db: Session,
     user_id: int,
     is_admin_global: bool,
     dept_filter: int | None,
+    scope: str = "all",
 ) -> dict:
     """
     Resumen para dispatcher/secretary.
@@ -181,6 +293,7 @@ def get_summary(
 
     user_departments = _resolve_user_departments(db, user_id)
     dept_ids = _dept_ids_for_query(db, user_id, is_admin_global, dept_filter, user_departments)
+    dept_ids = _effective_dept_ids(db, user_id, dept_ids, scope)
 
     base_q = _apply_dept_filter(db.query(MaintTicket), dept_ids)
 
@@ -286,6 +399,7 @@ def get_full(
     user_id: int,
     is_admin_global: bool,
     dept_filter: int | None,
+    scope: str = "all",
 ) -> dict:
     """
     Dashboard completo para admin/department_head.
@@ -314,6 +428,7 @@ def get_full(
 
     user_departments = _resolve_user_departments(db, user_id)
     dept_ids = _dept_ids_for_query(db, user_id, is_admin_global, dept_filter, user_departments)
+    dept_ids = _effective_dept_ids(db, user_id, dept_ids, scope)
 
     base_q = _apply_dept_filter(db.query(MaintTicket), dept_ids)
 
