@@ -17,7 +17,8 @@
     {% for t in tickets %}
       {{ ticket_card(t,
             href='/help-desk/user/tickets/' ~ t.id ~ '?from=department',
-            show_people=true, show_assigned=true, show_description=false, show_location=true) }}
+            show_people=true, show_assigned=true, show_description=false, show_location=true,
+            show_department=true, own_department_id=own_department_id) }}
     {% endfor %}
   </div>
   {% if total_pages > 1 %}

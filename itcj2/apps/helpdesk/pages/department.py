@@ -62,6 +62,10 @@ def _query_dept_tickets_ctx(request: Request, user_id: int, user_roles: set, dep
     status = p.get("status") or None
     area = p.get("area") or None
     search = (p.get("search", "") or "").strip() or None
+    # Ámbito: 'own' (solo mi depto) | 'all' (mi depto + sub) | 'below' (solo sub-deptos).
+    scope = (p.get("scope") or "all").lower()
+    if scope not in ("own", "all", "below"):
+        scope = "all"
     try:
         page = max(1, int(p.get("page", "1")))
     except (ValueError, TypeError):
@@ -69,11 +73,18 @@ def _query_dept_tickets_ctx(request: Request, user_id: int, user_roles: set, dep
 
     _db = SessionLocal()
     try:
+        from itcj2.core.services.hierarchy_service import descendant_department_ids
+        if scope == "own":
+            dept_ids = {department_id}
+        else:
+            subtree = descendant_department_ids(_db, department_id, include_self=True)
+            dept_ids = subtree if scope == "all" else (subtree - {department_id})
+
         result = ticket_service.list_tickets(
             _db,
             user_id=user_id,
             user_roles=user_roles,
-            department_id=department_id,
+            department_ids=dept_ids,
             status=[status] if status else None,
             area=area,
             search=search,
@@ -88,10 +99,12 @@ def _query_dept_tickets_ctx(request: Request, user_id: int, user_roles: set, dep
         "total": result["total"],
         "current_page": result["current_page"],
         "total_pages": result["pages"],
+        "own_department_id": department_id,
         "f_status": p.get("status", ""),
         "f_area": p.get("area", ""),
+        "f_scope": scope,
         "f_search": p.get("search", ""),
-        "has_filters": bool(status or area or search),
+        "has_filters": bool(status or area or search or scope != "all"),
     }
 
 
@@ -130,6 +143,14 @@ async def tickets(
         ctx["oob"] = True
         return render(request, "helpdesk/department_head/_dashboard_tickets_results.html", ctx)
 
+    # Resumen jerárquico de divisiones del subárbol (root = depto gestionado).
+    from itcj2.apps.helpdesk.services import ticket_service as _tsvc
+    _sdb = SessionLocal()
+    try:
+        division_tree = _tsvc.subtree_department_summary(_sdb, department_id)
+    finally:
+        _sdb.close()
+
     ctx.update({
         "title": f"Departamento - {managed['department']['name']}",
         "department": managed["department"],
@@ -137,6 +158,7 @@ async def tickets(
         "position": managed["position"],
         "assignment": managed["assignment"],
         "active_page": "dashboard",
+        "division_tree": division_tree,
     })
     return render_helpdesk(request, "helpdesk/department_head/dashboard.html", ctx)
 

@@ -22,7 +22,7 @@
 #}
 {% from "helpdesk/_components/badges.html" import status_badge, priority_badge, area_badge, category_badge, star_rating %}
 
-{% macro ticket_card(ticket, href=None, show_people=true, show_assigned=true, show_description=true, show_location=false, show_resolution=false, show_rating=false, actions=None) %}
+{% macro ticket_card(ticket, href=None, show_people=true, show_assigned=true, show_description=true, show_location=false, show_resolution=false, show_rating=false, show_department=false, own_department_id=None, actions=None) %}
 <{{ 'a' if href else 'div' }} class="hd-ticket-card" data-status="{{ ticket.status }}"{% if href %} href="{{ href }}" {{ hd_boost(href) }}{% endif %}>
   <div class="row g-3">
     <div class="col-md-{{ 6 if show_people else 9 }}">
@@ -31,6 +31,13 @@
         {{ area_badge(ticket.area) }}
         {% if ticket.category %}{{ category_badge(ticket.category.name) }}{% endif %}
         {{ priority_badge(ticket.priority) }}
+        {% if show_department and ticket.requester_department %}
+          {% set _own_dept = own_department_id and ticket.requester_department.id == own_department_id %}
+          <span class="badge rounded-pill {{ 'bg-primary' if _own_dept else 'bg-secondary-subtle text-secondary border' }}"
+                title="{{ 'Tu departamento' if _own_dept else 'Sub-departamento del subárbol' }}">
+            <i class="fas {{ 'fa-building' if _own_dept else 'fa-sitemap' }} me-1"></i>{{ ticket.requester_department.name }}
+          </span>
+        {% endif %}
       </div>
       <div class="hd-ticket-card__title">{{ ticket.title }}</div>
       {% if show_description and ticket.description %}

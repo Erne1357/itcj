@@ -318,6 +318,7 @@ def list_tickets(
     assigned_to_team: str = None,
     created_by_me: bool = False,
     department_id: int = None,
+    department_ids: set = None,
     search: str = None,
     page: int = 1,
     per_page: int = 20,
@@ -384,7 +385,11 @@ def list_tickets(
     if created_by_me:
         query = query.filter(Ticket.requester_id == user_id)
 
-    if department_id:
+    if department_ids is not None:
+        # Conjunto explícito de departamentos (el caller ya resolvió el ámbito:
+        # propio / subárbol / solo sub-departamentos). Vacío → 0 resultados.
+        query = query.filter(Ticket.requester_department_id.in_(department_ids or {-1}))
+    elif department_id:
         # Filtro por departamento = su SUBÁRBOL (depto + sub-departamentos), coherente
         # con el scope jerárquico. Un depto sin hijos = sólo él (comportamiento previo).
         from itcj2.core.services.hierarchy_service import descendant_department_ids
@@ -415,6 +420,46 @@ def list_tickets(
         'has_next': pagination.has_next,
         'has_prev': pagination.has_prev
     }
+
+
+# Buckets de estatus para el resumen por divisiones (jefe/director).
+_SUMMARY_ACTIVE = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
+_SUMMARY_RESOLVED = ('RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED')
+
+
+def subtree_department_summary(db: Session, root_department_id: int) -> list[dict]:
+    """Árbol de divisiones del subárbol de ``root_department_id`` con conteos de
+    tickets por departamento (total / activos / resueltos) + rollup de subtree.
+
+    Incluye TODAS las divisiones del subárbol (aunque tengan 0 tickets) en orden
+    jerárquico. Para el resumen del dashboard del jefe/director: el root ve el
+    total de su área y puede desplegar las divisiones internas.
+    """
+    from sqlalchemy import func
+    from itcj2.core.services.hierarchy_service import subtree_nodes, build_dept_forest
+
+    nodes = subtree_nodes(db, root_department_id)
+    if not nodes:
+        return []
+
+    dept_ids = [n["id"] for n in nodes]
+    rows = (
+        db.query(Ticket.requester_department_id, Ticket.status, func.count(Ticket.id))
+        .filter(Ticket.requester_department_id.in_(dept_ids))
+        .group_by(Ticket.requester_department_id, Ticket.status)
+        .all()
+    )
+
+    counts: dict[int, dict] = {}
+    for dept_id, status, n in rows:
+        c = counts.setdefault(dept_id, {"total": 0, "active": 0, "resolved": 0})
+        c["total"] += n
+        if status in _SUMMARY_ACTIVE:
+            c["active"] += n
+        elif status in _SUMMARY_RESOLVED:
+            c["resolved"] += n
+
+    return build_dept_forest(nodes, counts)
 
 
 # ==================== CAMBIAR ESTADO ====================

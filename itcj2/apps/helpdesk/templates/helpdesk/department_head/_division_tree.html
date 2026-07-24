@@ -1,0 +1,39 @@
+{# Árbol colapsable de divisiones del subárbol con conteos (total/activos/resueltos).
+   Reglas de despliegue: root + hijos inmediatos visibles; niveles más profundos
+   (nodos de profundidad >= 1 con hijos) van en un colapsable cerrado por defecto.
+   Los conteos son de SUBTREE (rollup) → cada nodo muestra "esta división y todo lo
+   que cuelga de ella". Macro recursiva (Jinja permite auto-referencia). #}
+{% macro render_divtree(nodes) %}
+<ul class="hd-divtree">
+  {% for n in nodes %}
+  {% set has_kids = n.children|length > 0 %}
+  {% set collapsible = has_kids and n.depth >= 1 %}
+  <li class="hd-divnode">
+    <div class="hd-divrow">
+      {% if collapsible %}
+      <button class="hd-divtoggle collapsed" type="button" data-bs-toggle="collapse"
+              data-bs-target="#divc-{{ n.id }}" aria-expanded="false" aria-controls="divc-{{ n.id }}"
+              title="Mostrar sub-divisiones">
+        <i class="fas fa-chevron-right"></i>
+      </button>
+      {% else %}
+      <span class="hd-divtoggle-spacer" aria-hidden="true"></span>
+      {% endif %}
+      <span class="hd-divname" title="{{ n.name }}">{{ n.name }}</span>
+      <span class="hd-divcounts">
+        <span class="hd-c hd-c-total"    title="Total de tickets">{{ n.subtree.total }}</span>
+        <span class="hd-c hd-c-active"   title="Activos (pendiente/asignado/en progreso)">{{ n.subtree.active }}</span>
+        <span class="hd-c hd-c-resolved" title="Resueltos / cerrados">{{ n.subtree.resolved }}</span>
+      </span>
+    </div>
+    {% if has_kids %}
+      {% if collapsible %}
+      <div class="collapse" id="divc-{{ n.id }}">{{ render_divtree(n.children) }}</div>
+      {% else %}
+      {{ render_divtree(n.children) }}
+      {% endif %}
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
