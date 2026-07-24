@@ -86,18 +86,23 @@ jobs:
           import itcj2.apps.titulatec.models      # noqa: F401
           import itcj2.apps.directory.models       # noqa: F401
           from sqlalchemy import create_engine
+          from sqlalchemy.dialects.postgresql import ENUM as PGEnum
           from itcj2.models.base import Base
           engine = create_engine(os.environ["MIGRATE_DATABASE_URL"], future=True)
-          # Algunos modelos declaran ENUMs de Postgres con create_type=False (esperan
-          # que la migración cree el TYPE). En un create_all desde cero hay que crearlos:
-          # forzamos create_type=True en todo tipo enum-like para que create_all emita
-          # el CREATE TYPE antes de las tablas.
+          # Los modelos declaran los ENUM de Postgres con create_type=False (los crea la
+          # migración), así que create_all NO emite el CREATE TYPE. Los creamos EXPLÍCITO
+          # antes (idempotente con checkfirst). No sirve solo flipear create_type: el
+          # evento de creación se registra al construir el ENUM, no después.
+          _enums = {}
           for _t in Base.metadata.tables.values():
               for _c in _t.columns:
-                  if hasattr(_c.type, "create_type"):
-                      _c.type.create_type = True
+                  if isinstance(_c.type, PGEnum):
+                      _enums.setdefault(_c.type.name, _c.type)
+          with engine.begin() as _conn:
+              for _e in _enums.values():
+                  _e.create(_conn, checkfirst=True)
           Base.metadata.create_all(engine, checkfirst=True)
-          print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas")
+          print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas; enums: {sorted(_enums)}")
           PY
 
       - name: Tests (BLOQUEANTE — suite completa)
