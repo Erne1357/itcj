@@ -29,6 +29,11 @@
   --sitec-muted: var(--hd-muted, #6b7280);
 }
 
+/* Reserva SIEMPRE el espacio de la barra de scroll: al cambiar de tab/página
+   entre una vista con scroll y otra sin, no aparece/desaparece la barra ni se
+   recorre todo ~15px de lado. */
+html { scrollbar-gutter: stable; }
+
 body {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   background-color: var(--sitec-light);

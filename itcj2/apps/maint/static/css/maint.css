@@ -32,6 +32,11 @@
 /* ══════════════════════════════════════════════
    LAYOUT BASE
    ══════════════════════════════════════════════ */
+/* Reserva SIEMPRE el espacio de la barra de scroll: al cambiar de tab/página
+   entre una vista con scroll y otra sin, no aparece/desaparece la barra ni se
+   recorre todo ~15px de lado. */
+html { scrollbar-gutter: stable; }
+
 .mn-app-wrapper {
     background-color: var(--maint-primary-light);
     min-height: 100vh;
