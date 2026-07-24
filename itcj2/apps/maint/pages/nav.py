@@ -333,11 +333,14 @@ def render_maint(
         except Exception as exc:
             logger.warning("Error construyendo nav maint: %s", exc)
 
+    from itcj2.templates import initials  # helper compartido de iniciales (avatar)
+
     ctx: dict = {
         "request": request,
         "current_user": user,
         "sv": sv,           # versioning de /static/maint/...
         "sv_core": sv_core, # versioning de /static/core/...
+        "initials": initials,
         **(context or {}),
         **nav_ctx,
     }

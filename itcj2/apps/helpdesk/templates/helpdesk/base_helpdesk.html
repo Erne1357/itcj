@@ -153,7 +153,7 @@
         <div class="app-sidebar-footer">
             <div class="app-sidebar-user">
                 <div class="app-sidebar-user-avatar">
-                    {{ current_user.name[:1]|upper if current_user and current_user.name else 'U' }}
+                    {{ initials(current_user.name) if current_user else 'U' }}
                 </div>
                 <div class="app-sidebar-user-info">
                     <div class="app-sidebar-user-name">{{ current_user.name if current_user else 'Usuario' }}</div>

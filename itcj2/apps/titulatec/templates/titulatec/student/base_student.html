@@ -28,7 +28,8 @@
 
 {% block content %}
 {% set _uname = (current_user.name if current_user else None) or 'Alumno' %}
-{% set _uinitial = _uname[:1]|upper %}
+{% set _uparts = _uname.split() %}
+{% set _uinitial = (_uparts[-1][:1] ~ _uparts[0][:1])|upper if _uparts|length > 1 else _uname[:2]|upper %}
 <div class="tt-shell">
 
   {# — Rail lateral (desktop ≥992px) — #}

@@ -467,6 +467,22 @@ def _get_active_theme() -> dict | None:
 # ---------------------------------------------------------------------------
 
 
+def initials(name: str | None) -> str:
+    """Iniciales de 2 letras para avatares (coherencia móvil/desktop).
+
+    ``full_name`` del sistema viene "APELLIDOS ... NOMBRE(S)", así que
+    ``ultima_palabra + primera_palabra`` = nombre + apellido paterno → mismo
+    resultado que ``first_name[:1] + last_name[:1]`` del dashboard. Un solo
+    token → primeras 2 letras. Sin nombre → 'U'.
+    """
+    parts = (name or "").split()
+    if not parts:
+        return "U"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[-1][:1] + parts[0][:1]).upper()
+
+
 def render(
     request: Request,
     template: str,
@@ -497,6 +513,7 @@ def render(
         "static_version": get_settings().STATIC_VERSION,
         "url_for": _make_url_for(),
         "is_active": _make_is_active(request.url.path),
+        "initials": initials,
         "nav_for": _make_nav_for(current_user),
         "active_theme": _get_active_theme(),
         # Flash messages no existen en FastAPI; retorna lista vacía para
