@@ -612,19 +612,19 @@ class MobileApp {
      * Realiza el logout
      */
     async doLogout() {
+        // POST best-effort. El endpoint exige sesión (CurrentUser): si la cookie
+        // ya fue borrada por la app del iframe, responde 401. NO condicionar el
+        // redirect a res.ok — la sesión debe terminar SIEMPRE en /itcj/login,
+        // si no la ventana top se queda pegada en /itcj/m/ (bug "se queda así").
         try {
-            const res = await fetch('/api/core/v2/auth/logout', {
+            await fetch('/api/core/v2/auth/logout', {
                 method: 'POST',
                 credentials: 'include'
             });
-            if (res.ok) {
-                window.location.href = '/itcj/login';
-            }
         } catch (e) {
-            console.error('[MobileApp] Error logging out:', e);
-            // Intentar redirigir de todas formas
-            window.location.href = '/itcj/login';
+            console.warn('[MobileApp] Logout POST falló (redirigiendo igual):', e);
         }
+        window.location.replace('/itcj/login');
     }
 
     /**
