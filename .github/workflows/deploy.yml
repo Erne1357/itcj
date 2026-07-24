@@ -33,6 +33,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -53,6 +62,16 @@ jobs:
       - name: Lint (ruff, informativo)
         continue-on-error: true
         run: ruff check itcj2
+
+      # Los tests con `db_session` (test_app_style_*, test_department_*,
+      # test_hierarchy_service, org-scope, …) golpean Postgres REAL y asumen que
+      # el esquema YA existe (el fixture solo envuelve en transacción + rollback).
+      # Sin este paso, itcj_test está vacío → "relation core_apps does not exist".
+      - name: Preparar esquema de BD de test (alembic)
+        env:
+          DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+          MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+        run: alembic -c migrations/alembic.ini upgrade head
 
       - name: Tests (BLOQUEANTE — suite completa)
         env:
