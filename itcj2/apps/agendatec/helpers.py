@@ -27,7 +27,7 @@ from itcj2.exceptions import PageForbidden
 # usan otro role).
 # Grep: TEMP_TEST_GATE  → borrar este bloque + sus llamadas.
 # ============================================================
-TEMP_TEST_GATE_CONTROL_NUMBER = ("22111360", "94110667")
+TEMP_TEST_GATE_CONTROL_NUMBER = ("22111360", "94110667", "21111182")
 
 
 def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = False) -> None:
