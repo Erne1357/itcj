@@ -88,7 +88,15 @@ jobs:
           from sqlalchemy import create_engine
           from itcj2.models.base import Base
           engine = create_engine(os.environ["MIGRATE_DATABASE_URL"], future=True)
-          Base.metadata.create_all(engine)
+          # Algunos modelos declaran ENUMs de Postgres con create_type=False (esperan
+          # que la migración cree el TYPE). En un create_all desde cero hay que crearlos:
+          # forzamos create_type=True en todo tipo enum-like para que create_all emita
+          # el CREATE TYPE antes de las tablas.
+          for _t in Base.metadata.tables.values():
+              for _c in _t.columns:
+                  if hasattr(_c.type, "create_type"):
+                      _c.type.create_type = True
+          Base.metadata.create_all(engine, checkfirst=True)
           print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas")
           PY
 
