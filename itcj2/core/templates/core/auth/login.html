@@ -89,12 +89,50 @@
 
                     <button class="btn-login" id="btnLogin" type="submit">Iniciar sesión</button>
 
-                    <div class="help-link"><a href="#">¿Necesitas ayuda para entrar?</a></div>
+                    <div class="help-link"><a href="#" data-bs-toggle="modal" data-bs-target="#helpModal">¿Necesitas ayuda para entrar?</a></div>
                 </form>
             </section>
 
         </div>
     </main>
+
+    <!-- Modal: ayuda para entrar -->
+    <div class="modal fade help-modal" id="helpModal" tabindex="-1" aria-labelledby="helpModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title" id="helpModalTitle">¿Necesitas ayuda para entrar?</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="help-intro">Elige el caso que coincide contigo:</p>
+
+                    <div class="help-item">
+                        <span class="help-ic" aria-hidden="true">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                        </span>
+                        <div class="help-text">
+                            <h3>Soy estudiante</h3>
+                            <p>Ingresa con tu <strong>Número de control</strong> y tu <strong>NIP del SII</strong> (el mismo que usas en el sistema de información).</p>
+                        </div>
+                    </div>
+
+                    <div class="help-item">
+                        <span class="help-ic" aria-hidden="true">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </span>
+                        <div class="help-text">
+                            <h3>Soy administrativo</h3>
+                            <p>Si no recuerdas tu contraseña, solicita a tu <strong>jefe de departamento</strong> que la reestablezca.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-help-close" data-bs-dismiss="modal">Entendido</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
     <script src="{{url_for('static', filename='core/js/auth.js') }}?v={{ sv('core', 'js/auth.js') }}" defer></script>

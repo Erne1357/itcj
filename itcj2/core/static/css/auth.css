@@ -245,3 +245,56 @@ body{
 @media (prefers-reduced-motion: reduce){
   *{ animation:none !important; }
 }
+
+/* ============== MODAL DE AYUDA ============== */
+.help-modal .modal-content{
+  border:none; border-radius:18px; overflow:hidden;
+  font-family:inherit; color:var(--ink);
+  box-shadow:0 34px 70px -28px rgba(110,16,24,.40), 0 10px 28px -14px rgba(0,0,0,.16);
+}
+.help-modal .modal-header{
+  align-items:flex-start; padding:22px 24px 14px; border:none;
+  background:radial-gradient(125% 130% at 82% 0%, #B0202A 0%, var(--crimson) 48%, var(--crimson-dd) 100%);
+  color:#fff;
+}
+.help-modal .modal-title{
+  margin:0; font-size:clamp(17px, 4.6vw, 20px); font-weight:800; letter-spacing:-.015em; line-height:1.2;
+}
+.help-modal .modal-header .btn-close{
+  filter:brightness(0) invert(1); opacity:.85; margin:2px -4px 0 0;
+}
+.help-modal .modal-header .btn-close:hover{ opacity:1; }
+
+.help-modal .modal-body{ padding:22px 24px 8px; }
+.help-modal .help-intro{
+  margin:0 0 16px; font-size:13.5px; font-weight:600; color:var(--muted);
+}
+
+.help-item{ display:flex; gap:14px; align-items:flex-start; padding:14px 0; }
+.help-item + .help-item{ border-top:1px solid var(--field-bd); }
+.help-ic{
+  flex:none; width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+  background:var(--field-bg); border:1.5px solid var(--field-bd); color:var(--crimson);
+}
+.help-text h3{ margin:0 0 4px; font-size:15px; font-weight:700; letter-spacing:-.01em; }
+.help-text p{ margin:0; font-size:13.5px; line-height:1.55; color:var(--label); }
+.help-text strong{ color:var(--ink); font-weight:700; }
+
+.help-modal .modal-footer{ padding:12px 24px 20px; border:none; justify-content:flex-end; }
+.btn-help-close{
+  height:46px; padding:0 22px; border:none; border-radius:12px; color:#fff;
+  font-family:inherit; font-size:14.5px; font-weight:700; cursor:pointer;
+  background:linear-gradient(135deg, var(--crimson-2) 0%, var(--crimson-d) 100%);
+  box-shadow:0 10px 24px -12px rgba(148,25,33,.65);
+  transition:box-shadow .18s, transform .08s, filter .18s;
+}
+.btn-help-close:hover{ box-shadow:0 16px 32px -12px rgba(148,25,33,.78); transform:translateY(-1px); filter:brightness(1.07); }
+.btn-help-close:active{ transform:translateY(0) scale(.99); }
+
+/* Móvil: tarjeta pequeña centrada (no fullscreen) */
+@media (max-width:575.98px){
+  .help-modal .modal-dialog{ margin:auto; max-width:min(92vw, 420px); }
+  .help-modal .modal-header{ padding:18px 20px 12px; }
+  .help-modal .modal-body{ padding:18px 20px 6px; }
+  .help-modal .modal-footer{ padding:10px 20px 18px; }
+}
