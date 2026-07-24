@@ -1,0 +1,35 @@
+/* ============================================================================
+   Loaders con aparición diferida (anti-parpadeo).
+   ----------------------------------------------------------------------------
+   Spinners y skeletons SOLO se vuelven visibles si la carga supera ~280 ms.
+   En cargas rápidas nunca aparecen: la animación de "revelado" arranca DESPUÉS
+   del retraso (con fill `backwards` la opacidad queda en 0 mientras tanto); si
+   el elemento se remueve antes de que dispare, jamás fue visible. Autocancelable
+   y sin JS.
+
+   Cada loader conserva su animación propia (rotación de Bootstrap / shimmer de
+   los skeletons) porque se lista JUNTO al revelado — las clases de skeleton de
+   cada app añaden `itcj-loader-reveal` a su `animation` (ver maint.css /
+   helpdesk.css). Cargado por base_maint.html y base_helpdesk.html.
+   ============================================================================ */
+
+:root { --itcj-loader-delay: 0.28s; }
+
+@keyframes itcj-loader-reveal { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Spinners de Bootstrap (rotación + revelado diferido) ─────────────────── */
+.spinner-border {
+    animation: spinner-border 0.75s linear infinite,
+               itcj-loader-reveal 0.01s linear var(--itcj-loader-delay) backwards;
+}
+.spinner-grow {
+    animation: spinner-grow 0.75s linear infinite,
+               itcj-loader-reveal 0.01s linear var(--itcj-loader-delay) backwards;
+}
+
+/* ── Indicadores HTMX (hx-indicator) ──────────────────────────────────────
+   htmx togglea `.htmx-request`; diferimos la subida de opacidad para que un
+   request rápido no alcance a mostrar el indicador. */
+.htmx-indicator { opacity: 0; transition: opacity 0.12s ease; }
+.htmx-request.htmx-indicator,
+.htmx-request .htmx-indicator { opacity: 1; transition-delay: var(--itcj-loader-delay); }

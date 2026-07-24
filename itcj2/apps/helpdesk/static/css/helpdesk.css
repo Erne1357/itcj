@@ -410,7 +410,9 @@ body {
 .loading-shimmer {
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200px 100%;
-  animation: shimmer 1.5s infinite;
+  /* shimmer + revelado diferido (anti-parpadeo, ver core/.../delayed-loaders.css) */
+  animation: shimmer 1.5s infinite,
+             itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
 }
 
 @keyframes shimmer {
@@ -460,7 +462,9 @@ body {
 .shimmer {
     background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    /* shimmer + revelado diferido (anti-parpadeo, ver core/.../delayed-loaders.css) */
+    animation: shimmer 1.5s infinite,
+               itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
 }
 
 @keyframes shimmer {

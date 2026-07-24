@@ -260,7 +260,9 @@
 .mn-skel {
     background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);
     background-size: 200% 100%;
-    animation: mn-shimmer 1.5s infinite;
+    /* shimmer + revelado diferido (anti-parpadeo, ver core/.../delayed-loaders.css) */
+    animation: mn-shimmer 1.5s infinite,
+               itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
     border-radius: 4px;
     display: block;
 }
@@ -334,6 +336,18 @@
 .mn-skel-bars .mn-skel {
     width: 100%;
     border-radius: 4px 4px 0 0;
+}
+
+/* Andamiaje de skeleton (contenedores con borde/fondo o wrappers estructurales
+   como .card/<tr>) que NO hereda el shimmer de .mn-skel: sin esto parpadeaba en
+   cargas rápidas. `.mn-skel-reveal` es la clase marcadora que ponen las
+   plantillas de MaintUtils.skeleton en su elemento raíz. Mismo retraso que el
+   resto (ver core/.../delayed-loaders.css). */
+.mn-skel-reveal,
+.mn-skel-card,
+.mn-skel-chart,
+.mn-skel-bars {
+    animation: itcj-loader-reveal 0.01s linear var(--itcj-loader-delay, 0.28s) backwards;
 }
 
 /* ══════════════════════════════════════════════

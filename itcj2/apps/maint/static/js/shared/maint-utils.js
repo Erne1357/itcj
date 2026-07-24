@@ -430,10 +430,10 @@
                 for (var k = 0; k < cols; k++) {
                     tds += '<td><span class="mn-skel mn-skel-line w-75" style="margin:0;"></span></td>';
                 }
-                return '<tr>' + tds + '</tr>';
+                return '<tr class="mn-skel-reveal">' + tds + '</tr>';
             case 'kpi':
                 return '' +
-                    '<div class="card border-0 shadow-sm h-100"><div class="card-body">' +
+                    '<div class="card border-0 shadow-sm h-100 mn-skel-reveal"><div class="card-body">' +
                         '<span class="mn-skel mn-skel-line w-50"></span>' +
                         '<span class="mn-skel mn-skel-line mn-skel-lg w-40" style="height:1.8rem; margin-top:0.6rem;"></span>' +
                         '<span class="mn-skel mn-skel-line w-60 mt-2"></span>' +
@@ -450,7 +450,7 @@
                 return '<div class="mn-skel-bars">' + bars + '</div>';
             case 'comment':
                 return '' +
-                    '<div class="d-flex gap-2 mb-3">' +
+                    '<div class="d-flex gap-2 mb-3 mn-skel-reveal">' +
                         '<span class="mn-skel mn-skel-circle"></span>' +
                         '<div class="flex-grow-1">' +
                             '<span class="mn-skel mn-skel-line w-25"></span>' +
@@ -460,7 +460,7 @@
                     '</div>';
             case 'list-row':
                 return '' +
-                    '<div class="d-flex align-items-center gap-2 py-2 border-bottom">' +
+                    '<div class="d-flex align-items-center gap-2 py-2 border-bottom mn-skel-reveal">' +
                         '<span class="mn-skel mn-skel-circle mn-skel-sm"></span>' +
                         '<span class="mn-skel mn-skel-line w-50" style="margin:0;"></span>' +
                         '<span class="mn-skel mn-skel-pill ms-auto"></span>' +
