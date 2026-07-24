@@ -326,6 +326,78 @@ def init_tasks_command():
         raise
 
 
+@click.command("init-config-2026-07")
+def init_config_2026_07_command():
+    """Carga el revamp de configuración 2026-07 (database/DML/core/config_2026_07).
+
+    Ejecuta en orden:
+      01_app_colors.sql                          → color + icon_class canónicos por app (badges DB)
+      subtree/01_insert_subtree_perms.sql        → permisos *.api.read.subtree (scope por subárbol)
+      subtree/02_assign_subtree_perms.sql        → asigna esos permisos a los roles correspondientes
+      subtree/03_fix_subdirector_head_codes.sql  → normaliza codes de subdirector/jefe
+
+    Prerequisito: `alembic upgrade head` (la migración o1s2c3p4e004_app_style_columns
+    agrega core_apps.color / icon_class; sin ella 01_app_colors falla).
+    Todo el DML es idempotente (COALESCE / ON CONFLICT DO NOTHING).
+
+    Nota: subtree/01 y subtree/02 son idénticos a database/DML/org_scope_2026_07/*
+    (mismos permisos), así que este comando ya cubre esa carga.
+    """
+    click.echo("🎨 Cargando config revamp 2026-07...")
+
+    base = PROJECT_ROOT / "database" / "DML" / "core" / "config_2026_07"
+    files = [
+        base / "01_app_colors.sql",
+        base / "subtree" / "01_insert_subtree_perms.sql",
+        base / "subtree" / "02_assign_subtree_perms.sql",
+        base / "subtree" / "03_fix_subdirector_head_codes.sql",
+    ]
+
+    engine = _get_engine()
+
+    # Guard: 01_app_colors hace UPDATE core_apps SET color/icon_class. Si la
+    # migración app_style_columns (o1s2c3p4e004) no corrió, la columna no existe
+    # y el script falla de forma poco clara. Abortamos con mensaje accionable.
+    with engine.connect() as connection:
+        has_color = connection.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'core_apps' AND column_name = 'color'"
+            )
+        ).fetchone()
+    if not has_color:
+        click.echo(
+            "❌ core_apps.color no existe. Corre primero `alembic upgrade head` "
+            "(migración o1s2c3p4e004_app_style_columns) y reintenta."
+        )
+        raise SystemExit(1)
+
+    try:
+        for file_path in files:
+            if not file_path.exists():
+                click.echo(f"   ⚠️  Archivo no encontrado: {file_path.relative_to(base)}")
+                continue
+            click.echo(f"   🔄 Ejecutando: {file_path.relative_to(base)}")
+            execute_sql_file(str(file_path))
+            click.echo(f"   ✅ Completado: {file_path.name}")
+
+        with engine.connect() as connection:
+            colored = connection.execute(
+                text("SELECT COUNT(*) AS count FROM core_apps WHERE color IS NOT NULL")
+            ).fetchone()
+            subtree = connection.execute(
+                text("SELECT COUNT(*) AS count FROM core_permissions WHERE code LIKE '%.subtree'")
+            ).fetchone()
+        click.echo(f"\n   🎨 Apps con color asignado:   {colored.count}")
+        click.echo(f"   🔐 Permisos .subtree en DB:   {subtree.count}")
+
+        click.echo("\n🎉 Config revamp 2026-07 cargado correctamente!")
+
+    except Exception as e:
+        click.echo(f"\n💥 Error durante init-config-2026-07: {str(e)}")
+        raise
+
+
 @click.command("new-theme-mundial")
 def new_theme_mundial_command():
     """Crea el tema Mundial 2026 (activo), registra la tarea diaria y calienta el cache."""
@@ -413,5 +485,6 @@ core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
+core_cli.add_command(init_config_2026_07_command)
 core_cli.add_command(new_theme_mundial_command)
 core_cli.add_command(mundial_refresh_command)
