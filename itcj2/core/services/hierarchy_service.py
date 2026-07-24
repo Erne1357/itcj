@@ -114,3 +114,50 @@ def subtree_nodes(db: Session, root_id: int) -> list[dict]:
         {"id": r[0], "name": r[1], "depth": r[2]}
         for r in db.execute(sql, {"root": root_id, "maxd": _MAX_DEPTH})
     ]
+
+
+def build_dept_forest(
+    nodes: list[dict],
+    counts: dict[int, dict],
+    *,
+    count_keys: tuple[str, ...] = ("total", "active", "resolved"),
+) -> list[dict]:
+    """Anida los nodos DFS de ``subtree_nodes`` y adjunta conteos + rollup de subtree.
+
+    ``nodes``  : ``[{id, name, depth}]`` en orden DFS (salida de ``subtree_nodes``);
+                 ``depth`` relativa al root pedido.
+    ``counts`` : ``{dept_id: {key: int}}`` — conteos PROPIOS por departamento
+                 (los deptos sin tickets pueden omitirse; se rellenan con 0).
+
+    Devuelve los nodos raíz anidados. Cada nodo:
+        ``{id, name, depth, own, subtree, children}``
+    donde ``own`` son los conteos del propio depto y ``subtree`` = own + Σ hijos
+    (rollup recursivo, útil para el total de una división colapsada).
+    """
+    def _zero() -> dict:
+        return {k: 0 for k in count_keys}
+
+    roots: list[dict] = []
+    stack: list[dict] = []
+    for n in nodes:
+        own = {k: int(counts.get(n["id"], {}).get(k, 0)) for k in count_keys}
+        node = {"id": n["id"], "name": n["name"], "depth": n["depth"],
+                "own": own, "subtree": _zero(), "children": []}
+        # El padre es el último nodo en la pila con menor profundidad.
+        while stack and stack[-1]["depth"] >= n["depth"]:
+            stack.pop()
+        (stack[-1]["children"] if stack else roots).append(node)
+        stack.append(node)
+
+    def _rollup(node: dict) -> dict:
+        acc = dict(node["own"])
+        for child in node["children"]:
+            csub = _rollup(child)
+            for k in count_keys:
+                acc[k] += csub[k]
+        node["subtree"] = acc
+        return acc
+
+    for r in roots:
+        _rollup(r)
+    return roots
