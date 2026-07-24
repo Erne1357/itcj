@@ -65,13 +65,32 @@ jobs:
 
       # Los tests con `db_session` (test_app_style_*, test_department_*,
       # test_hierarchy_service, org-scope, …) golpean Postgres REAL y asumen que
-      # el esquema YA existe (el fixture solo envuelve en transacción + rollback).
-      # Sin este paso, itcj_test está vacío → "relation core_apps does not exist".
-      - name: Preparar esquema de BD de test (alembic)
+      # el esquema YA existe (el fixture solo envuelve cada test en transacción +
+      # rollback; crean sus propios datos, no dependen de seed). Sin esquema:
+      # "relation core_apps does not exist".
+      #
+      # Se construye desde los MODELOS (create_all), NO con `alembic upgrade head`:
+      # las migraciones no reconstruyen desde cero (la base 4fc261c4f603 crea
+      # role_permissions con FK a roles/permissions que un DDL legacy creó fuera de
+      # Alembic → falla "relation roles does not exist"). Los modelos son la fuente
+      # de verdad del esquema que consulta el código, que es justo lo que los tests
+      # necesitan.
+      - name: Preparar esquema de BD de test (modelos → create_all)
         env:
           DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
           MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
-        run: alembic -c migrations/alembic.ini upgrade head
+        run: |
+          python - <<'PY'
+          import os
+          import itcj2.models                    # core + helpdesk/agendatec/vistetec/warehouse/maint
+          import itcj2.apps.titulatec.models      # noqa: F401
+          import itcj2.apps.directory.models       # noqa: F401
+          from sqlalchemy import create_engine
+          from itcj2.models.base import Base
+          engine = create_engine(os.environ["MIGRATE_DATABASE_URL"], future=True)
+          Base.metadata.create_all(engine)
+          print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas")
+          PY
 
       - name: Tests (BLOQUEANTE — suite completa)
         env:
