@@ -14,17 +14,26 @@ _TEMPLATES_DIR = _HERE.parent / "templates"
 directory_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
-def sv(path: str) -> str:
-    """Versión de un estático de directory vía el manifest global → fallback STATIC_VERSION."""
+def _sv_for(app_name: str, path: str) -> str:
     try:
         from itcj2.templates import sv as _sv_global
-        return _sv_global("directory", path)
+        return _sv_global(app_name, path)
     except Exception:
         try:
             from itcj2.config import get_settings
             return str(get_settings().STATIC_VERSION)
         except Exception:
             return "0"
+
+
+def sv(path: str) -> str:
+    """Versión de un estático de directory vía el manifest global → fallback STATIC_VERSION."""
+    return _sv_for("directory", path)
+
+
+def sv_core(path: str) -> str:
+    """Versión de un estático de core (shell móvil compartido)."""
+    return _sv_for("core", path)
 
 
 def render_directory(request: Request, template: str, context: dict | None = None, status_code: int = 200) -> HTMLResponse:
@@ -34,6 +43,7 @@ def render_directory(request: Request, template: str, context: dict | None = Non
         "request": request,
         "current_user": user,
         "sv": sv,
+        "sv_core": sv_core,
         "current_route": request.url.path,
         **(context or {}),
     }

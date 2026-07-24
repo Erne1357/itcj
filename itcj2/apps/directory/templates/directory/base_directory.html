@@ -6,9 +6,19 @@
   <title>{% block title %}Directorio de Extensiones{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <!-- Shell móvil compartido (botón "volver al inicio" cuando corre en el iframe del dashboard). -->
+  <link rel="stylesheet" href="/static/core/css/apps/mobile-app-shell.css?v={{ sv_core('css/apps/mobile-app-shell.css') }}">
   <link rel="stylesheet" href="/static/directory/css/directory.css?v={{ sv('css/directory.css') }}">
 </head>
 <body hx-ext="morph">
+  <!-- App bar: solo visible dentro del iframe móvil (body.in-mobile-iframe, lo pone mobile-app-shell.js). -->
+  <header class="dir-appbar">
+    <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio">
+      <i class="bi bi-arrow-left"></i>
+    </button>
+    <span class="dir-appbar-title"><i class="bi bi-telephone-fill me-2"></i>Directorio</span>
+  </header>
+
   {% block body %}{% endblock %}
 
   <!-- HTMX + Idiomorph (morph, sin parpadeo). Idiomorph SIEMPRE después de HTMX. -->
@@ -16,6 +26,8 @@
   <script src="https://unpkg.com/idiomorph@0.7.3/dist/idiomorph-ext.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/static/directory/js/index.js?v={{ sv('js/index.js') }}"></script>
+  <!-- Detecta iframe → marca body.in-mobile-iframe y enlaza el botón "volver" (postMessage CLOSE_APP al parent). -->
+  <script src="/static/core/js/apps/mobile-app-shell.js?v={{ sv_core('js/apps/mobile-app-shell.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

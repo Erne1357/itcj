@@ -36,5 +36,38 @@
 .dir-actions{ display:flex; gap:.25rem; justify-content:flex-end; }
 .dir-actions .btn{ color:var(--dir-mute); } .dir-actions .btn:hover{ color:var(--dir-ink); }
 @media (hover:hover){ .dir-actions{ opacity:0; transition:opacity .12s ease; } .dir-row:hover .dir-actions,.dir-actions:focus-within{ opacity:1; } }
-@media (max-width:575.98px){ .dir-head{ display:none; } .dir-dept{ position:static; top:auto; } .dir-table,.dir-table--manage{ --dir-cols:4.25rem 1fr; } .dir-row{ row-gap:.15rem; padding:.6rem .75rem; } .dir-ext{ grid-row:1 / span 3; align-self:start; } .dir-title,.dir-holder,.dir-notes,.dir-actions{ grid-column:2; } .dir-actions{ justify-content:flex-end; opacity:1; } }
+@media (max-width:575.98px){
+  .dir-head{ display:none; }
+  .dir-dept{ position:static; top:auto; }
+  .dir-table,.dir-table--manage{ --dir-cols:3.75rem 1fr auto; border-radius:14px; }
+  .dir-row{ column-gap:.75rem; row-gap:.1rem; padding:.7rem .85rem; align-items:start; }
+  .dir-row:hover{ background:#fff; box-shadow:none; }              /* touch: sin hover */
+  .dir-ext{ grid-column:1; grid-row:1 / span 3; align-self:center; }
+  .dir-ext-chip{ min-width:3.25rem; }
+  /* En móvil dejamos que el texto fluya (no ellipsis) para leer nombres largos. */
+  .dir-title{ grid-column:2; white-space:normal; }
+  .dir-holder{ grid-column:2; white-space:normal; font-size:.85rem; }
+  .dir-notes{ grid-column:2; white-space:normal; }
+  .dir-notes:empty{ display:none; }
+  .dir-actions{ grid-column:3; grid-row:1 / span 3; align-self:center; justify-content:flex-end; opacity:1; }
+  .dir-actions .btn{ padding:.4rem !important; font-size:1.05rem; }  /* tap targets ≥40px */
+}
 @media (prefers-reduced-motion:reduce){ .dir-row{ transition:none; } }
+
+/* ── App bar móvil (solo dentro del iframe del dashboard) ─────────────────── */
+/* mobile-app-shell.js añade .in-mobile-iframe al <body> cuando corre en iframe.
+   El botón .mobile-back-to-dashboard lo estiliza core/css/apps/mobile-app-shell.css
+   (círculo translúcido); aquí solo damos la barra oscura que lo aloja. */
+.dir-appbar{ display:none; }
+body.in-mobile-iframe .dir-appbar{
+  display:flex; align-items:center; gap:.5rem;
+  position:sticky; top:0; z-index:1030;
+  padding:calc(env(safe-area-inset-top,0px) + .5rem) .75rem .5rem;
+  background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);
+  color:#fff; box-shadow:0 2px 12px rgba(15,23,42,.22);
+}
+.dir-appbar-title{ font-size:1rem; font-weight:600; display:flex; align-items:center; }
+/* En el iframe la barra ya titula "Directorio": ocultamos el h1 duplicado. */
+body.in-mobile-iframe .dir-page-title{ display:none; }
+body.in-mobile-iframe .dir-page-head:empty,
+body.in-mobile-iframe .dir-page-head:has(> .dir-page-title:only-child){ margin-bottom:0; }

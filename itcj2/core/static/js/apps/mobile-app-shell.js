@@ -113,6 +113,7 @@
             if (path.includes('/helpdesk'))    return 'helpdesk';
             if (path.includes('/vistetec'))    return 'vistetec';
             if (path.includes('/maint')) return 'maint';
+            if (path.includes('/directory'))   return 'directory';
             return 'app';
         }
 
