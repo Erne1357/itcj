@@ -4,9 +4,11 @@
    ============================================== */
 
 :root {
-    --mobile-primary: #059669;
-    --mobile-primary-dark: #047857;
-    --mobile-primary-light: #10b981;
+    /* Guinda institucional ITCJ (antes verde #059669). Tematiza todo el
+       shell móvil core: barra inferior, saludo, avatares, tarjetas, perfil. */
+    --mobile-primary: #941921;
+    --mobile-primary-dark: #7E141B;
+    --mobile-primary-light: #b5323b;
     --mobile-bg: #f3f4f6;
     --mobile-card-bg: #ffffff;
     --mobile-text: #1f2937;

@@ -41,8 +41,13 @@
    SIDEBAR / NAVEGACIÓN
    ══════════════════════════════════════════════ */
 .mn-sidebar {
-    background-color: var(--maint-primary-darker);
-    color: #ECEFF1;
+    /* El drawer móvil usa el shell CLARO compartido (.app-sidebar). El fondo
+       oscuro legacy (heredado del sidebar desktop con .nav-link) volvía
+       ilegibles los .app-sidebar-item del shell (texto #374151 sobre oscuro).
+       Header sigue slate; ítems activos usan --app-primary. Consistente con
+       helpdesk/vistetec/agendatec. */
+    background-color: #ffffff;
+    color: #374151;
 }
 
 .mn-sidebar .nav-link {
