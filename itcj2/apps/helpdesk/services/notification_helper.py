@@ -84,6 +84,17 @@ def _model_to_context(obj) -> dict:
     from itcj2.apps.helpdesk.models.comment import Comment
 
     if isinstance(obj, Ticket):
+        # Campos calculados que consumen las plantillas de notificación (BD):
+        #   ticket_rated    → {{ ticket.avg_rating }}
+        #   ticket_resolved → {{ ticket.resolution_label }}
+        # Sin esto, DebugUndefined imprime "{{ no such element: dict object['...'] }}".
+        rating_a = getattr(obj, 'rating_attention', None)
+        rating_s = getattr(obj, 'rating_speed', None)
+        avg_rating = round((rating_a + rating_s) / 2, 1) if rating_a and rating_s else 0
+        resolution_label = {
+            'RESOLVED_SUCCESS': 'resuelto exitosamente',
+            'RESOLVED_FAILED': 'atendido pero no pudo resolverse completamente',
+        }.get(obj.status, 'resuelto')
         return {
             'id': obj.id,
             'ticket_number': obj.ticket_number,
@@ -94,6 +105,8 @@ def _model_to_context(obj) -> dict:
             'area': obj.area,
             'location': obj.location,
             'created_at': obj.created_at.isoformat() if obj.created_at else None,
+            'avg_rating': avg_rating,
+            'resolution_label': resolution_label,
         }
     if isinstance(obj, User):
         return {
@@ -102,9 +115,13 @@ def _model_to_context(obj) -> dict:
             'email': getattr(obj, 'email', None),
         }
     if isinstance(obj, Comment):
+        # comment_added → {{ comment.preview }} (recorte a 100 chars).
+        content = obj.content or ''
+        preview = content[:100] + '...' if len(content) > 100 else content
         return {
             'id': obj.id,
             'content': obj.content,
+            'preview': preview,
             'is_internal': obj.is_internal,
             'created_at': obj.created_at.isoformat() if obj.created_at else None,
         }
