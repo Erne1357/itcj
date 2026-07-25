@@ -105,6 +105,12 @@ jobs:
           print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas; enums: {sorted(_enums)}")
           PY
 
+      # Nota: create_all() solo construye tablas vacías, sin filas de referencia
+      # (core_apps, core_roles). tests/fastapi/conftest.py siembra el mínimo
+      # necesario (fixture `_seed_minimal_reference_data`, autouse, session-scope)
+      # para que las páginas/servicios que hacen `get_or_404_app` no truene contra
+      # una BD de test recién creada. database/DML/ (con datos reales/PII) nunca
+      # llega al checkout de CI — está gitignored a propósito.
       - name: Tests (BLOQUEANTE — suite completa)
         env:
           DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test

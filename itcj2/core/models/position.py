@@ -5,7 +5,7 @@ from sqlalchemy import (
     Index, Integer, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from itcj2.models.base import Base
 
@@ -55,9 +55,12 @@ class UserPosition(Base):
 
     __table_args__ = (
         Index("ix_user_positions_active", "user_id", "position_id", "is_active"),
-        # Unicidad "un puesto activo por (user, position)" vía índice parcial
-        # (ix uq_active_user_position_new WHERE is_active) creado en migración;
+        # Unicidad "un puesto activo por (user, position)" vía índice parcial;
         # el UniqueConstraint de 3 columnas rompía el ciclo asignar/quitar/reasignar.
+        Index(
+            "uq_active_user_position_new", "user_id", "position_id",
+            unique=True, postgresql_where=text("is_active"),
+        ),
     )
 
 

@@ -56,6 +56,40 @@ def _pg_engine():
     engine.dispose()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _seed_minimal_reference_data(_pg_engine):
+    """Siembra el mínimo de filas de referencia que el código asume que existen.
+
+    `core_apps`/`core_roles` normalmente se pueblan una vez, hace tiempo, vía
+    `database/DML/` (gitignored a propósito: trae PII real de personal —
+    nombres, correos, contraseñas — y nunca llega al checkout de CI). Contra
+    una BD de test recién creada (`create_all`, sin datos) varias rutas de
+    código (`get_or_404_app`, `user_roles_in_app`, el rol por defecto al crear
+    usuarios) truenan sin estas filas. Este fixture cubre exactamente lo que
+    la suite necesita hoy — sin ninguna dependencia de `database/DML/` ni PII.
+
+    Si un test nuevo pega contra una app o rol que no está aquí, agrégalo a
+    este fixture (no a `database/DML/`, que es solo para bootstrap local/staging
+    — ver `core seed-reference-data` en `itcj2/cli/core.py`).
+    """
+    from sqlalchemy import text
+
+    with _pg_engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO core_apps (key, name, is_active, visible_to_students, mobile_enabled)
+            VALUES
+                ('itcj', 'Plataforma ITCJ', true, false, true),
+                ('helpdesk', 'Help desk', true, false, true),
+                ('maint', 'Mantenimiento', true, false, true)
+            ON CONFLICT (key) DO NOTHING
+        """))
+        conn.execute(text("""
+            INSERT INTO core_roles (name) VALUES ('student')
+            ON CONFLICT (name) DO NOTHING
+        """))
+    yield
+
+
 @pytest.fixture()
 def db_session(_pg_engine):
     """Session transaccional que hace rollback al terminar el test.

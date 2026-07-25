@@ -153,6 +153,154 @@ def init_database_command():
         raise
 
 
+@click.command("seed-reference-data")
+def seed_reference_data_command():
+    """Carga TODO el catálogo de referencia (apps, roles, permisos, posiciones,
+    categorías, temas...) sobre un esquema recién creado (create_all / fresh DB).
+
+    SOLO para bootstrap local o de staging — requiere `database/DML/` en disco
+    (gitignored a propósito: trae PII real y no se distribuye por git; los
+    archivos viven en el servidor y se transfieren por scp). El gate de CI NO
+    usa este comando ni tiene acceso a `database/DML/`: siembra su propio set
+    mínimo, sin PII, vía fixture de pytest (`tests/fastapi/conftest.py`).
+
+    A diferencia de `init-db` (subset legacy: solo core + agendatec + helpdesk),
+    este comando recorre TODOS los DML de `database/DML/` que son reproducibles
+    en un ambiente nuevo, en el orden de dependencias correcto.
+
+    Deliberadamente EXCLUIDO (no reproducible desde DML solo):
+    - `core/init/09_insert_user_positions.sql` y
+      `helpdesk/11_insert_user_position_technician.sql`: asignan puestos a
+      usuarios que el propio script marca como "EXISTING USER - UPDATE"
+      (preexistían en la BD real antes de que este DML se escribiera; en una
+      BD nueva el UPDATE no toca ninguna fila y el INSERT subsiguiente falla
+      con user_id NULL). Repararlos implicaría inventar datos de personas
+      reales que no están en ningún DML — fuera de alcance de un seed.
+    - `database/DML/agendatec/{11..15}.sql`, `agendatec/help/*`,
+      `agendatec/periods/*`: preceden el rename de tablas legacy→core_* y
+      referencian tablas que ya no existen (`roles`, `programs`, `users`).
+      Datos reales de agendatec vinieron de la restauración del dump, no de
+      re-ejecutar estos scripts.
+    - `database/DML/dump/*`, `database/DML/maint/{11,12}_*`,
+      `helpdesk/inventory_by_department_report.sql`,
+      `helpdesk/10_verify_notification_setup.sql`,
+      `vistetec/04_verify_permissions.sql`,
+      `database/DML/org_scope_2026_07/*` (duplicado obsoleto de
+      `core/config_2026_07/subtree/*`): dumps de prod, altas de personal real
+      con contraseña compartida, reportes/verificaciones de solo lectura, o
+      duplicados — ninguno es catálogo de referencia reproducible.
+    """
+    click.echo("🌱 Cargando catálogo de referencia completo...")
+
+    files = [
+        "core/init/00_insert_apps.sql",
+        "core/init/01_insert_departments.sql",
+        "core/init/02_insert_positions.sql",
+        "core/init/03_insert_icons_deparments.sql",
+        "core/init/04_insert_roles.sql",
+        # Roles cross-app (student/coordinator/admin/social_service) deben
+        # existir ANTES de que 05/06 y core/agendatec/03 les asignen permisos.
+        "agendatec/10_insert_roles.sql",
+        "core/init/05_insert_permissions.sql",
+        "core/init/06_insert_role_permissions.sql",
+        "core/init/07_insert_user.sql",
+        "core/init/08_insert_role_positions_helpdesk.sql",
+        "core/init/10_insert_user_roles.sql",
+        "core/agendatec/01_insert_permissions.sql",
+        "core/agendatec/02_insert_user_app.sql",
+        "core/agendatec/03_insert_role_permission.sql",
+        "helpdesk/01_insert_permissions.sql",
+        "helpdesk/02_insert_roles.sql",
+        "helpdesk/03_insert_role_permission.sql",
+        "helpdesk/04_insert_categories.sql",
+        "helpdesk/05_insert_inventory_categories.sql",
+        "helpdesk/06_insert_enhanced_inventory_categories.sql",
+        "helpdesk/07_insert_position_app_perm.sql",
+        "helpdesk/07_insert_peripherals_categories.sql",
+        "helpdesk/08_insert_technician_user.sql",
+        "helpdesk/09_insert_user_role_technician.sql",
+        "helpdesk/12_insert_configure_moodle_custom_fields.sql",
+        "helpdesk/13_update_monitor_resolutions.sql",
+        "helpdesk/config/01_insert_permissions.sql",
+        "helpdesk/config/02_seed_priorities.sql",
+        "helpdesk/config/03_seed_statuses.sql",
+        "helpdesk/config/04_seed_status_transitions.sql",
+        "helpdesk/config/05_seed_areas.sql",
+        "helpdesk/config/06_seed_notification_templates.sql",
+        "helpdesk/inventory/01_add_verification_permissions.sql",
+        "helpdesk/inventory/02_assign_verification_permissions.sql",
+        "helpdesk/inventory/04_add_retirement_request_permissions.sql",
+        "helpdesk/inventory/05_assign_retirement_permissions_to_roles.sql",
+        "helpdesk/inventory/06_add_retirement_sign_permissions.sql",
+        "helpdesk/inventory/07_add_retirement_comp_center_sign_permission.sql",
+        "helpdesk/inventory/assign/01_add_assign_all_permission.sql",
+        "helpdesk/inventory/assign/02_assign_assign_all_to_roles_and_positions.sql",
+        "helpdesk/inventory_campaign/01_add_campaign_permissions.sql",
+        "helpdesk/inventory_campaign/02_assign_campaign_permissions.sql",
+        "helpdesk/14_fix_retirement_signer_subdirector.sql",
+        "helpdesk/quickfixes_2026_06/01_reset_secretary_password_perm.sql",
+        "vistetec/00_insert_app.sql",
+        "vistetec/01_insert_roles.sql",
+        "vistetec/02_insert_permissions.sql",
+        "vistetec/03_insert_role_permissions.sql",
+        # warehouse app row antes de maint (maint/08-09 la requieren), pero los
+        # roles maint (dispatcher/tech_maint/coordinadores) deben existir ANTES
+        # de warehouse/03 — por eso maint/00-02 se intercalan aquí.
+        "warehouse/00_insert_app.sql",
+        "maint/00_insert_app.sql",
+        "maint/01_add_maint_permissions.sql",
+        "maint/02_assign_maint_permissions_to_roles.sql",
+        "warehouse/01_add_warehouse_permissions.sql",
+        "warehouse/02_assign_warehouse_permissions_to_helpdesk_roles.sql",
+        "warehouse/03_assign_warehouse_permissions_to_maint_roles.sql",
+        "warehouse/04_assign_warehouse_to_tech_desarrollo.sql",
+        "maint/03_seed_maint_categories.sql",
+        "maint/05_add_stats_permissions.sql",
+        "maint/06_help_permissions.sql",
+        "maint/08_insert_position_app_perm.sql",
+        "maint/09_assign_warehouse_user_roles.sql",
+        "maint/10_add_coordinator_roles_permissions.sql",
+        "maint/config/01_insert_permissions.sql",
+        "maint/config/02_seed_priorities.sql",
+        "maint/config/03_seed_maint_types.sql",
+        "maint/config/04_seed_service_origins.sql",
+        "maint/config/05_seed_areas.sql",
+        "maint/config/06_seed_notification_templates.sql",
+        "titulatec/00_insert_app.sql",
+        "titulatec/04_insert_vinculacion_positions.sql",
+        "titulatec/06_seed_catalogs.sql",
+        "titulatec/07_insert_cotejo_reqs_perm.sql",
+        "directory/00_insert_app.sql",
+        "directory/01_insert_permissions.sql",
+        "directory/02_insert_role_permission.sql",
+        "directory/03_grant_directory_access.sql",
+        "core/config_2026_07/subtree/01_insert_subtree_perms.sql",
+        "core/config_2026_07/subtree/02_assign_subtree_perms.sql",
+        "core/config_2026_07/subtree/03_fix_subdirector_head_codes.sql",
+        "core/config_2026_07/01_app_colors.sql",
+        "core/tasks/01_insert_permissions.sql",
+        "core/tasks/02_insert_role_permissions.sql",
+        "core/tasks/03_insert_task_catalog.sql",
+        "core/themes/theme.sql",
+        "core/themes/mundial/01_theme.sql",
+        "core/themes/mundial/02_task.sql",
+    ]
+
+    base = PROJECT_ROOT / "database" / "DML"
+    try:
+        for rel in files:
+            file_path = base / rel
+            if not file_path.exists():
+                click.echo(f"   ⚠️  Archivo no encontrado, se omite: {rel}")
+                continue
+            click.echo(f"   🔄 {rel}")
+            execute_sql_file(str(file_path))
+        click.echo("\n🎉 Catálogo de referencia cargado correctamente.")
+    except Exception as e:
+        click.echo(f"\n💥 Error cargando catálogo de referencia: {str(e)}")
+        raise
+
+
 @click.command("reset-db")
 def reset_database_command():
     """Reinicia la base de datos y ejecuta las migraciones."""
@@ -480,6 +628,7 @@ def core_cli():
 
 
 core_cli.add_command(init_database_command)
+core_cli.add_command(seed_reference_data_command)
 core_cli.add_command(reset_database_command)
 core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
