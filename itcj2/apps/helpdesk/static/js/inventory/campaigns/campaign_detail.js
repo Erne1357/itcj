@@ -260,7 +260,7 @@
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast(data.message, 'success');
-            _reloadTimer1 = setTimeout(() => window.location.reload(), 1200);
+            _reloadTimer1 = setTimeout(() => window.HelpdeskPage.refresh(), 1200);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
             btn.disabled = false;
@@ -283,7 +283,7 @@
             const data = await res.json();
             if (!data.success) throw new Error(data.error);
             HelpdeskUtils.showToast(data.message, 'success');
-            _reloadTimer2 = setTimeout(() => window.location.reload(), 1200);
+            _reloadTimer2 = setTimeout(() => window.HelpdeskPage.refresh(), 1200);
         } catch (err) {
             HelpdeskUtils.showToast(err.message, 'danger');
         }
