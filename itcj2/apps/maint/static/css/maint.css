@@ -37,6 +37,40 @@
    recorre todo ~15px de lado. */
 html { scrollbar-gutter: stable; }
 
+/* Contraparte OBLIGATORIA de la regla de arriba (mismo bloque que helpdesk.css).
+   Al abrir un modal, Bootstrap (util/scrollbar.js → ScrollBarHelper.hide) mide
+   la barra ANTES de esconder el scroll — innerWidth - documentElement.clientWidth
+   = 15px por el gutter reservado — pone overflow:hidden en el body y "compensa"
+   ese ancho con padding-right:15px inline en el body. Esa compensación asume que
+   el hueco se libera; con scrollbar-gutter: stable NO se libera, así que el
+   padding estrecha el contenido 15px. Medido en maint (viewport 1280): el borde
+   derecho del <main class="container-fluid"> se movía 15px a la izquierda y los
+   bloques .container centrados 7.5px; con estas reglas, 0.
+   Ojo con el scope: .mn-topbar es el ÚNICO .sticky-top de maint y no trae
+   padding horizontal, así que forzar 0 lo restaura exacto. .mn-help-header es
+   position:sticky pero SIN la clase .sticky-top — Bootstrap no lo toca y estas
+   reglas tampoco, conserva su padding: 1rem 1.5rem.
+   Bootstrap lo aplica como estilo inline: por eso hace falta !important. */
+body.modal-open {
+    padding-right: 0 !important;
+}
+
+body.modal-open .fixed-top,
+body.modal-open .fixed-bottom,
+body.modal-open .is-fixed,
+body.modal-open .sticky-top {
+    padding-right: 0 !important;
+}
+
+body.modal-open .sticky-top {
+    margin-right: 0 !important;
+}
+
+body.modal-open .modal {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
 .mn-app-wrapper {
     background-color: var(--maint-primary-light);
     min-height: 100vh;
