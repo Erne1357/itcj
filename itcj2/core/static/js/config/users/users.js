@@ -296,11 +296,15 @@
     function renderPagination(meta) {
         const ul = document.querySelector('nav[aria-label="User pagination"] ul.pagination');
         if (!ul) return;
+        // Mismo markup que el server-rendered: data-page lo captura
+        // onPaginationClick, y el href real (con los filtros vivos) sirve para
+        // abrir en pestaña nueva y como fallback si el click se escapa.
+        const hrefFor = (page) => `${window.location.pathname}?${currentParams(page).toString()}`;
         const item = (label, page, opts) => {
             const o = opts || {};
             if (o.disabled) return `<li class="page-item disabled"><span class="page-link">${label}</span></li>`;
             if (o.active) return `<li class="page-item active"><span class="page-link">${label}</span></li>`;
-            return `<li class="page-item"><a class="page-link" href="#" data-page="${page}">${label}</a></li>`;
+            return `<li class="page-item"><a class="page-link" href="${esc(hrefFor(page))}" data-page="${page}">${label}</a></li>`;
         };
         let html = item('Anterior', meta.page - 1, { disabled: meta.page <= 1 });
         const start = Math.max(1, meta.page - 2);
