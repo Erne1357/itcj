@@ -434,13 +434,37 @@ _SUMMARY_ACTIVE = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
 _SUMMARY_RESOLVED = ('RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED')
 
 
-def subtree_department_summary(db: Session, root_department_id: int) -> list[dict]:
+def _summary_visible_departments(db: Session, user_id: int, root_department_id: int):
+    """Departamentos cuyos conteos puede ver ``user_id``. ``None`` = sin recorte.
+
+    Mismo criterio que ``list_tickets``: acceso total para admin / secretaría de
+    centro de cómputo / técnicos; para el resto, el subárbol autorizado más el
+    departamento raíz que ya gestiona (ese siempre lo ve, con permiso o sin él).
+    """
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    roles = set(user_roles_in_app(db, user_id, 'helpdesk'))
+    if roles & {'admin', 'tech_desarrollo', 'tech_soporte'}:
+        return None
+    if user_id in set(_get_users_with_position(db, ['secretary_comp_center'])):
+        return None
+
+    return subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree") | {root_department_id}
+
+
+def subtree_department_summary(db: Session, user_id: int, root_department_id: int) -> list[dict]:
     """Árbol de divisiones del subárbol de ``root_department_id`` con conteos de
     tickets por departamento (total / activos / resueltos) + rollup de subtree.
 
-    Incluye TODAS las divisiones del subárbol (aunque tengan 0 tickets) en orden
-    jerárquico. Para el resumen del dashboard del jefe/director: el root ve el
-    total de su área y puede desplegar las divisiones internas.
+    Incluye las divisiones del subárbol que el usuario PUEDE VER (aunque tengan 0
+    tickets) en orden jerárquico. Para el resumen del dashboard del jefe/director:
+    el root ve el total de su área y puede desplegar las divisiones internas.
+
+    El recorte por scope es obligatorio: este widget agrega conteos sin pasar por
+    ``list_tickets``, así que sin él un jefe sin ``helpdesk.tickets.api.read.subtree``
+    vería los totales de cada sub-departamento mientras su lista de tickets devuelve
+    solo los de su propio departamento.
     """
     from sqlalchemy import func
     from itcj2.core.services.hierarchy_service import subtree_nodes, build_dept_forest
@@ -448,6 +472,12 @@ def subtree_department_summary(db: Session, root_department_id: int) -> list[dic
     nodes = subtree_nodes(db, root_department_id)
     if not nodes:
         return []
+
+    visible = _summary_visible_departments(db, user_id, root_department_id)
+    if visible is not None:
+        nodes = [n for n in nodes if n["id"] in visible]
+        if not nodes:
+            return []
 
     dept_ids = [n["id"] for n in nodes]
     rows = (

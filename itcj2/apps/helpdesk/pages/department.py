@@ -147,7 +147,7 @@ async def tickets(
     from itcj2.apps.helpdesk.services import ticket_service as _tsvc
     _sdb = SessionLocal()
     try:
-        division_tree = _tsvc.subtree_department_summary(_sdb, department_id)
+        division_tree = _tsvc.subtree_department_summary(_sdb, user_id, department_id)
     finally:
         _sdb.close()
 

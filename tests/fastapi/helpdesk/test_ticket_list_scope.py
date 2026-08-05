@@ -150,3 +150,63 @@ def test_subtree_scope_still_excludes_other_branch(db_session):
     assert "TLS-ROOT-1" not in numbers                      # nunca hacia arriba
     assert can_user_view_ticket(db_session, sibling_ticket, boss.id) is False
     assert can_user_view_ticket(db_session, parent_ticket, boss.id) is False
+
+
+# ---------------------------------------------------------------------------
+# Resumen de divisiones del jefe (widget "Divisiones del área")
+# ---------------------------------------------------------------------------
+
+def _flatten(forest):
+    out = {}
+    for node in forest:
+        out[node["name"]] = node
+        out.update(_flatten(node["children"]))
+    return out
+
+
+def test_division_summary_requires_subtree_permission(db_session):
+    """El widget agrega conteos por sub-departamento sin pasar por la lista.
+
+    Sin `.read.subtree` el jefe no puede ver esos conteos: su lista de tickets
+    solo trae su propio departamento, así que el resumen filtraría datos que la
+    lista ya no muestra.
+    """
+    from itcj2.apps.helpdesk.services.ticket_service import subtree_department_summary
+
+    root = _dept(db_session, "tds_root")
+    leaf = _dept(db_session, "tds_leaf", root.id)
+    boss = _user(db_session, "NoScope")
+    stranger = _user(db_session, "Ajeno")
+    _ticket(db_session, "TDS-ROOT-1", stranger, root)
+    _ticket(db_session, "TDS-LEAF-1", stranger, leaf)
+
+    # Puesto en el root pero SIN el permiso .subtree.
+    pos = Position(code="tds_pos", title="Jefe", department_id=root.id,
+                   is_active=True, allows_multiple=True)
+    db_session.add(pos); db_session.commit(); db_session.refresh(pos)
+    db_session.add(UserPosition(user_id=boss.id, position_id=pos.id,
+                                start_date=date.today() - timedelta(days=1), is_active=True))
+    db_session.commit()
+
+    nodes = _flatten(subtree_department_summary(db_session, boss.id, root.id))
+
+    assert "tds_root" in nodes
+    assert "tds_leaf" not in nodes           # sin permiso, no se agregan sus conteos
+    assert nodes["tds_root"]["subtree"]["total"] == 1   # solo lo suyo
+
+
+def test_division_summary_includes_subtree_when_granted(db_session):
+    from itcj2.apps.helpdesk.services.ticket_service import subtree_department_summary
+
+    root = _dept(db_session, "tdg_root")
+    leaf = _dept(db_session, "tdg_leaf", root.id)
+    boss = _user(db_session, "WithScope")
+    stranger = _user(db_session, "Ajeno")
+    _grant_subtree(db_session, boss, root)
+    _ticket(db_session, "TDG-ROOT-1", stranger, root)
+    _ticket(db_session, "TDG-LEAF-1", stranger, leaf)
+
+    nodes = _flatten(subtree_department_summary(db_session, boss.id, root.id))
+
+    assert {"tdg_root", "tdg_leaf"} <= set(nodes)
+    assert nodes["tdg_root"]["subtree"]["total"] == 2   # rollup del subárbol
