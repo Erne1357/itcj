@@ -153,9 +153,11 @@ def user_roles_via_positions(db: Session, user_id: int, app_key: str) -> Set[str
         db.query(Role.name)
         .join(PositionAppRole, PositionAppRole.role_id == Role.id)
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
+        .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
             _active_position_filter(),
+            Position.is_active == True,  # noqa: E712
             PositionAppRole.app_id == app.id
         )
         .all()
@@ -169,9 +171,11 @@ def user_perms_via_positions_direct(db: Session, user_id: int, app_key: str) -> 
         db.query(Permission.code)
         .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
         .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
+        .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
             _active_position_filter(),
+            Position.is_active == True,  # noqa: E712
             PositionAppPerm.app_id == app.id,
             PositionAppPerm.allow == True,
             Permission.app_id == app.id
@@ -188,9 +192,11 @@ def user_perms_via_position_roles(db: Session, user_id: int, app_key: str) -> Se
         .join(RolePermission, RolePermission.perm_id == Permission.id)
         .join(PositionAppRole, PositionAppRole.role_id == RolePermission.role_id)
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
+        .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
             _active_position_filter(),
+            Position.is_active == True,  # noqa: E712
             PositionAppRole.app_id == app.id,
             Permission.app_id == app.id
         )
