@@ -351,12 +351,19 @@ def list_tickets(
                 dept_ids.add(_dept.id)
         dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
 
+        # La propiedad NUNCA se pierde: el scope departamental SUMA sobre "soy el
+        # solicitante / me lo asignaron", no lo reemplaza. `requester_department_id`
+        # es un snapshot al crear, así que quien cambia de departamento conserva
+        # tickets propios sellados con el departamento anterior; en AND se le
+        # borrarían de "Mis Tickets". Mismo conjunto que `can_user_view_ticket`
+        # → lista y detalle no se desalinean.
+        visibility = [
+            Ticket.requester_id == user_id,
+            Ticket.assigned_to_user_id == user_id,
+        ]
         if dept_ids:
-            query = query.filter(Ticket.requester_department_id.in_(dept_ids))
-        elif 'department_head' in user_roles:
-            query = query.filter(Ticket.id == -1)   # jefe sin depto resuelto → nada
-        else:
-            query = query.filter(Ticket.requester_id == user_id)   # dueño
+            visibility.append(Ticket.requester_department_id.in_(dept_ids))
+        query = query.filter(or_(*visibility))
 
     if status:
         if isinstance(status, list):
