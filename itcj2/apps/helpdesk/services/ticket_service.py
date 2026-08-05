@@ -194,16 +194,17 @@ def create_ticket(
     if priority not in valid_codes:
         raise HTTPException(status_code=400, detail=f'Prioridad inválida. Válidas: {sorted(valid_codes)}')
 
+    # Este campo se SELLA aquí y nadie lo recalcula después: de él depende todo el
+    # scope departamental posterior del ticket. La consulta ad-hoc que había aquí
+    # (is_active a secas + .first() sin orden) podía sellarlo con un puesto vencido
+    # o, en usuarios multi-puesto, con uno arbitrario — y el ticket quedaba invisible
+    # para el jefe correcto de forma permanente. Se usa el resolver canónico.
     department_id = None
     try:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=requester_id,
-            is_active=True
-        ).first()
-
-        if user_position and user_position.position:
-            department_id = user_position.position.department_id
+        from itcj2.core.services.departments_service import get_primary_user_department
+        dept = get_primary_user_department(db, requester_id)
+        if dept:
+            department_id = dept.id
     except Exception as e:
         logger.warning(f"No se pudo obtener departamento del usuario {requester_id}: {e}")
 
