@@ -63,6 +63,43 @@ class TestCanJoinDept:
                    return_value=[{"id": 5}]):
             assert maint_sockets._can_join_dept({"sub": "7650", "role": "user"}, 99) is False
 
+    def test_area_coordinator_no_longer_full_access(self):
+        """issue #1: maint_area_coordinator salió de _FULL_ACCESS_MAINT (ya no
+        es full-access en ticket_service/dashboard_service tampoco) — pedir el
+        room de un departamento ajeno debe rechazarse, no abrirse por rol."""
+        with patch("itcj2.database.SessionLocal", return_value=MagicMock()), \
+             patch("itcj2.core.services.authz_service.user_roles_in_app",
+                   return_value=["maint_area_coordinator"]), \
+             patch("itcj2.apps.maint.services.department_dashboard_service._resolve_user_departments",
+                   return_value=[]), \
+             patch("itcj2.core.services.scope_service.subtree_scope_for",
+                   return_value=set()):
+            assert maint_sockets._can_join_dept({"sub": "8284", "role": "user"}, 42) is False
+
+    def test_subtree_scope_grants_dept_join(self):
+        """issue #2: un jefe con `.read.subtree` debe poder unirse al room de un
+        sub-departamento que ve por procedencia aunque no sea su puesto directo
+        (antes _can_join_dept solo miraba _resolve_user_departments)."""
+        with patch("itcj2.database.SessionLocal", return_value=MagicMock()), \
+             patch("itcj2.core.services.authz_service.user_roles_in_app",
+                   return_value=["department_head"]), \
+             patch("itcj2.apps.maint.services.department_dashboard_service._resolve_user_departments",
+                   return_value=[{"id": 5}]), \
+             patch("itcj2.core.services.scope_service.subtree_scope_for",
+                   return_value={5, 9}):
+            assert maint_sockets._can_join_dept({"sub": "7650", "role": "user"}, 9) is True
+
+    def test_subtree_scope_still_denies_unrelated_dept(self):
+        """El subárbol suma, no abre cualquier departamento del campus."""
+        with patch("itcj2.database.SessionLocal", return_value=MagicMock()), \
+             patch("itcj2.core.services.authz_service.user_roles_in_app",
+                   return_value=["department_head"]), \
+             patch("itcj2.apps.maint.services.department_dashboard_service._resolve_user_departments",
+                   return_value=[{"id": 5}]), \
+             patch("itcj2.core.services.scope_service.subtree_scope_for",
+                   return_value={5, 9}):
+            assert maint_sockets._can_join_dept({"sub": "7650", "role": "user"}, 123) is False
+
 
 class TestCanJoinTicket:
     def test_none_user_denied(self):

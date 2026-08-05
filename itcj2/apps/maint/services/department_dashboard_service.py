@@ -45,26 +45,27 @@ def _apply_dept_filter(query, dept_ids: list[int] | None):
 
 def _resolve_user_departments(db: Session, user_id: int) -> list[dict]:
     """
-    Retorna [{id, code, name}] de los departamentos de los puestos activos del usuario.
-    Puede haber duplicados de departamento si el usuario tiene >1 puesto en el mismo;
-    se deduplican por dept_id.
-    """
-    from itcj2.core.models.position import UserPosition, Position
-    from itcj2.core.models.department import Department
+    Retorna [{id, code, name}] de los departamentos de los puestos VIGENTES del
+    usuario (ventana start_date/end_date, no solo is_active).
 
-    rows = (
-        db.query(Department.id, Department.code, Department.name)
-        .join(Position, Position.department_id == Department.id)
-        .join(UserPosition, UserPosition.position_id == Position.id)
-        .filter(
-            UserPosition.user_id == user_id,
-            UserPosition.is_active.is_(True),
-            Department.is_active.is_(True),
-        )
-        .distinct()
-        .all()
+    Delega en el resolver CANÓNICO `core.services.departments_service.
+    get_user_departments` — este es el resolver que consumen `list_tickets`,
+    `can_user_view_ticket`, `dashboard_service` y el ACL de sockets (issue #3
+    del roadmap de coherencia org-scope). Antes filtraba solo
+    `UserPosition.is_active`, ignorando `start_date`/`end_date`: un puesto
+    vencido (con `is_active` aún en True) seguía dando acceso al departamento
+    que la persona ya dejó. El contrato de retorno (list[dict] con esas 3
+    claves) se conserva tal cual — varios consumidores dependen de esa forma.
+    """
+    from itcj2.core.services.departments_service import (
+        get_user_departments as _canonical_get_user_departments,
     )
-    return [{"id": r.id, "code": r.code, "name": r.name} for r in rows]
+
+    return [
+        {"id": d.id, "code": d.code, "name": d.name}
+        for d in _canonical_get_user_departments(db, user_id)
+        if d.is_active
+    ]
 
 
 def _dept_ids_for_query(
@@ -80,7 +81,8 @@ def _dept_ids_for_query(
     Retorna None si NO debe aplicarse filtro de departamento (= todos).
     Retorna lista (posiblemente con 1 elemento) si debe filtrarse.
 
-    Raises ValueError si dept_filter no pertenece al usuario (y no es admin global).
+    Raises ValueError si dept_filter no pertenece al usuario NI a su subárbol
+    autorizado por `maint.tickets.api.read.subtree` (y no es admin global).
     """
     if is_admin_global:
         if dept_filter is not None:
@@ -91,9 +93,18 @@ def _dept_ids_for_query(
     user_dept_ids = [d["id"] for d in user_departments]
 
     if dept_filter is not None:
-        if dept_filter not in user_dept_ids:
+        # issue #6: un jefe con `.read.subtree` puede pedir un departamento que
+        # NO es suyo por puesto directo pero SÍ está dentro de su subárbol
+        # autorizado (ya lo ve sumado en el total sin filtro) — antes esto daba
+        # 403 solo por no aparecer en `user_dept_ids`.
+        from itcj2.core.services.scope_service import subtree_scope_for
+        authorized_subtree = subtree_scope_for(
+            db, user_id, "maint", "maint.tickets.api.read.subtree"
+        )
+        if dept_filter not in user_dept_ids and dept_filter not in authorized_subtree:
             raise ValueError(
-                f"El departamento {dept_filter} no pertenece a tus puestos activos."
+                f"El departamento {dept_filter} no pertenece a tus puestos activos "
+                "ni a tu alcance autorizado."
             )
         return [dept_filter]
 
@@ -104,7 +115,15 @@ def _dept_ids_for_query(
     return user_dept_ids
 
 
-def _effective_dept_ids(db: Session, user_id: int, base_dept_ids, scope: str):
+def _effective_dept_ids(
+    db: Session,
+    user_id: int,
+    base_dept_ids,
+    scope: str,
+    *,
+    is_admin_global: bool = False,
+    dept_filter: int | None = None,
+):
     """Aplica el ámbito (own/all/below) sobre los deptos base, RESPETANDO el
     permiso maint.tickets.api.read.subtree (autorización). Espeja el criterio de
     ticket_service.list_tickets: el usuario solo ve sub-departamentos si tiene el
@@ -112,11 +131,33 @@ def _effective_dept_ids(db: Session, user_id: int, base_dept_ids, scope: str):
 
     base_dept_ids: salida de _dept_ids_for_query (None = todos/admin; [-1] = nada;
     lista de ids en otro caso). Devuelve el conjunto efectivo (mismo formato).
+
+    dept_filter: el ?dept= pedido por el caller, si lo hubo (issue #7). Antes,
+    con scope="all" (el default) el filtro quedaba ANULADO: pedir un depto A
+    devolvía `base | authorized` = A + TODO el subárbol autorizado del usuario,
+    exactamente lo mismo que sin filtrar. Ahora, si se pidió un depto concreto,
+    la expansión se acota al SUBTREE DE ESE departamento (no al subárbol
+    autorizado completo) — intersectado con lo que el usuario puede ver, salvo
+    para un admin/dispatcher global (`is_admin_global`), que ya tiene visto
+    bueno para el subtree completo de cualquier depto sin necesitar el permiso
+    `.read.subtree` por puesto.
     """
     if base_dept_ids is None:
         return None                      # admin/dispatcher: ve todo, scope no aplica
     if scope == "own":
         return base_dept_ids
+
+    if dept_filter is not None:
+        from itcj2.core.services.hierarchy_service import descendant_department_ids
+        own_subtree = descendant_department_ids(db, dept_filter, include_self=True)
+        if not is_admin_global:
+            from itcj2.core.services.scope_service import subtree_scope_for
+            authorized = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
+            own_subtree &= (set(base_dept_ids) | authorized)
+        if scope == "below":
+            own_subtree -= {dept_filter}
+        return list(own_subtree) if own_subtree else [-1]
+
     from itcj2.core.services.scope_service import subtree_scope_for
     authorized = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
     base = set(base_dept_ids)
@@ -293,7 +334,10 @@ def get_summary(
 
     user_departments = _resolve_user_departments(db, user_id)
     dept_ids = _dept_ids_for_query(db, user_id, is_admin_global, dept_filter, user_departments)
-    dept_ids = _effective_dept_ids(db, user_id, dept_ids, scope)
+    dept_ids = _effective_dept_ids(
+        db, user_id, dept_ids, scope,
+        is_admin_global=is_admin_global, dept_filter=dept_filter,
+    )
 
     base_q = _apply_dept_filter(db.query(MaintTicket), dept_ids)
 
@@ -428,7 +472,10 @@ def get_full(
 
     user_departments = _resolve_user_departments(db, user_id)
     dept_ids = _dept_ids_for_query(db, user_id, is_admin_global, dept_filter, user_departments)
-    dept_ids = _effective_dept_ids(db, user_id, dept_ids, scope)
+    dept_ids = _effective_dept_ids(
+        db, user_id, dept_ids, scope,
+        is_admin_global=is_admin_global, dept_filter=dept_filter,
+    )
 
     base_q = _apply_dept_filter(db.query(MaintTicket), dept_ids)
 
