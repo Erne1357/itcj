@@ -55,23 +55,40 @@
         return q.length ? '?' + q.join('&') : '';
     }
 
-    function _skeleton(id, height) {
+    // ── Overlay de la gráfica ────────────────────────────────────────────────
+    // El canvas vive DENTRO de .chart-wrap (altura fija) y nunca se oculta ni se
+    // desmonta; los estados de carga/vacío/error se pintan en .chart-overlay,
+    // superpuesto. Ocultar el canvas o sacarlo del wrap deja a Chart.js midiendo
+    // contra un padre sin altura y la gráfica crece sin límite.
+
+    function _overlay(id, html) {
         var el = document.getElementById(id);
         if (!el) return;
-        el.innerHTML = '<span class="mn-skeleton d-block" style="height:' + (height || 180) + 'px;border-radius:8px;"></span>';
+        el.innerHTML = html;
+        el.classList.remove('d-none');
+    }
+
+    function _hideOverlay(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = '';
+        el.classList.add('d-none');
+    }
+
+    function _skeleton(id, height) {
+        _overlay(id, '<span class="mn-skeleton d-block w-100" style="height:' + (height || 180) + 'px;border-radius:8px;"></span>');
     }
 
     function _errorBox(id, msg) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.innerHTML = '<div class="alert alert-danger py-2 small"><i class="fas fa-exclamation-triangle me-1"></i>' + _esc(msg) + '</div>';
+        _overlay(id, '<div class="alert alert-danger py-2 small mb-0"><i class="fas fa-exclamation-triangle me-1"></i>' + _esc(msg) + '</div>');
     }
 
-    function _showCanvas(canvasId, wrapId) {
-        var canvas = document.getElementById(canvasId);
-        var wrap   = document.getElementById(wrapId);
-        if (canvas) canvas.style.display = '';
-        if (wrap) { wrap.innerHTML = ''; wrap.style.display = 'none'; }
+    function _emptyBox(id, icon, msg) {
+        _overlay(id,
+            '<div class="text-center text-muted">' +
+                (icon ? '<i class="fas ' + icon + ' fa-2x mb-2 d-block opacity-25"></i>' : '') +
+                _esc(msg) +
+            '</div>');
     }
 
     function _destroyChart(key) {
@@ -120,13 +137,7 @@
     // ── TAB: TICKETS ─────────────────────────────────────────────────────────
 
     function loadTickets() {
-        var wrap = document.getElementById('ticketsChartWrap');
-        if (wrap) {
-            wrap.style.display = '';
-            wrap.innerHTML = '<span class="mn-skeleton d-block" style="height:260px;border-radius:8px;"></span>';
-        }
-        var canvas = document.getElementById('chartTickets');
-        if (canvas) canvas.style.display = 'none';
+        _skeleton('ticketsChartOverlay', 260);
 
         MaintUtils.api.fetch(API + '/tickets' + _qs())
             .then(function (data) {
@@ -134,28 +145,22 @@
                 _loaded.tickets = true;
             })
             .catch(function (err) {
-                if (wrap) _errorBox('ticketsChartWrap', (err && err.message) || 'Error al cargar tickets');
+                _errorBox('ticketsChartOverlay', (err && err.message) || 'Error al cargar tickets');
             });
     }
 
     function renderTicketsChart(rows) {
-        var wrap   = document.getElementById('ticketsChartWrap');
         var canvas = document.getElementById('chartTickets');
         if (!canvas) return;
 
         _destroyChart('tickets');
 
         if (!rows.length) {
-            if (wrap) {
-                wrap.innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-chart-line fa-2x mb-2 d-block opacity-25"></i>Sin datos en el período seleccionado</div>';
-            }
+            _emptyBox('ticketsChartOverlay', 'fa-chart-line', 'Sin datos en el período seleccionado');
             return;
         }
 
-        if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
-        canvas.style.display = '';
-        // Restore canvas into chart-wrap dimensions
-        canvas.parentElement.style.height = '300px';
+        _hideOverlay('ticketsChartOverlay');
 
         var labels   = rows.map(function (r) { return r.date; });
         var created  = rows.map(function (r) { return r.created; });
@@ -204,10 +209,7 @@
         document.getElementById('techTableBody').innerHTML =
             '<tr><td colspan="9" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Cargando...</td></tr>';
 
-        var techWrap = document.getElementById('techChartWrap');
-        if (techWrap) techWrap.innerHTML = '<span class="mn-skeleton d-block" style="height:180px;border-radius:8px;"></span>';
-        var techCanvas = document.getElementById('chartTech');
-        if (techCanvas) techCanvas.style.display = 'none';
+        _skeleton('techChartOverlay', 180);
 
         MaintUtils.api.fetch(API + '/technicians' + _qs())
             .then(function (data) {
@@ -216,6 +218,7 @@
                 _loaded.technicians = true;
             })
             .catch(function (err) {
+                _errorBox('techChartOverlay', (err && err.message) || 'Error');
                 document.getElementById('techTableBody').innerHTML =
                     '<tr><td colspan="9" class="text-center py-3 text-danger">' +
                     '<i class="fas fa-exclamation-triangle me-1"></i>' + _esc((err && err.message) || 'Error') + '</td></tr>';
@@ -259,19 +262,17 @@
     }
 
     function renderTechChart(rows) {
-        var wrap   = document.getElementById('techChartWrap');
         var canvas = document.getElementById('chartTech');
         if (!canvas) return;
         _destroyChart('tech');
 
         if (!rows.length) {
-            if (wrap) wrap.innerHTML = '<div class="text-center text-muted py-4">Sin datos</div>';
+            _emptyBox('techChartOverlay', 'fa-users-cog', 'Sin datos');
             return;
         }
 
         var top = rows.slice(0, 10);
-        if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
-        canvas.style.display = '';
+        _hideOverlay('techChartOverlay');
 
         _charts.tech = new Chart(canvas, {
             type: 'bar',
@@ -299,10 +300,7 @@
         document.getElementById('catTableBody').innerHTML =
             '<tr><td colspan="5" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin me-2"></i>Cargando...</td></tr>';
 
-        var catWrap = document.getElementById('catChartWrap');
-        if (catWrap) catWrap.innerHTML = '<span class="mn-skeleton d-block" style="height:260px;border-radius:8px;"></span>';
-        var catCanvas = document.getElementById('chartCat');
-        if (catCanvas) catCanvas.style.display = 'none';
+        _skeleton('catChartOverlay', 260);
 
         MaintUtils.api.fetch(API + '/categories' + _qs())
             .then(function (data) {
@@ -311,6 +309,7 @@
                 _loaded.categories = true;
             })
             .catch(function (err) {
+                _errorBox('catChartOverlay', (err && err.message) || 'Error');
                 document.getElementById('catTableBody').innerHTML =
                     '<tr><td colspan="5" class="text-center py-3 text-danger">' +
                     _esc((err && err.message) || 'Error') + '</td></tr>';
@@ -335,18 +334,16 @@
     }
 
     function renderCatChart(rows) {
-        var wrap   = document.getElementById('catChartWrap');
         var canvas = document.getElementById('chartCat');
         if (!canvas) return;
         _destroyChart('cat');
 
         if (!rows.length) {
-            if (wrap) wrap.innerHTML = '<div class="text-center text-muted py-4">Sin datos</div>';
+            _emptyBox('catChartOverlay', 'fa-tags', 'Sin datos');
             return;
         }
 
-        if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
-        canvas.style.display = '';
+        _hideOverlay('catChartOverlay');
 
         _charts.cat = new Chart(canvas, {
             type: 'doughnut',

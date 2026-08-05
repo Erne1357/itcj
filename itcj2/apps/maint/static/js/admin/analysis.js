@@ -380,11 +380,21 @@
 
         _destroyChart('dist');
 
+        var overlay = document.getElementById('distChartOverlay');
         if (!bins.length) {
-            canvas.style.display = 'none';
+            // Sin datos: overlay ENCIMA del canvas. Ocultar el canvas dejaba el
+            // recuadro en blanco sin explicación.
+            if (overlay) {
+                overlay.innerHTML =
+                    '<div class="text-center text-muted">' +
+                        '<i class="fas fa-chart-bar fa-2x mb-2 d-block opacity-25"></i>' +
+                        'Sin datos para esta métrica en el período seleccionado' +
+                    '</div>';
+                overlay.classList.remove('d-none');
+            }
             return;
         }
-        canvas.style.display = '';
+        if (overlay) { overlay.innerHTML = ''; overlay.classList.add('d-none'); }
 
         var labels = bins.map(function (b) {
             return _fmt(b.lower, 1) + '–' + _fmt(b.upper, 1);
