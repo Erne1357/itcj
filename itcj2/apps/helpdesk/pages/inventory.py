@@ -126,8 +126,13 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
             if dept_param and dept_param.isdigit():
                 q = q.filter(InventoryItem.department_id == int(dept_param))
         elif visible:
-            # Scope departamental/subárbol (jefe de depto y/o .read.subtree).
-            q = q.filter(InventoryItem.department_id.in_(visible))
+            # Scope departamental/subárbol (jefe de depto y/o .read.subtree). El
+            # ?department= NUNCA sustituye el scope: solo lo intersecta (fuera
+            # de scope ⇒ vacío), igual que el endpoint API GET /inventory/items.
+            if dept_param and dept_param.isdigit() and int(dept_param) in visible:
+                q = q.filter(InventoryItem.department_id == int(dept_param))
+            else:
+                q = q.filter(InventoryItem.department_id.in_(visible))
         elif "department_head" in user_roles:
             # Jefe de depto sin departamento resuelto → no ve nada (comportamiento previo).
             q = q.filter(InventoryItem.department_id == -1)
@@ -182,6 +187,16 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
                 .all()
             )
             departments_data = [{"id": d.id, "name": d.name} for d in departments]
+        elif visible:
+            # Jefe con subárbol: puebla el selector con SU subárbol (no todos los
+            # departamentos), para que pueda filtrar entre sus sub-departamentos.
+            departments = (
+                _db.query(Department)
+                .filter(Department.id.in_(visible), Department.is_active == True)  # noqa: E712
+                .order_by(Department.name)
+                .all()
+            )
+            departments_data = [{"id": d.id, "name": d.name} for d in departments]
         else:
             departments_data = []
     finally:
@@ -230,8 +245,7 @@ async def items_list(
         ctx["oob"] = True
         return render(request, "helpdesk/inventory/items/_items_list_results.html", ctx)
 
-    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
-    # aparece si el usuario ve todos los departamentos.
+    # Campos de la barra de filtros (macro filter_bar).
     category_options = [("", "Todas")] + [
         (str(c["id"]), c["name"]) for c in ctx["categories"]
     ]
@@ -245,7 +259,9 @@ async def items_list(
         "name": "assigned", "label": "Asignación", "icon": "fa-user",
         "col": "col-6 col-md-2", "selected": ctx["f_assigned"], "options": _ITEM_ASSIGNED_OPTIONS,
     }]
-    if ctx["can_view_all"]:
+    # El selector se dibuja si ve todos los departamentos O si tiene un
+    # subárbol con más de una opción para elegir (jefe con `.read.subtree`).
+    if ctx["can_view_all"] or ctx["departments"]:
         dept_options = [("", "Todos los deptos.")] + [
             (str(d["id"]), d["name"]) for d in ctx["departments"]
         ]
@@ -486,10 +502,12 @@ async def groups_list(
         ctx["oob"] = True
         return render(request, "helpdesk/inventory/groups/_groups_list_results.html", ctx)
 
-    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
-    # aparece si el usuario ve todos los departamentos.
+    # Campos de la barra de filtros (macro filter_bar). El de departamento aparece
+    # si ve todos los departamentos O si su subárbol tiene más de uno — igual que
+    # en items, campañas y verificación. Gatearlo solo con `can_view_all` dejaba al
+    # jefe con sub-departamentos sin forma de filtrar por ellos.
     filter_fields = []
-    if ctx["can_view_all"]:
+    if ctx["can_view_all"] or ctx["departments"]:
         dept_options = [("", "Todos los deptos.")] + [
             (str(d["id"]), d["name"]) for d in ctx["departments"]
         ]
@@ -781,17 +799,19 @@ def _query_campaigns_ctx(request: Request, user_id: int, user_roles: set) -> dic
 
     Reusada por la PÁGINA (render completo) y el PARTIAL HTMX (fragmento).
     Aplica los filtros de la barra (search=folio/status/department) server-side y
-    pagina. El scope replica el del endpoint API de campañas: los jefes de
-    departamento que NO son admin/Centro de Cómputo ven solo su departamento; el
-    resto (admin/CC/técnicos/secretaría CC) ve todas y puede filtrar por depto.
+    pagina. El scope replica el del endpoint API de campañas (``GET
+    /inventory/campaigns``): se decide por PERMISO/procedencia vía
+    ``visible_department_ids`` — no por el ROL ``department_head`` — así que
+    cualquier portador de ``.campaign.api.read`` sin acceso completo queda
+    acotado a su departamento ∪ subárbol (``.campaign.api.read.subtree``).
     """
+    from itcj2.apps.helpdesk.api.inventory.campaigns import _list_campaigns_query
     from itcj2.apps.helpdesk.services.campaign_service import CampaignService
     from itcj2.apps.helpdesk.utils.inventory_access import (
         has_full_inventory_access,
-        is_comp_center_user,
+        visible_department_ids,
     )
     from itcj2.core.models.department import Department
-    from itcj2.core.services.departments_service import get_user_department
     from itcj2.database import SessionLocal
 
     p = request.query_params
@@ -806,36 +826,47 @@ def _query_campaigns_ctx(request: Request, user_id: int, user_roles: set) -> dic
 
     _db = SessionLocal()
     try:
-        full_access = has_full_inventory_access(_db, user_id, user_roles)
-        is_admin_or_cc = "admin" in user_roles or is_comp_center_user(_db, user_id)
-        # Solo el jefe de depto SIN acceso global queda acotado a su departamento.
-        is_dept_head_scoped = "department_head" in user_roles and not is_admin_or_cc
-        can_view_all = not is_dept_head_scoped
-
-        forced_dept_id = None
-        if is_dept_head_scoped:
-            user_dept = get_user_department(_db, user_id)
-            forced_dept_id = user_dept.id if user_dept else -1
+        _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
+        visible = visible_department_ids(
+            _db, _user, extra_subtree_perms={"helpdesk.inventory.campaign.api.read.subtree"}
+        )
+        can_view_all = visible is None
+        can_create = "admin" in user_roles or has_full_inventory_access(_db, user_id, user_roles)
 
         filters = {
             "folio": search,
             "status": status,
-            "department_id": (
-                int(dept_param) if (can_view_all and dept_param and dept_param.isdigit()) else None
-            ),
             "page": page,
             "per_page": per_page,
         }
-        result = CampaignService.get_campaigns(_db, filters=filters, department_id=forced_dept_id)
+
+        if can_view_all:
+            filters["department_id"] = int(dept_param) if (dept_param and dept_param.isdigit()) else None
+            result = CampaignService.get_campaigns(_db, filters=filters, department_id=None)
+        else:
+            # El ?department= NUNCA sustituye el scope: solo lo intersecta
+            # (fuera de scope ⇒ vacío), igual que el endpoint API.
+            wanted = (visible & {int(dept_param)}) if (dept_param and dept_param.isdigit()) else visible
+            result = _list_campaigns_query(_db, filters, department_ids=wanted)
+
         campaigns = result["campaigns"]
         total = result["total"]
         total_pages = max(1, result["total_pages"])
 
-        # Departamentos para el filtro (solo si el usuario ve todos).
+        # Departamentos para el filtro: todos si ve todo; su subárbol si está
+        # acotado (para que pueda elegir entre sus sub-departamentos).
         if can_view_all:
             departments = (
                 _db.query(Department)
                 .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+            departments_data = [{"id": d.id, "name": d.name} for d in departments]
+        elif visible:
+            departments = (
+                _db.query(Department)
+                .filter(Department.id.in_(visible), Department.is_active == True)  # noqa: E712
                 .order_by(Department.name)
                 .all()
             )
@@ -851,7 +882,7 @@ def _query_campaigns_ctx(request: Request, user_id: int, user_roles: set) -> dic
         "current_page": page,
         "total_pages": total_pages,
         "can_view_all": can_view_all,
-        "can_create": "admin" in user_roles or full_access,
+        "can_create": can_create,
         "f_search": search or "",
         "f_status": status or "",
         "f_department": dept_param or "",
@@ -883,13 +914,14 @@ async def campaigns_list(
         ctx["oob"] = True
         return render(request, "helpdesk/inventory/campaigns/_campaigns_list_results.html", ctx)
 
-    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
-    # aparece si el usuario ve todos los departamentos.
+    # Campos de la barra de filtros (macro filter_bar). El de departamento
+    # aparece si ve todos los departamentos o si tiene un subárbol con más de
+    # una opción para elegir (jefe con `.campaign.api.read.subtree`).
     filter_fields = [{
         "name": "status", "label": "Estado", "icon": "fa-tag",
         "col": "col-6 col-md-3", "selected": ctx["f_status"], "options": _CAMPAIGN_STATUS_OPTIONS,
     }]
-    if ctx["can_view_all"]:
+    if ctx["can_view_all"] or ctx["departments"]:
         dept_options = [("", "Todos los deptos.")] + [
             (str(d["id"]), d["name"]) for d in ctx["departments"]
         ]
@@ -1236,7 +1268,7 @@ def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> 
 
     from itcj2.apps.helpdesk.api.inventory.verification import _verification_status
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
-    from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
     from itcj2.core.models.department import Department
     from itcj2.database import SessionLocal
 
@@ -1252,11 +1284,20 @@ def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> 
 
     _db = SessionLocal()
     try:
-        can_view_all = has_full_inventory_access(_db, user_id, user_roles)
+        _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
+        # Mismo criterio que el endpoint API GET /inventory/verification/status:
+        # el ?department= NUNCA sustituye el scope, solo lo intersecta.
+        visible = visible_department_ids(_db, _user)
+        can_view_all = visible is None
 
         base_filters = [InventoryItem.is_active.is_(True)]
-        if dept_param and dept_param.isdigit():
+        if can_view_all:
+            if dept_param and dept_param.isdigit():
+                base_filters.append(InventoryItem.department_id == int(dept_param))
+        elif dept_param and dept_param.isdigit() and int(dept_param) in visible:
             base_filters.append(InventoryItem.department_id == int(dept_param))
+        else:
+            base_filters.append(InventoryItem.department_id.in_(visible or {-1}))
         if search:
             term = f"%{search}%"
             base_filters.append(or_(
@@ -1313,12 +1354,22 @@ def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> 
                 d["verification_status"] = vs_map[iid]
                 items_data.append(d)
 
-        departments = (
-            _db.query(Department)
-            .filter_by(is_active=True)
-            .order_by(Department.name)
-            .all()
-        )
+        if can_view_all:
+            departments = (
+                _db.query(Department)
+                .filter_by(is_active=True)
+                .order_by(Department.name)
+                .all()
+            )
+        elif visible:
+            departments = (
+                _db.query(Department)
+                .filter(Department.id.in_(visible), Department.is_active == True)  # noqa: E712
+                .order_by(Department.name)
+                .all()
+            )
+        else:
+            departments = []
         departments_data = [{"id": d.id, "name": d.name} for d in departments]
     finally:
         _db.close()
@@ -1372,10 +1423,11 @@ async def verification(
         ctx["oob"] = True
         return render(request, "helpdesk/inventory/reports/_verification_results.html", ctx)
 
-    # Campos de la barra de filtros (macro filter_bar). El de departamento solo
-    # aparece si el usuario ve todos los departamentos.
+    # Campos de la barra de filtros (macro filter_bar). El de departamento
+    # aparece si ve todos los departamentos o si tiene un subárbol con más de
+    # una opción para elegir.
     filter_fields = []
-    if ctx["can_view_all"]:
+    if ctx["can_view_all"] or ctx["departments"]:
         dept_options = [("", "Todos los deptos.")] + [
             (str(d["id"]), d["name"]) for d in ctx["departments"]
         ]

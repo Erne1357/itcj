@@ -97,21 +97,19 @@ def get_department_stats(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.own_dept"]),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem, InventoryCategory
     from sqlalchemy import func
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
-
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept or user_dept.id != department_id:
-            raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
+    # El guard de este endpoint es `.read.own_dept` (no `.read.stats`); el rol
+    # department_head ya trae ambos `.read.own_dept` (pasa el guard) y
+    # `.read.stats.subtree` (alimenta el scope aquí). Mismo criterio que
+    # items.py::get_item: None = ve todo, si no, dentro del scope visible.
+    visible = visible_department_ids(
+        db, user, extra_subtree_perms={"helpdesk.inventory.api.read.stats.subtree"}
+    )
+    if visible is not None and department_id not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
     total = db.query(InventoryItem).filter(InventoryItem.department_id == department_id, InventoryItem.is_active == True).count()
 

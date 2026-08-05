@@ -56,15 +56,25 @@ def get_verification_status(
     """
     from sqlalchemy import or_
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     page = max(1, page)
     per_page = min(100, max(1, per_page))
     search = search.strip()
 
-    # Query ligera: solo id + last_verified_at para stats + filtrado
+    # Query ligera: solo id + last_verified_at para stats + filtrado.
+    # visible None = ve todo; si no, el ?department_id= NUNCA sustituye el
+    # scope, solo lo intersecta (fuera de scope ⇒ vacío), igual que items.py.
+    visible = visible_department_ids(db, user)
     base_filters = [InventoryItem.is_active == True]
-    if department_id:
-        base_filters.append(InventoryItem.department_id == department_id)
+    if visible is None:
+        if department_id:
+            base_filters.append(InventoryItem.department_id == department_id)
+    elif department_id:
+        wanted = visible & {department_id}
+        base_filters.append(InventoryItem.department_id.in_(wanted or {-1}))
+    else:
+        base_filters.append(InventoryItem.department_id.in_(visible or {-1}))
     if category_id:
         base_filters.append(InventoryItem.category_id == category_id)
     if search:
