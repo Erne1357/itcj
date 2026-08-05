@@ -22,6 +22,7 @@ database/*
 !database/init-itcj.sh
 !database/backup_itcj_2026-06-18.sql
 !database/backup_itcj_2026-07-01.sql
+!database/backup_itcj_2026-08-04.sql
 # Secretos
 .env
 .env.prod
