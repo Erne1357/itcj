@@ -198,10 +198,23 @@ async def self_assign_ticket(
 @router.get("/{ticket_id}/history")
 def get_assignment_history(
     ticket_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.all"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import assignment_service
+    from itcj2.apps.helpdesk.services import ticket_service
+
+    user_id = int(user["sub"])
+    # `department_head` tiene `.read.all` por ROL (DML), pero eso no implica
+    # que pueda ver CUALQUIER ticket: la autorización fina la sigue haciendo
+    # `can_user_view_ticket` (mismo patrón que GET /tickets/{id}). Sin esto,
+    # el historial de asignaciones —quién, cuándo, con qué notas— se fugaba a
+    # cualquier rama del organigrama.
+    ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
 
     history = assignment_service.get_assignment_history(db, ticket_id)
     return {"ticket_id": ticket_id, "history": history}
@@ -286,24 +299,57 @@ def get_assignment_stats(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import Ticket
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
 
-    unassigned = db.query(Ticket).filter_by(status="PENDING").count()
-    team_assigned = db.query(Ticket).filter(
+    user_id = int(user["sub"])
+    user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+
+    # `.read.all` NO implica acceso total: `department_head` lo tiene por rol
+    # (DML) pero estos contadores son del INSTITUTO completo. Mismo criterio de
+    # acceso total que `ticket_service.list_tickets`: admin / técnicos /
+    # secretary_comp_center ven todo; el resto se acota a su scope de lectura
+    # (subárbol por procedencia + su departamento primario).
+    has_full_access = (
+        "admin" in user_roles
+        or "tech_desarrollo" in user_roles
+        or "tech_soporte" in user_roles
+        or user_id in secretary_comp_center
+    )
+
+    dept_ids = None
+    if not has_full_access:
+        from itcj2.core.services.departments_service import get_primary_user_department
+        from itcj2.core.services.scope_service import subtree_scope_for
+
+        dept_ids = subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+        primary_dept = get_primary_user_department(db, user_id)
+        if primary_dept:
+            dept_ids = dept_ids | {primary_dept.id}
+
+    def _scoped(query):
+        if dept_ids is not None:
+            # Vacío -> ningún departamento visible, no "sin filtro".
+            query = query.filter(Ticket.requester_department_id.in_(dept_ids or {-1}))
+        return query
+
+    unassigned = _scoped(db.query(Ticket).filter_by(status="PENDING")).count()
+    team_assigned = _scoped(db.query(Ticket).filter(
         Ticket.assigned_to_team.isnot(None),
         Ticket.assigned_to_user_id.is_(None),
         Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
-    ).count()
-    in_progress_desarrollo = db.query(Ticket).filter(
+    )).count()
+    in_progress_desarrollo = _scoped(db.query(Ticket).filter(
         Ticket.area == "DESARROLLO",
         Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
-    ).count()
-    in_progress_soporte = db.query(Ticket).filter(
+    )).count()
+    in_progress_soporte = _scoped(db.query(Ticket).filter(
         Ticket.area == "SOPORTE",
         Ticket.status.in_(["ASSIGNED", "IN_PROGRESS"]),
-    ).count()
-    urgent_unassigned = db.query(Ticket).filter(
+    )).count()
+    urgent_unassigned = _scoped(db.query(Ticket).filter(
         Ticket.priority == "URGENTE", Ticket.status == "PENDING"
-    ).count()
+    )).count()
 
     return {
         "unassigned": unassigned,

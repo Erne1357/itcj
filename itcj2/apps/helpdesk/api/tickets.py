@@ -263,7 +263,11 @@ def list_tickets(
 @router.get("/{ticket_id}")
 def get_ticket(
     ticket_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -434,7 +438,11 @@ async def resolve_ticket(
 def rate_ticket(
     ticket_id: int,
     body: RateTicketRequest,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -491,7 +499,11 @@ def _get_user_dept_code(db, user_id: int):
 async def cancel_ticket(
     ticket_id: int,
     body: CancelTicketRequest,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -544,7 +556,11 @@ async def cancel_ticket(
 def update_ticket(
     ticket_id: int,
     body: UpdateTicketRequest,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service

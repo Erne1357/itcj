@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 @router.get("/ticket/{ticket_id}")
 def get_ticket_comments(
     ticket_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app

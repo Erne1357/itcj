@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 def add_equipment_to_ticket(
     ticket_id: int,
     body: AddEquipmentRequest,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -31,7 +35,7 @@ def add_equipment_to_ticket(
 
     from itcj2.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
     try:
-        added = TicketInventoryService.add_items_to_ticket(ticket_id, body.item_ids)
+        added = TicketInventoryService.add_items_to_ticket(db, ticket_id, body.item_ids)
     except ValueError as e:
         raise HTTPException(400, detail={"error": "invalid_equipment", "message": str(e)})
 
@@ -43,7 +47,11 @@ def add_equipment_to_ticket(
 def remove_equipment_from_ticket(
     ticket_id: int,
     item_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -58,7 +66,7 @@ def remove_equipment_from_ticket(
 
     from itcj2.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
     try:
-        TicketInventoryService.remove_item_from_ticket(ticket_id, item_id)
+        TicketInventoryService.remove_item_from_ticket(db, ticket_id, item_id)
     except ValueError as e:
         raise HTTPException(400, detail={"error": "invalid_operation", "message": str(e)})
 
@@ -70,7 +78,11 @@ def remove_equipment_from_ticket(
 def replace_ticket_equipment(
     ticket_id: int,
     body: ReplaceEquipmentRequest,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -85,7 +97,7 @@ def replace_ticket_equipment(
 
     from itcj2.apps.helpdesk.services.ticket_inventory_service import TicketInventoryService
     try:
-        replaced = TicketInventoryService.replace_ticket_items(ticket_id, body.item_ids)
+        replaced = TicketInventoryService.replace_ticket_items(db, ticket_id, body.item_ids)
     except ValueError as e:
         raise HTTPException(400, detail={"error": "invalid_equipment", "message": str(e)})
 
@@ -96,7 +108,11 @@ def replace_ticket_equipment(
 @router.get("/{ticket_id}/equipment")
 def get_ticket_equipment(
     ticket_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import ticket_service
@@ -112,7 +128,11 @@ def get_ticket_equipment(
 def get_tickets_by_equipment(
     item_id: int,
     request: Request,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
@@ -121,20 +141,40 @@ def get_tickets_by_equipment(
 
     user_id = int(user["sub"])
     user_roles = user_roles_in_app(db, user_id, "helpdesk")
+    # Bug (a): esto comparaba contra el rol "technician", que NO existe (los
+    # reales son tech_desarrollo/tech_soporte) — la comparación era un no-op
+    # que bloqueaba a los técnicos reales pese a que `can_user_view_ticket`
+    # los deja ver cualquier ticket.
+    is_technician = bool({"tech_desarrollo", "tech_soporte"} & user_roles)
 
     item = db.get(InventoryItem, item_id)
     if not item or not item.is_active:
         raise HTTPException(404, detail={"error": "not_found", "message": "Equipo no encontrado"})
 
     secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
+    # Bug (b): el bypass de acceso total omitía a los técnicos (solo cubría
+    # admin/secretary_comp_center), así que en el segundo bloque un técnico
+    # quedaba acotado a "solo lo mío/asignado" pese a que `can_user_view_ticket`
+    # les da visibilidad total.
+    has_full_access = "admin" in user_roles or user_id in secretary_comp_center or is_technician
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center:
-        if item.assigned_to_user_id != user_id:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if not user_dept or user_dept.id != item.department_id:
-                if "technician" not in user_roles and "department_head" not in user_roles:
-                    raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para ver los tickets de este equipo"})
+    # Scope departamental por SUBÁRBOL (no por igualdad de un solo depto), mismo
+    # criterio que `can_user_view_ticket`/`GET /tickets`: el subárbol que otorgue
+    # `.read.subtree` por procedencia, más el/los departamento(s) propio(s) del
+    # puesto vigente del jefe. Antes comparaba `user_dept.id == item.department_id`
+    # (un solo departamento), así que los tickets de un sub-departamento no
+    # aparecían aquí aunque sí salieran en la lista y el detalle.
+    dept_ids: set[int] = set()
+    if not has_full_access and "department_head" in user_roles:
+        from itcj2.core.services.departments_service import get_user_departments
+        from itcj2.core.services.scope_service import subtree_scope_for
+
+        dept_ids = subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+        dept_ids |= {d.id for d in get_user_departments(db, user_id)}
+
+    if not has_full_access:
+        if item.assigned_to_user_id != user_id and item.department_id not in dept_ids:
+            raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para ver los tickets de este equipo"})
 
     params = request.query_params
     include_closed = params.get("include_closed", "false").lower() == "true"
@@ -147,16 +187,13 @@ def get_tickets_by_equipment(
     if not include_closed:
         query = query.filter(~Ticket.status.in_(["CLOSED", "CANCELED"]))
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center:
+    if not has_full_access:
         conditions = [
             Ticket.requester_id == user_id,
             Ticket.assigned_to_user_id == user_id,
         ]
-        if "department_head" in user_roles:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if user_dept:
-                conditions.append(Ticket.requester_department_id == user_dept.id)
+        if dept_ids:
+            conditions.append(Ticket.requester_department_id.in_(dept_ids))
         query = query.filter(or_(*conditions))
 
     query = query.order_by(Ticket.created_at.desc())

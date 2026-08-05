@@ -80,7 +80,11 @@ def add_multiple_collaborators(
 @router.get("/{ticket_id}/collaborators")
 def get_collaborators(
     ticket_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import collaborator_service
@@ -165,7 +169,11 @@ def suggest_role(
 @router.get("/collaborations/me")
 def my_collaborations(
     request: Request,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import collaborator_service
@@ -184,7 +192,11 @@ def my_collaborations(
 @router.get("/collaborations/me/stats")
 def my_collaboration_stats(
     request: Request,
-    user: dict = require_perms("helpdesk", ["helpdesk.tickets.api.read.own"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.tickets.api.read.own",
+        "helpdesk.tickets.api.read.all",
+        "helpdesk.tickets.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services import collaborator_service
