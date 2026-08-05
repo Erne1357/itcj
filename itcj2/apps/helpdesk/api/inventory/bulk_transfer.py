@@ -28,6 +28,7 @@ def bulk_transfer_items(
     """
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
     from itcj2.apps.helpdesk.models.inventory_history import InventoryHistory
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
     from itcj2.core.models.department import Department
 
     user_id = int(user["sub"])
@@ -50,6 +51,12 @@ def bulk_transfer_items(
     from itcj2.core.services.authz_service import user_roles_in_app
     is_admin = "admin" in user_roles_in_app(db, user_id, "helpdesk")
 
+    # Scope por subárbol: None = ve todo. Si no, origen Y destino deben estar
+    # dentro del subárbol visible del usuario (evita mover/vaciar inventario
+    # de departamentos ajenos aunque el usuario tenga el permiso de transferir).
+    visible = visible_department_ids(db, user)
+    target_in_scope = visible is None or target_department_id in visible
+
     transferred = []
     errors = []
 
@@ -64,6 +71,12 @@ def bulk_transfer_items(
                 continue
             if item.is_locked and not is_admin:
                 errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Equipo bloqueado por campaña validada"})
+                continue
+            if visible is not None and item.department_id not in visible:
+                errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Departamento origen fuera de tu alcance"})
+                continue
+            if not target_in_scope:
+                errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Departamento destino fuera de tu alcance"})
                 continue
             if item.department_id == target_department_id:
                 errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Ya pertenece al departamento destino"})
@@ -145,6 +158,7 @@ def bulk_send_to_limbo(
     """
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
     from itcj2.apps.helpdesk.models.inventory_history import InventoryHistory
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
     ip = request.client.host if request.client else None
@@ -157,6 +171,11 @@ def bulk_send_to_limbo(
 
     from itcj2.core.services.authz_service import user_roles_in_app
     is_admin = "admin" in user_roles_in_app(db, user_id, "helpdesk")
+
+    # Scope por subárbol: enviar al limbo vacía el departamento del equipo
+    # (department_id=None), así que el origen debe estar dentro del subárbol
+    # visible del usuario.
+    visible = visible_department_ids(db, user)
 
     sent = []
     errors = []
@@ -172,6 +191,9 @@ def bulk_send_to_limbo(
                 continue
             if item.is_locked and not is_admin:
                 errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Equipo bloqueado por campaña validada"})
+                continue
+            if visible is not None and item.department_id not in visible:
+                errors.append({"item_id": item_id, "inventory_number": item.inventory_number, "error": "Departamento origen fuera de tu alcance"})
                 continue
 
             old_dept_id = item.department_id

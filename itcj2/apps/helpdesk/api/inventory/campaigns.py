@@ -319,6 +319,7 @@ def approve_campaign(
             performed_by_id=user_id,
             notes=body.notes,
             ip=_client_ip(request),
+            validator=user,
         )
         return {
             "success": True,
@@ -358,6 +359,7 @@ def reject_campaign(
             performed_by_id=user_id,
             notes=body.notes,
             ip=_client_ip(request),
+            validator=user,
         )
         return {
             "success": True,

@@ -39,10 +39,12 @@ def get_my_scope(
     o limitar la vista al dpto del usuario.
     """
     from itcj2.core.services.departments_service import get_user_department
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
     cross_dept = _user_can_cross_dept(db, user)
     dept = get_user_department(db, user_id)
+    visible = visible_department_ids(db, user)
     return {
         "success": True,
         "data": {
@@ -52,6 +54,10 @@ def get_my_scope(
                 "name": dept.name,
                 "code": dept.code,
             } if dept else None,
+            # Subárbol completo visible (incluye su depto + sub-departamentos
+            # otorgados vía `.read.subtree`). None = ve todo. Campo nuevo —
+            # aditivo, no reemplaza `user_dept`.
+            "visible_department_ids": sorted(visible) if visible is not None else None,
         },
     }
 
@@ -79,9 +85,9 @@ def assign_to_user(
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
     if not _user_can_cross_dept(db, user):
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, assigned_by_id)
-        if not user_dept or user_dept.id != item.department_id:
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        visible = visible_department_ids(db, user)
+        if visible is not None and item.department_id not in visible:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para asignar equipos de este departamento"})
 
     is_valid, message, target_user = InventoryValidators.validate_user_for_assignment(body["user_id"], item.department_id)
@@ -126,9 +132,9 @@ def unassign_from_user(
         raise HTTPException(400, detail={"success": False, "error": "El equipo no está asignado a ningún usuario"})
 
     if not _user_can_cross_dept(db, user):
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, unassigned_by_id)
-        if not user_dept or user_dept.id != item.department_id:
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        visible = visible_department_ids(db, user)
+        if visible is not None and item.department_id not in visible:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para liberar equipos de este departamento"})
 
     try:
@@ -155,7 +161,8 @@ def transfer_between_departments(
 ):
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.utils.inventory_validators import InventoryValidators
-    from itcj2.apps.helpdesk.services import InventoryHistoryService
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
 
     user_id = int(user["sub"])
 
@@ -173,6 +180,12 @@ def transfer_between_departments(
     is_valid, message, new_dept = InventoryValidators.validate_department(body["new_department_id"])
     if not is_valid:
         raise HTTPException(400, detail={"success": False, "error": message})
+
+    # Scope por subárbol: origen Y destino deben estar dentro del subárbol
+    # visible del usuario (evita transferencias entre departamentos ajenos).
+    visible = visible_department_ids(db, user)
+    if visible is not None and (item.department_id not in visible or new_dept.id not in visible):
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para transferir equipos entre estos departamentos"})
 
     if item.department_id == new_dept.id:
         raise HTTPException(400, detail={"success": False, "error": "El equipo ya pertenece a ese departamento"})
@@ -224,6 +237,13 @@ def bulk_assign(
     if not body.get("user_id"):
         raise HTTPException(400, detail={"success": False, "error": "Usuario destino requerido"})
 
+    # Mismo scope que /assign: sin permiso cross-dept, solo puede asignar
+    # equipos dentro de su subárbol visible.
+    visible = None
+    if not _user_can_cross_dept(db, user):
+        from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+        visible = visible_department_ids(db, user)
+
     results = {"success": [], "failed": []}
 
     for item_id in body["item_ids"]:
@@ -231,6 +251,9 @@ def bulk_assign(
             item = db.get(InventoryItem, item_id)
             if not item or not item.is_active:
                 results["failed"].append({"item_id": item_id, "error": "Equipo no encontrado"})
+                continue
+            if visible is not None and item.department_id not in visible:
+                results["failed"].append({"item_id": item_id, "error": "No tiene permiso para asignar equipos de este departamento"})
                 continue
             InventoryService.assign_to_user(
                 db,
@@ -258,16 +281,11 @@ def update_location(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.update.location"]),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
-    from itcj2.apps.helpdesk.services import InventoryHistoryService
-
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
 
     if not body.get("item_id"):
         raise HTTPException(400, detail={"success": False, "error": "ID del equipo requerido"})
@@ -278,11 +296,12 @@ def update_location(
     if not item or not item.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Equipo no encontrado"})
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept or user_dept.id != item.department_id:
-            raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para actualizar equipos de este departamento"})
+    # visible None = ve todo (admin/tech/CC/read.all, ver has_full_inventory_access
+    # e is_comp_center_user dentro de visible_department_ids). Si no, solo su
+    # departamento y su subárbol (∪ .read.subtree).
+    visible = visible_department_ids(db, user)
+    if visible is not None and item.department_id not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para actualizar equipos de este departamento"})
 
     try:
         old_location = item.location_detail

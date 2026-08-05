@@ -59,7 +59,7 @@ def create_request(
     try:
         req = InventoryRetirementService.create_request(db, reason, user_id)
         if item_ids:
-            req = InventoryRetirementService.add_items(db, req.id, item_ids, notes_map, user_id)
+            req = InventoryRetirementService.add_items(db, req.id, item_ids, notes_map, user_id, requester=user)
         return {"success": True, "message": f"Solicitud {req.folio} creada", "data": req.to_dict(include_items=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -108,7 +108,7 @@ def add_items(
         raise HTTPException(400, detail={"success": False, "error": "item_ids requerido"})
 
     try:
-        req = InventoryRetirementService.add_items(db, request_id, item_ids, notes_map, user_id)
+        req = InventoryRetirementService.add_items(db, request_id, item_ids, notes_map, user_id, requester=user)
         return {"success": True, "data": req.to_dict(include_items=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})

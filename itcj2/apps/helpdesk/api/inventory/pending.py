@@ -41,6 +41,7 @@ def assign_to_department(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
 
@@ -48,6 +49,13 @@ def assign_to_department(
         raise HTTPException(400, detail={"success": False, "error": "item_ids (array) requerido"})
     if not body.get("department_id"):
         raise HTTPException(400, detail={"success": False, "error": "department_id requerido"})
+
+    # Scope por subárbol: el departamento DESTINO debe estar dentro del
+    # subárbol visible del usuario (antes se podía mandar equipos del limbo a
+    # cualquier departamento con solo tener el permiso).
+    visible = visible_department_ids(db, user)
+    if visible is not None and int(body["department_id"]) not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para asignar equipos a ese departamento"})
 
     try:
         assigned_items = InventoryPendingService.assign_to_department(
