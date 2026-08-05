@@ -126,6 +126,18 @@ async def create_ticket(
                 detail="No tienes permiso para crear solicitudes en nombre de otro usuario",
             )
 
+        # El solicitante debe poder ENTRAR a maint (mismo criterio que
+        # require_app). Sin esto la API acepta cualquier user_id —incluido el de
+        # un alumno— y se crea un ticket que su "solicitante" nunca podrá ver,
+        # dar seguimiento ni calificar (y el flujo exige calificación para
+        # cerrar). El picker ya no los ofrece; esto cierra la llamada directa.
+        from itcj2.core.services.authz_cache import cached_has_assignment
+        if not cached_has_assignment(db, body.requester_id, "maint"):
+            raise HTTPException(
+                status_code=400,
+                detail="El solicitante seleccionado no tiene acceso a Mantenimiento",
+            )
+
         # Mantenimiento atiende a TODO el instituto: el solicitante puede ser de
         # cualquier departamento. El depto del ticket se deriva del solicitante
         # (su puesto activo), NO del creador. Pasamos department_id=None para que
