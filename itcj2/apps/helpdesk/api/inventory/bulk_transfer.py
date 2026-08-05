@@ -172,9 +172,21 @@ def bulk_send_to_limbo(
     from itcj2.core.services.authz_service import user_roles_in_app
     is_admin = "admin" in user_roles_in_app(db, user_id, "helpdesk")
 
-    # Scope por subárbol: enviar al limbo vacía el departamento del equipo
-    # (department_id=None), así que el origen debe estar dentro del subárbol
-    # visible del usuario.
+    # El "limbo" NO es department_id = NULL (la columna es NOT NULL): es
+    # status='PENDING_ASSIGNMENT' en el departamento del Centro de Cómputo. Así lo
+    # consulta InventoryPendingService.get_pending_items y así lo revierte
+    # assign_to_department. Poner NULL reventaba con IntegrityError y, de haber
+    # pasado, el equipo tampoco habría salido en Equipos Pendientes.
+    from itcj2.core.models.department import Department
+    limbo_dept = db.query(Department).filter_by(code="comp_center").first()
+    if not limbo_dept:
+        raise HTTPException(400, detail={
+            "success": False,
+            "error": "No existe el departamento 'comp_center', que es donde viven los equipos pendientes",
+        })
+
+    # Scope por subárbol: mandar un equipo al limbo lo saca de su departamento,
+    # así que el origen debe estar dentro del subárbol visible del usuario.
     visible = visible_department_ids(db, user)
 
     sent = []
@@ -198,16 +210,20 @@ def bulk_send_to_limbo(
 
             old_dept_id = item.department_id
             old_user_id = item.assigned_to_user_id
+            old_status = item.status
 
-            item.department_id = None
+            item.department_id = limbo_dept.id
+            item.status = 'PENDING_ASSIGNMENT'
             item.assigned_to_user_id = None
             item.group_id = None
 
             history = InventoryHistory(
                 item_id=item.id,
                 event_type='TRANSFERRED',
-                old_value={"department_id": old_dept_id, "assigned_to_user_id": old_user_id},
-                new_value={"department_id": None, "assigned_to_user_id": None},
+                old_value={"department_id": old_dept_id, "assigned_to_user_id": old_user_id,
+                           "status": old_status},
+                new_value={"department_id": limbo_dept.id, "assigned_to_user_id": None,
+                           "status": 'PENDING_ASSIGNMENT'},
                 notes=notes,
                 performed_by_id=user_id,
                 ip_address=ip,
@@ -220,7 +236,7 @@ def bulk_send_to_limbo(
                     item_id=item.id,
                     event_type='LOCKED_FIELD_MODIFIED',
                     old_value={"department_id": old_dept_id},
-                    new_value={"department_id": None},
+                    new_value={"department_id": limbo_dept.id},
                     notes="Campo bloqueado department_id modificado por admin al enviar equipo al limbo.",
                     performed_by_id=user_id,
                     ip_address=ip,
