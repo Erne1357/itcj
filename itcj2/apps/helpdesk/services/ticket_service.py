@@ -814,6 +814,20 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     if ticket.assigned_to_user_id == user_id:
         return True
 
+    # Colaborador del ticket. `collaborator_service.get_tickets_where_user_collaborated`
+    # ya se lo lista, así que sin esto lo veía en su lista y recibía 403 al abrirlo.
+    # `getattr` porque varios tests construyen tickets ligeros sin `id`.
+    _ticket_id = getattr(ticket, 'id', None)
+    if _ticket_id is not None:
+        from itcj2.apps.helpdesk.models.collaborator import TicketCollaborator
+        is_collaborator = db.query(
+            db.query(TicketCollaborator)
+            .filter_by(ticket_id=_ticket_id, user_id=user_id)
+            .exists()
+        ).scalar()
+        if is_collaborator:
+            return True
+
     # Scope departamental/subárbol (debe seguir en sync con list_tickets).
     from itcj2.core.services.departments_service import get_primary_user_department
     from itcj2.core.services.scope_service import subtree_scope_for
