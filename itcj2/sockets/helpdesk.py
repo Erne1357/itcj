@@ -41,6 +41,132 @@ def _dept_room(department_id: int) -> str:
     return f"dept:{department_id}"
 
 
+# ==================== ACL Helpers ====================
+# Los rooms reparten título, solicitante, prioridad y área de cada ticket, así que
+# unirse a uno tiene que exigir lo mismo que la API equivalente. Espejo del ACL de
+# `itcj2/sockets/maint.py`. Abren su propia sesión sync; son queries por PK/índice
+# que ocurren una vez por carga de página → costo despreciable.
+
+# Quien ya ve cualquier ticket en la API (ver `ticket_service.can_user_view_ticket`).
+_FULL_ACCESS_HELPDESK = {"admin", "tech_desarrollo", "tech_soporte"}
+
+_TEAM_ROLE_BY_AREA = {"desarrollo": "tech_desarrollo", "soporte": "tech_soporte"}
+
+
+def _user_helpdesk_roles(db, user_id: int) -> set:
+    from itcj2.core.services.authz_service import user_roles_in_app
+    try:
+        return set(user_roles_in_app(db, user_id, "helpdesk"))
+    except Exception:
+        return set()
+
+
+def _is_comp_center_secretary(db, user_id: int) -> bool:
+    from itcj2.core.services.authz_service import _get_users_with_position
+    try:
+        return user_id in set(_get_users_with_position(db, ["secretary_comp_center"]))
+    except Exception:
+        return False
+
+
+def _visible_dept_ids(db, user_id: int) -> set:
+    """Departamentos cuyos tickets ve el usuario: su depto + su subárbol.
+
+    Mismo cálculo que `ticket_service.list_tickets` / `can_user_view_ticket`.
+    """
+    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    dept_ids: set[int] = set()
+    try:
+        dept = get_primary_user_department(db, user_id)
+        if dept:
+            dept_ids.add(dept.id)
+        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+    except Exception:
+        return set()
+    return dept_ids
+
+
+def _can_join_admin(user: dict | None) -> bool:
+    """El room `admin:all` recibe TODOS los eventos de TODOS los tickets.
+
+    Se concede a quien ya puede leer cualquier ticket por la API — admin, técnicos
+    y la secretaría de centro de cómputo — porque el room no debe otorgar más que el
+    endpoint equivalente, ni menos (los técnicos lo usan en /admin/tickets y
+    /admin/assign-tickets, páginas a las que sí llegan por permiso).
+    """
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        if _user_helpdesk_roles(db, uid) & _FULL_ACCESS_HELPDESK:
+            return True
+        return _is_comp_center_secretary(db, uid)
+    finally:
+        db.close()
+
+
+def _can_join_dept(user: dict | None, dept_id: int) -> bool:
+    """Solo el subárbol departamental que el usuario ya puede leer."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        if _user_helpdesk_roles(db, uid) & _FULL_ACCESS_HELPDESK:
+            return True
+        if _is_comp_center_secretary(db, uid):
+            return True
+        return dept_id in _visible_dept_ids(db, uid)
+    finally:
+        db.close()
+
+
+def _can_join_team(user: dict | None, area: str) -> bool:
+    """El room de equipo es la bandeja de los técnicos de ESA área."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    required = _TEAM_ROLE_BY_AREA.get(area)
+    if not required:
+        return False
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        roles = _user_helpdesk_roles(db, int(user["sub"]))
+        return required in roles or "admin" in roles
+    finally:
+        db.close()
+
+
+def _can_join_ticket(user: dict | None, ticket_id: int) -> bool:
+    """Reusa can_user_view_ticket: mismo scope que la API de detalle."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        from itcj2.apps.helpdesk.models.ticket import Ticket
+        from itcj2.apps.helpdesk.services.ticket_service import can_user_view_ticket
+        ticket = db.get(Ticket, ticket_id)
+        if not ticket:
+            return False
+        return can_user_view_ticket(db, ticket, int(user["sub"]))
+    finally:
+        db.close()
+
+
 # ==================== Async Broadcast Functions ====================
 
 async def broadcast_ticket_created(ticket_data: dict):
@@ -148,6 +274,11 @@ def register_helpdesk_namespace(sio_server):
         if ticket_id <= 0:
             await sio_server.emit("error", {"error": "invalid_ticket_id"}, to=sid, namespace=NAMESPACE)
             return
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_ticket, user, ticket_id):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
+            return
         await sio_server.enter_room(sid, _ticket_room(ticket_id), namespace=NAMESPACE)
         await sio_server.emit("joined_ticket", {"ticket_id": ticket_id}, to=sid, namespace=NAMESPACE)
 
@@ -199,6 +330,11 @@ def register_helpdesk_namespace(sio_server):
         if area not in ("desarrollo", "soporte"):
             await sio_server.emit("error", {"error": "invalid_area"}, to=sid, namespace=NAMESPACE)
             return
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_team, user, area):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
+            return
         await sio_server.enter_room(sid, _team_room(area), namespace=NAMESPACE)
         await sio_server.emit("joined_team", {"area": area}, to=sid, namespace=NAMESPACE)
 
@@ -215,6 +351,11 @@ def register_helpdesk_namespace(sio_server):
 
     @sio_server.on("join_admin", namespace=NAMESPACE)
     async def on_join_admin(sid, data=None):
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_admin, user):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
+            return
         await sio_server.enter_room(sid, _admin_room(), namespace=NAMESPACE)
         await sio_server.emit("joined_admin", {}, to=sid, namespace=NAMESPACE)
 
@@ -234,6 +375,11 @@ def register_helpdesk_namespace(sio_server):
             return
         if dept_id <= 0:
             await sio_server.emit("error", {"error": "invalid_department_id"}, to=sid, namespace=NAMESPACE)
+            return
+        session = await sio_server.get_session(sid, namespace=NAMESPACE)
+        user = (session or {}).get("user")
+        if not await asyncio.to_thread(_can_join_dept, user, dept_id):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
             return
         await sio_server.enter_room(sid, _dept_room(dept_id), namespace=NAMESPACE)
         await sio_server.emit("joined_dept", {"department_id": dept_id}, to=sid, namespace=NAMESPACE)
