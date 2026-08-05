@@ -114,12 +114,24 @@ def has_dept_inventory_access(
 _INVENTORY_SUBTREE_PERM = "helpdesk.inventory.api.read.subtree"
 
 
-def visible_department_ids(db, user: dict) -> set[int] | None:
+def visible_department_ids(
+    db,
+    user: dict,
+    *,
+    extra_subtree_perms: set[str] | None = None,
+) -> set[int] | None:
     """Departamentos de inventario visibles para el usuario.
 
     Retorna ``None`` si ve TODO (acceso completo / admin global). En otro caso, el
     set de department_ids visibles = (su departamento, si tiene acceso departamental)
-    ∪ (subárbol jerárquico por procedencia, si tiene el perm ``.read.subtree``).
+    ∪ (subárbol jerárquico por procedencia, por cada permiso ``.subtree`` consultado).
+
+    ``extra_subtree_perms`` añade anclas a la de items (``.inventory.api.read.subtree``),
+    para los módulos que tienen su propio permiso: grupos, campañas, bajas,
+    estadísticas, exportación. Cada módulo pasa el suyo, porque la resolución es por
+    PROCEDENCIA: un permiso aporta el subárbol de LOS PUESTOS QUE LO OTORGAN, no una
+    unión global de todos los puestos del usuario. Consultar el ancla equivocada deja
+    el scope vacío aunque el guard haya pasado.
 
     ADITIVO/no-breaking: sin ``.subtree`` el resultado es el mismo depto de siempre.
     Un set vacío ⇒ no ve nada (fail-closed; el caller filtra por ``id IN {-1}``).
@@ -139,6 +151,7 @@ def visible_department_ids(db, user: dict) -> set[int] | None:
         dept = get_primary_user_department(db, uid)
         if dept:
             ids.add(dept.id)
-    # Scope jerárquico nuevo: subárbol de los puestos que otorgan .read.subtree.
-    ids |= subtree_scope_for(db, uid, "helpdesk", _INVENTORY_SUBTREE_PERM)
+    # Scope jerárquico: subárbol de los puestos que otorgan cada permiso .subtree.
+    for perm_code in {_INVENTORY_SUBTREE_PERM} | (extra_subtree_perms or set()):
+        ids |= subtree_scope_for(db, uid, "helpdesk", perm_code)
     return ids

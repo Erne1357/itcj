@@ -556,7 +556,12 @@ def fix_org_scope_2026_08_command(dry_run: bool):
       - revoca `helpdesk.tickets.api.read.all` al rol `department_head` (el jefe
         lee su departamento y su subárbol, no todo el instituto; resolve_read_scope
         da precedencia a .read.all sobre .subtree);
-      - reafirma los permisos `.subtree` del rol.
+      - reafirma los permisos `.subtree` del rol;
+      - crea los 7 permisos `.subtree` que faltaban (grupos, estadísticas de
+        inventario, campañas, bajas, exportación y las dos de stats de tickets)
+        y se los asigna al mismo rol. Sin ellos el jefe veía los EQUIPOS de su
+        sub-departamento pero no sus grupos, campañas, bajas ni ningún agregado
+        de su rama.
 
     Es un DELTA a propósito: `helpdesk/03_insert_role_permission.sql` empieza
     borrando todos los permisos de helpdesk de los roles que toca, así que
@@ -564,7 +569,10 @@ def fix_org_scope_2026_08_command(dry_run: bool):
     hace daño.
     """
     base = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "org_scope_fix_2026_08"
-    files = [base / "01_department_head_scope.sql"]
+    files = [
+        base / "01_department_head_scope.sql",
+        base / "02_missing_subtree_perms.sql",
+    ]
 
     engine = _get_engine()
 
