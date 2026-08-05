@@ -216,67 +216,57 @@ def list_tickets(
     FULL_ACCESS_ROLES = {'admin', 'dispatcher', 'maint_general_coordinator'}
     DEPT_ACCESS_ROLES = {'department_head', 'secretary'}
 
-    if FULL_ACCESS_ROLES & set(user_roles):
+    roles = set(user_roles)
+
+    if FULL_ACCESS_ROLES & roles:
         pass  # Sin restricción
-    elif 'maint_area_coordinator' in set(user_roles):
-        # El coordinador de área ve: tickets de las CATEGORÍAS de sus áreas de
-        # coordinación ∨ ruteados a él (coordinator_id) ∨ asignado activo ∨ propios.
-        from itcj2.apps.maint.models import MaintTicketTechnician
-        from itcj2.apps.maint.models.category import MaintCategory
-        from itcj2.apps.maint.services.coordinator_service import CoordinatorService
-        area_codes = CoordinatorService.get_coordinator_areas(db, user_id)
-        assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
-            MaintTicketTechnician.user_id == user_id,
-            MaintTicketTechnician.unassigned_at.is_(None),
-        )
-        conds = [
-            MaintTicket.requester_id == user_id,
-            MaintTicket.coordinator_id == user_id,
-            MaintTicket.id.in_(assigned_subq),
-        ]
-        if area_codes:
-            cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
-            conds.append(MaintTicket.category_id.in_(cat_subq))
-        query = query.filter(or_(*conds))
-    elif 'tech_maint' in set(user_roles):
-        # D-G/H3: el técnico ve tickets ASIGNADOS a él, PROPIOS, o de categorías
-        # de sus ÁREAS de especialidad (maint_technician_areas).
-        from itcj2.apps.maint.models import MaintTicketTechnician
-        from itcj2.apps.maint.models.category import MaintCategory
-        area_codes = _get_tech_maint_area_codes(db, user_id)
-        assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
-            MaintTicketTechnician.user_id == user_id,
-            MaintTicketTechnician.unassigned_at.is_(None),
-        )
-        conds = [
-            MaintTicket.requester_id == user_id,
-            MaintTicket.id.in_(assigned_subq),
-        ]
-        if area_codes:
-            cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
-            conds.append(MaintTicket.category_id.in_(cat_subq))
-        query = query.filter(or_(*conds))
     else:
+        # ADITIVO y en el mismo orden que `can_user_view_ticket`: propio ∨ asignado
+        # ∨ ruteado a mí ∨ categoría de mis áreas ∨ departamento/subárbol. Antes esto
+        # era una cadena `if/elif` excluyente, con dos efectos: quien tenía dos roles
+        # perdía el scope de uno, y la rama departamental no incluía la propiedad, así
+        # que al cambiar de departamento desaparecían de la lista los tickets propios
+        # sellados con el departamento anterior (el `requester_department_id` es un
+        # snapshot). El detalle sí los concedía → lista y detalle desalineados.
+        from itcj2.apps.maint.models import MaintTicketTechnician
+        from itcj2.apps.maint.models.category import MaintCategory
+
+        assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
+            MaintTicketTechnician.user_id == user_id,
+            MaintTicketTechnician.unassigned_at.is_(None),
+        )
+        conds = [
+            MaintTicket.requester_id == user_id,
+            MaintTicket.id.in_(assigned_subq),
+        ]
+
+        area_codes: set[str] = set()
+        if 'maint_area_coordinator' in roles:
+            from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+            conds.append(MaintTicket.coordinator_id == user_id)
+            area_codes |= set(CoordinatorService.get_coordinator_areas(db, user_id) or ())
+        if 'tech_maint' in roles:
+            area_codes |= set(_get_tech_maint_area_codes(db, user_id) or ())
+        if area_codes:
+            cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
+            conds.append(MaintTicket.category_id.in_(cat_subq))
+
         # H5: el usuario puede tener >1 puesto activo en >1 departamento (dept_head/
-        # secretary → sus departamentos). ADITIVO: unir el subárbol jerárquico por
-        # procedencia (maint.tickets.api.read.subtree) para quien lo tenga.
+        # secretary → sus departamentos), más el subárbol jerárquico por procedencia.
         from itcj2.core.services.scope_service import subtree_scope_for
-        _subtree = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
-        if (DEPT_ACCESS_ROLES & set(user_roles)) or _subtree:
-            dept_ids: set[int] = set()
-            if DEPT_ACCESS_ROLES & set(user_roles):
-                from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
-                dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
-            dept_ids |= _subtree
-            if department_id is not None:
-                # Solo puede acotar a uno de SUS departamentos.
-                dept_ids = {department_id} if department_id in dept_ids else {-1}
-            if dept_ids:
-                query = query.filter(MaintTicket.requester_department_id.in_(dept_ids))
-            else:
-                query = query.filter(MaintTicket.id == -1)
-        else:
-            query = query.filter(MaintTicket.requester_id == user_id)
+        dept_ids = set(subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree"))
+        if DEPT_ACCESS_ROLES & roles:
+            from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+            dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
+        if dept_ids:
+            conds.append(MaintTicket.requester_department_id.in_(dept_ids))
+
+        query = query.filter(or_(*conds))
+
+    if department_id is not None:
+        # Filtro del caller, SIEMPRE en AND con la visibilidad: solo puede estrechar.
+        # Pedir un departamento ajeno no lo abre — deja fuera todo salvo lo propio.
+        query = query.filter(MaintTicket.requester_department_id == department_id)
 
     if status:
         if isinstance(status, list):
