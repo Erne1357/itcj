@@ -35,10 +35,12 @@ def get_items_for_ticket(
     from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import and_, or_
 
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+
     user_id = int(user["sub"])
     params = request.query_params
 
-    department_id = params.get("department_id", type=None)
+    department_id = params.get("department_id")
     if department_id:
         department_id = int(department_id)
     else:
@@ -48,6 +50,13 @@ def get_items_for_ticket(
             department_id = user_dept.id
 
     if not department_id:
+        return {"success": True, "data": []}
+
+    # visible None = ve todo. En otro caso el department_id (explícito o el
+    # propio por default) debe estar dentro del scope visible; si no, vacío
+    # (nunca sustituye/escala el scope — mismo criterio que GET /inventory/items).
+    visible = visible_department_ids(db, user)
+    if visible is not None and department_id not in visible:
         return {"success": True, "data": []}
 
     category_id = params.get("category_id")
@@ -112,8 +121,8 @@ def get_items_by_group(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem, InventoryGroup
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
 
@@ -121,16 +130,9 @@ def get_items_by_group(
     if not group or not group.is_active:
         raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado"})
 
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
-
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept or user_dept.id != group.department_id:
-            raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este grupo"})
+    visible = visible_department_ids(db, user)
+    if visible is not None and group.department_id not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este grupo"})
 
     query = db.query(InventoryItem).filter(
         InventoryItem.group_id == group_id, InventoryItem.status == status, InventoryItem.is_active == True,
@@ -170,6 +172,7 @@ def get_groups_with_items(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryItem, InventoryGroup
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
 
@@ -181,6 +184,12 @@ def get_groups_with_items(
             dept_id = user_dept.id
 
     if not dept_id:
+        return {"success": True, "data": []}
+
+    # Mismo criterio que /items y /for-ticket: department_id (explícito o
+    # default) debe caer dentro del scope visible, nunca sustituirlo.
+    visible = visible_department_ids(db, user)
+    if visible is not None and dept_id not in visible:
         return {"success": True, "data": []}
 
     groups = db.query(InventoryGroup).filter(
@@ -211,9 +220,13 @@ def validate_items_for_ticket(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     if not body.get("item_ids") or not isinstance(body["item_ids"], list):
         raise HTTPException(400, detail={"success": False, "error": "item_ids (array) requerido"})
+
+    user_id = int(user["sub"])
+    visible = visible_department_ids(db, user)
 
     items = []
     invalid = []
@@ -223,6 +236,11 @@ def validate_items_for_ticket(
         item = db.get(InventoryItem, item_id)
         if not item or not item.is_active:
             invalid.append({"item_id": item_id, "reason": "Equipo no encontrado o inactivo"})
+            continue
+        # Mismo criterio que get_item: fuera del scope visible ⇒ inválido,
+        # salvo que sea equipo asignado directamente al usuario.
+        if visible is not None and item.department_id not in visible and item.assigned_to_user_id != user_id:
+            invalid.append({"item_id": item_id, "reason": "Fuera de tu alcance de inventario"})
             continue
         if item.status not in ["ACTIVE", "MAINTENANCE"]:
             invalid.append({"item_id": item_id, "reason": f"Estado no válido: {item.status}"})
