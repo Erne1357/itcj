@@ -228,14 +228,17 @@ def transfer_position(
 
 def get_user_active_positions(db: Session, user_id: int) -> List[Dict]:
     """Obtiene todos los puestos activos de un usuario"""
+    from itcj2.core.services.departments_service import _active_position_window
+
     assignments = (
         db.query(UserPosition, Position)
         .join(Position)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            _active_position_window(),
             Position.is_active == True
         )
+        .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
         .all()
     )
 
@@ -254,13 +257,16 @@ def get_user_active_positions(db: Session, user_id: int) -> List[Dict]:
 
 def get_position_current_users(db: Session, position_id: int) -> List[Dict]:
     """Obtiene TODOS los usuarios actualmente asignados a un puesto (para puestos múltiples)"""
+    from itcj2.core.services.departments_service import _active_position_window
+
     assignments = (
         db.query(UserPosition, User)
         .join(User)
         .filter(
             UserPosition.position_id == position_id,
-            UserPosition.is_active == True
+            _active_position_window()
         )
+        .order_by(UserPosition.start_date.asc(), UserPosition.user_id.asc())
         .all()
     )
 
@@ -499,13 +505,17 @@ def get_user_managed_departments(db: Session, user_id: int) -> List[Dict]:
     """Obtiene los departamentos que maneja un usuario como jefe"""
     from itcj2.core.models.department import Department
 
+    from itcj2.core.services.departments_service import _active_position_window
+
     head_assignments = (
         db.query(UserPosition, Position, Department)
         .join(Position, UserPosition.position_id == Position.id)
         .join(Department, Position.department_id == Department.id)
         .filter(
             UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
+            # Vigencia real (no solo is_active): de aquí sale la raíz del subárbol
+            # y del scope del dashboard del jefe. Una jefatura vencida no manda.
+            _active_position_window(),
             Position.is_active == True,
             or_(
                 Position.code.like('head_%'),
@@ -514,6 +524,10 @@ def get_user_managed_departments(db: Session, user_id: int) -> List[Dict]:
             ),
             Department.is_active == True
         )
+        # Orden determinista: `get_user_primary_managed_department` toma el [0] y
+        # sin ORDER BY quien encabeza dos departamentos veía un subárbol distinto
+        # según lo que devolviera Postgres.
+        .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
         .all()
     )
 

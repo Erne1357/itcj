@@ -13,20 +13,14 @@ def get_user_dept_code(db: Session, user_id: int) -> Optional[str]:
     Obtiene el department_code del usuario a través de su puesto activo principal.
     Retorna None si el usuario no tiene puesto asignado con departamento.
     """
-    from itcj2.core.models.position import UserPosition, Position
-    from itcj2.core.models.department import Department
+    # Delega en el resolver canónico: respeta la ventana [start_date, end_date] del
+    # puesto y es determinista para usuarios multi-puesto. La consulta ad-hoc que
+    # había aquí (is_active a secas + .first() sin orden) dejaba conservar el acceso
+    # al almacén de un departamento con la asignación ya vencida.
+    from itcj2.core.services.departments_service import get_primary_user_department
 
-    row = (
-        db.query(Department.code)
-        .join(Position, Position.department_id == Department.id)
-        .join(UserPosition, UserPosition.position_id == Position.id)
-        .filter(
-            UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
-        )
-        .first()
-    )
-    return row[0] if row else None
+    dept = get_primary_user_department(db, user_id)
+    return dept.code if dept else None
 
 
 def resolve_dept_code(db: Session, user: dict, dept_override: Optional[str] = None) -> Optional[str]:
