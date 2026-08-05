@@ -76,6 +76,11 @@ async def add_comment(
                 detail="Requiere permiso: maint.comments.api.internal",
             )
 
+    # Comentar exige poder VER el ticket (el rol staff tiene comments.api.create).
+    # Va ANTES de insertar: antes se resolvía después y sin `user_id`, que es lo
+    # único que dispara `can_user_view_ticket`.
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id=user_id)
+
     comment = ticket_service.add_comment(
         db=db,
         ticket_id=ticket_id,
@@ -83,7 +88,6 @@ async def add_comment(
         content=body.content,
         is_internal=body.is_internal,
     )
-    ticket = ticket_service.get_ticket_by_id(db, ticket_id)
     try:
         MaintNotificationHelper.notify_comment_added(db, ticket, comment, user_id)
         db.commit()
@@ -128,7 +132,11 @@ async def _add_comment_multipart(
                 detail="Requiere permiso: maint.comments.api.internal",
             )
 
-    # Crear comentario primero
+    # Visibilidad ANTES de insertar y de guardar adjuntos: este path subía archivos
+    # con `_save_attachment_file` saltándose el check que sí hace
+    # POST /tickets/{id}/attachments.
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id=user_id)
+
     comment = ticket_service.add_comment(
         db=db,
         ticket_id=ticket_id,
@@ -136,7 +144,6 @@ async def _add_comment_multipart(
         content=content.strip(),
         is_internal=is_internal,
     )
-    ticket = ticket_service.get_ticket_by_id(db, ticket_id)
 
     # Guardar archivos adjuntos (si los hay)
     files = form.getlist("files")

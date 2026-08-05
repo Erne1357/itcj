@@ -103,6 +103,12 @@ async def add_comment(
             raise HTTPException(400, detail={"error": "invalid_file", "message": f"{f.filename}: {result}"})
         validated_files.append((f, result))
 
+    # Comentar exige poder VER el ticket: el permiso `comments.api.create` lo tiene
+    # hasta el rol staff, así que sin este check cualquiera escribe en el ticket de
+    # cualquier departamento. Va ANTES de insertar (antes se resolvía después y con
+    # check_permissions=False, que no valida nada).
+    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=True)
+
     comment = ticket_service.add_comment(
         db,
         ticket_id=ticket_id,
@@ -111,7 +117,6 @@ async def add_comment(
         is_internal=is_internal,
     )
 
-    ticket = ticket_service.get_ticket_by_id(db, ticket_id, user_id, check_permissions=False)
     saved_files = []
 
     # Calcular el offset de imágenes existentes UNA vez antes del loop, luego
