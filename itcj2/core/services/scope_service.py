@@ -52,6 +52,7 @@ def granting_departments(db: Session, user_id: int, app_key: str, perm_code: str
             Permission.app_id == app.id,
             Permission.code == perm_code,
             Position.department_id.isnot(None),
+            Position.is_active == True,  # noqa: E712
         )
     )
     via_role = (
@@ -67,6 +68,7 @@ def granting_departments(db: Session, user_id: int, app_key: str, perm_code: str
             Permission.app_id == app.id,
             Permission.code == perm_code,
             Position.department_id.isnot(None),
+            Position.is_active == True,  # noqa: E712
         )
     )
     return {r[0] for r in direct.union(via_role).all()}
@@ -77,7 +79,16 @@ def subtree_scope_for(db: Session, user_id: int, app_key: str, perm_code: str) -
 
     Usa el mapa de descendientes cacheado (el árbol cambia rara vez) para evitar un
     CTE por ancla en el hot path.
+
+    Las apps llaman a esta función DIRECTAMENTE (no vía ``resolve_read_scope``), así
+    que aquí se comprueba que el permiso siga vigente: los grants se leen de la tabla
+    de puestos, que no sabe nada de los deny explícitos (``allow=False``). Sin este
+    corte, denegar el permiso apagaba el guard pero dejaba el scope intacto.
     """
+    from itcj2.core.services.authz_cache import cached_perms
+    if perm_code not in cached_perms(db, user_id, app_key):
+        return set()
+
     anchors = granting_departments(db, user_id, app_key, perm_code)
     if not anchors:
         return set()
@@ -85,7 +96,9 @@ def subtree_scope_for(db: Session, user_id: int, app_key: str, perm_code: str) -
     dmap = cached_descendants_map(db)
     out: set[int] = set()
     for anchor in anchors:
-        out |= dmap.get(anchor, {anchor})
+        # El mapa solo contiene departamentos ACTIVOS; un ancla dada de baja no debe
+        # reintroducirse por el default del lookup (fail-closed, §docstring del módulo).
+        out |= dmap.get(anchor, set())
     return out
 
 
