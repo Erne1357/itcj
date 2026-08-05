@@ -359,13 +359,36 @@ class InventoryRetirementService:
     # ── Consultas ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_requests(db: Session, user_id: int, is_admin: bool, filters: dict = None) -> dict:
-        """Lista solicitudes. Admin ve todas, otros solo las suyas."""
+    def get_requests(db: Session, user_id: int, is_admin: bool, filters: dict = None,
+                     visible_department_ids: set[int] | None = None) -> dict:
+        """Lista solicitudes. Admin ve todas; el resto, las suyas + las de su subárbol.
+
+        La solicitud no tiene departamento propio: el suyo se deriva de los equipos
+        que contiene, así que "del subárbol" = contiene al menos un equipo de un
+        departamento visible. ``visible_department_ids``: ``None`` = ve todo (acceso
+        completo), set vacío = solo las propias.
+        """
+        from sqlalchemy import or_
+
         filters = filters or {}
         query = db.query(InventoryRetirementRequest)
 
-        if not is_admin:
-            query = query.filter(InventoryRetirementRequest.requested_by_id == user_id)
+        if not is_admin and visible_department_ids is not None:
+            # La propiedad siempre suma: la solicitud propia se lista aunque sus
+            # equipos ya no estén en el subárbol de quien la levantó.
+            conds = [InventoryRetirementRequest.requested_by_id == user_id]
+            if visible_department_ids:
+                from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+                conds.append(
+                    db.query(InventoryRetirementRequestItem.id)
+                    .join(InventoryItem, InventoryItem.id == InventoryRetirementRequestItem.item_id)
+                    .filter(
+                        InventoryRetirementRequestItem.request_id == InventoryRetirementRequest.id,
+                        InventoryItem.department_id.in_(visible_department_ids),
+                    )
+                    .exists()
+                )
+            query = query.filter(or_(*conds))
 
         if filters.get("status"):
             query = query.filter(InventoryRetirementRequest.status == filters["status"].upper())
