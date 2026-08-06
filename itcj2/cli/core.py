@@ -609,6 +609,18 @@ def fix_org_scope_2026_08_command(dry_run: bool):
             click.echo(f"   ✅ Completado: {file_path.name}")
 
         _report("DESPUÉS —")
+
+        # Cambiar los permisos de un ROL afecta a todos sus titulares, y el caché
+        # de authz tiene TTL de 5 min: sin esto el sistema queda inconsistente ese
+        # rato después del despliegue (unos ven los permisos nuevos y otros no).
+        try:
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
+            click.echo("\n   🧹 Caché de authz invalidado (los permisos aplican de inmediato).")
+        except Exception as e:
+            click.echo(f"\n   ⚠️  No se pudo invalidar el caché de authz ({e}). "
+                       "Los permisos nuevos aplicarán en ≤5 min por TTL, o reinicia el backend.")
+
         click.echo("\n🎉 Delta de scope organizacional aplicado.")
     except Exception as e:
         click.echo(f"\n💥 Error durante fix-org-scope-2026-08: {str(e)}")
