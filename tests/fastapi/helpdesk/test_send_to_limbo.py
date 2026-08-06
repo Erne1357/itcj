@@ -11,11 +11,12 @@ from datetime import date, timedelta
 
 import itcj2.models  # noqa: F401
 from itcj2.apps.helpdesk.api.inventory.bulk_transfer import bulk_send_to_limbo
-from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
 from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
 from itcj2.apps.helpdesk.services.inventory_pending_service import InventoryPendingService
 from itcj2.core.models.department import Department
 from itcj2.core.models.user import User
+
+from ._catalog import ensure_comp_center, ensure_inventory_category
 
 
 class _Req:
@@ -23,15 +24,17 @@ class _Req:
 
 
 def _category(db):
-    c = db.query(InventoryCategory).filter_by(is_active=True).first()
-    assert c is not None, "el catálogo de categorías de inventario está vacío"
-    return c
+    """`database/DML/` (categorías reales de inventario) es gitignored y no
+    llega al checkout de CI: se siembra get-or-create dentro de la
+    transacción del test en vez de asumirla."""
+    return ensure_inventory_category(db)
 
 
 def _comp_center(db):
-    d = db.query(Department).filter_by(code="comp_center").first()
-    assert d is not None, "no existe el departamento comp_center"
-    return d
+    """El limbo vive en el departamento del Centro de Cómputo (code
+    `comp_center`); en dev ya existe (real, cargado por `database/DML/`), en
+    CI (BD vacía) no — se siembra get-or-create."""
+    return ensure_comp_center(db)
 
 
 def _item(db, number, department, user):
@@ -45,6 +48,7 @@ def _item(db, number, department, user):
 
 
 def test_send_to_limbo_lands_in_pending_assignment(db_session):
+    _comp_center(db_session)  # el endpoint exige que exista antes de operar
     admin = User(first_name="L", last_name="Admin", is_active=True)
     db_session.add(admin); db_session.commit(); db_session.refresh(admin)
     dept = Department(code="lmb_dept", name="lmb", is_active=True)
@@ -75,6 +79,7 @@ def test_send_to_limbo_records_the_real_destination_in_history(db_session):
     """El historial debe reflejar a dónde fue, no un None que ya no ocurre."""
     from itcj2.apps.helpdesk.models.inventory_history import InventoryHistory
 
+    _comp_center(db_session)  # el endpoint exige que exista antes de operar
     admin = User(first_name="L", last_name="Hist", is_active=True)
     db_session.add(admin); db_session.commit(); db_session.refresh(admin)
     dept = Department(code="lmb_hist", name="lmb_hist", is_active=True)

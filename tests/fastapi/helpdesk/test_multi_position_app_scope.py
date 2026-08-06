@@ -11,12 +11,13 @@ from datetime import date, timedelta
 
 import itcj2.models  # noqa: F401
 from itcj2.apps.helpdesk.services.ticket_service import create_ticket
-from itcj2.apps.helpdesk.models.category import Category
 from itcj2.core.models.app import App
 from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.user import User
 from itcj2.core.models.position import Position, UserPosition, PositionAppPerm
+
+from ._catalog import ensure_helpdesk_category, ensure_helpdesk_priority
 
 TODAY = date.today()
 
@@ -51,8 +52,11 @@ def test_ticket_is_sealed_with_a_department_that_grants_the_app(db_session):
     El puesto de Cafetería es más antiguo, así que el desempate por `start_date`
     lo elige como "primario" aunque no tenga nada que ver con helpdesk.
     """
-    category = db_session.query(Category).filter_by(is_active=True).first()
-    assert category is not None
+    # `database/DML/` (con el catálogo real de categorías) es gitignored y no
+    # llega al checkout de CI: se siembra get-or-create dentro de la
+    # transacción del test en vez de asumir que la BD ya lo trae.
+    category = ensure_helpdesk_category(db_session)
+    ensure_helpdesk_priority(db_session, "MEDIA")
 
     cafeteria = _dept(db_session, "mps_cafeteria")   # sin acceso a helpdesk
     gestion = _dept(db_session, "mps_gestion")       # con acceso a helpdesk

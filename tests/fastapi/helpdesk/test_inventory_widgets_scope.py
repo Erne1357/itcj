@@ -35,11 +35,12 @@ from itcj2.core.models.app import App
 from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.position import Position, PositionAppPerm, UserPosition
-from itcj2.core.models.role import Role
 from itcj2.core.models.user import User
 from itcj2.core.models.user_app_role import UserAppRole
 from itcj2.database import get_db
 from itcj2.main import create_app
+
+from ._catalog import ensure_role
 
 ITEMS_SUBTREE = "helpdesk.inventory.api.read.subtree"
 STATS_SUBTREE = "helpdesk.inventory.api.read.stats.subtree"
@@ -164,8 +165,9 @@ def _grant_role_direct(db, user, role_name) -> None:
     tanto cualquier anclaje de `.subtree`) no resuelve NINGÚN departamento.
     """
     app = _helpdesk(db)
-    role = db.query(Role).filter_by(name=role_name).first()
-    assert role is not None, f"rol {role_name} debe existir en la BD dev"
+    # En dev el rol ya existe (cargado por `database/DML/`); en CI (BD vacía)
+    # no — se siembra get-or-create dentro de la transacción del test.
+    role = ensure_role(db, role_name)
     db.add(UserAppRole(user_id=user.id, app_id=app.id, role_id=role.id))
     db.commit()
 

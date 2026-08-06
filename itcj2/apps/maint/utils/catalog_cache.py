@@ -113,9 +113,16 @@ def get_priority_codes(db=None) -> set:
     """
     Retorna el set de codes ACTIVOS.
     Fallback: keys del dict hardcoded.
+
+    Ojo: se comprueba la verdad del set (no solo `is not None`). Si la tabla
+    `maint_priority` existe pero está vacía (BD recién creada, sin el DML de
+    catálogos todavía cargado), `_ensure_cache()` puebla `_priority_codes_cache`
+    con un `set()` vacío — que no es `None` — y esa rama saltaba el fallback,
+    dejando `create_ticket` incapaz de validar CUALQUIER prioridad. Un `set()`
+    vacío debe degradar al fallback igual que si la carga hubiera fallado.
     """
     _ensure_cache()
-    if _priority_codes_cache is not None:
+    if _priority_codes_cache:
         return _priority_codes_cache
     return set(_fallback_sla_hours().keys())
 

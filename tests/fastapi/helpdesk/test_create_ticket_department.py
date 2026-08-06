@@ -10,10 +10,11 @@ from datetime import date, timedelta
 
 import itcj2.models  # noqa: F401
 from itcj2.apps.helpdesk.services.ticket_service import create_ticket
-from itcj2.apps.helpdesk.models.category import Category
 from itcj2.core.models.department import Department
 from itcj2.core.models.user import User
 from itcj2.core.models.position import Position, UserPosition
+
+from ._catalog import ensure_helpdesk_category, ensure_helpdesk_priority
 
 TODAY = date.today()
 
@@ -25,8 +26,13 @@ def _dept(db, code):
 
 
 def _category(db):
-    """Categoría real del catálogo: create_ticket valida área y prioridad en BD."""
-    return db.query(Category).filter_by(is_active=True).first()
+    """Categoría real del catálogo: create_ticket valida área y prioridad en BD.
+
+    `database/DML/` (con el catálogo real de categorías) es gitignored y nunca
+    llega al checkout de CI, así que la BD de test puede estar vacía: se
+    siembra get-or-create dentro de la transacción del test en vez de asumirla.
+    """
+    return ensure_helpdesk_category(db)
 
 
 def _assign(db, user, dept, code, start, end=None):
@@ -39,6 +45,7 @@ def _assign(db, user, dept, code, start, end=None):
 
 
 def _create(db, user, category):
+    ensure_helpdesk_priority(db, "MEDIA")
     return create_ticket(
         db, requester_id=user.id, area=category.area, category_id=category.id,
         title="ctd", description="ctd", priority="MEDIA",
