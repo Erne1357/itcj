@@ -45,25 +45,30 @@ def _apply_dept_filter(query, dept_ids: list[int] | None):
 
 def _resolve_user_departments(db: Session, user_id: int) -> list[dict]:
     """
-    Retorna [{id, code, name}] de los departamentos de los puestos VIGENTES del
-    usuario (ventana start_date/end_date, no solo is_active).
+    Retorna [{id, code, name}] de los departamentos que CUENTAN para maint
+    (ventana start_date/end_date, no solo is_active) — por PROCEDENCIA, con
+    respaldo.
 
-    Delega en el resolver CANÓNICO `core.services.departments_service.
-    get_user_departments` — este es el resolver que consumen `list_tickets`,
-    `can_user_view_ticket`, `dashboard_service` y el ACL de sockets (issue #3
-    del roadmap de coherencia org-scope). Antes filtraba solo
-    `UserPosition.is_active`, ignorando `start_date`/`end_date`: un puesto
-    vencido (con `is_active` aún en True) seguía dando acceso al departamento
-    que la persona ya dejó. El contrato de retorno (list[dict] con esas 3
-    claves) se conserva tal cual — varios consumidores dependen de esa forma.
+    Delega en `core.services.departments_service.app_departments` — este es
+    el resolver que consumen `list_tickets`, `can_user_view_ticket`,
+    `dashboard_service` y el ACL de sockets (issue #3 del roadmap de
+    coherencia org-scope). Antes delegaba en el resolver AGNÓSTICO
+    `get_user_departments` (todo depto con puesto vigente, sin mirar si ese
+    puesto otorga acceso a maint): alguien con un puesto en un depto ajeno a
+    maint (p. ej. Cafetería) y otro en un depto que sí otorga maint podía
+    terminar viendo/operando "como Cafetería". `app_departments` solo cuenta
+    los deptos de los puestos que REALMENTE otorgan maint (por rol o permiso
+    del puesto); si ninguno lo otorga (acceso directo al usuario, sin ancla
+    departamental), se respalda con todos sus deptos — mismo comportamiento
+    de siempre para quien entra a maint por asignación directa. El contrato
+    de retorno (list[dict] con esas 3 claves) se conserva tal cual — varios
+    consumidores dependen de esa forma.
     """
-    from itcj2.core.services.departments_service import (
-        get_user_departments as _canonical_get_user_departments,
-    )
+    from itcj2.core.services.departments_service import app_departments
 
     return [
         {"id": d.id, "code": d.code, "name": d.name}
-        for d in _canonical_get_user_departments(db, user_id)
+        for d in app_departments(db, user_id, "maint")
         if d.is_active
     ]
 

@@ -37,10 +37,18 @@ def create_ticket(
     Crea un nuevo ticket de mantenimiento.
     Calcula due_at según la prioridad (SLA_HOURS).
 
-    department_id: si viene, se valida que el solicitante tenga ese depto via
-    UserPosition activa. Si no viene, se resuelve automáticamente: si tiene
-    un solo depto activo, se usa; si tiene varios, se requiere selección
-    explícita (HTTP 400).
+    department_id: si viene, se valida contra los departamentos que CUENTAN
+    para maint por PROCEDENCIA (`app_departments` — solo los deptos de
+    puestos vigentes que otorgan acceso a maint; si ninguno lo otorga, se
+    respalda con todos los deptos del solicitante). Si no viene, se resuelve
+    automáticamente sobre ese mismo conjunto: si tiene uno solo, se usa; si
+    tiene varios, se requiere selección explícita (HTTP 400).
+
+    Este es el punto donde se sella `requester_department_id`, que decide
+    todo el scope posterior del ticket (nadie lo recalcula después) — de ahí
+    que la validación tenga que usar el conjunto correcto y no "cualquier
+    puesto vigente" (eso permitía sellar el ticket con un depto ajeno a
+    maint, p. ej. Cafetería, si el solicitante también tenía un puesto ahí).
     """
     valid_codes = get_priority_codes()
     if priority not in valid_codes:
@@ -57,20 +65,11 @@ def create_ticket(
     if not category or not category.is_active:
         raise HTTPException(status_code=400, detail='Categoría inválida o inactiva')
 
-    # Determinar/validar departamento del solicitante via puestos activos
-    from itcj2.core.models.position import UserPosition, Position
-    user_depts = (
-        db.query(Position.department_id)
-        .join(UserPosition, UserPosition.position_id == Position.id)
-        .filter(
-            UserPosition.user_id == requester_id,
-            UserPosition.is_active == True,
-            Position.department_id.isnot(None),
-        )
-        .distinct()
-        .all()
-    )
-    user_dept_ids = {r[0] for r in user_depts}
+    # Determinar/validar departamento del solicitante por PROCEDENCIA (solo
+    # los deptos de puestos vigentes que otorgan acceso a maint; respaldo con
+    # todos sus deptos si ninguno lo otorga — acceso directo al usuario).
+    from itcj2.core.services.departments_service import app_departments
+    user_dept_ids = {d.id for d in app_departments(db, requester_id, "maint")}
 
     if department_id is not None:
         if department_id not in user_dept_ids:

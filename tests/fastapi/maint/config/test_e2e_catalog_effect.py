@@ -344,27 +344,34 @@ class TestPrioridadSlaDinamico:
 
         # Cadena universal de queries.
         # Puntos clave que deben devolver valores controlados:
-        #   .join().filter().distinct().all()  → [(7,)] (1 depto; U13 exige departamento)
         #   .filter().count()                  → 0  (sin tickets sin calificar)
         #   .filter().order_by().first()       → None (ticket previo inexistente en generate_ticket_number)
         #   .filter_by().first()               → None (unicidad en generate_ticket_number, sin colisión)
         chain = MagicMock()
-        chain.join.return_value.filter.return_value.distinct.return_value.all.return_value = [(7,)]
         chain.filter.return_value.count.return_value = 0
         chain.filter.return_value.filter.return_value.count.return_value = 0
         chain.filter.return_value.order_by.return_value.first.return_value = None
         chain.filter_by.return_value.first.return_value = None
         db.query.return_value = chain
 
+        # create_ticket resuelve el departamento vía `app_departments`
+        # (procedencia, ver fix/org-scope-coherence) — se mockea directo en su
+        # módulo fuente (1 depto, U13 exige departamento) para no atar este
+        # test (que solo verifica SLA dinámico) a la forma exacta de esa query.
+        mock_department = MagicMock()
+        mock_department.id = 7
+
         try:
-            create_ticket(
-                db=db,
-                requester_id=1,
-                category_id=1,
-                title="Ticket con SLA editado",
-                description="SLA MEDIA = 500h",
-                priority="MEDIA",
-            )
+            with patch("itcj2.core.services.departments_service.app_departments",
+                       return_value=[mock_department]):
+                create_ticket(
+                    db=db,
+                    requester_id=1,
+                    category_id=1,
+                    title="Ticket con SLA editado",
+                    description="SLA MEDIA = 500h",
+                    priority="MEDIA",
+                )
         except HTTPException as exc:
             assert exc.status_code != 400 or "prioridad" not in exc.detail.lower(), (
                 f"create_ticket rechazó 'MEDIA' válida con 400: {exc.detail}"

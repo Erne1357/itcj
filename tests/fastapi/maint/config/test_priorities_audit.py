@@ -1218,12 +1218,21 @@ class TestTicketServiceSlaRefactor:
         db.query.return_value = count_query
 
         # Parchear generate_ticket_number y now_local
+        mock_department = MagicMock()
+        mock_department.id = 42
         with patch("itcj2.apps.maint.services.ticket_service.generate_ticket_number",
                    return_value="MANT-2026-001"), \
              patch("itcj2.apps.maint.services.ticket_service.now_local",
                    return_value=datetime(2026, 5, 18, 10, 0, 0)), \
              patch("itcj2.apps.maint.services.ticket_service.MaintStatusLog"), \
-             patch("itcj2.apps.maint.services.ticket_service.MaintTicketActionLog"):
+             patch("itcj2.apps.maint.services.ticket_service.MaintTicketActionLog"), \
+             patch("itcj2.core.services.departments_service.app_departments",
+                   return_value=[mock_department]):
+            # create_ticket resuelve el departamento vía `app_departments`
+            # (procedencia, ver fix/org-scope-coherence) en vez de la consulta
+            # ad-hoc anterior — se mockea directo en su módulo fuente para no
+            # atar este test (que solo verifica SLA dinámico) a la forma
+            # exacta de esa query.
 
             # db.query puede devolver distintos mocks según el modelo —
             # aquí simplificamos con side_effect que devuelve un mock
