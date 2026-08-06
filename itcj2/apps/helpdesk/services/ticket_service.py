@@ -201,8 +201,12 @@ def create_ticket(
     # para el jefe correcto de forma permanente. Se usa el resolver canónico.
     department_id = None
     try:
-        from itcj2.core.services.departments_service import get_primary_user_department
-        dept = get_primary_user_department(db, requester_id)
+        from itcj2.core.services.departments_service import primary_app_department
+        # Por PROCEDENCIA: entre los puestos del solicitante, solo anclan los que
+        # le dan acceso a helpdesk. Con el resolver agnóstico, alguien con un
+        # puesto en un departamento ajeno a la app (y más antiguo) veía su ticket
+        # sellado con ESE departamento.
+        dept = primary_app_department(db, requester_id, "helpdesk")
         if dept:
             department_id = dept.id
     except Exception as e:
@@ -342,14 +346,16 @@ def list_tickets(
         # Scope departamental/subárbol: jefe de depto (su depto) + cualquiera que
         # tenga helpdesk.tickets.api.read.subtree (su depto + sub-departamentos, por
         # procedencia). Aditivo: sin .subtree, el jefe de depto ve su depto como antes.
-        from itcj2.core.services.departments_service import get_primary_user_department
+        from itcj2.core.services.departments_service import app_departments
         from itcj2.core.services.scope_service import subtree_scope_for
 
         dept_ids: set[int] = set()
         if 'department_head' in user_roles:
-            _dept = get_primary_user_department(db, user_id)
-            if _dept:
-                dept_ids.add(_dept.id)
+            # TODOS los departamentos que le dan acceso a helpdesk, no uno solo:
+            # una secretaria de dos departamentos veía los tickets de uno nada más,
+            # y con un puesto en un departamento ajeno a la app podía ver el
+            # equivocado (el desempate por antigüedad no miraba la app).
+            dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
         dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
 
         # La propiedad NUNCA se pierde: el scope departamental SUMA sobre "soy el
@@ -829,14 +835,12 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
             return True
 
     # Scope departamental/subárbol (debe seguir en sync con list_tickets).
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
 
     dept_ids: set[int] = set()
     if 'department_head' in user_roles:
-        _dept = get_primary_user_department(db, user_id)
-        if _dept:
-            dept_ids.add(_dept.id)
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
     dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
 
     if ticket.requester_department_id in dept_ids:

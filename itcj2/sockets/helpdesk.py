@@ -74,14 +74,12 @@ def _visible_dept_ids(db, user_id: int) -> set:
 
     Mismo cálculo que `ticket_service.list_tickets` / `can_user_view_ticket`.
     """
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
 
     dept_ids: set[int] = set()
     try:
-        dept = get_primary_user_department(db, user_id)
-        if dept:
-            dept_ids.add(dept.id)
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
         dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
     except Exception:
         return set()

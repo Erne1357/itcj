@@ -137,7 +137,7 @@ def visible_department_ids(
     Un set vacío ⇒ no ve nada (fail-closed; el caller filtra por ``id IN {-1}``).
     """
     from itcj2.dependencies import is_global_admin
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
 
     uid = int(user["sub"])
@@ -146,11 +146,12 @@ def visible_department_ids(
         return None
 
     ids: set[int] = set()
-    # Acceso departamental "clásico" (.own_dept / department_head) → su depto primario.
+    # Acceso departamental "clásico" (.own_dept / department_head) → TODOS los
+    # departamentos que le dan acceso a helpdesk, no uno solo: con multi-puesto el
+    # resolver agnóstico podía elegir un departamento ajeno a la app, y a quien
+    # tiene dos departamentos con acceso le mostraba solo uno.
     if has_dept_inventory_access(db, uid):
-        dept = get_primary_user_department(db, uid)
-        if dept:
-            ids.add(dept.id)
+        ids |= {d.id for d in app_departments(db, uid, "helpdesk")}
     # Scope jerárquico: subárbol de los puestos que otorgan cada permiso .subtree.
     for perm_code in {_INVENTORY_SUBTREE_PERM} | (extra_subtree_perms or set()):
         ids |= subtree_scope_for(db, uid, "helpdesk", perm_code)
