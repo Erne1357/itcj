@@ -25,31 +25,28 @@ async def my_departments(
     user: dict = require_perms("maint", ["maint.tickets.api.create"]),
     db: DbSession = None,
 ):
-    """Lista los departamentos activos del usuario logueado (vía UserPosition).
+    """Lista los departamentos que CUENTAN para maint del usuario logueado —
+    por PROCEDENCIA, con respaldo (ver `app_departments`).
 
     Usado por el formulario de creación de ticket para:
       - Si len==1: usar automáticamente sin mostrar selector.
       - Si len>1: mostrar selector obligatorio.
       - Si len==0: dejar nulo (warning UI opcional).
+
+    Antes listaba TODOS los departamentos de puestos vigentes con una consulta
+    ad-hoc que además ignoraba la ventana `start_date`/`end_date` (un puesto
+    vencido con `is_active` aún en True seguía apareciendo). Delegar en
+    `app_departments` corrige ambas cosas y además evita ofrecer un
+    departamento ajeno a maint (p. ej. Cafetería) cuando el usuario también
+    tiene un puesto en un depto que sí otorga la app.
     """
-    from itcj2.core.models.department import Department
-    from itcj2.core.models.position import UserPosition, Position
+    from itcj2.core.services.departments_service import app_departments
+
     uid = int(user["sub"])
-    rows = (
-        db.query(Department.id, Department.code, Department.name)
-        .join(Position, Position.department_id == Department.id)
-        .join(UserPosition, UserPosition.position_id == Position.id)
-        .filter(
-            UserPosition.user_id == uid,
-            UserPosition.is_active == True,
-        )
-        .distinct()
-        .order_by(Department.name.asc())
-        .all()
-    )
+    depts = app_departments(db, uid, "maint")
     return {
         "success": True,
-        "data": [{"id": r[0], "code": r[1], "name": r[2]} for r in rows],
+        "data": [{"id": d.id, "code": d.code, "name": d.name} for d in depts],
     }
 
 
@@ -124,6 +121,18 @@ async def create_ticket(
             raise HTTPException(
                 status_code=403,
                 detail="No tienes permiso para crear solicitudes en nombre de otro usuario",
+            )
+
+        # El solicitante debe poder ENTRAR a maint (mismo criterio que
+        # require_app). Sin esto la API acepta cualquier user_id —incluido el de
+        # un alumno— y se crea un ticket que su "solicitante" nunca podrá ver,
+        # dar seguimiento ni calificar (y el flujo exige calificación para
+        # cerrar). El picker ya no los ofrece; esto cierra la llamada directa.
+        from itcj2.core.services.authz_cache import cached_has_assignment
+        if not cached_has_assignment(db, body.requester_id, "maint"):
+            raise HTTPException(
+                status_code=400,
+                detail="El solicitante seleccionado no tiene acceso a Mantenimiento",
             )
 
         # Mantenimiento atiende a TODO el instituto: el solicitante puede ser de

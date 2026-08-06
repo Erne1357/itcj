@@ -10,21 +10,21 @@ from itcj2.dependencies import DbSession, require_perms, require_app
 router = APIRouter(tags=["helpdesk-inventory-dashboard"])
 
 
+_STATS_SUBTREE = {"helpdesk.inventory.api.read.stats.subtree"}
+
+
 @router.get("/widgets/quick-stats")
 def get_quick_stats(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
+    visible = visible_department_ids(db, user, extra_subtree_perms=_STATS_SUBTREE)
 
-    if "admin" in user_roles or user_id in secretary_comp_center or is_comp_center:
+    if visible is None:
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         stats = InventoryStatsService.get_overview_stats(db)
         return {
@@ -40,22 +40,21 @@ def get_quick_stats(
             },
         }
 
-    if "department_head" in user_roles:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept:
-            return {"success": True, "data": {"total_items": 0, "active": 0, "assigned_to_users": 0, "global": 0}}
-
-        total = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True).count()
-        active = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.status == "ACTIVE").count()
-        assigned = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.isnot(None)).count()
-        global_items = db.query(InventoryItem).filter(InventoryItem.department_id == user_dept.id, InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.is_(None)).count()
+    if visible:
+        # Scope departamental/subárbol (jefe de depto y/o .read.stats.subtree):
+        # el mismo total que ve en la tabla de equipos, no solo su depto primario.
+        total = db.query(InventoryItem).filter(InventoryItem.department_id.in_(visible), InventoryItem.is_active == True).count()
+        active = db.query(InventoryItem).filter(InventoryItem.department_id.in_(visible), InventoryItem.is_active == True, InventoryItem.status == "ACTIVE").count()
+        assigned = db.query(InventoryItem).filter(InventoryItem.department_id.in_(visible), InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.isnot(None)).count()
+        global_items = db.query(InventoryItem).filter(InventoryItem.department_id.in_(visible), InventoryItem.is_active == True, InventoryItem.assigned_to_user_id.is_(None)).count()
 
         return {
             "success": True,
-            "data": {"department": user_dept.name, "total_items": total, "active": active, "assigned_to_users": assigned, "global": global_items},
+            "data": {"total_items": total, "active": active, "assigned_to_users": assigned, "global": global_items},
         }
 
+    # Sin scope departamental/subárbol resuelto (puesto vencido o ninguno):
+    # fallback histórico — solo lo que tiene asignado.
     my_items = db.query(InventoryItem).filter(InventoryItem.assigned_to_user_id == user_id, InventoryItem.is_active == True).count()
     return {"success": True, "data": {"my_items": my_items}}
 
@@ -130,24 +129,25 @@ def get_recent_activity(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj2.apps.helpdesk.services.inventory_history_service import InventoryHistoryService
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from datetime import datetime, timedelta
 
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
+    from sqlalchemy import desc
 
-    department_id = None
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        if "department_head" in user_roles:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if user_dept:
-                department_id = user_dept.id
+    from itcj2.apps.helpdesk.models import InventoryHistory, InventoryItem
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
-    events = InventoryHistoryService.get_recent_events(db, department_id=department_id, days=7, limit=limit)
+    visible = visible_department_ids(db, user, extra_subtree_perms=_STATS_SUBTREE)
+
+    # Réplica de InventoryHistoryService.get_recent_events, pero con `.in_()` para
+    # soportar un CONJUNTO de departamentos (subárbol) — el service solo filtra
+    # por `==` un department_id escalar (fuera del alcance de este fix).
+    since_date = datetime.now() - timedelta(days=7)
+    query = db.query(InventoryHistory).join(
+        InventoryItem, InventoryHistory.item_id == InventoryItem.id
+    ).filter(InventoryHistory.timestamp >= since_date)
+    if visible is not None:
+        query = query.filter(InventoryItem.department_id.in_(visible or {-1}))
+    events = query.order_by(desc(InventoryHistory.timestamp)).limit(limit).all()
 
     events_data = []
     for event in events:
@@ -173,37 +173,30 @@ def get_category_chart(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
     from itcj2.apps.helpdesk.models import InventoryItem, InventoryCategory
     from sqlalchemy import func, and_
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
+    visible = visible_department_ids(db, user, extra_subtree_perms=_STATS_SUBTREE)
 
-    if "admin" in user_roles or user_id in secretary_comp_center or is_comp_center:
+    if visible is None:
         stats = InventoryStatsService.get_by_category(db)
-    else:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept:
-            return {"success": True, "data": {"labels": [], "datasets": []}}
-
+    elif visible:
         results = db.query(
             InventoryCategory.name, func.count(InventoryItem.id)
         ).outerjoin(
             InventoryItem,
             and_(
                 InventoryItem.category_id == InventoryCategory.id,
-                InventoryItem.department_id == user_dept.id,
+                InventoryItem.department_id.in_(visible),
                 InventoryItem.is_active == True,
             ),
         ).filter(InventoryCategory.is_active == True).group_by(InventoryCategory.name).all()
 
         stats = [{"category_name": name, "count": count} for name, count in results if count > 0]
+    else:
+        return {"success": True, "data": {"labels": [], "datasets": []}}
 
     labels = [s["category_name"] for s in stats]
     data = [s["count"] for s in stats]
@@ -226,25 +219,21 @@ def get_status_chart(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import func
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
+    visible = visible_department_ids(db, user, extra_subtree_perms=_STATS_SUBTREE)
 
     results_query = db.query(
         InventoryItem.status, func.count(InventoryItem.id)
     ).filter(InventoryItem.is_active == True)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if user_dept:
-            results_query = results_query.filter(InventoryItem.department_id == user_dept.id)
+    # Fail-closed: sin scope resuelto (puesto vencido o ninguno), NO se debe caer
+    # al conteo global del instituto — antes `if user_dept:` dejaba la query sin
+    # filtrar cuando no había departamento resuelto.
+    if visible is not None:
+        results_query = results_query.filter(InventoryItem.department_id.in_(visible or {-1}))
 
     results = results_query.group_by(InventoryItem.status).all()
 

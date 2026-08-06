@@ -204,16 +204,17 @@ def _url_template_to_regex(template: str) -> "re.Pattern[str]":
     return re.compile("^" + body + "$")
 
 
+_BOOSTABLE_URL_TEMPLATES: list[tuple[str, str]] | None = None
 _BOOSTABLE_URL_PATTERNS: list[tuple["re.Pattern[str]", str]] | None = None
 
 
-def _boostable_url_patterns() -> list[tuple["re.Pattern[str]", str]]:
-    """(regex_url, hd_page) de las páginas migradas, construida perezosamente
+def _boostable_url_templates() -> list[tuple[str, str]]:
+    """(url_template, hd_page) de las páginas migradas, construida perezosamente
     reutilizando ENDPOINT_TO_ACTIVE_PAGE (+ ENDPOINT_MAP para la URL) y
     _EXTRA_PAGE_URLS. Ordena las URLs literales antes que las de placeholder
     (match exacto gana) y, dentro de cada grupo, las más específicas primero."""
-    global _BOOSTABLE_URL_PATTERNS
-    if _BOOSTABLE_URL_PATTERNS is None:
+    global _BOOSTABLE_URL_TEMPLATES
+    if _BOOSTABLE_URL_TEMPLATES is None:
         pairs: dict[str, str] = {}
         for endpoint, hd_page in ENDPOINT_TO_ACTIVE_PAGE.items():
             url_tmpl = ENDPOINT_MAP.get(endpoint)
@@ -221,9 +222,48 @@ def _boostable_url_patterns() -> list[tuple["re.Pattern[str]", str]]:
                 pairs.setdefault(url_tmpl, hd_page)
         for url_tmpl, hd_page in _EXTRA_PAGE_URLS.items():
             pairs.setdefault(url_tmpl, hd_page)
-        ordered = sorted(pairs.items(), key=lambda kv: ("{" in kv[0], -kv[0].count("/")))
-        _BOOSTABLE_URL_PATTERNS = [(_url_template_to_regex(u), p) for u, p in ordered]
+        _BOOSTABLE_URL_TEMPLATES = sorted(
+            pairs.items(), key=lambda kv: ("{" in kv[0], -kv[0].count("/"))
+        )
+    return _BOOSTABLE_URL_TEMPLATES
+
+
+def _boostable_url_patterns() -> list[tuple["re.Pattern[str]", str]]:
+    """(regex_url, hd_page) de las páginas migradas (ver _boostable_url_templates)."""
+    global _BOOSTABLE_URL_PATTERNS
+    if _BOOSTABLE_URL_PATTERNS is None:
+        _BOOSTABLE_URL_PATTERNS = [
+            (_url_template_to_regex(u), p) for u, p in _boostable_url_templates()
+        ]
     return _BOOSTABLE_URL_PATTERNS
+
+
+# Metacaracteres a escapar para un RegExp de JS. NO se usa re.escape porque
+# escapa '-' como '\-', que en JS solo vale por Annex B (y es error con flag 'u');
+# las URLs de helpdesk llevan guion ("/help-desk/"), así que importa.
+_JS_RE_SPECIAL = re.compile(r"[.*+?^${}()|\[\]\\/]")
+
+
+def _js_url_regex(template: str) -> str:
+    """'/a/{id}' -> '^\\/a\\/[^/]+$' (fuente de RegExp válida en JS)."""
+    parts = re.split(r"\{[^}]+\}", template)
+    body = "[^/]+".join(
+        _JS_RE_SPECIAL.sub(lambda m: "\\" + m.group(0), p) for p in parts
+    )
+    return "^" + body + "$"
+
+
+def boost_urls_regex() -> str:
+    """Alternación regex de las URLs MIGRADAS, para el cliente (data-hd-boost-urls).
+
+    base.js la usa como whitelist ESTRICTA: un destino que no matchea navega
+    clásico (recarga). Sin esto el cliente solo sabía ``/^\\/help-desk\\//``, que
+    incluye páginas NO migradas (admin/categories, inventory/reports/*) — morfear
+    hacia ellas las deja sin su JS.
+    """
+    if not HTMX_BOOST_ENABLED:
+        return ""
+    return "|".join(_js_url_regex(tmpl) for tmpl, _ in _boostable_url_templates())
 
 
 def _url_to_hd_page(url: str) -> str | None:
@@ -381,5 +421,6 @@ def render_helpdesk(
         "hd_page": hd_page,
         "htmx_boost_enabled": HTMX_BOOST_ENABLED and _is_migrated(hd_page),
         "hd_modules": _hd_modules_attr(hd_page),
+        "hd_boost_urls": boost_urls_regex(),
     }
     return render(request, template, ctx, status_code)

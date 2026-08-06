@@ -9,6 +9,11 @@
 }
 
 /* ── Contenedores de gráfica ─────────────────────────────────────── */
+/* El <canvas> DEBE vivir dentro del wrap: Chart.js con
+   maintainAspectRatio:false toma la altura de su padre, y si ese padre no la
+   tiene fija (p. ej. la .card) el canvas crece → crece el padre → resize →
+   crecimiento infinito. Estados de carga/vacío/error van en .chart-overlay
+   ENCIMA del canvas, nunca reemplazando al wrap. */
 .chart-wrap {
     position: relative;
     height: 300px;
@@ -21,6 +26,22 @@
 .chart-wrap-sm {
     position: relative;
     height: 220px;
+}
+
+.chart-wrap-sm canvas {
+    max-height: 220px;
+}
+
+.chart-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    background: #fff;
+    border-radius: 8px;
 }
 
 /* ── Skeleton / loading ──────────────────────────────────────────── */

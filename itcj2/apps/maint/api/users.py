@@ -3,7 +3,8 @@ Endpoints de usuarios para la app maint.
 
 Búsqueda de usuarios para el selector "Solicitar para" del formulario de
 creación de tickets (crear en nombre de un tercero). Mantenimiento atiende a
-TODO el instituto, así que el solicitante puede ser de cualquier departamento.
+TODO el instituto, así que el solicitante puede ser de cualquier DEPARTAMENTO
+—pero solo entre quienes tienen acceso REAL a la app (ver `search_users`).
 """
 import logging
 
@@ -24,12 +25,19 @@ def search_users(
     user: dict = require_app("maint"),
     db: DbSession = None,
 ):
-    """Busca usuarios activos del instituto para el selector "Solicitar para".
+    """Busca usuarios con acceso a maint para el selector "Solicitar para".
 
     Solo accesible para quien tiene el PERMISO real de behalf en maint (jefe o
     secretaría de mantenimiento). Se gatea aquí explícitamente —y NO con
     require_perms— porque require_perms deja pasar al admin GLOBAL del sistema,
     y un jefe de otro departamento (admin global) NO debe usar este picker.
+
+    El universo de resultados son los usuarios que PUEDEN entrar a la app
+    (`users_with_assignment_select`, mismo criterio que `require_app`): rol o
+    permiso en maint, directo o heredado de un puesto vigente. Antes se buscaba
+    sobre TODO `core_users`, así que el picker devolvía alumnos —que no tienen
+    puesto ni acceso a maint y por tanto no podrían ver ni calificar el ticket
+    creado a su nombre.
 
     - `search`: término (>=2 chars) que busca en nombre, apellido, usuario,
       correo o número de control en TODO el instituto (maint atiende a cualquier
@@ -38,7 +46,10 @@ def search_users(
 
     Devuelve hasta 150 usuarios con su departamento (para contexto visual).
     """
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_service import (
+        get_user_permissions_for_app,
+        users_with_assignment_select,
+    )
     _uid = int(user["sub"])
     if "maint.tickets.api.create.behalf" not in get_user_permissions_for_app(db, _uid, "maint", include_positions=True):
         raise HTTPException(
@@ -68,7 +79,10 @@ def search_users(
         .outerjoin(UserPosition, (UserPosition.user_id == User.id) & (UserPosition.is_active == True))
         .outerjoin(Position, (Position.id == UserPosition.position_id) & (Position.is_active == True))
         .outerjoin(Department, Department.id == Position.department_id)
-        .filter(User.is_active == True)
+        .filter(
+            User.is_active == True,
+            User.id.in_(users_with_assignment_select(db, "maint")),
+        )
     )
 
     if term:

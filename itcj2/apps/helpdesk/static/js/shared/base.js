@@ -78,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     var registry = {};
     var currentKey = null;
     var loadedModules = {};   // src -> true (evita recargar/re-declarar módulos)
+    var boostUrlsRe = null;   // RegExp de páginas migradas (data-hd-boost-urls)
 
     function teardown() {
         var hooks = currentKey && registry[currentKey];
@@ -116,8 +117,17 @@ document.addEventListener('DOMContentLoaded', () => {
         next();
     }
 
+    // Whitelist de páginas migradas que emite el server (nav.py boost_urls_regex).
+    // Se re-lee en cada activate() porque el morph reemplaza el <main> que la trae.
+    function syncBoostUrls(root) {
+        var raw = root ? (root.getAttribute('data-hd-boost-urls') || '') : '';
+        try { boostUrlsRe = raw ? new RegExp(raw) : null; }
+        catch (e) { boostUrlsRe = null; }
+    }
+
     function activate() {
         var root = document.querySelector('[data-hd-page]');
+        syncBoostUrls(root);
         var key = root ? (root.getAttribute('data-hd-page') || null) : null;
         if (key === currentKey) return;          // mismo destino → no-op
         teardown();                              // destruye la página saliente
@@ -171,7 +181,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             var u = new URL(url, window.location.origin);
             if (u.origin !== window.location.origin) return false;   // cross-app → recarga
-            return /^\/help-desk\//.test(u.pathname);                // página helpdesk migrada
+            // Whitelist estricta del server: SOLO páginas registradas en
+            // HD_PAGE_MODULES. /help-desk/ a secas incluía páginas NO migradas
+            // (admin/categories, inventory/reports/*) que al morfearse quedan sin
+            // su JS. Sin el atributo (página fuera del base) se cae al criterio
+            // amplio de antes para no romper navigate().
+            if (boostUrlsRe) return boostUrlsRe.test(u.pathname);
+            return /^\/help-desk\//.test(u.pathname);
         } catch (e) {
             return false;
         }
@@ -190,7 +206,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // PÁGINA completa (no el fragmento de la rama HX-Request). El morph elimina la
     // fuente al swappear (igual que a los enlaces del nav); un finally la limpia
     // si la petición falla y no hubo swap.
-    function navigate(url) {
+    // opts.push === false → no toca el historial (lo usa refresh()).
+    function navigate(url, opts) {
         if (!url) return;
         var htmx = window.htmx;
         if (!isBoostableClient(url) || !htmx || typeof htmx.ajax !== 'function') {
@@ -198,7 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         var src = document.createElement('span');
-        src.setAttribute('hx-push-url', 'true');
+        src.setAttribute('hx-push-url', (opts && opts.push === false) ? 'false' : 'true');
         src.style.display = 'none';
         document.body.appendChild(src);
         var cleanup = function () { if (src.parentNode) src.parentNode.removeChild(src); };
@@ -220,6 +237,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // refresh(): re-morfea la página ACTUAL con HTML fresco del server, sin tocar
+    // el historial. Sustituto de location.reload() tras una mutación: mismo
+    // resultado sin el flash en blanco ni perder el scroll.
+    function refresh() { navigate(window.location.href, { push: false }); }
+
+    // --- Boost delegado de los links de CONTENIDO -----------------------------
+    // Los <a> de los templates llevan {{ hd_boost(url) }}, pero los que inyectan
+    // los módulos por innerHTML (tarjetas de ticket, tablas de inventario, árbol
+    // de predecesores…) nunca pasaron por htmx: recargaban la página entera.
+    // Un único listener en document los cubre a todos — vive fuera del árbol
+    // morfeado y no necesita htmx.process() por cada render.
+    // Se cede el click cuando el usuario pidió otra cosa: ctrl/cmd/shift/alt,
+    // botón no primario, target (_blank de los "ver en pestaña nueva"), download,
+    // o un ancla que ya declare hx-* (el nav, o hx-boost="false" como opt-out).
+    var NON_HTTP_SCHEME = /^(?!https?:)[a-z][a-z0-9+.-]*:/i;
+
+    function onDocumentClick(e) {
+        if (e.defaultPrevented || e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        // Regla de isla, igual que el server (htmx_boost_enabled): ORIGEN y
+        // destino migrados. Saliendo de una página NO migrada se recarga como
+        // hasta ahora — sus scripts no están en el registry y nadie los destruye.
+        if (!currentKey || !isBoostableClient(window.location.href)) return;
+        var a = e.target && e.target.closest && e.target.closest('a[href]');
+        if (!a) return;
+        if (a.hasAttribute('download')) return;
+        var target = a.getAttribute('target');
+        if (target && target !== '_self') return;
+        if (a.closest('[hx-boost], [hx-get], [hx-post]')) return;  // lo maneja htmx
+        var href = a.getAttribute('href');
+        if (!href || href.charAt(0) === '#' || NON_HTTP_SCHEME.test(href)) return;
+        if (!isBoostableClient(a.href)) return;      // whitelist data-hd-boost-urls
+        e.preventDefault();
+        navigate(a.href);
+    }
+
+    document.addEventListener('click', onDocumentClick);
+
     function boot() { bindSidebar(); activate(); }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);
@@ -234,5 +289,5 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.addEventListener('htmx:beforeRequest', navStart);
     document.body.addEventListener('htmx:afterRequest', navEnd);
 
-    window.HelpdeskPage = { register: register, page: register, navigate: navigate };
+    window.HelpdeskPage = { register: register, page: register, navigate: navigate, refresh: refresh };
 })();

@@ -7,6 +7,10 @@
      · navigate(url): morph programático; config es CRUD-por-modal, así que
        CUALQUIER navegación morph cierra modales y limpia backdrops ANTES
        del swap (morph:innerHTML no sabe de body.modal-open ni .modal-backdrop)
+     · boost delegado: un click listener en document manda por navigate() TODO
+       <a> de contenido cuyo href caiga en la whitelist (data-cfg-boost-urls),
+       incluidos los que inyectan los módulos por innerHTML. El sidebar sigue
+       con hx-boost server-side y se le cede el click a htmx.
      · morph-safety: preserva #appModal-* (inyectados en runtime por AppModal)
        y cualquier nodo marcado con data-cfg-preserve
    Activación: DOMContentLoaded + htmx:afterSettle + htmx:historyRestore.
@@ -128,10 +132,11 @@
         }
     }
 
-    // navigate(url): morph programático hacia una página migrada, o recarga.
+    // navigate(url, opts): morph programático hacia una página migrada, o recarga.
     // History delegado a htmx via fuente efímera con hx-push-url (hereda el
     // hx-ext del body → morph + head-support funcionan; sin doble pushState).
-    function navigate(url) {
+    // opts.push === false → no toca el historial (lo usa refresh()).
+    function navigate(url, opts) {
         if (!url) return;
         var htmx = window.htmx;
         if (!isBoostableClient(url) || !htmx || typeof htmx.ajax !== 'function') {
@@ -140,7 +145,7 @@
         }
         closeOpenModals();
         var src = document.createElement('span');
-        src.setAttribute('hx-push-url', 'true');
+        src.setAttribute('hx-push-url', (opts && opts.push === false) ? 'false' : 'true');
         src.style.display = 'none';
         document.body.appendChild(src);
         var cleanup = function () { if (src.parentNode) src.parentNode.removeChild(src); };
@@ -159,6 +164,42 @@
         }
     }
 
+    // refresh(): re-morfea la página ACTUAL con HTML fresco del servidor, sin
+    // tocar el historial. Sustituto de location.reload() tras una mutación:
+    // mismo resultado sin el flash en blanco ni perder el scroll.
+    function refresh() { navigate(window.location.href, { push: false }); }
+
+    // --- Boost delegado de los links de CONTENIDO -----------------------------
+    // El sidebar lleva hx-boost server-side (cfg_boost_attr), pero los links del
+    // contenido (nav-cards del index, breadcrumbs, "ver detalle", y los que
+    // renderizan los módulos por innerHTML) no: hacían full-reload y parpadeaba
+    // todo el shell. Un ÚNICO listener en document los captura — vive fuera del
+    // árbol morfeado, así que sobrevive a los swaps y cubre también el HTML
+    // inyectado por JS (que htmx nunca procesó).
+    // Se cede el click a htmx/al navegador cuando el usuario pidió otra cosa:
+    // ctrl/cmd/shift/alt-click, botón central, target, download, o cualquier
+    // ancla que ya declare hx-* (incluido hx-boost="false" como opt-out).
+    var NON_HTTP_SCHEME = /^(?!https?:)[a-z][a-z0-9+.-]*:/i;
+
+    function onDocumentClick(e) {
+        if (e.defaultPrevented || e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (!currentKey) return;                     // shell fuera del island
+        var a = e.target && e.target.closest && e.target.closest('a[href]');
+        if (!a) return;
+        if (a.hasAttribute('download')) return;
+        var target = a.getAttribute('target');
+        if (target && target !== '_self') return;
+        if (a.closest('[hx-boost], [hx-get], [hx-post]')) return;  // lo maneja htmx
+        var href = a.getAttribute('href');
+        if (!href || href.charAt(0) === '#' || NON_HTTP_SCHEME.test(href)) return;
+        if (!isBoostableClient(a.href)) return;      // whitelist data-cfg-boost-urls
+        e.preventDefault();
+        navigate(a.href);
+    }
+
+    document.addEventListener('click', onDocumentClick);
+
     function boot() { activate(); }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);
@@ -173,7 +214,7 @@
         if (evt && evt.detail && evt.detail.boosted) closeOpenModals();
     });
 
-    window.ConfigPage = { register: register, navigate: navigate };
+    window.ConfigPage = { register: register, navigate: navigate, refresh: refresh };
     Object.defineProperty(window.ConfigPage, 'page', {
         get: function () { return currentKey; }
     });

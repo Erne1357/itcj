@@ -314,7 +314,12 @@ async def inventory_categories(
 @router.get("/inventory/reports", name="helpdesk.pages.admin.inventory_reports")
 async def inventory_reports(
     request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory.api.export.all"])),
+    user: dict = Depends(require_page_app("helpdesk", perms=[
+        "helpdesk.inventory.api.export.all",
+        # El jefe con scope por subárbol también llega a esta página; los reportes
+        # que genera ya vienen acotados a sus departamentos visibles.
+        "helpdesk.inventory.api.export.subtree",
+    ])),
 ):
     """Reportes de inventario."""
     user_id = int(user["sub"])
@@ -329,7 +334,9 @@ async def inventory_reports(
 @router.get("/stats", name="helpdesk.pages.admin.stats")
 async def stats(
     request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.stats.page.list"])),
+    user: dict = Depends(require_page_app("helpdesk", perms=[
+        "helpdesk.stats.page.list", "helpdesk.stats.page.list.subtree",
+    ])),
 ):
     """Estadísticas generales del sistema de tickets."""
     user_id = int(user["sub"])
@@ -344,7 +351,9 @@ async def stats(
 @router.get("/analysis", name="helpdesk.pages.admin.analysis")
 async def analysis(
     request: Request,
-    user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.stats.page.list"])),
+    user: dict = Depends(require_page_app("helpdesk", perms=[
+        "helpdesk.stats.page.list", "helpdesk.stats.page.list.subtree",
+    ])),
 ):
     """Análisis avanzado de datos: outliers, clustering K-means, distribuciones, tendencias."""
     user_id = int(user["sub"])

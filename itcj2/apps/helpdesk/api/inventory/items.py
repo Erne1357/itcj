@@ -18,35 +18,33 @@ def get_items(
     user: dict = require_app("helpdesk"),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.models import InventoryItem
     from sqlalchemy import or_
 
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
-    user_dept = None
     params = request.query_params
 
     query = db.query(InventoryItem).filter_by(is_active=True)
 
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        if "department_head" in user_roles:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if user_dept:
-                query = query.filter(InventoryItem.department_id == user_dept.id)
-            else:
-                return {"success": True, "data": [], "total": 0, "page": 1, "per_page": 50, "total_pages": 0}
-        else:
-            department_id = params.get("department_id")
-            if department_id:
-                query = query.filter(InventoryItem.department_id == int(department_id))
-            else:
-                query = query.filter(InventoryItem.assigned_to_user_id == user_id)
+    # visible None = ve todo (admin/tech/CC/read.all). Si no, set de deptos
+    # visibles (su depto ∪ subárbol jerárquico vía .read.subtree). El
+    # ?department_id= NUNCA sustituye el scope: solo lo intersecta (fuera de
+    # scope ⇒ vacío, jamás datos ajenos). Consistente con get_item (detalle).
+    visible = visible_department_ids(db, user)
+    department_id = params.get("department_id")
+
+    if visible is None:
+        if department_id:
+            query = query.filter(InventoryItem.department_id == int(department_id))
+    elif department_id:
+        wanted = visible & {int(department_id)}
+        query = query.filter(InventoryItem.department_id.in_(wanted or {-1}))
+    elif visible:
+        query = query.filter(InventoryItem.department_id.in_(visible))
+    else:
+        query = query.filter(InventoryItem.assigned_to_user_id == user_id)
 
     campaign_id = params.get("campaign_id")
     if campaign_id:
@@ -55,11 +53,6 @@ def get_items(
     category_id = params.get("category_id")
     if category_id:
         query = query.filter(InventoryItem.category_id == int(category_id))
-
-    if user_dept is None:
-        department_id = params.get("department_id")
-        if department_id:
-            query = query.filter(InventoryItem.department_id == int(department_id))
 
     status = params.get("status")
     if status:
@@ -148,7 +141,10 @@ def get_user_equipment(
 def get_department_equipment(
     department_id: int,
     include_assigned: str = "true",
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory.api.read.own_dept"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory.api.read.own_dept",
+        "helpdesk.inventory.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
@@ -162,9 +158,14 @@ def get_department_equipment(
     is_comp_center = is_comp_center_user(db, user_id)
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept or user_dept.id != department_id:
+        from itcj2.core.services.departments_service import app_departments
+        # Membresía sobre TODOS los departamentos que le dan acceso a helpdesk
+        # (por procedencia), no igualdad contra un solo "primario" por
+        # antigüedad: con multi-puesto, ese primario podía ser un departamento
+        # ajeno a la app (filtrando el correcto) o dejar fuera a uno de dos
+        # departamentos que sí otorgan.
+        own_dept_ids = {d.id for d in app_departments(db, user_id, "helpdesk")}
+        if department_id not in own_dept_ids:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
     items = InventoryService.get_items_for_department(db, department_id, include_assigned.lower() == "true")
@@ -219,9 +220,13 @@ def get_item_tickets(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if not user_dept or item.department_id != user_dept.id:
+            from itcj2.core.services.departments_service import app_departments
+            # Membresía sobre TODOS los departamentos que le dan acceso a
+            # helpdesk (por procedencia), no igualdad contra un solo
+            # "primario" por antigüedad (ver `get_department_equipment` arriba
+            # para el mismo razonamiento).
+            own_dept_ids = {d.id for d in app_departments(db, user_id, "helpdesk")}
+            if item.department_id not in own_dept_ids:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso"})
         else:
             if item.assigned_to_user_id != user_id:

@@ -31,29 +31,31 @@ class TestApplyVisibility:
         """D-G/H3: tech_maint YA NO es full-access en el dashboard.
 
         Ve solo asignados/propios/de su área → se aplica un filter (condición
-        construida por _tech_maint_visibility_cond), no pasa sin restricción.
+        construida por _visibility_cond), no pasa sin restricción.
         """
         q = self._make_query()
         ds._apply_visibility(q, user_id=1, user_roles=["tech_maint"], db=MagicMock())
         q.filter.assert_called_once()
 
     def test_dept_head_filters_by_department(self):
+        """department_head siempre termina en un único filter() aditivo —
+        propio ∨ asignado ∨ departamento/subárbol (_visibility_cond), sin
+        importar si `_resolve_user_departments`/`subtree_scope_for` resuelven
+        algo o no (real, no mockeado aquí — ambos toleran MagicMock db)."""
         q = self._make_query()
         db = MagicMock()
-        with patch(
-            "itcj2.apps.maint.services.dashboard_service._resolve_dept_id",
-            return_value=42,
-        ):
-            ds._apply_visibility(q, user_id=10, user_roles=["department_head"], db=db)
+        ds._apply_visibility(q, user_id=10, user_roles=["department_head"], db=db)
         q.filter.assert_called_once()
 
-    def test_dept_head_without_dept_returns_empty(self):
-        """Si no se puede resolver el dept_id, debe filtrar por id=-1 (no resultados)."""
+    def test_dept_head_without_dept_returns_single_additive_filter(self):
+        """Aunque no se resuelva ningún departamento, sigue habiendo UN filter()
+        — ya no cae a `id == -1` (eso escondía los tickets propios): al menos
+        queda la condición de propiedad/asignación de `_visibility_cond`."""
         q = self._make_query()
         db = MagicMock()
         with patch(
-            "itcj2.apps.maint.services.dashboard_service._resolve_dept_id",
-            return_value=None,
+            "itcj2.apps.maint.services.department_dashboard_service._resolve_user_departments",
+            return_value=[],
         ):
             ds._apply_visibility(q, user_id=10, user_roles=["department_head"], db=db)
         q.filter.assert_called_once()
@@ -61,11 +63,7 @@ class TestApplyVisibility:
     def test_secretary_filters_like_dept_head(self):
         q = self._make_query()
         db = MagicMock()
-        with patch(
-            "itcj2.apps.maint.services.dashboard_service._resolve_dept_id",
-            return_value=7,
-        ):
-            ds._apply_visibility(q, user_id=10, user_roles=["secretary"], db=db)
+        ds._apply_visibility(q, user_id=10, user_roles=["secretary"], db=db)
         q.filter.assert_called_once()
 
     def test_staff_filters_by_owner(self):
@@ -79,26 +77,16 @@ class TestApplyVisibility:
         ds._apply_visibility(q, user_id=99, user_roles=[], db=MagicMock())
         q.filter.assert_called_once()
 
+    def test_area_coordinator_scoped_by_visibility_cond(self):
+        """maint_area_coordinator YA NO es full-access (issue #1/#4): un solo
+        filter() aditivo, igual que el resto de roles acotados."""
+        q = self._make_query()
+        ds._apply_visibility(q, user_id=1, user_roles=["maint_area_coordinator"], db=MagicMock())
+        q.filter.assert_called_once()
 
-class TestResolveDeptId:
-    def test_returns_dept_when_active_position(self):
-        db = MagicMock()
-        position = MagicMock(department_id=15)
-        user_pos = MagicMock(position=position)
-        # patch del import dentro de la función
-        with patch("itcj2.core.models.position.UserPosition") as MockUP:
-            db.query.return_value.filter_by.return_value.first.return_value = user_pos
-            result = ds._resolve_dept_id(db, user_id=1)
-        assert result == 15
 
-    def test_returns_none_when_no_position(self):
-        db = MagicMock()
-        db.query.return_value.filter_by.return_value.first.return_value = None
-        result = ds._resolve_dept_id(db, user_id=1)
-        assert result is None
-
-    def test_returns_none_on_exception(self):
-        db = MagicMock()
-        db.query.side_effect = RuntimeError("boom")
-        result = ds._resolve_dept_id(db, user_id=1)
-        assert result is None
+# `_resolve_dept_id` (mono-depto, sin ventana start/end_date, sin orden) se
+# eliminó de dashboard_service.py: ya no lo llamaba ninguna ruta de producción
+# (_apply_visibility usa _resolve_user_departments, el resolver canónico
+# multi-puesto) y era código muerto peligroso si alguien volvía a engancharlo.
+# Ver itcj2/apps/maint/services/department_dashboard_service.py::_resolve_user_departments.

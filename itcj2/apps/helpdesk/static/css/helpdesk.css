@@ -34,6 +34,43 @@
    recorre todo ~15px de lado. */
 html { scrollbar-gutter: stable; }
 
+/* Contraparte OBLIGATORIA de la regla de arriba.
+   Al abrir un modal, Bootstrap (util/scrollbar.js → ScrollBarHelper.hide) mide
+   la barra ANTES de esconder el scroll — innerWidth - documentElement.clientWidth
+   = 15px por el gutter reservado — pone overflow:hidden en el body y "compensa"
+   ese ancho con padding-right:15px inline en el body. La compensación asume que
+   el hueco de la barra se libera; con scrollbar-gutter: stable NO se libera, así
+   que el padding estrecha el contenido 15px y todo lo centrado se iba 7.5px a la
+   izquierda (medido: probe.left 66.5 → 59 al abrir el modal; con estas reglas
+   se queda en 66.5).
+   El body es el único que Bootstrap alcanza a tocar aquí — a .sticky-top lo
+   salta su propia guardia (innerWidth > clientWidth + scrollbarWidth, ya cierta
+   porque el body encogió) y Modal._adjustDialog ve getWidth()==0 con el overflow
+   ya oculto. Las otras reglas quedan de red por si esas guardias no aplican
+   (otro navegador, modal alto, un .fixed-top futuro): los valores originales de
+   esos elementos son 0 — ni .sitec-header-nav ni .card ni thead traen padding
+   horizontal — así que forzar 0 los restaura exacto.
+   Bootstrap lo aplica como estilo inline: por eso hace falta !important. */
+body.modal-open {
+  padding-right: 0 !important;
+}
+
+body.modal-open .fixed-top,
+body.modal-open .fixed-bottom,
+body.modal-open .is-fixed,
+body.modal-open .sticky-top {
+  padding-right: 0 !important;
+}
+
+body.modal-open .sticky-top {
+  margin-right: 0 !important;
+}
+
+body.modal-open .modal {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
 body {
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   background-color: var(--sitec-light);

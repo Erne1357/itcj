@@ -21,15 +21,35 @@ logger = logging.getLogger(__name__)
 
 def _get_user_department_id(db, user_id: int):
     """
-    Retorna el department_id primario del usuario, o None si no tiene puesto vigente.
+    Retorna el department_id primario del usuario EN HELPDESK, o None si no tiene
+    puesto vigente.
 
-    Delega en el resolver canónico (departments_service.get_primary_user_department)
-    para no divergir del resto del sistema (antes usaba .first() sin orden ni ventana).
+    Por procedencia: entre sus puestos solo cuentan los que le dan acceso a la app
+    (con respaldo a todos si su acceso es directo, sin ancla). Antes usaba el
+    resolver agnóstico, que con multi-puesto podía devolver un departamento que no
+    tiene nada que ver con helpdesk.
     """
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import primary_app_department
 
-    dept = get_primary_user_department(db, user_id)
+    dept = primary_app_department(db, user_id, "helpdesk")
     return dept.id if dept else None
+
+
+def _visible_department_ids(db, user_id: int) -> set[int]:
+    """Departamentos cuyas tareas pendientes le tocan al usuario: el suyo + su subárbol.
+
+    Mismo cálculo que `ticket_service.list_tickets`. Devuelve un set VACÍO cuando el
+    usuario no tiene puesto vigente ni scope: los callers deben tratarlo como
+    "no ve nada" (fail-closed), nunca como "sin filtro".
+    """
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    dept_ids: set[int] = set()
+    primary = _get_user_department_id(db, user_id)
+    if primary is not None:
+        dept_ids.add(primary)
+    dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+    return dept_ids
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -57,14 +77,13 @@ def get_pending_tasks(
     try:
         from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
 
-        department_id = _get_user_department_id(db, user_id)
+        # Fail-closed: sin departamentos visibles no se listan campañas de nadie.
+        dept_ids = _visible_department_ids(db, user_id)
 
         query = db.query(InventoryCampaign).filter(
-            InventoryCampaign.status == "PENDING_VALIDATION"
+            InventoryCampaign.status == "PENDING_VALIDATION",
+            InventoryCampaign.department_id.in_(dept_ids or {-1}),
         )
-        if department_id is not None:
-            query = query.filter(InventoryCampaign.department_id == department_id)
-        # TODO: filtrar por departamento cuando department_id sea None (sin puesto activo)
 
         for c in query.order_by(InventoryCampaign.closed_at.asc()).all():
             campaigns.append({
@@ -145,20 +164,17 @@ def get_pending_tasks(
     try:
         from itcj2.apps.helpdesk.models.ticket import Ticket
 
-        department_id = _get_user_department_id(db, user_id)
+        # Fail-closed, y por SUBÁRBOL: el contador debe cuadrar con la lista de
+        # tickets del jefe, que ya incluye sus sub-departamentos.
+        dept_ids = _visible_department_ids(db, user_id)
         cutoff = datetime.utcnow() - timedelta(days=30)
 
         count_query = db.query(Ticket).filter(
             Ticket.status.in_(["RESOLVED_SUCCESS", "RESOLVED_FAILED"]),
             Ticket.rating_attention.is_(None),
             Ticket.resolved_at >= cutoff,
+            Ticket.requester_department_id.in_(dept_ids or {-1}),
         )
-
-        if department_id is not None:
-            count_query = count_query.filter(
-                Ticket.requester_department_id == department_id
-            )
-        # TODO: filtrar por departamento cuando department_id sea None (sin puesto activo)
 
         unrated_tickets["count"] = count_query.count()
     except Exception as e:

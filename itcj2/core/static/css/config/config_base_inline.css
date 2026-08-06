@@ -19,12 +19,21 @@
     gap: 8px;
 }
 
-body.in-mobile-iframe .config-mobile-header {
-    display: flex;
-}
+/* La barra móvil es del SHELL MÓVIL (/itcj/m/), no de "estar en un iframe":
+   el escritorio (/itcj/dashboard) también abre /itcj/config dentro de un
+   <iframe class="window-iframe"> (dashboard.js: settings.iframeSrc), y ahí la
+   ventana ya trae su propia barra de título con cerrar y el sidebar cabe
+   completo. Sin este gate salía la hamburguesa en desktop.
+   Breakpoint 992px = el mismo en que el sidebar pasa a rail/off-canvas en
+   config-base.css, o sea el único rango donde el toggle hace falta. */
+@media (max-width: 992px) {
+    body.in-mobile-iframe .config-mobile-header {
+        display: flex;
+    }
 
-body.in-mobile-iframe .config-wrapper {
-    padding-top: 56px;
+    body.in-mobile-iframe .config-wrapper {
+        padding-top: 56px;
+    }
 }
 
 .config-mobile-header .config-mobile-title {
@@ -49,18 +58,23 @@ body.in-mobile-iframe .config-wrapper {
     font-size: 1.25rem;
 }
 
-/* Ocultar el toggle flotante en iframe móvil */
-body.in-mobile-iframe #normalMobileToggle {
-    display: none !important;
-}
+/* Toggle flotante y z-index del off-canvas: solo cuando la barra móvil existe
+   (≤992px). Arriba de ese ancho el iframe es la ventana del escritorio y el
+   shell se comporta como una página normal. */
+@media (max-width: 992px) {
+    /* Ocultar el toggle flotante en iframe móvil (la barra ya trae el suyo) */
+    body.in-mobile-iframe #normalMobileToggle {
+        display: none !important;
+    }
 
-/* Ajustar sidebar para que salga sobre el header móvil */
-body.in-mobile-iframe .config-sidebar {
-    top: 0;
-    height: 100vh;
-    z-index: 1060;
-}
+    /* Ajustar sidebar para que salga sobre el header móvil */
+    body.in-mobile-iframe .config-sidebar {
+        top: 0;
+        height: 100vh;
+        z-index: 1060;
+    }
 
-body.in-mobile-iframe .config-overlay {
-    z-index: 1055;
+    body.in-mobile-iframe .config-overlay {
+        z-index: 1055;
+    }
 }

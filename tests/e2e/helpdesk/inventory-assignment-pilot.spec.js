@@ -35,8 +35,12 @@ test.describe('pilot — inventory/assignment (isla BS5 de-jQuery + tokens)', ()
     // Cero atributos BS4 en toda la página (shell BS5 nativo incluido).
     await expect(page.locator('[data-toggle], [data-dismiss], [data-target]')).toHaveCount(0);
 
-    // El enlace "Inventario" apunta a una página migrada → lleva hx-boost.
-    await expect(page.locator(`a[href="${ITEMS_PAGE}"]`)).toHaveAttribute('hx-boost', 'true');
+    // El enlace "Inventario" de la propia página apunta a una migrada → lleva
+    // hx-boost. Se acota a <main> porque el navbar (desktop + móvil) también
+    // enlaza ahí desde que el item "Ver Inventario" dejó de estar muerto.
+    await expect(
+      page.locator(`main[data-hd-page] a[href="${ITEMS_PAGE}"]`)
+    ).toHaveAttribute('hx-boost', 'true');
   });
 
   test('assign: modal BS5 abre y cierra sin jQuery', async ({ page }) => {
@@ -60,7 +64,7 @@ test.describe('pilot — inventory/assignment (isla BS5 de-jQuery + tokens)', ()
   test('assign: navegación interna (Inventario) es boost, sin full reload', async ({ page }) => {
     await gotoHelpdeskAs(page, ADMIN_USER_ID, ASSIGN_PAGE);
 
-    await page.locator(`a[href="${ITEMS_PAGE}"]`).click();
+    await page.locator(`main[data-hd-page] a[href="${ITEMS_PAGE}"]`).click();
 
     // Morph hacia la página de items (migrada) sin recargar el documento.
     await expect(page.locator('main[data-hd-page]')).toHaveAttribute(

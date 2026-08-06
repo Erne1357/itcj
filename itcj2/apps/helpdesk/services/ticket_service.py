@@ -194,16 +194,21 @@ def create_ticket(
     if priority not in valid_codes:
         raise HTTPException(status_code=400, detail=f'Prioridad inválida. Válidas: {sorted(valid_codes)}')
 
+    # Este campo se SELLA aquí y nadie lo recalcula después: de él depende todo el
+    # scope departamental posterior del ticket. La consulta ad-hoc que había aquí
+    # (is_active a secas + .first() sin orden) podía sellarlo con un puesto vencido
+    # o, en usuarios multi-puesto, con uno arbitrario — y el ticket quedaba invisible
+    # para el jefe correcto de forma permanente. Se usa el resolver canónico.
     department_id = None
     try:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(
-            user_id=requester_id,
-            is_active=True
-        ).first()
-
-        if user_position and user_position.position:
-            department_id = user_position.position.department_id
+        from itcj2.core.services.departments_service import primary_app_department
+        # Por PROCEDENCIA: entre los puestos del solicitante, solo anclan los que
+        # le dan acceso a helpdesk. Con el resolver agnóstico, alguien con un
+        # puesto en un departamento ajeno a la app (y más antiguo) veía su ticket
+        # sellado con ESE departamento.
+        dept = primary_app_department(db, requester_id, "helpdesk")
+        if dept:
+            department_id = dept.id
     except Exception as e:
         logger.warning(f"No se pudo obtener departamento del usuario {requester_id}: {e}")
 
@@ -341,22 +346,31 @@ def list_tickets(
         # Scope departamental/subárbol: jefe de depto (su depto) + cualquiera que
         # tenga helpdesk.tickets.api.read.subtree (su depto + sub-departamentos, por
         # procedencia). Aditivo: sin .subtree, el jefe de depto ve su depto como antes.
-        from itcj2.core.services.departments_service import get_primary_user_department
+        from itcj2.core.services.departments_service import app_departments
         from itcj2.core.services.scope_service import subtree_scope_for
 
         dept_ids: set[int] = set()
         if 'department_head' in user_roles:
-            _dept = get_primary_user_department(db, user_id)
-            if _dept:
-                dept_ids.add(_dept.id)
+            # TODOS los departamentos que le dan acceso a helpdesk, no uno solo:
+            # una secretaria de dos departamentos veía los tickets de uno nada más,
+            # y con un puesto en un departamento ajeno a la app podía ver el
+            # equivocado (el desempate por antigüedad no miraba la app).
+            dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
         dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
 
+        # La propiedad NUNCA se pierde: el scope departamental SUMA sobre "soy el
+        # solicitante / me lo asignaron", no lo reemplaza. `requester_department_id`
+        # es un snapshot al crear, así que quien cambia de departamento conserva
+        # tickets propios sellados con el departamento anterior; en AND se le
+        # borrarían de "Mis Tickets". Mismo conjunto que `can_user_view_ticket`
+        # → lista y detalle no se desalinean.
+        visibility = [
+            Ticket.requester_id == user_id,
+            Ticket.assigned_to_user_id == user_id,
+        ]
         if dept_ids:
-            query = query.filter(Ticket.requester_department_id.in_(dept_ids))
-        elif 'department_head' in user_roles:
-            query = query.filter(Ticket.id == -1)   # jefe sin depto resuelto → nada
-        else:
-            query = query.filter(Ticket.requester_id == user_id)   # dueño
+            visibility.append(Ticket.requester_department_id.in_(dept_ids))
+        query = query.filter(or_(*visibility))
 
     if status:
         if isinstance(status, list):
@@ -427,13 +441,37 @@ _SUMMARY_ACTIVE = ('PENDING', 'ASSIGNED', 'IN_PROGRESS')
 _SUMMARY_RESOLVED = ('RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED')
 
 
-def subtree_department_summary(db: Session, root_department_id: int) -> list[dict]:
+def _summary_visible_departments(db: Session, user_id: int, root_department_id: int):
+    """Departamentos cuyos conteos puede ver ``user_id``. ``None`` = sin recorte.
+
+    Mismo criterio que ``list_tickets``: acceso total para admin / secretaría de
+    centro de cómputo / técnicos; para el resto, el subárbol autorizado más el
+    departamento raíz que ya gestiona (ese siempre lo ve, con permiso o sin él).
+    """
+    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    roles = set(user_roles_in_app(db, user_id, 'helpdesk'))
+    if roles & {'admin', 'tech_desarrollo', 'tech_soporte'}:
+        return None
+    if user_id in set(_get_users_with_position(db, ['secretary_comp_center'])):
+        return None
+
+    return subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree") | {root_department_id}
+
+
+def subtree_department_summary(db: Session, user_id: int, root_department_id: int) -> list[dict]:
     """Árbol de divisiones del subárbol de ``root_department_id`` con conteos de
     tickets por departamento (total / activos / resueltos) + rollup de subtree.
 
-    Incluye TODAS las divisiones del subárbol (aunque tengan 0 tickets) en orden
-    jerárquico. Para el resumen del dashboard del jefe/director: el root ve el
-    total de su área y puede desplegar las divisiones internas.
+    Incluye las divisiones del subárbol que el usuario PUEDE VER (aunque tengan 0
+    tickets) en orden jerárquico. Para el resumen del dashboard del jefe/director:
+    el root ve el total de su área y puede desplegar las divisiones internas.
+
+    El recorte por scope es obligatorio: este widget agrega conteos sin pasar por
+    ``list_tickets``, así que sin él un jefe sin ``helpdesk.tickets.api.read.subtree``
+    vería los totales de cada sub-departamento mientras su lista de tickets devuelve
+    solo los de su propio departamento.
     """
     from sqlalchemy import func
     from itcj2.core.services.hierarchy_service import subtree_nodes, build_dept_forest
@@ -441,6 +479,12 @@ def subtree_department_summary(db: Session, root_department_id: int) -> list[dic
     nodes = subtree_nodes(db, root_department_id)
     if not nodes:
         return []
+
+    visible = _summary_visible_departments(db, user_id, root_department_id)
+    if visible is not None:
+        nodes = [n for n in nodes if n["id"] in visible]
+        if not nodes:
+            return []
 
     dept_ids = [n["id"] for n in nodes]
     rows = (
@@ -776,15 +820,27 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     if ticket.assigned_to_user_id == user_id:
         return True
 
+    # Colaborador del ticket. `collaborator_service.get_tickets_where_user_collaborated`
+    # ya se lo lista, así que sin esto lo veía en su lista y recibía 403 al abrirlo.
+    # `getattr` porque varios tests construyen tickets ligeros sin `id`.
+    _ticket_id = getattr(ticket, 'id', None)
+    if _ticket_id is not None:
+        from itcj2.apps.helpdesk.models.collaborator import TicketCollaborator
+        is_collaborator = db.query(
+            db.query(TicketCollaborator)
+            .filter_by(ticket_id=_ticket_id, user_id=user_id)
+            .exists()
+        ).scalar()
+        if is_collaborator:
+            return True
+
     # Scope departamental/subárbol (debe seguir en sync con list_tickets).
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
 
     dept_ids: set[int] = set()
     if 'department_head' in user_roles:
-        _dept = get_primary_user_department(db, user_id)
-        if _dept:
-            dept_ids.add(_dept.id)
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
     dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
 
     if ticket.requester_department_id in dept_ids:

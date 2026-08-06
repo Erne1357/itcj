@@ -27,20 +27,36 @@ def _clear_authz_cache():
     HIT stale y el test falla de forma no-determinista. Vaciar authz:v1:* antes de
     cada test hace que cada uno vea un MISS y ejecute la función parcheada.
 
+    El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
+    aparte: es GLOBAL y los tests crean departamentos dentro de una transacción que
+    se revierte, así que una entrada cacheada sobrevive a las filas que la
+    originaron. Se invalida explícitamente (no solo por el `scan_iter`, que es
+    best-effort) y también DESPUÉS del test, para no dejarle un mapa fantasma al
+    siguiente — era el origen de fallos intermitentes en los tests de scope.
+
     Best-effort: si Redis no está disponible, no rompe el test (fail-open).
     """
-    try:
-        from itcj2.core.utils.redis_conn import get_redis
-        r = get_redis()
-        if r is not None:
-            keys = list(r.scan_iter(match="authz:v1:*", count=1000))
-            keys += list(r.scan_iter(match="rl:*", count=1000))
-            keys += list(r.scan_iter(match="appstyle:*", count=100))
-            if keys:
-                r.delete(*keys)
-    except Exception:
-        pass
+    def _flush():
+        try:
+            from itcj2.core.services.authz_cache import invalidate_dept_map
+            invalidate_dept_map()
+        except Exception:
+            pass
+        try:
+            from itcj2.core.utils.redis_conn import get_redis
+            r = get_redis()
+            if r is not None:
+                keys = list(r.scan_iter(match="authz:v1:*", count=1000))
+                keys += list(r.scan_iter(match="rl:*", count=1000))
+                keys += list(r.scan_iter(match="appstyle:*", count=100))
+                if keys:
+                    r.delete(*keys)
+        except Exception:
+            pass
+
+    _flush()
     yield
+    _flush()
 
 
 _DIRECT_PG_URL = "postgresql+psycopg2://postgres:password@postgres:5432/itcj"

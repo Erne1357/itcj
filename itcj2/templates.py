@@ -14,6 +14,7 @@ import logging
 import os
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -337,17 +338,30 @@ def _make_url_for() -> Callable[..., str]:
        → ``/static/core/css/auth.css``
     2. Endpoints nombrados: ``url_for('pages_core.pages_auth.login_page')``
        → ``/itcj/login`` (vía ENDPOINT_MAP)
+
+    Los kwargs que NO corresponden a un path param de la URL se anexan como
+    query string, igual que Flask: ``url_for('...users_management', page=2)``
+    → ``/itcj/config/users?page=2``. Antes se descartaban en silencio, lo que
+    dejaba links idénticos entre sí (paginación de usuarios muerta, el
+    "Conectar" de correo llegando a /email/auth/login sin ``?app=``).
     """
 
-    def url_for(endpoint: str, **kwargs: str) -> str:
+    def url_for(endpoint: str, **kwargs: Any) -> str:
         if endpoint == "static":
             filename = kwargs.get("filename", "")
             return f"/static/{filename}"
 
         url = ENDPOINT_MAP.get(endpoint, "#")
+        query: dict[str, str] = {}
         # Sustituir path params: /config/users/{user_id} → /config/users/42
         for key, value in kwargs.items():
-            url = url.replace(f"{{{key}}}", str(value))
+            placeholder = f"{{{key}}}"
+            if placeholder in url:
+                url = url.replace(placeholder, str(value))
+            elif value is not None and value != "":
+                query[key] = str(value)
+        if query:
+            url = f"{url}?{urlencode(query)}"
         return url
 
     return url_for

@@ -10,23 +10,27 @@ logger = logging.getLogger(__name__)
 
 def get_user_dept_code(db: Session, user_id: int) -> Optional[str]:
     """
-    Obtiene el department_code del usuario a través de su puesto activo principal.
-    Retorna None si el usuario no tiene puesto asignado con departamento.
-    """
-    from itcj2.core.models.position import UserPosition, Position
-    from itcj2.core.models.department import Department
+    Obtiene el department_code del usuario a través del puesto que ANCLA su
+    acceso a warehouse (por rol o permiso del puesto), con respaldo en el
+    puesto activo principal si ninguno otorga la app directamente.
 
-    row = (
-        db.query(Department.code)
-        .join(Position, Position.department_id == Department.id)
-        .join(UserPosition, UserPosition.position_id == Position.id)
-        .filter(
-            UserPosition.user_id == user_id,
-            UserPosition.is_active == True,
-        )
-        .first()
-    )
-    return row[0] if row else None
+    Antes delegaba en el resolver AGNÓSTICO `get_primary_user_department`
+    (cualquier puesto vigente, sin mirar si otorga warehouse): con
+    multi-puesto, alguien con un puesto ajeno a warehouse (p. ej. Cafetería)
+    y otro puesto que sí otorga warehouse (`secretary_equipment_maint` /
+    `head_equipment_maint` lo reciben directo por posición — ver
+    `database/DML/maint/08_insert_position_app_perm.sql`) podía terminar
+    filtrando el almacén "como Cafetería" si ese puesto era el más antiguo.
+    `primary_app_department` corrige esto igual que ya se hizo para helpdesk
+    y maint (issue #3 del roadmap de coherencia org-scope); para quien recibe
+    warehouse por asignación DIRECTA al usuario (sin ancla departamental,
+    p. ej. la propagación cross-app de `09_assign_warehouse_user_roles.sql`),
+    el respaldo es idéntico al comportamiento de siempre.
+    """
+    from itcj2.core.services.departments_service import primary_app_department
+
+    dept = primary_app_department(db, user_id, "warehouse")
+    return dept.code if dept else None
 
 
 def resolve_dept_code(db: Session, user: dict, dept_override: Optional[str] = None) -> Optional[str]:

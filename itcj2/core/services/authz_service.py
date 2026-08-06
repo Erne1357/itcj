@@ -153,9 +153,11 @@ def user_roles_via_positions(db: Session, user_id: int, app_key: str) -> Set[str
         db.query(Role.name)
         .join(PositionAppRole, PositionAppRole.role_id == Role.id)
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
+        .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
             _active_position_filter(),
+            Position.is_active == True,  # noqa: E712
             PositionAppRole.app_id == app.id
         )
         .all()
@@ -169,9 +171,11 @@ def user_perms_via_positions_direct(db: Session, user_id: int, app_key: str) -> 
         db.query(Permission.code)
         .join(PositionAppPerm, PositionAppPerm.perm_id == Permission.id)
         .join(UserPosition, UserPosition.position_id == PositionAppPerm.position_id)
+        .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
             _active_position_filter(),
+            Position.is_active == True,  # noqa: E712
             PositionAppPerm.app_id == app.id,
             PositionAppPerm.allow == True,
             Permission.app_id == app.id
@@ -188,9 +192,11 @@ def user_perms_via_position_roles(db: Session, user_id: int, app_key: str) -> Se
         .join(RolePermission, RolePermission.perm_id == Permission.id)
         .join(PositionAppRole, PositionAppRole.role_id == RolePermission.role_id)
         .join(UserPosition, UserPosition.position_id == PositionAppRole.position_id)
+        .join(Position, Position.id == UserPosition.position_id)
         .filter(
             UserPosition.user_id == user_id,
             _active_position_filter(),
+            Position.is_active == True,  # noqa: E712
             PositionAppRole.app_id == app.id,
             Permission.app_id == app.id
         )
@@ -487,6 +493,45 @@ def has_any_assignment(db: Session, user_id: int, app_key: str, include_position
         return has_position_role or has_position_perm
 
     return False
+
+
+def users_with_assignment_select(db: Session, app_key: str):
+    """SELECT de ``user_id`` con alguna asignación en la app — gemelo en conjunto
+    de :func:`has_any_assignment`.
+
+    Mismas cuatro vías que ``has_any_assignment(include_positions=True)``: rol o
+    permiso directo del usuario, y rol o permiso heredado de un puesto VIGENTE.
+    Sirve para filtrar listados (``User.id.in_(...)``) con exactamente el mismo
+    criterio que ``require_app`` usa para dejar entrar a la app, en vez de
+    reimplementar la regla —y divergir— en cada endpoint que lista usuarios.
+    """
+    app = get_or_404_app(db, app_key)
+
+    direct_role = (
+        db.query(UserAppRole.user_id.label("user_id"))
+        .filter(UserAppRole.app_id == app.id)
+    )
+    direct_perm = (
+        db.query(UserAppPerm.user_id.label("user_id"))
+        .filter(UserAppPerm.app_id == app.id, UserAppPerm.allow == True)  # noqa: E712
+    )
+    position_role = (
+        db.query(UserPosition.user_id.label("user_id"))
+        .join(PositionAppRole, PositionAppRole.position_id == UserPosition.position_id)
+        .filter(_active_position_filter(), PositionAppRole.app_id == app.id)
+    )
+    position_perm = (
+        db.query(UserPosition.user_id.label("user_id"))
+        .join(PositionAppPerm, PositionAppPerm.position_id == UserPosition.position_id)
+        .filter(
+            _active_position_filter(),
+            PositionAppPerm.app_id == app.id,
+            PositionAppPerm.allow == True,  # noqa: E712
+        )
+    )
+
+    return union(direct_role, direct_perm, position_role, position_perm)
+
 
 def effective_perm_set(db: Session, user_id: int, app_key: str, include_positions: bool = True) -> Set[str]:
     """Set de permisos efectivos (hot path), SIN computar roles ni el breakdown.

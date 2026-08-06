@@ -83,5 +83,8 @@ skills-lock.json
 .agents/
 
 graphify-out/
+# Config local de graphify. DEBE vivir en la raíz (graphify solo lo busca de la
+# raíz del repo hacia arriba, nunca en subcarpetas), pero no se versiona.
+.graphifyignore
 
 template/

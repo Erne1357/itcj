@@ -43,19 +43,70 @@ def _is_admin(db, user_id: int) -> bool:
     return "admin" in user_roles_in_app(db, user_id, "helpdesk")
 
 
-def _is_admin_or_cc(db, user_id: int) -> bool:
-    from itcj2.core.services.authz_service import user_roles_in_app
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
-    roles = user_roles_in_app(db, user_id, "helpdesk")
-    return "admin" in roles or is_comp_center_user(db, user_id)
-
-
 def _get_campaign_or_404(db, campaign_id: int):
     from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
     campaign = db.get(InventoryCampaign, campaign_id)
     if not campaign:
         raise HTTPException(404, detail={"success": False, "error": "Campaña no encontrada"})
     return campaign
+
+
+# Ancla de subárbol propia de campañas (procedencia): el jefe con este permiso ve
+# su departamento ∪ subárbol; el resto de acceso completo (admin/CC/técnicos/
+# .read.all de inventario) sigue viendo todas.
+_CAMPAIGN_SUBTREE_PERMS = {"helpdesk.inventory.campaign.api.read.subtree"}
+
+
+def _get_campaign_in_scope(db, user, campaign_id: int):
+    """Como ``_get_campaign_or_404`` pero además exige que el departamento de la
+    campaña esté dentro del scope visible del usuario.
+
+    Los ids de campaña son secuenciales: sin este check, cualquier portador de
+    ``.campaign.api.read``/``.validate`` podía consultar el detalle o el
+    inventario agrupado de una campaña de OTRO departamento con solo adivinar el
+    id. Fuera de scope ⇒ 404 (no revela ni siquiera que la campaña existe).
+    """
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+
+    campaign = _get_campaign_or_404(db, campaign_id)
+    visible = visible_department_ids(db, user, extra_subtree_perms=_CAMPAIGN_SUBTREE_PERMS)
+    if visible is not None and campaign.department_id not in visible:
+        raise HTTPException(404, detail={"success": False, "error": "Campaña no encontrada"})
+    return campaign
+
+
+def _list_campaigns_query(db, filters: dict, department_ids) -> dict:
+    """Réplica de ``CampaignService.get_campaigns`` que soporta un CONJUNTO de
+    departamentos (scope por subárbol) — el service solo filtra por ``==`` un
+    ``department_id`` escalar (fuera del alcance de este fix, no se toca).
+    """
+    from itcj2.apps.helpdesk.models.inventory_campaign import InventoryCampaign
+
+    query = db.query(InventoryCampaign).filter(
+        InventoryCampaign.department_id.in_(department_ids or {-1})
+    )
+
+    if filters.get("status"):
+        query = query.filter(InventoryCampaign.status == filters["status"].upper())
+    if filters.get("academic_period_id"):
+        query = query.filter(InventoryCampaign.academic_period_id == int(filters["academic_period_id"]))
+    if filters.get("folio"):
+        query = query.filter(InventoryCampaign.folio.ilike(f"%{filters['folio']}%"))
+
+    query = query.order_by(InventoryCampaign.created_at.desc())
+
+    page = max(1, int(filters.get("page", 1)))
+    per_page = min(100, int(filters.get("per_page", 20)))
+    total = query.count()
+    items = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return {
+        "campaigns": [c.to_dict(include_relations=True) for c in items],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page,
+    }
 
 
 # ── GET / — Listar campañas ────────────────────────────────────────────────────
@@ -73,29 +124,18 @@ def list_campaigns(
 ):
     """
     Lista campañas con paginación y filtros.
-    Los jefes de departamento ven automáticamente solo su departamento.
+
+    El scope se decide por PERMISO (procedencia), no por rol: cualquier portador
+    de ``.campaign.api.read`` que NO tenga acceso completo (admin/CC/técnicos/
+    ``.read.all`` de inventario) queda acotado a su departamento ∪ subárbol vía
+    ``visible_department_ids`` — antes solo se acotaba si el usuario traía
+    literalmente el ROL ``department_head``, así que un portador del permiso por
+    puesto (sin ese rol) veía TODAS las campañas de todos los departamentos.
     """
-    from itcj2.core.services.authz_service import user_roles_in_app
-    from itcj2.core.services.departments_service import get_user_department
     from itcj2.apps.helpdesk.services.campaign_service import CampaignService
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-
-    # Jefes de departamento solo ven su propio departamento
-    forced_dept_id: int | None = None
-    if "department_head" in user_roles and not _is_admin_or_cc(db, user_id):
-        dept = get_user_department(db, user_id)
-        if not dept:
-            return {
-                "success": True,
-                "campaigns": [],
-                "total": 0,
-                "page": page,
-                "per_page": per_page,
-                "total_pages": 0,
-            }
-        forced_dept_id = dept.id
+    visible = visible_department_ids(db, user, extra_subtree_perms=_CAMPAIGN_SUBTREE_PERMS)
 
     filters = {
         "department_id": department_id,
@@ -105,7 +145,17 @@ def list_campaigns(
         "page": page,
         "per_page": per_page,
     }
-    result = CampaignService.get_campaigns(db, filters=filters, department_id=forced_dept_id)
+
+    if visible is None:
+        # Ve todo: comportamiento previo de admin/CC/técnicos — el
+        # ?department_id= se honra tal cual (o ninguno, ve todas).
+        result = CampaignService.get_campaigns(db, filters=filters, department_id=None)
+        return {"success": True, **result}
+
+    # Acotado a departamento(s): el ?department_id= NUNCA sustituye el scope,
+    # solo lo intersecta (fuera de scope ⇒ vacío), igual que items.py::get_items.
+    wanted = (visible & {department_id}) if department_id else visible
+    result = _list_campaigns_query(db, filters, department_ids=wanted)
     return {"success": True, **result}
 
 
@@ -153,8 +203,8 @@ def get_campaign(
     user: dict = require_perms("helpdesk", ["helpdesk.inventory.campaign.api.read"]),
     db: DbSession = None,
 ):
-    """Retorna el detalle completo de una campaña."""
-    campaign = _get_campaign_or_404(db, campaign_id)
+    """Retorna el detalle completo de una campaña (dentro del scope del usuario)."""
+    campaign = _get_campaign_in_scope(db, user, campaign_id)
     return {"success": True, "data": campaign.to_dict(include_relations=True)}
 
 
@@ -248,6 +298,7 @@ def get_campaign_comparison(
     """
     from itcj2.apps.helpdesk.services.campaign_service import CampaignService
 
+    _get_campaign_in_scope(db, user, campaign_id)
     try:
         data = CampaignService.get_campaign_comparison(db, campaign_id)
         return {"success": True, "data": data}
@@ -319,6 +370,7 @@ def approve_campaign(
             performed_by_id=user_id,
             notes=body.notes,
             ip=_client_ip(request),
+            validator=user,
         )
         return {
             "success": True,
@@ -358,6 +410,7 @@ def reject_campaign(
             performed_by_id=user_id,
             notes=body.notes,
             ip=_client_ip(request),
+            validator=user,
         )
         return {
             "success": True,
@@ -472,7 +525,7 @@ def get_validation_groups(
     from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
 
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_in_scope(db, user, campaign_id)
     initial_snapshot = campaign.initial_groups_snapshot or []
 
     # Índice del snapshot inicial por id de grupo
@@ -610,7 +663,7 @@ def get_groups_view(
     from itcj2.apps.helpdesk.models.inventory_group import InventoryGroup
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
 
-    campaign = _get_campaign_or_404(db, campaign_id)
+    campaign = _get_campaign_in_scope(db, user, campaign_id)
 
     groups = (
         db.query(InventoryGroup)

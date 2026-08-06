@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 def get_all_groups(
     include_inactive: str = "false",
     department_id: int | None = None,
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.all"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory_groups.api.read.all",
+        "helpdesk.inventory_groups.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
@@ -46,24 +49,18 @@ def get_all_groups(
 @router.get("/department/{department_id}/")  # Permitir también GET a /inventory/groups/department/{department_id}/ (con barra al final) para mayor compatibilidad con clientes REST genéricos
 def get_groups_by_department(
     department_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory_groups.api.read.own_dept",
+        "helpdesk.inventory_groups.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
-    from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
-
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_comp_center = _get_users_with_position(db, ["secretary_comp_center"])
-    is_comp_center = is_comp_center_user(db, user_id)
-
-    if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept or user_dept.id != department_id:
-            raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver grupos de este departamento"})
+    visible = visible_department_ids(db, user)
+    if visible is not None and department_id not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permisos para ver grupos de este departamento"})
 
     groups = InventoryGroupService.get_groups_by_department(db, department_id)
     return {"success": True, "data": [g.to_dict(include_capacities=True) for g in groups]}
@@ -73,14 +70,22 @@ def get_groups_by_department(
 def get_group_detail(
     group_id: int,
     include_items: str = "false",
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory_groups.api.read.own_dept",
+        "helpdesk.inventory_groups.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryGroup
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     group = db.get(InventoryGroup, group_id)
     if not group:
         raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado"})
+
+    visible = visible_department_ids(db, user)
+    if visible is not None and group.department_id not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este grupo"})
 
     return {"success": True, "data": group.to_dict(include_items=include_items.lower() == "true", include_capacities=True)}
 
@@ -89,10 +94,23 @@ def get_group_detail(
 def get_group_items(
     group_id: int,
     category_id: int | None = None,
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory_groups.api.read.own_dept"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory_groups.api.read.own_dept",
+        "helpdesk.inventory_groups.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
+    from itcj2.apps.helpdesk.models import InventoryGroup
     from itcj2.apps.helpdesk.services.inventory_group_service import InventoryGroupService
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+
+    group = db.get(InventoryGroup, group_id)
+    if not group:
+        raise HTTPException(404, detail={"success": False, "error": "Grupo no encontrado"})
+
+    visible = visible_department_ids(db, user)
+    if visible is not None and group.department_id not in visible:
+        raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este grupo"})
 
     items = InventoryGroupService.get_group_items(db, group_id, category_id)
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items]}

@@ -154,7 +154,12 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
             "label": "Inventario",
             "endpoint": "#",
             "icon": "fa-warehouse",
-            "permission": "helpdesk.inventory.page.list",
+            # El jefe de departamento tiene `.page.list.own_dept`, no `.page.list`:
+            # con un solo código el dropdown entero le desaparecía, incluidos los
+            # sub-items que sí puede abrir. La página de items exige solo acceso al
+            # app y ya está acotada al subárbol.
+            "permission": ["helpdesk.inventory.page.list",
+                           "helpdesk.inventory.page.list.own_dept"],
             "dropdown": [
                 {
                     "label": "Dashboard Inventario",
@@ -166,7 +171,11 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "label": "Ver Inventario",
                     "endpoint": "helpdesk_pages.inventory_pages.items_list",
                     "icon": "fa-list",
-                    "permission": "helpdesk.inventory.api.read"
+                    # Antes exigía `helpdesk.inventory.api.read`, un código que no
+                    # existe en el catálogo de permisos: el item no se le mostraba
+                    # a nadie, aunque la página funciona y es subtree-aware.
+                    "permission": ["helpdesk.inventory.page.list",
+                                   "helpdesk.inventory.page.list.own_dept"]
                 },
                 {
                     "label": "Registrar Equipo",
@@ -285,25 +294,26 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
         }
     ]
 
+    def _allowed(item) -> bool:
+        """¿El usuario alcanza este item? `permission` acepta un código o una lista
+        (any-of, como `require_perms`). Sin `permission`, el item es público."""
+        required = item.get("permission")
+        if required is None:
+            return True
+        if isinstance(required, str):
+            return required in user_permissions
+        return any(code in user_permissions for code in required)
+
     # Filtrar items según permisos (sin considerar grupos)
     nav_items = []
     for item in full_nav_structure:
         # Verificar si el usuario tiene el permiso
-        if "permission" in item and item["permission"] not in user_permissions:
+        if not _allowed(item):
             continue
 
         # Si tiene dropdown, filtrar sus items también
         if "dropdown" in item:
-            filtered_dropdown = []
-            for sub_item in item["dropdown"]:
-                # Si el sub-item tiene submenu, filtrar también
-                if "submenu" in sub_item:
-                    # Para reportes, verificar el permiso del padre
-                    if "permission" not in sub_item or sub_item["permission"] in user_permissions:
-                        filtered_dropdown.append(sub_item)
-                # Si es un item normal, verificar permiso
-                elif "permission" not in sub_item or sub_item["permission"] in user_permissions:
-                    filtered_dropdown.append(sub_item)
+            filtered_dropdown = [sub_item for sub_item in item["dropdown"] if _allowed(sub_item)]
 
             # Solo incluir si tiene sub-items después del filtrado
             if filtered_dropdown:

@@ -945,7 +945,7 @@
     }
 
     function openDeactivateModal() {
-        window.location.href = `/help-desk/inventory/retirement-requests/create?item_id=${ITEM_ID}`;
+        window.HelpdeskPage.navigate(`/help-desk/inventory/retirement-requests/create?item_id=${ITEM_ID}`);
     }
 
     async function handleDeactivate(e) {
@@ -972,7 +972,7 @@
 
             modalHide('deactivateModal');
             showSuccess('Equipo dado de baja correctamente');
-            setTimeout(() => { window.location.href = '/help-desk/inventory/items'; }, 2000);
+            setTimeout(() => { window.HelpdeskPage.navigate('/help-desk/inventory/items'); }, 2000);
         } catch (error) {
             console.error('Error:', error);
             showError(error.message);

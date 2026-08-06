@@ -546,6 +546,87 @@ def init_config_2026_07_command():
         raise
 
 
+@click.command("fix-org-scope-2026-08")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Solo muestra el estado actual; no escribe nada.")
+def fix_org_scope_2026_08_command(dry_run: bool):
+    """Aplica el delta de coherencia del scope organizacional (agosto 2026).
+
+    Ejecuta database/DML/helpdesk/org_scope_fix_2026_08/, que:
+      - revoca `helpdesk.tickets.api.read.all` al rol `department_head` (el jefe
+        lee su departamento y su subárbol, no todo el instituto; resolve_read_scope
+        da precedencia a .read.all sobre .subtree);
+      - reafirma los permisos `.subtree` del rol;
+      - crea los 7 permisos `.subtree` que faltaban (grupos, estadísticas de
+        inventario, campañas, bajas, exportación y las dos de stats de tickets)
+        y se los asigna al mismo rol. Sin ellos el jefe veía los EQUIPOS de su
+        sub-departamento pero no sus grupos, campañas, bajas ni ningún agregado
+        de su rama.
+
+    Es un DELTA a propósito: `helpdesk/03_insert_role_permission.sql` empieza
+    borrando todos los permisos de helpdesk de los roles que toca, así que
+    re-ejecutarlo en producción no es seguro. Idempotente: correrlo dos veces no
+    hace daño.
+    """
+    base = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "org_scope_fix_2026_08"
+    files = [
+        base / "01_department_head_scope.sql",
+        base / "02_missing_subtree_perms.sql",
+    ]
+
+    engine = _get_engine()
+
+    def _report(label: str):
+        with engine.connect() as connection:
+            rows = connection.execute(text("""
+                SELECT p.code
+                FROM core_role_permissions rp
+                JOIN core_permissions p ON p.id = rp.perm_id
+                JOIN core_roles r       ON r.id = rp.role_id
+                JOIN core_apps a        ON a.id = p.app_id
+                WHERE r.name = 'department_head' AND a.key = 'helpdesk'
+                  AND (p.code LIKE '%.subtree' OR p.code = 'helpdesk.tickets.api.read.all')
+                ORDER BY p.code
+            """)).fetchall()
+        click.echo(f"\n   {label} department_head en helpdesk:")
+        if not rows:
+            click.echo("      (ninguno de los permisos relevantes)")
+        for row in rows:
+            click.echo(f"      - {row.code}")
+
+    _report("ANTES —")
+    if dry_run:
+        click.echo("\n   (dry-run: no se escribió nada)")
+        return
+
+    try:
+        for file_path in files:
+            if not file_path.exists():
+                click.echo(f"   ⚠️  Archivo no encontrado: {file_path}")
+                continue
+            click.echo(f"\n   🔄 Ejecutando: {file_path.name}")
+            execute_sql_file(str(file_path))
+            click.echo(f"   ✅ Completado: {file_path.name}")
+
+        _report("DESPUÉS —")
+
+        # Cambiar los permisos de un ROL afecta a todos sus titulares, y el caché
+        # de authz tiene TTL de 5 min: sin esto el sistema queda inconsistente ese
+        # rato después del despliegue (unos ven los permisos nuevos y otros no).
+        try:
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
+            click.echo("\n   🧹 Caché de authz invalidado (los permisos aplican de inmediato).")
+        except Exception as e:
+            click.echo(f"\n   ⚠️  No se pudo invalidar el caché de authz ({e}). "
+                       "Los permisos nuevos aplicarán en ≤5 min por TTL, o reinicia el backend.")
+
+        click.echo("\n🎉 Delta de scope organizacional aplicado.")
+    except Exception as e:
+        click.echo(f"\n💥 Error durante fix-org-scope-2026-08: {str(e)}")
+        raise
+
+
 @click.command("new-theme-mundial")
 def new_theme_mundial_command():
     """Crea el tema Mundial 2026 (activo), registra la tarea diaria y calienta el cache."""
@@ -635,5 +716,6 @@ core_cli.add_command(execute_single_sql_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
 core_cli.add_command(init_config_2026_07_command)
+core_cli.add_command(fix_org_scope_2026_08_command)
 core_cli.add_command(new_theme_mundial_command)
 core_cli.add_command(mundial_refresh_command)

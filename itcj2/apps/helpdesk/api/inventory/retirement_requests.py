@@ -18,12 +18,30 @@ def _is_admin(db, user_id):
     return "admin" in roles or user_id in sec or is_comp_center_user(db, user_id)
 
 
+def _retirement_scope(db, user: dict) -> set[int] | None:
+    """Departamentos cuyas bajas puede ver el usuario. ``None`` = todas.
+
+    La solicitud no tiene departamento propio, así que el scope se aplica sobre
+    los equipos que contiene. El ancla es el permiso de bajas: la resolución es
+    por procedencia, o sea el subárbol de los puestos que otorgan ESE permiso.
+    """
+    from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+
+    return visible_department_ids(
+        db, user,
+        extra_subtree_perms={"helpdesk.inventory.retirement.api.read.subtree"},
+    )
+
+
 # ── Listado ────────────────────────────────────────────────────────────────────
 
 @router.get("")
 def list_requests(
     request: Request,
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.read"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory.retirement.api.read",
+        "helpdesk.inventory.retirement.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService
@@ -36,7 +54,10 @@ def list_requests(
         "page":     int(params.get("page", "1")),
         "per_page": int(params.get("per_page", "20")),
     }
-    result = InventoryRetirementService.get_requests(db, user_id, _is_admin(db, user_id), filters)
+    result = InventoryRetirementService.get_requests(
+        db, user_id, _is_admin(db, user_id), filters,
+        visible_department_ids=_retirement_scope(db, user),
+    )
     return {"success": True, **result}
 
 
@@ -59,7 +80,7 @@ def create_request(
     try:
         req = InventoryRetirementService.create_request(db, reason, user_id)
         if item_ids:
-            req = InventoryRetirementService.add_items(db, req.id, item_ids, notes_map, user_id)
+            req = InventoryRetirementService.add_items(db, req.id, item_ids, notes_map, user_id, requester=user)
         return {"success": True, "message": f"Solicitud {req.folio} creada", "data": req.to_dict(include_items=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})
@@ -73,7 +94,10 @@ def create_request(
 @router.get("/{request_id}")
 def get_request(
     request_id: int,
-    user: dict = require_perms("helpdesk", ["helpdesk.inventory.retirement.api.read"]),
+    user: dict = require_perms("helpdesk", [
+        "helpdesk.inventory.retirement.api.read",
+        "helpdesk.inventory.retirement.api.read.subtree",
+    ]),
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models.inventory_retirement_request import InventoryRetirementRequest
@@ -84,7 +108,15 @@ def get_request(
         raise HTTPException(404, detail={"success": False, "error": "Solicitud no encontrada"})
 
     if not _is_admin(db, user_id) and req.requested_by_id != user_id:
-        raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
+        # Coherencia con el listado: si la solicitud toca un equipo de mi
+        # subárbol, la puedo abrir. Sin esto salía en la lista y daba 403.
+        visible = _retirement_scope(db, user)
+        in_scope = visible is None or any(
+            ri.inventory_item is not None and ri.inventory_item.department_id in visible
+            for ri in req.items
+        )
+        if not in_scope:
+            raise HTTPException(403, detail={"success": False, "error": "Sin acceso a esta solicitud"})
 
     return {"success": True, "data": req.to_dict(include_items=True)}
 
@@ -108,7 +140,7 @@ def add_items(
         raise HTTPException(400, detail={"success": False, "error": "item_ids requerido"})
 
     try:
-        req = InventoryRetirementService.add_items(db, request_id, item_ids, notes_map, user_id)
+        req = InventoryRetirementService.add_items(db, request_id, item_ids, notes_map, user_id, requester=user)
         return {"success": True, "data": req.to_dict(include_items=True)}
     except ValueError as e:
         raise HTTPException(400, detail={"success": False, "error": str(e)})

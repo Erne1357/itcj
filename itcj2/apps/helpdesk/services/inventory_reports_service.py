@@ -235,11 +235,18 @@ class InventoryReportsService:
         return output.getvalue()
 
     @staticmethod
-    def export_warranty_csv(db: Session) -> str:
-        """Genera CSV de reporte de garantías."""
+    def export_warranty_csv(db: Session, department_ids: list | None = None) -> str:
+        """Genera CSV de reporte de garantías.
+
+        ``department_ids``: si viene (no ``None``), acota el CSV a esos
+        departamentos — el reporte subyacente (``InventoryStatsService``) es
+        siempre global, así que el filtro se aplica aquí sobre los items ya
+        serializados (cada uno trae ``department_id``).
+        """
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         report = InventoryStatsService.get_warranty_report(db)
         today = date.today()
+        dept_filter = set(department_ids) if department_ids is not None else None
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
@@ -248,6 +255,8 @@ class InventoryReportsService:
         ])
         for label, key in [("Vence en 30 días", "expiring_30_days"), ("Vence en 60 días", "expiring_60_days")]:
             for item in report.get(key, {}).get("items", []):
+                if dept_filter is not None and item.get("department_id") not in dept_filter:
+                    continue
                 days_left = ""
                 if item.get("warranty_expiration"):
                     try:
@@ -262,10 +271,11 @@ class InventoryReportsService:
         return output.getvalue()
 
     @staticmethod
-    def export_maintenance_csv(db: Session) -> str:
-        """Genera CSV de reporte de mantenimiento."""
+    def export_maintenance_csv(db: Session, department_ids: list | None = None) -> str:
+        """Genera CSV de reporte de mantenimiento (ver nota de scope en export_warranty_csv)."""
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         report = InventoryStatsService.get_maintenance_report(db)
+        dept_filter = set(department_ids) if department_ids is not None else None
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
@@ -274,6 +284,8 @@ class InventoryReportsService:
         ])
         for label, key in [("Vencido", "overdue"), ("Próximos 30 días", "upcoming_30_days")]:
             for item in report.get(key, {}).get("items", []):
+                if dept_filter is not None and item.get("department_id") not in dept_filter:
+                    continue
                 writer.writerow([
                     label, item.get("inventory_number", ""),
                     item.get("brand", ""), item.get("model", ""),
@@ -283,11 +295,12 @@ class InventoryReportsService:
         return output.getvalue()
 
     @staticmethod
-    def export_lifecycle_csv(db: Session) -> str:
-        """Genera CSV de reporte de ciclo de vida."""
+    def export_lifecycle_csv(db: Session, department_ids: list | None = None) -> str:
+        """Genera CSV de reporte de ciclo de vida (ver nota de scope en export_warranty_csv)."""
         from itcj2.apps.helpdesk.services.inventory_stats_service import InventoryStatsService
         report = InventoryStatsService.get_lifecycle_report(db)
         today = date.today()
+        dept_filter = set(department_ids) if department_ids is not None else None
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
@@ -295,6 +308,8 @@ class InventoryReportsService:
             "Departamento", "Fecha Adquisición", "Años",
         ])
         for item in report.get("older_than_5_years", {}).get("items", []):
+            if dept_filter is not None and item.get("department_id") not in dept_filter:
+                continue
             years = ""
             if item.get("acquisition_date"):
                 try:

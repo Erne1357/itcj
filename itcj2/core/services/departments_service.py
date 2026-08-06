@@ -224,6 +224,96 @@ def get_user_department(db: Session, user_id: int):
     return get_primary_user_department(db, user_id)
 
 
+def _app_granting_position_departments(db: Session, user_id: int, app_key: str) -> list:
+    """(department_id, start_date, position_id) de los puestos VIGENTES del usuario
+    que otorgan acceso a ``app_key``, por rol del puesto o por permiso del puesto.
+
+    Ordenado igual que `get_primary_user_department` para que el desempate sea el
+    mismo criterio, solo que restringido a los puestos que sí anclan la app.
+    """
+    from sqlalchemy import or_
+    from itcj2.core.models.app import App
+    from itcj2.core.models.position import (
+        Position, UserPosition, PositionAppRole, PositionAppPerm,
+    )
+
+    app = db.query(App).filter_by(key=app_key).first()
+    if not app:
+        return []
+
+    grants_role = (
+        db.query(PositionAppRole.position_id)
+        .filter(PositionAppRole.app_id == app.id)
+    )
+    grants_perm = (
+        db.query(PositionAppPerm.position_id)
+        .filter(PositionAppPerm.app_id == app.id, PositionAppPerm.allow == True)  # noqa: E712
+    )
+
+    return (
+        db.query(Position.department_id, UserPosition.start_date, UserPosition.position_id)
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(
+            _active_position_window(),
+            UserPosition.user_id == user_id,
+            Position.is_active == True,  # noqa: E712
+            Position.department_id.isnot(None),
+            or_(
+                Position.id.in_(grants_role.scalar_subquery()),
+                Position.id.in_(grants_perm.scalar_subquery()),
+            ),
+        )
+        .order_by(UserPosition.start_date.asc(), UserPosition.position_id.asc())
+        .all()
+    )
+
+
+def app_departments(db: Session, user_id: int, app_key: str) -> list:
+    """Departamentos que CUENTAN para ``app_key`` — por PROCEDENCIA, con respaldo.
+
+    Los resolvers agnósticos (`get_user_departments`) devuelven todo departamento
+    con puesto vigente, sin mirar la app. Con multi-puesto eso mezcla
+    departamentos ajenos: alguien con un puesto en Cafetería (que no otorga nada
+    en helpdesk) y otro en Gestión podía terminar operando helpdesk "como
+    Cafetería", porque el desempate por antigüedad la elegía a ella.
+
+    Regla:
+      1. Si algún puesto vigente otorga acceso a la app (rol o permiso del
+         puesto), SOLO cuentan los departamentos de esos puestos.
+      2. Si ninguno la otorga, el acceso viene de una asignación DIRECTA al
+         usuario, que no tiene ancla departamental. Respaldo: todos sus
+         departamentos. Sin esto esas personas se quedarían sin departamento y
+         no podrían ni levantar un ticket.
+
+    Mismo espíritu que `scope_service.granting_departments`, pero a nivel de APP
+    (cualquier rol/permiso) en vez de un permiso concreto.
+    """
+    rows = _app_granting_position_departments(db, user_id, app_key)
+    if not rows:
+        return get_user_departments(db, user_id)
+
+    dept_ids = {r[0] for r in rows}
+    return (
+        db.query(Department)
+        .filter(Department.id.in_(dept_ids))
+        .order_by(Department.name)
+        .all()
+    )
+
+
+def primary_app_department(db: Session, user_id: int, app_key: str):
+    """Un solo departamento para ``app_key``, con el desempate canónico.
+
+    Para los consumidores que necesitan uno —sobre todo el sellado de
+    `requester_department_id` al crear un ticket, que decide todo el scope
+    posterior—. Prefiere `app_departments` cuando el scope admite varios.
+    """
+    rows = _app_granting_position_departments(db, user_id, app_key)
+    if not rows:
+        return get_primary_user_department(db, user_id)
+    return db.get(Department, rows[0][0])
+
+
 def build_tree(db: Session) -> list[dict]:
     """Árbol completo de departamentos ACTIVOS en 3 queries (sin N+1). Contrato C3.
 

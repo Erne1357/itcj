@@ -553,7 +553,7 @@
             }
             const nowActive = result.data && result.data.is_active;
             toast(`Cuenta ${nowActive ? 'activada' : 'desactivada'} exitosamente`);
-            setTimeout(() => window.location.reload(), 800);
+            setTimeout(() => window.ConfigPage.refresh(), 800);
         } catch (err) {
             console.error('Error toggling user status:', err);
             toast('Error de conexión', 'danger');
@@ -591,7 +591,7 @@
             }
             if (S.editModal) S.editModal.hide();
             toast('Información actualizada exitosamente');
-            setTimeout(() => window.location.reload(), 800);
+            setTimeout(() => window.ConfigPage.refresh(), 800);
         } catch (err) {
             console.error('Error saving user info:', err);
             toast('Error de conexión', 'danger');

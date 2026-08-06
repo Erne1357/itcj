@@ -27,6 +27,21 @@
     max-height: 220px;
 }
 
+/* Estado vacío/carga SOBRE el canvas. Nunca sacar el canvas del wrap ni
+   reemplazar el wrap: Chart.js con maintainAspectRatio:false mide la altura
+   del padre y sin altura fija crece sin límite. */
+.chart-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    background: #fff;
+    border-radius: 8px;
+}
+
 /* ── Skeleton ────────────────────────────────────────────────────── */
 .mn-skeleton {
     background: linear-gradient(90deg, #ECEFF1 25%, #CFD8DC 50%, #ECEFF1 75%);

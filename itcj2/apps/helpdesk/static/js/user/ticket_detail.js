@@ -1462,7 +1462,7 @@
             console.error('Equipment ID is required');
             return;
         }
-        window.location.href = `/help-desk/inventory/items/${itemId}`;
+        window.HelpdeskPage.navigate(`/help-desk/inventory/items/${itemId}`);
     }
 
     function renderEquipmentModalList(equipmentList) {

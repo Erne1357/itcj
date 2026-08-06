@@ -84,6 +84,49 @@ def _get_periods_list(db: Session) -> list:
         return []
 
 
+def _resolve_stats_scope(db: Session, user: dict) -> tuple:
+    """Resuelve el scope de lectura efectivo para `/stats` y `/analysis`.
+
+    Devuelve ``(has_full_access, dept_ids)``:
+      - ``has_full_access=True``  -> sin filtro, ve TODO el sistema. Aplica a
+        admin global (JWT) o a quien tenga el permiso `helpdesk.stats.api.read`
+        (hoy: rol admin de la app y posición `secretary_comp_center`).
+      - ``has_full_access=False`` -> acotado a ``dept_ids`` = departamento
+        primario + subárbol de procedencia de `helpdesk.stats.api.read.subtree`
+        (`department_head`). Vacío = fail-closed, CERO resultados — NUNCA
+        "sin filtro".
+
+    Decide por PERMISO EFECTIVO (`authz_cache.cached_perms`), no por presencia
+    de rol: comprobar el nombre de un rol puede divergir de lo que la persona
+    de verdad tiene asignado (el error que la auditoría encontró en campañas).
+    """
+    from itcj2.dependencies import is_global_admin
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.core.services.departments_service import app_departments
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    if is_global_admin(user):
+        return True, set()
+
+    user_id = int(user["sub"])
+    perms = cached_perms(db, user_id, "helpdesk")
+
+    if "helpdesk.stats.api.read" in perms:
+        return True, set()
+
+    dept_ids: set = set()
+    if "helpdesk.stats.api.read.subtree" in perms:
+        # TODOS los departamentos que le dan acceso a helpdesk (por procedencia),
+        # no solo el "primario" por antigüedad: con multi-puesto, `get_primary_
+        # user_department` podía elegir un departamento ajeno a la app (más
+        # antiguo) y dejar fuera el que sí otorga, o mostrar solo uno de dos
+        # departamentos que sí otorgan.
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
+        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.stats.api.read.subtree")
+
+    return False, dept_ids
+
+
 def _build_base_query(
     db: Session,
     period_id: Optional[int],
@@ -91,8 +134,14 @@ def _build_base_query(
     start_raw: Optional[str],
     end_raw: Optional[str],
     area: Optional[str],
+    dept_ids: Optional[set] = None,
 ):
-    """Construye la query base de Ticket con filtros de fecha y área."""
+    """Construye la query base de Ticket con filtros de fecha y área.
+
+    ``dept_ids=None`` -> sin filtro de departamento (acceso total).
+    ``dept_ids=<set>`` -> acota a esos departamentos; vacío = fail-closed
+    (0 resultados, vía el fallback `{-1}` que nunca matchea un id real).
+    """
     from itcj2.apps.helpdesk.models.ticket import Ticket
 
     q = db.query(Ticket)
@@ -136,6 +185,9 @@ def _build_base_query(
         q = q.filter(Ticket.created_at <= end_dt)
     if area and area in ("DESARROLLO", "SOPORTE"):
         q = q.filter(Ticket.area == area)
+
+    if dept_ids is not None:
+        q = q.filter(Ticket.requester_department_id.in_(dept_ids or {-1}))
 
     return q
 
@@ -194,6 +246,8 @@ def get_department_stats(
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.departments_service import app_departments
+    from itcj2.core.services.scope_service import subtree_scope_for
     from itcj2.apps.helpdesk.models.ticket import Ticket
 
     user_id = int(user["sub"])
@@ -204,10 +258,20 @@ def get_department_stats(
     if "admin" in user_roles or user_id in secretary_comp_center:
         can_view = True
     elif "department_head" in user_roles:
-        from itcj2.core.models.position import UserPosition
-        user_position = db.query(UserPosition).filter_by(user_id=user_id, is_active=True).first()
-        if user_position and user_position.position:
-            can_view = user_position.position.department_id == department_id
+        # Canónico (respeta start_date/end_date y desempata determinista) en
+        # vez del resolver ad-hoc viejo: `filter_by(is_active=True).first()`
+        # ignoraba la ventana de vigencia y no ordenaba, así que un puesto
+        # VENCIDO (fila is_active=True pero end_date pasado) podía seguir
+        # autorizando, y con varios puestos el resultado era no determinista.
+        # TODOS los departamentos que le dan acceso a helpdesk (por
+        # procedencia), no solo el "primario" por antigüedad: `get_primary_
+        # user_department` podía anclar en un puesto ajeno a la app, o dejar
+        # fuera a uno de dos departamentos que sí otorgan.
+        allowed = subtree_scope_for(db, user_id, "helpdesk", "helpdesk.stats.api.read.subtree")
+        allowed |= {d.id for d in app_departments(db, user_id, "helpdesk")}
+        # Subárbol, no igualdad: el jefe con `.subtree` debe ver también sus
+        # sub-departamentos, no solo el propio.
+        can_view = department_id in allowed
 
     if not can_view:
         raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para ver las estadísticas de este departamento"})
@@ -302,14 +366,20 @@ def get_global_stats(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """KPIs globales del sistema con filtros de fecha."""
     from itcj2.apps.helpdesk.models.assignment import Assignment
 
+    # Acceso total: quien tenga `helpdesk.stats.api.read` (admin / secretaría
+    # de centro de cómputo) o sea admin global. El resto (solo `.subtree`,
+    # p.ej. `department_head`) queda acotado a su subárbol.
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None
@@ -409,12 +479,17 @@ def get_stats_by_department(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """Métricas agrupadas por departamento solicitante."""
+    # Acceso total: `helpdesk.stats.api.read` o admin global. El resto queda
+    # acotado a su subárbol (`.subtree`).
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None
@@ -496,29 +571,33 @@ def get_stats_by_technician(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
-    """Métricas por técnico. Admin/Secretaría: todos. Técnico: solo sus datos."""
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    """Métricas por técnico.
 
-    user_id = int(user["sub"])
-    user_roles = user_roles_in_app(db, user_id, "helpdesk")
-    secretary_ids = _get_users_with_position(db, ["secretary_comp_center"])
-    is_admin_or_sec = "admin" in user_roles or user_id in secretary_ids
+    Acceso total (`helpdesk.stats.api.read` / admin global): todos los
+    técnicos del sistema. Acotado (solo `.subtree`, p.ej. `department_head`):
+    los técnicos que aparecen en los tickets de SU subárbol (la query base ya
+    llega filtrada por departamento, así que basta con listar quien haya
+    quedado dentro de ese conjunto — no hace falta un segundo filtro por
+    `user_id` como antes, que sólo tenía sentido cuando el guard permitía
+    entrar a cualquier técnico individual).
+    """
+    # Decidido por PERMISO EFECTIVO, no por presencia de rol (el error que la
+    # auditoría encontró en campañas: rol != permiso real asignado).
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
 
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None
         if exclude_outliers and tickets:
             tickets, exclusion_info = _exclude_outlier_tickets(tickets)
 
-        if is_admin_or_sec:
-            tech_ids = set(t.assigned_to_user_id for t in tickets if t.assigned_to_user_id)
-        else:
-            tech_ids = {user_id}
+        tech_ids = set(t.assigned_to_user_id for t in tickets if t.assigned_to_user_id)
 
         results = []
         for tid in tech_ids:
@@ -578,7 +657,7 @@ def get_stats_by_technician(
             })
 
         results.sort(key=lambda x: x["resolved"], reverse=True)
-        return {"success": True, "data": results, "is_admin": is_admin_or_sec, "exclusion_info": exclusion_info}
+        return {"success": True, "data": results, "is_admin": has_full_access, "exclusion_info": exclusion_info}
     except Exception as e:
         logger.error(f"Error stats por técnico: {e}", exc_info=True)
         raise HTTPException(500, detail={"error": "server_error", "message": "Error al obtener estadísticas por técnico"})
@@ -592,14 +671,17 @@ def get_time_breakdown(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """Desglose de tiempos: asignación, resolución, trabajo."""
     from itcj2.apps.helpdesk.models.assignment import Assignment
 
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None
@@ -676,12 +758,15 @@ def get_ratings_detail(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """Distribución detallada de calificaciones."""
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None
@@ -780,12 +865,15 @@ def get_outliers(
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """Detección de outliers por IQR en tiempo de resolución, calificación y tiempo invertido."""
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
         resolved = [t for t in tickets if t.resolved_at]
 
@@ -846,14 +934,17 @@ def get_kmeans(
     area: Optional[str] = Query(None),
     k: int = Query(3, ge=2, le=6),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """K-means sobre tickets resueltos agrupando por (tiempo resolución, calificación)."""
     from itcj2.apps.helpdesk.models.ticket import Ticket
 
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.filter(Ticket.resolved_at.isnot(None), Ticket.rating_attention.isnot(None)).all()
 
         exclusion_info = None
@@ -946,12 +1037,15 @@ def get_distribution(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """Histogramas y distribuciones de tickets."""
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None
@@ -1026,12 +1120,15 @@ def get_trends(
     end: Optional[str] = Query(None),
     area: Optional[str] = Query(None),
     exclude_outliers: bool = Query(False),
-    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read"]),
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
     db: DbSession = None,
 ):
     """Tendencias temporales: mensual, comparativo anual, heatmap."""
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+
     try:
-        q = _build_base_query(db, period_id, preset, start, end, area)
+        q = _build_base_query(db, period_id, preset, start, end, area,
+                               dept_ids=None if has_full_access else dept_ids)
         tickets = q.all()
 
         exclusion_info = None

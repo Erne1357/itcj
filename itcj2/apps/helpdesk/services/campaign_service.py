@@ -451,6 +451,7 @@ class CampaignService:
         performed_by_id: int,
         notes: Optional[str] = None,
         ip: Optional[str] = None,
+        validator: Optional[dict] = None,
     ) -> InventoryCampaign:
         """
         El jefe de departamento aprueba o rechaza la campaña.
@@ -468,6 +469,15 @@ class CampaignService:
           - Guarda rejection_reason.
           - Registra InventoryCampaignValidation.
           - Notifica al CC.
+
+        `validator`: dict crudo del JWT (``{"sub": ..., "role": ...}``) de quien
+        valida, usado para exigir que `campaign.department_id` esté dentro de su
+        subárbol visible (`visible_department_ids`). El seed de permisos
+        (`02_assign_campaign_permissions.sql`) le da el permiso `api.validate`
+        a TODO `department_head`, sin distinguir departamento — asumiendo que
+        "el filtrado por departamento se hace en el servicio". Antes de este
+        fix ese filtrado no existía: cualquier jefe podía aprobar/rechazar
+        (y bloquear el inventario de) la campaña de cualquier departamento.
         """
         if action not in ('approve', 'reject'):
             raise ValueError("El parámetro 'action' debe ser 'approve' o 'reject'.")
@@ -480,6 +490,12 @@ class CampaignService:
                 f"Solo se puede validar una campaña en estado PENDING_VALIDATION "
                 f"(actual: {campaign.status})."
             )
+
+        if validator is not None:
+            from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+            visible = visible_department_ids(db, validator)
+            if visible is not None and campaign.department_id not in visible:
+                raise ValueError("No tienes permiso para validar campañas de este departamento.")
 
         if action == 'reject' and (not notes or len(notes.strip()) < 5):
             raise ValueError("Debe indicar el motivo del rechazo (mínimo 5 caracteres).")

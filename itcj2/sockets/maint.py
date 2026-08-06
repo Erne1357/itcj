@@ -150,8 +150,12 @@ def _user_maint_roles(db, user_id: int) -> set:
         return set()
 
 
-_FULL_ACCESS_MAINT = {"admin", "dispatcher",
-                      "maint_area_coordinator", "maint_general_coordinator"}
+# Alineado con ticket_service.FULL_ACCESS_ROLES (y dashboard_service): el
+# coordinador de ÁREA ya NO tiene acceso total (H3/D-G) — ve solo su(s) área(s)
+# + ruteados/asignados/propios. Antes seguía aquí y un `join_dept` para
+# cualquier departamento le abría el room, aunque list_tickets/can_user_view_ticket
+# ya no le concedieran ese scope (issue #1 del roadmap de coherencia org-scope).
+_FULL_ACCESS_MAINT = {"admin", "dispatcher", "maint_general_coordinator"}
 
 
 def _can_join_dispatcher(user: dict | None) -> bool:
@@ -170,7 +174,8 @@ def _can_join_dispatcher(user: dict | None) -> bool:
 
 
 def _can_join_dept(user: dict | None, dept_id: int) -> bool:
-    """Un usuario solo escucha el room de SU departamento; full-access ve todos."""
+    """Un usuario solo escucha el room de SU departamento (+ subárbol autorizado
+    por procedencia); full-access ve todos."""
     if not user:
         return False
     if str(user.get("role")) == "admin":
@@ -184,7 +189,16 @@ def _can_join_dept(user: dict | None, dept_id: int) -> bool:
             return True
         from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
         dept_ids = {d["id"] for d in _resolve_user_departments(db, uid)}
-        return dept_id in dept_ids
+        if dept_id in dept_ids:
+            return True
+        # H5/subtree (issue #2): un jefe con `maint.tickets.api.read.subtree` ve
+        # (list_tickets/can_user_view_ticket/dashboards) sub-departamentos que no
+        # son "suyos" por puesto directo. Sin esto el dashboard mostraba esos
+        # tickets pero el room de sockets lo rechazaba, así que no refrescaba en
+        # vivo. Solo se consulta si la pertenencia directa no bastó (evita el
+        # round-trip extra en el caso común).
+        from itcj2.core.services.scope_service import subtree_scope_for
+        return dept_id in subtree_scope_for(db, uid, "maint", "maint.tickets.api.read.subtree")
     finally:
         db.close()
 

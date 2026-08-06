@@ -5,8 +5,11 @@ Calcula los KPIs del dashboard filtrando por el scope de visibilidad
 del usuario (mismo criterio que ticket_service.list_tickets).
 
 NOTA: El bloque de visibilidad se duplica aquí intencionalmente en lugar de
-extraerlo a un helper, para no modificar ticket_service.py.
-Mantener sincronizado con la lógica en ticket_service.list_tickets.
+extraerlo a un helper en ticket_service.py, para no modificar ese archivo.
+Mantener sincronizado con la lógica en ticket_service.list_tickets. Dentro de
+ESTE módulo, en cambio, la condición vive en UN solo sitio (`_visibility_cond`)
+compartido por `_apply_visibility` y `_apply_visibility_to_join` — antes tenían
+lógicas ligeramente distintas entre sí y ambas divergían de list_tickets.
 """
 import logging
 from datetime import timedelta
@@ -32,60 +35,18 @@ ALL_STATUSES = ('PENDING', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED_SUCCESS', 'RESOL
 # Helpers de visibilidad  (keep in sync with ticket_service.list_tickets)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _resolve_dept_id(db: Session, user_id: int) -> int | None:
-    """Devuelve el department_id activo del usuario, o None si no se puede determinar."""
-    try:
-        from itcj2.core.models.position import UserPosition
-        up = db.query(UserPosition).filter_by(user_id=user_id, is_active=True).first()
-        if up and up.position:
-            return up.position.department_id
-    except Exception:
-        pass
-    return None
-
-
-def _apply_visibility(query, user_id: int, user_roles: list, db: Session):
-    """
-    Aplica el filtro de visibilidad a un query sobre MaintTicket.
-    Devuelve el query modificado.
-    """
-    from itcj2.apps.maint.models.ticket import MaintTicket
-
-    roles = set(user_roles)
-
-    if FULL_ACCESS_ROLES & roles:
-        return query  # Sin restricción
-
-    if 'maint_area_coordinator' in roles:
-        # El coordinador de área ve SU(s) área(s) + ruteados a él + asignados + propios.
-        return query.filter(_area_coord_visibility_cond(db, user_id))
-
-    if 'tech_maint' in roles:
-        # D-G/H3: técnico ve ASIGNADOS a él, PROPIOS, o de categorías de sus áreas.
-        return query.filter(_tech_maint_visibility_cond(db, user_id))
-
-    # Scope departamental/subárbol (en sync con ticket_service.list_tickets).
-    from itcj2.core.services.scope_service import subtree_scope_for
-    _subtree = subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree")
-    if (DEPT_ACCESS_ROLES & roles) or _subtree:
-        dept_ids: set[int] = set()
-        if DEPT_ACCESS_ROLES & roles:
-            # H5: multi-depto (antes _resolve_dept_id usaba .first() → un depto aleatorio).
-            from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
-            dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
-        dept_ids |= _subtree
-        if dept_ids:
-            return query.filter(MaintTicket.requester_department_id.in_(dept_ids))
-        # Sin departamento resuelto → retornar nada (seguro)
-        return query.filter(MaintTicket.id == -1)
-
-    # staff / resto → solo propios
-    return query.filter(MaintTicket.requester_id == user_id)
-
-
-def _tech_maint_visibility_cond(db: Session, user_id: int):
-    """Condición SQL de visibilidad de un tech_maint (D-G/H3): asignados ∨ propios
-    ∨ categorías de sus áreas de especialidad. Espejo de ticket_service.list_tickets.
+def _visibility_cond(db: Session, user_id: int, user_roles: list):
+    """Condición SQL de visibilidad ÚNICA y ADITIVA (no excluyente): propio ∨
+    asignado ∨ ruteado a mí (coordinador de área) ∨ categoría de mis áreas
+    (técnico/coordinador de área) ∨ departamento/subárbol (jefe/secretaria +
+    procedencia). Espejo EXACTO de la disyunción de
+    ``ticket_service.list_tickets`` (no se importa de ahí para no acoplar este
+    fix a un archivo fuera de scope; se comparte AQUÍ entre ``_apply_visibility``
+    y ``_apply_visibility_to_join`` para que dejen de divergir entre sí — antes
+    ninguna incluía la propiedad y cada una ramificaba distinto, así que los
+    KPIs no contaban los tickets propios de un departamento anterior mientras
+    ``unrated_resolved`` sí, y ``recent_activity`` terminaba siendo un
+    subconjunto distinto del resto del mismo dashboard).
     """
     from sqlalchemy import or_
     from itcj2.apps.maint.models.ticket import MaintTicket
@@ -93,6 +54,8 @@ def _tech_maint_visibility_cond(db: Session, user_id: int):
     from itcj2.apps.maint.models.category import MaintCategory
     from itcj2.apps.maint.services.ticket_service import _get_tech_maint_area_codes
 
+    roles = set(user_roles)
+
     assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
         MaintTicketTechnician.user_id == user_id,
         MaintTicketTechnician.unassigned_at.is_(None),
@@ -101,38 +64,42 @@ def _tech_maint_visibility_cond(db: Session, user_id: int):
         MaintTicket.requester_id == user_id,
         MaintTicket.id.in_(assigned_subq),
     ]
-    area_codes = _get_tech_maint_area_codes(db, user_id)
+
+    area_codes: set[str] = set()
+    if 'maint_area_coordinator' in roles:
+        from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+        conds.append(MaintTicket.coordinator_id == user_id)
+        area_codes |= set(CoordinatorService.get_coordinator_areas(db, user_id) or ())
+    if 'tech_maint' in roles:
+        area_codes |= set(_get_tech_maint_area_codes(db, user_id) or ())
     if area_codes:
         cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
         conds.append(MaintTicket.category_id.in_(cat_subq))
+
+    # H5: multi-depto (antes un resolver mono-depto elegía uno al azar) + subárbol
+    # por procedencia (en sync con ticket_service.list_tickets).
+    from itcj2.core.services.scope_service import subtree_scope_for
+    dept_ids = set(subtree_scope_for(db, user_id, "maint", "maint.tickets.api.read.subtree"))
+    if DEPT_ACCESS_ROLES & roles:
+        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
+        dept_ids |= {d["id"] for d in _resolve_user_departments(db, user_id)}
+    if dept_ids:
+        conds.append(MaintTicket.requester_department_id.in_(dept_ids))
+
     return or_(*conds)
 
 
-def _area_coord_visibility_cond(db: Session, user_id: int):
-    """Condición SQL de visibilidad de un maint_area_coordinator: categorías de sus
-    áreas de coordinación ∨ ruteados a él (coordinator_id) ∨ asignado activo ∨ propios.
-    Espejo de ticket_service.list_tickets.
+def _apply_visibility(query, user_id: int, user_roles: list, db: Session):
     """
-    from sqlalchemy import or_
-    from itcj2.apps.maint.models.ticket import MaintTicket
-    from itcj2.apps.maint.models import MaintTicketTechnician
-    from itcj2.apps.maint.models.category import MaintCategory
-    from itcj2.apps.maint.services.coordinator_service import CoordinatorService
+    Aplica el filtro de visibilidad a un query sobre MaintTicket.
+    Devuelve el query modificado.
+    """
+    roles = set(user_roles)
 
-    assigned_subq = db.query(MaintTicketTechnician.ticket_id).filter(
-        MaintTicketTechnician.user_id == user_id,
-        MaintTicketTechnician.unassigned_at.is_(None),
-    )
-    conds = [
-        MaintTicket.requester_id == user_id,
-        MaintTicket.coordinator_id == user_id,
-        MaintTicket.id.in_(assigned_subq),
-    ]
-    area_codes = CoordinatorService.get_coordinator_areas(db, user_id)
-    if area_codes:
-        cat_subq = db.query(MaintCategory.id).filter(MaintCategory.code.in_(area_codes))
-        conds.append(MaintTicket.category_id.in_(cat_subq))
-    return or_(*conds)
+    if FULL_ACCESS_ROLES & roles:
+        return query  # Sin restricción
+
+    return query.filter(_visibility_cond(db, user_id, roles))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -355,24 +322,16 @@ def _apply_visibility_to_join(query, user_id: int, user_roles: list, db: Session
     """
     Versión de _apply_visibility para queries que ya hacen join con MaintTicket.
     Filtra sobre MaintTicket directamente (el join ya está hecho).
-    """
-    from itcj2.apps.maint.models.ticket import MaintTicket
 
+    Antes tenía su propia lógica, más pobre que `_apply_visibility` (sin rama de
+    `maint_area_coordinator` ni subárbol, y tampoco incluía la propiedad) — por
+    eso `recent_activity` era un subconjunto distinto del resto del dashboard.
+    Ahora comparte `_visibility_cond` con `_apply_visibility`: misma condición,
+    una sola vez.
+    """
     roles = set(user_roles)
 
     if FULL_ACCESS_ROLES & roles:
         return query
 
-    if 'tech_maint' in roles:
-        # D-G/H3: mismo scope que _apply_visibility (el join ya tocó MaintTicket).
-        return query.filter(_tech_maint_visibility_cond(db, user_id))
-
-    if DEPT_ACCESS_ROLES & roles:
-        # H5: multi-depto (consistente con _apply_visibility).
-        from itcj2.apps.maint.services.department_dashboard_service import _resolve_user_departments
-        dept_ids = [d["id"] for d in _resolve_user_departments(db, user_id)]
-        if dept_ids:
-            return query.filter(MaintTicket.requester_department_id.in_(dept_ids))
-        return query.filter(MaintTicket.id == -1)
-
-    return query.filter(MaintTicket.requester_id == user_id)
+    return query.filter(_visibility_cond(db, user_id, roles))

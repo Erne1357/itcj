@@ -58,12 +58,12 @@
             Tickets creados vs resueltos por día
           </span>
         </div>
-        <div id="ticketsChartWrap" class="chart-wrap">
-          <div class="d-flex align-items-center justify-content-center h-100">
+        <div class="chart-wrap">
+          <canvas id="chartTickets"></canvas>
+          <div id="ticketsChartOverlay" class="chart-overlay">
             <span class="mn-skeleton" style="width:80%;height:200px;"></span>
           </div>
         </div>
-        <canvas id="chartTickets" style="display:none;"></canvas>
       </div>
     </div>
 
@@ -75,12 +75,12 @@
             <span class="mn-section-title mb-2 d-block" style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--maint-muted);">
               Tickets resueltos por técnico
             </span>
-            <div id="techChartWrap" class="chart-wrap-sm">
-              <div class="d-flex align-items-center justify-content-center h-100">
+            <div class="chart-wrap-sm">
+              <canvas id="chartTech"></canvas>
+              <div id="techChartOverlay" class="chart-overlay">
                 <span class="mn-skeleton" style="width:80%;height:160px;"></span>
               </div>
             </div>
-            <canvas id="chartTech" style="display:none;"></canvas>
           </div>
         </div>
         <div class="col-12">
@@ -120,12 +120,12 @@
             <span class="mn-section-title mb-2 d-block" style="font-size:.82rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--maint-muted);">
               Distribución por categoría
             </span>
-            <div id="catChartWrap" class="chart-wrap">
-              <div class="d-flex align-items-center justify-content-center h-100">
+            <div class="chart-wrap">
+              <canvas id="chartCat"></canvas>
+              <div id="catChartOverlay" class="chart-overlay">
                 <span class="mn-skeleton" style="width:60%;height:60%;border-radius:50%;"></span>
               </div>
             </div>
-            <canvas id="chartCat" style="display:none;"></canvas>
           </div>
         </div>
         <div class="col-12 col-lg-7">

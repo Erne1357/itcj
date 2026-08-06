@@ -86,10 +86,26 @@ class InventoryRetirementService:
         return req
 
     @staticmethod
-    def add_items(db: Session, request_id: int, item_ids: list[int], notes_map: dict = None, user_id: int = None) -> InventoryRetirementRequest:
+    def add_items(
+        db: Session,
+        request_id: int,
+        item_ids: list[int],
+        notes_map: dict = None,
+        user_id: int = None,
+        requester: dict = None,
+    ) -> InventoryRetirementRequest:
         """
         Agrega equipos a una solicitud en estado DRAFT.
         notes_map: {item_id: "nota específica"}
+
+        `requester`: dict crudo del JWT (``{"sub": ..., "role": ...}``) del
+        solicitante, usado para resolver su scope de departamentos visibles
+        (`visible_department_ids`, que requiere esa forma). Es un service y no
+        recibe el JWT por diseño; el endpoint lo pasa cuando lo tiene
+        (`api/inventory/retirement_requests.py`). Si no se provee, se
+        reconstruye un dict mínimo a partir de `user_id` — pierde el bypass de
+        admin global por claim de JWT, pero conserva el bypass por rol/posición
+        (admin/tech/CC) resuelto en BD, que es el caso común.
         """
         req = db.get(InventoryRetirementRequest, request_id)
         if not req:
@@ -108,6 +124,15 @@ class InventoryRetirementService:
             items_str = ", ".join(str(i) for i in truly_occupied)
             raise ValueError(f"Los siguientes equipos ya están en otra solicitud activa: {items_str}")
 
+        # Scope por subárbol: el equipo debe pertenecer al departamento/subárbol
+        # visible del solicitante. Sin esto, cualquiera podía meter equipos de
+        # otro departamento a su propia solicitud de baja.
+        visible = None
+        effective_user = requester or ({"sub": str(user_id)} if user_id else None)
+        if effective_user is not None:
+            from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
+            visible = visible_department_ids(db, effective_user)
+
         notes_map = notes_map or {}
         for item_id in item_ids:
             if item_id in already_in_this:
@@ -117,6 +142,8 @@ class InventoryRetirementService:
                 raise ValueError(f"Equipo {item_id} no encontrado")
             if not item.is_active:
                 raise ValueError(f"El equipo {item.inventory_number} ya está dado de baja")
+            if visible is not None and item.department_id not in visible:
+                raise ValueError(f"El equipo {item.inventory_number} no pertenece a tu alcance de departamentos")
 
             ri = InventoryRetirementRequestItem(
                 request_id=request_id,
@@ -332,13 +359,36 @@ class InventoryRetirementService:
     # ── Consultas ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_requests(db: Session, user_id: int, is_admin: bool, filters: dict = None) -> dict:
-        """Lista solicitudes. Admin ve todas, otros solo las suyas."""
+    def get_requests(db: Session, user_id: int, is_admin: bool, filters: dict = None,
+                     visible_department_ids: set[int] | None = None) -> dict:
+        """Lista solicitudes. Admin ve todas; el resto, las suyas + las de su subárbol.
+
+        La solicitud no tiene departamento propio: el suyo se deriva de los equipos
+        que contiene, así que "del subárbol" = contiene al menos un equipo de un
+        departamento visible. ``visible_department_ids``: ``None`` = ve todo (acceso
+        completo), set vacío = solo las propias.
+        """
+        from sqlalchemy import or_
+
         filters = filters or {}
         query = db.query(InventoryRetirementRequest)
 
-        if not is_admin:
-            query = query.filter(InventoryRetirementRequest.requested_by_id == user_id)
+        if not is_admin and visible_department_ids is not None:
+            # La propiedad siempre suma: la solicitud propia se lista aunque sus
+            # equipos ya no estén en el subárbol de quien la levantó.
+            conds = [InventoryRetirementRequest.requested_by_id == user_id]
+            if visible_department_ids:
+                from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+                conds.append(
+                    db.query(InventoryRetirementRequestItem.id)
+                    .join(InventoryItem, InventoryItem.id == InventoryRetirementRequestItem.item_id)
+                    .filter(
+                        InventoryRetirementRequestItem.request_id == InventoryRetirementRequest.id,
+                        InventoryItem.department_id.in_(visible_department_ids),
+                    )
+                    .exists()
+                )
+            query = query.filter(or_(*conds))
 
         if filters.get("status"):
             query = query.filter(InventoryRetirementRequest.status == filters["status"].upper())

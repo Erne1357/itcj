@@ -88,10 +88,11 @@ def _mock_ticket():
 # ─────────────────────────────────────────────────────────────────────
 
 class TestCreateOnBehalfPermission:
+    @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
     @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
     @patch("itcj2.apps.maint.services.notification_helper.MaintNotificationHelper.notify_ticket_created")
     @patch("itcj2.apps.maint.services.ticket_service.create_ticket")
-    def test_user_with_behalf_perm_creates_ok(self, mock_create, mock_notify, mock_perms, app_and_db):
+    def test_user_with_behalf_perm_creates_ok(self, mock_create, mock_notify, mock_perms, mock_req_access, app_and_db):
         """Un usuario CON maint.tickets.api.create.behalf (jefe/secretaría de
         mantenimiento) sí crea en nombre de otro."""
         _, client, mock_db = app_and_db
@@ -140,10 +141,11 @@ class TestCreateOnBehalfPermission:
 # ─────────────────────────────────────────────────────────────────────
 
 class TestCreateBehalfCrossDept:
+    @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
     @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
     @patch("itcj2.apps.maint.services.notification_helper.MaintNotificationHelper.notify_ticket_created")
     @patch("itcj2.apps.maint.services.ticket_service.create_ticket")
-    def test_requester_different_dept_allowed(self, mock_create, mock_notify, mock_perms, app_and_db):
+    def test_requester_different_dept_allowed(self, mock_create, mock_notify, mock_perms, mock_req_access, app_and_db):
         """Mantenimiento atiende a TODO el instituto: un usuario CON permiso behalf
         crea en nombre de un solicitante de CUALQUIER departamento. El depto del
         ticket se deriva del solicitante (el endpoint pasa department_id=None)."""
@@ -235,12 +237,13 @@ class TestStaffNoBehalfPermission:
 # ─────────────────────────────────────────────────────────────────────
 
 class TestDeptHeadCreateBehalf:
+    @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
     @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
     @patch("itcj2.core.services.authz_service.has_any_assignment")
     @patch("itcj2.apps.maint.services.notification_helper.MaintNotificationHelper.notify_ticket_created")
     @patch("itcj2.apps.maint.services.ticket_service.create_ticket")
     def test_dept_head_creates_behalf_ok(
-        self, mock_create, mock_notify, mock_has_assign, mock_get_perms, app_and_db
+        self, mock_create, mock_notify, mock_has_assign, mock_get_perms, mock_req_access, app_and_db
     ):
         _, client, mock_db = app_and_db
 
@@ -268,6 +271,55 @@ class TestDeptHeadCreateBehalf:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Caso 4bis: el SOLICITANTE debe tener acceso a maint (defensa en profundidad)
+# ─────────────────────────────────────────────────────────────────────
+
+class TestBehalfRequesterMustHaveAppAccess:
+    @patch("itcj2.core.services.authz_cache.cached_has_assignment")
+    @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
+    @patch("itcj2.apps.maint.services.ticket_service.create_ticket")
+    def test_requester_without_maint_access_returns_400(
+        self, mock_create, mock_perms, mock_has_assign, app_and_db
+    ):
+        """BUG FIX: crear en nombre de un usuario SIN acceso a maint (p. ej. un
+        alumno) se rechaza con 400. El ticket sería invisible e incalificable
+        para su propio solicitante, y el flujo exige que él lo califique."""
+        _, client, _ = app_and_db
+        mock_perms.return_value = {"maint.tickets.api.create", "maint.tickets.api.create.behalf"}
+        # El creador (7) sí entra a maint; el solicitante (4321) NO.
+        mock_has_assign.side_effect = lambda db, uid, app_key: uid != 4321
+
+        payload = {**VALID_PAYLOAD, "requester_id": 4321}
+        r = client.post(
+            "/api/maint/v2/tickets", json=payload, headers=_plain_headers(user_id=7)
+        )
+        assert r.status_code == 400, r.text
+        body = r.json()
+        msg = (body.get("detail") or body.get("error") or "").lower()
+        assert "acceso" in msg
+        mock_create.assert_not_called()
+
+    @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
+    @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
+    @patch("itcj2.apps.maint.services.notification_helper.MaintNotificationHelper.notify_ticket_created")
+    @patch("itcj2.apps.maint.services.ticket_service.create_ticket")
+    def test_requester_with_maint_access_passes(
+        self, mock_create, mock_notify, mock_perms, mock_has_assign, app_and_db
+    ):
+        """Con el solicitante dentro de maint, el behalf sigue funcionando."""
+        _, client, _ = app_and_db
+        mock_perms.return_value = {"maint.tickets.api.create", "maint.tickets.api.create.behalf"}
+        mock_create.return_value = _mock_ticket()
+
+        payload = {**VALID_PAYLOAD, "requester_id": 40}
+        r = client.post(
+            "/api/maint/v2/tickets", json=payload, headers=_plain_headers(user_id=7)
+        )
+        assert r.status_code == 201, r.text
+        assert mock_create.call_args.kwargs["requester_id"] == 40
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Caso 5: endpoint GET /api/maint/v2/users requiere permiso behalf
 # ─────────────────────────────────────────────────────────────────────
 
@@ -287,9 +339,10 @@ class TestUsersEndpoint:
         r = client.get("/api/maint/v2/users", headers=_admin_headers())
         assert r.status_code == 400
 
+    @patch("itcj2.core.services.authz_service.users_with_assignment_select", return_value=[1, 2])
     @patch("itcj2.core.services.authz_service.get_user_permissions_for_app")
     @patch("itcj2.core.services.authz_service.has_any_assignment")
-    def test_authorized_with_dept_id_returns_data(self, mock_has_assign, mock_perms, app_and_db):
+    def test_authorized_with_dept_id_returns_data(self, mock_has_assign, mock_perms, mock_elig, app_and_db):
         _, client, mock_db = app_and_db
         mock_has_assign.return_value = True
         mock_perms.return_value = {"maint.tickets.api.create.behalf"}
