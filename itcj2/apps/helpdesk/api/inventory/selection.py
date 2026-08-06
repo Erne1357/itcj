@@ -44,8 +44,12 @@ def get_items_for_ticket(
     if department_id:
         department_id = int(department_id)
     else:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
+        # Default por PROCEDENCIA: el departamento que de verdad le da acceso
+        # a helpdesk, no el "primario" agnóstico (que con multi-puesto podía
+        # caer en un departamento ajeno a la app y dejar el default fuera del
+        # scope visible, resultando en una lista vacía).
+        from itcj2.core.services.departments_service import primary_app_department
+        user_dept = primary_app_department(db, user_id, "helpdesk")
         if user_dept:
             department_id = user_dept.id
 
@@ -178,8 +182,10 @@ def get_groups_with_items(
 
     dept_id = department_id
     if not dept_id:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
+        # Mismo criterio que `get_items_for_ticket`: default por procedencia,
+        # no el "primario" agnóstico.
+        from itcj2.core.services.departments_service import primary_app_department
+        user_dept = primary_app_department(db, user_id, "helpdesk")
         if user_dept:
             dept_id = user_dept.id
 

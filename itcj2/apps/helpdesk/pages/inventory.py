@@ -96,7 +96,6 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         is_comp_center_user,
     )
     from itcj2.core.models.department import Department
-    from itcj2.core.services.departments_service import get_user_department
     from itcj2.database import SessionLocal
 
     p = request.query_params
@@ -118,8 +117,6 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         # visible: None = ve todo; set = deptos visibles (su depto ∪ subárbol jerárquico).
         visible = visible_department_ids(_db, _user)
         can_view_all = visible is None
-        user_dept = get_user_department(_db, user_id)
-        user_dept_id = user_dept.id if user_dept else None
 
         q = _db.query(InventoryItem).filter_by(is_active=True)
         if can_view_all:
@@ -392,7 +389,7 @@ def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
     from itcj2.apps.helpdesk.models import InventoryGroup
     from itcj2.apps.helpdesk.utils.inventory_access import has_full_inventory_access
     from itcj2.core.models.department import Department
-    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.core.services.departments_service import app_departments, primary_app_department
     from itcj2.database import SessionLocal
 
     p = request.query_params
@@ -411,7 +408,11 @@ def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         _user = getattr(request.state, "current_user", None) or {"sub": str(user_id)}
         visible = visible_department_ids(_db, _user)   # None = ve todo
         can_view_all = visible is None
-        user_dept = get_user_department(_db, user_id)
+        # Por procedencia (no el "primario" agnóstico): el departamento que de
+        # verdad le da acceso a helpdesk, para precargar el formulario de
+        # creación. Con multi-puesto, el agnóstico podía anclar en un
+        # departamento ajeno a la app.
+        user_dept = primary_app_department(_db, user_id, "helpdesk")
         user_dept_id = user_dept.id if user_dept else None
 
         q = _db.query(InventoryGroup).filter_by(is_active=True)
@@ -459,7 +460,10 @@ def _query_groups_ctx(request: Request, user_id: int, user_roles: set) -> dict:
                 .all()
             )
         else:
-            departments = [user_dept] if user_dept else []
+            # Respaldo (sin acceso departamental/subárbol de grupos): TODOS sus
+            # departamentos por procedencia, no solo el primario — quien tiene
+            # dos también debe poder elegir entre ambos en el selector.
+            departments = app_departments(_db, user_id, "helpdesk")
         departments_data = [{"id": d.id, "name": d.name} for d in departments]
     finally:
         _db.close()
@@ -535,14 +539,16 @@ async def group_detail(
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.inventory_groups.page.list"])),
 ):
     """Detalle de un grupo con sus equipos."""
-    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.core.services.departments_service import primary_app_department
     from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
     _db = SessionLocal()
     try:
-        user_dept = get_user_department(_db, user_id)
+        # Por procedencia (no el "primario" agnóstico): ver razonamiento en
+        # `_query_groups_ctx`.
+        user_dept = primary_app_department(_db, user_id, "helpdesk")
         department_id = user_dept.id if user_dept else None
     finally:
         _db.close()

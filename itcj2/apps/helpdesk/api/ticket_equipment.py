@@ -166,11 +166,15 @@ def get_tickets_by_equipment(
     # aparecían aquí aunque sí salieran en la lista y el detalle.
     dept_ids: set[int] = set()
     if not has_full_access and "department_head" in user_roles:
-        from itcj2.core.services.departments_service import get_user_departments
+        from itcj2.core.services.departments_service import app_departments
         from itcj2.core.services.scope_service import subtree_scope_for
 
         dept_ids = subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
-        dept_ids |= {d.id for d in get_user_departments(db, user_id)}
+        # Por procedencia (no `get_user_departments`, agnóstico): solo cuentan
+        # los departamentos de los puestos que le dan acceso a helpdesk. Con
+        # multi-puesto, el agnóstico incluía CUALQUIER departamento del
+        # usuario, otorgante o no.
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
 
     if not has_full_access:
         if item.assigned_to_user_id != user_id and item.department_id not in dept_ids:

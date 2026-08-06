@@ -319,13 +319,15 @@ def get_assignment_stats(
 
     dept_ids = None
     if not has_full_access:
-        from itcj2.core.services.departments_service import get_primary_user_department
+        from itcj2.core.services.departments_service import app_departments
         from itcj2.core.services.scope_service import subtree_scope_for
 
         dept_ids = subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
-        primary_dept = get_primary_user_department(db, user_id)
-        if primary_dept:
-            dept_ids = dept_ids | {primary_dept.id}
+        # TODOS los departamentos que le dan acceso a helpdesk (por
+        # procedencia), no solo el "primario" por antigüedad: con multi-puesto,
+        # `get_primary_user_department` podía anclar en un departamento ajeno a
+        # la app, o dejar fuera a uno de dos departamentos que sí otorgan.
+        dept_ids = dept_ids | {d.id for d in app_departments(db, user_id, "helpdesk")}
 
     def _scoped(query):
         if dept_ids is not None:

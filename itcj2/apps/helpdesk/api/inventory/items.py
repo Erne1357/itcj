@@ -158,9 +158,14 @@ def get_department_equipment(
     is_comp_center = is_comp_center_user(db, user_id)
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_desarrollo" not in user_roles and "tech_soporte" not in user_roles and not is_comp_center:
-        from itcj2.core.services.departments_service import get_user_department
-        user_dept = get_user_department(db, user_id)
-        if not user_dept or user_dept.id != department_id:
+        from itcj2.core.services.departments_service import app_departments
+        # Membresía sobre TODOS los departamentos que le dan acceso a helpdesk
+        # (por procedencia), no igualdad contra un solo "primario" por
+        # antigüedad: con multi-puesto, ese primario podía ser un departamento
+        # ajeno a la app (filtrando el correcto) o dejar fuera a uno de dos
+        # departamentos que sí otorgan.
+        own_dept_ids = {d.id for d in app_departments(db, user_id, "helpdesk")}
+        if department_id not in own_dept_ids:
             raise HTTPException(403, detail={"success": False, "error": "No tiene permiso para ver este departamento"})
 
     items = InventoryService.get_items_for_department(db, department_id, include_assigned.lower() == "true")
@@ -215,9 +220,13 @@ def get_item_tickets(
 
     if "admin" not in user_roles and user_id not in secretary_comp_center and "tech_soporte" not in user_roles and "tech_desarrollo" not in user_roles and not is_comp_center:
         if "department_head" in user_roles:
-            from itcj2.core.services.departments_service import get_user_department
-            user_dept = get_user_department(db, user_id)
-            if not user_dept or item.department_id != user_dept.id:
+            from itcj2.core.services.departments_service import app_departments
+            # Membresía sobre TODOS los departamentos que le dan acceso a
+            # helpdesk (por procedencia), no igualdad contra un solo
+            # "primario" por antigüedad (ver `get_department_equipment` arriba
+            # para el mismo razonamiento).
+            own_dept_ids = {d.id for d in app_departments(db, user_id, "helpdesk")}
+            if item.department_id not in own_dept_ids:
                 raise HTTPException(403, detail={"success": False, "error": "No tiene permiso"})
         else:
             if item.assigned_to_user_id != user_id:

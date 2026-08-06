@@ -38,12 +38,15 @@ def get_my_scope(
     El front usa esto para decidir si mostrar un selector de departamento
     o limitar la vista al dpto del usuario.
     """
-    from itcj2.core.services.departments_service import get_user_department
+    from itcj2.core.services.departments_service import primary_app_department
     from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
     user_id = int(user["sub"])
     cross_dept = _user_can_cross_dept(db, user)
-    dept = get_user_department(db, user_id)
+    # Por procedencia (no el "primario" agnóstico): el departamento que de
+    # verdad le da acceso a helpdesk, no el que gana el desempate por
+    # antigüedad entre TODOS sus puestos.
+    dept = primary_app_department(db, user_id, "helpdesk")
     visible = visible_department_ids(db, user)
     return {
         "success": True,

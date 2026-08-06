@@ -102,7 +102,7 @@ def _resolve_stats_scope(db: Session, user: dict) -> tuple:
     """
     from itcj2.dependencies import is_global_admin
     from itcj2.core.services.authz_cache import cached_perms
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
 
     if is_global_admin(user):
@@ -116,9 +116,12 @@ def _resolve_stats_scope(db: Session, user: dict) -> tuple:
 
     dept_ids: set = set()
     if "helpdesk.stats.api.read.subtree" in perms:
-        primary = get_primary_user_department(db, user_id)
-        if primary is not None:
-            dept_ids.add(primary.id)
+        # TODOS los departamentos que le dan acceso a helpdesk (por procedencia),
+        # no solo el "primario" por antigüedad: con multi-puesto, `get_primary_
+        # user_department` podía elegir un departamento ajeno a la app (más
+        # antiguo) y dejar fuera el que sí otorga, o mostrar solo uno de dos
+        # departamentos que sí otorgan.
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
         dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.stats.api.read.subtree")
 
     return False, dept_ids
@@ -243,7 +246,7 @@ def get_department_stats(
     db: DbSession = None,
 ):
     from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
-    from itcj2.core.services.departments_service import get_primary_user_department
+    from itcj2.core.services.departments_service import app_departments
     from itcj2.core.services.scope_service import subtree_scope_for
     from itcj2.apps.helpdesk.models.ticket import Ticket
 
@@ -260,10 +263,12 @@ def get_department_stats(
         # ignoraba la ventana de vigencia y no ordenaba, así que un puesto
         # VENCIDO (fila is_active=True pero end_date pasado) podía seguir
         # autorizando, y con varios puestos el resultado era no determinista.
-        primary = get_primary_user_department(db, user_id)
+        # TODOS los departamentos que le dan acceso a helpdesk (por
+        # procedencia), no solo el "primario" por antigüedad: `get_primary_
+        # user_department` podía anclar en un puesto ajeno a la app, o dejar
+        # fuera a uno de dos departamentos que sí otorgan.
         allowed = subtree_scope_for(db, user_id, "helpdesk", "helpdesk.stats.api.read.subtree")
-        if primary is not None:
-            allowed = allowed | {primary.id}
+        allowed |= {d.id for d in app_departments(db, user_id, "helpdesk")}
         # Subárbol, no igualdad: el jefe con `.subtree` debe ver también sus
         # sub-departamentos, no solo el propio.
         can_view = department_id in allowed
