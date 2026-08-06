@@ -9,7 +9,6 @@ from datetime import date, timedelta
 
 import itcj2.models  # noqa: F401
 from itcj2.apps.helpdesk.services.inventory_retirement_service import InventoryRetirementService
-from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
 from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
 from itcj2.apps.helpdesk.models.inventory_retirement_request import (
     InventoryRetirementRequest, InventoryRetirementRequestItem,
@@ -19,6 +18,8 @@ from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.user import User
 from itcj2.core.models.position import Position, UserPosition, PositionAppPerm
+
+from ._catalog import ensure_inventory_category
 
 RETIREMENT_SUBTREE = "helpdesk.inventory.retirement.api.read.subtree"
 
@@ -36,9 +37,10 @@ def _user(db, last):
 
 
 def _category(db):
-    c = db.query(InventoryCategory).filter_by(is_active=True).first()
-    assert c is not None
-    return c
+    """`database/DML/` (categorías reales de inventario) es gitignored y no
+    llega al checkout de CI: se siembra get-or-create dentro de la
+    transacción del test en vez de asumirla."""
+    return ensure_inventory_category(db)
 
 
 def _request_with_item(db, folio, requester, department, number):

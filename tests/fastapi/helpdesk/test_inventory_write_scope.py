@@ -34,6 +34,8 @@ from itcj2.core.models.user import User
 from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
 from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
 
+from ._catalog import ensure_comp_center
+
 SUBTREE = "helpdesk.inventory.api.read.subtree"
 
 
@@ -201,6 +203,11 @@ def test_bulk_transfer_within_subtree_succeeds(db_session):
 
 def test_bulk_send_to_limbo_outside_subtree_goes_to_errors(db_session):
     from itcj2.apps.helpdesk.api.inventory.bulk_transfer import bulk_send_to_limbo
+
+    # El endpoint exige que exista el departamento del Centro de Cómputo
+    # (code `comp_center`, destino real del "limbo") antes de tocar el scope
+    # que este test ejercita; en dev ya existe, en CI (BD vacía) se siembra.
+    ensure_comp_center(db_session)
 
     root, mine, leaf, sibling = _tree(db_session)
     boss = _user(db_session, "Boss4")
