@@ -32,5 +32,27 @@
         });
     }
 
-    window.HelpdeskPage.page('admin_home', { init: bindRefreshButton });
+    // Selector de período: navega por morph a la misma página con ?preset=,
+    // así la URL queda compartible y el back del navegador devuelve el período
+    // anterior. El servidor sigue siendo el único que calcula los KPIs.
+    function bindPeriodSelect() {
+        var sel = document.getElementById('hdHomePeriod');
+        if (!sel || sel.dataset.hdBound === '1') return;
+        sel.dataset.hdBound = '1';
+        sel.addEventListener('change', function () {
+            var url = '/help-desk/admin/home' + (sel.value ? '?preset=' + encodeURIComponent(sel.value) : '');
+            if (window.HelpdeskPage && typeof window.HelpdeskPage.navigate === 'function') {
+                window.HelpdeskPage.navigate(url);
+            } else {
+                window.location.href = url;
+            }
+        });
+    }
+
+    function init() {
+        bindRefreshButton();
+        bindPeriodSelect();
+    }
+
+    window.HelpdeskPage.page('admin_home', { init: init });
 })();

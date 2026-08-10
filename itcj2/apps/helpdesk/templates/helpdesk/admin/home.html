@@ -20,7 +20,21 @@
 
 {% block content %}
 
-{# === Franja KPI compacta ============================================== #}
+{# === Franja KPI compacta ==============================================
+   El período acota Total / Satisfacción / Resolución / SLA (métricas de
+   intervalo). "Pendientes" y "Hoy" son fotos del momento y no se filtran, para
+   que "Pendientes" siga siendo el MISMO número que "sin asignar" de la banda de
+   abajo, elija lo que elija el usuario. #}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+  <h2 class="h6 text-uppercase text-muted mb-0">Resumen · {{ preset_label }}</h2>
+  <select class="form-select form-select-sm w-auto" id="hdHomePeriod" aria-label="Período de los indicadores">
+    {% for value, label in [('', 'Histórico'), ('today', 'Hoy'), ('week', 'Últimos 7 días'),
+                            ('month', 'Últimos 30 días'), ('3months', 'Últimos 90 días'),
+                            ('year', 'Último año')] %}
+    <option value="{{ value }}" {% if preset == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</div>
 <div class="row row-cols-3 row-cols-md-6 g-2 mb-3">
   <div class="col">
     <div class="hd-kpi-tile">

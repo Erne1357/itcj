@@ -11,7 +11,7 @@ futuro widget móvil, etc.).
 """
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.dependencies import DbSession, require_perms
 
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 @router.get("/admin-overview")
 def get_admin_overview(
+    preset: str = Query(None, description="today|week|month|3months|year; vacío = histórico"),
     user: dict = require_perms("helpdesk", ["helpdesk.dashboard.admin"]),
     db: DbSession = None,
 ):
@@ -33,7 +34,7 @@ def get_admin_overview(
     from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
 
     try:
-        data = AdminDashboardService.get_overview(db, user)
+        data = AdminDashboardService.get_overview(db, user, preset=preset)
         return {"success": True, "data": data}
     except Exception as e:
         logger.error(f"Error al componer el overview del dashboard admin: {e}")

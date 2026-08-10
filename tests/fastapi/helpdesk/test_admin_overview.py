@@ -330,3 +330,93 @@ class TestPageContextFailsClosed:
 
         assert resp.status_code == 200
         assert 'data-hd-page="admin_home"' in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Selector de periodo (?preset=). Acota las metricas de INTERVALO (total,
+# satisfaccion, resolucion, SLA) y deliberadamente NO las fotos del momento
+# (pendientes, hoy, banda de atencion): esconder trabajo pendiente viejo por
+# haber elegido "Hoy" seria lo contrario de para que existe esa banda.
+# ---------------------------------------------------------------------------
+
+class TestPeriodoDeKpis:
+
+    def _escenario(self, db):
+        """Un ticket viejo (400 dias) y uno de hoy, ambos PENDING, mismo depto."""
+        dept = _dept(db, f"ovp_{uuid4().hex[:6]}")
+        boss = _user(db, "PresetBoss")
+        _grant(db, boss, dept, code=[DASHBOARD_ADMIN, STATS_SUBTREE])
+        viejo = _ticket(db, f"OVP-OLD-{uuid4().hex[:5]}", boss, dept)
+        reciente = _ticket(db, f"OVP-NEW-{uuid4().hex[:5]}", boss, dept)
+        viejo.created_at = datetime.now() - timedelta(days=400)
+        db.commit()
+        return dept, boss, viejo, reciente
+
+    def test_historico_cuenta_los_dos(self, db_session):
+        from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+
+        _dept_, boss, _v, _r = self._escenario(db_session)
+        data = AdminDashboardService.get_overview(db_session, {"sub": str(boss.id), "role": None})
+
+        assert data["kpis"]["total"] == 2
+        assert data["preset"] == ""
+        assert data["preset_label"] == "Histórico"
+
+    def test_el_periodo_acota_el_total(self, db_session):
+        from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+
+        _dept_, boss, _v, _r = self._escenario(db_session)
+        data = AdminDashboardService.get_overview(
+            db_session, {"sub": str(boss.id), "role": None}, preset="week")
+
+        assert data["kpis"]["total"] == 1          # el de 400 dias queda fuera
+        assert data["preset"] == "week"
+        assert data["preset_label"] == "Últimos 7 días"
+
+    def test_pendientes_y_sin_asignar_no_se_desalinean_con_periodo(self, db_session):
+        """La invariante que sostiene el diseño: son el MISMO numero, elija el
+        periodo que elija el usuario."""
+        from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+
+        _dept_, boss, _v, _r = self._escenario(db_session)
+        for preset in (None, "today", "week", "year"):
+            data = AdminDashboardService.get_overview(
+                db_session, {"sub": str(boss.id), "role": None}, preset=preset)
+            sin_asignar = next(r for r in data["attention"] if r["key"] == "unassigned")
+            assert data["kpis"]["pending"] == sin_asignar["count"], f"preset={preset}"
+
+    def test_la_banda_de_atencion_ignora_el_periodo(self, db_session):
+        """Elegir "Hoy" no puede esconder los dos pendientes, uno de ellos viejo."""
+        from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+
+        _dept_, boss, _v, _r = self._escenario(db_session)
+        hoy = AdminDashboardService.get_overview(
+            db_session, {"sub": str(boss.id), "role": None}, preset="today")
+
+        assert next(r for r in hoy["attention"] if r["key"] == "unassigned")["count"] == 2
+
+    def test_preset_invalido_cae_a_historico(self, db_session):
+        from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+
+        _dept_, boss, _v, _r = self._escenario(db_session)
+        data = AdminDashboardService.get_overview(
+            db_session, {"sub": str(boss.id), "role": None}, preset="'; DROP TABLE--")
+
+        assert data["preset"] == ""
+        assert data["kpis"]["total"] == 2
+
+    def test_la_pagina_pasa_el_preset_y_marca_la_opcion(self, db_session, monkeypatch):
+        _dept_, boss, _v, _r = self._escenario(db_session)
+        monkeypatch.setattr("itcj2.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None, raising=False)
+
+        app = create_app()
+        app.dependency_overrides[get_db] = lambda: db_session
+        with TestClient(app) as c:
+            resp = c.get("/help-desk/admin/home?preset=week", headers=_jwt_cookie(boss.id))
+        app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        assert 'id="hdHomePeriod"' in resp.text
+        assert '<option value="week" selected>' in resp.text
+        assert "Últimos 7 días" in resp.text

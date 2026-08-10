@@ -45,13 +45,41 @@ _WARRANTY_ALERT_DAYS = 30
 # Ancla de subárbol propia de bajas (igual que `api/inventory/retirement_requests.py::_retirement_scope`).
 _RETIREMENT_SUBTREE_PERM = "helpdesk.inventory.retirement.api.read.subtree"
 
+# Períodos que acepta la franja de KPIs. Son los mismos que reconoce
+# `_build_base_query` en `api/stats.py`, para que el tablero y las estadísticas
+# nunca signifiquen cosas distintas con la misma etiqueta.
+_KPI_PRESETS = ("today", "week", "month", "3months", "year")
+KPI_PRESET_LABELS = {
+    "": "Histórico",
+    "today": "Hoy",
+    "week": "Últimos 7 días",
+    "month": "Últimos 30 días",
+    "3months": "Últimos 90 días",
+    "year": "Último año",
+}
+
 
 class AdminDashboardService:
     """Compone el resumen de `/help-desk/admin/home`."""
 
     @staticmethod
-    def get_overview(db: Session, user: dict) -> dict:
-        kpis, ticket_attention, recent_tickets = AdminDashboardService._ticket_block(db, user)
+    def get_overview(db: Session, user: dict, preset: str | None = None) -> dict:
+        """`preset` acota las métricas de VOLUMEN Y CALIDAD (mismos valores que
+        `/stats/*`: today/week/month/3months/year; `None` = histórico).
+
+        Qué respeta el período y qué no, a propósito:
+          - Sí: Total, Satisfacción, Resolución media y SLA — son métricas de un
+            intervalo, y sin período no significan gran cosa.
+          - No: Pendientes, Hoy, la banda "Requiere atención" y la actividad
+            reciente — son fotos del momento. Esconder trabajo pendiente viejo
+            por haber elegido "Hoy" sería justo lo contrario de para qué existe
+            esa banda.
+
+        Así "Pendientes" y la fila "sin asignar" siguen saliendo del mismo
+        conteo y no pueden desalinearse, elija el período que elija el usuario.
+        """
+        preset = preset if preset in _KPI_PRESETS else None
+        kpis, ticket_attention, recent_tickets = AdminDashboardService._ticket_block(db, user, preset)
         inventory_attention, recent_inventory = AdminDashboardService._inventory_block(db, user)
 
         return {
@@ -59,13 +87,15 @@ class AdminDashboardService:
             "attention": ticket_attention + inventory_attention,
             "recent_tickets": recent_tickets,
             "recent_inventory_events": recent_inventory,
+            "preset": preset or "",
+            "preset_label": KPI_PRESET_LABELS[preset or ""],
         }
 
     # ------------------------------------------------------------------
     # Tickets — mismo scope que `/stats/*` (`_resolve_stats_scope`).
     # ------------------------------------------------------------------
     @staticmethod
-    def _ticket_block(db: Session, user: dict) -> tuple[dict, list, list]:
+    def _ticket_block(db: Session, user: dict, preset: str | None = None) -> tuple[dict, list, list]:
         from itcj2.apps.helpdesk.api.stats import (
             _build_base_query,
             _resolution_hours,
@@ -78,21 +108,25 @@ class AdminDashboardService:
         has_full_access, dept_ids = _resolve_stats_scope(db, user)
         scoped_dept_ids = None if has_full_access else dept_ids
 
-        base_query = _build_base_query(db, None, None, None, None, None, dept_ids=scoped_dept_ids)
+        # Dos queries a propósito: la franja de KPIs sí respeta el período
+        # elegido, la banda de atención NUNCA — esconder trabajo pendiente viejo
+        # por haber elegido "Hoy" sería justo lo contrario de para qué existe.
+        kpi_query = _build_base_query(db, None, preset, None, None, None, dept_ids=scoped_dept_ids)
+        attention_query = _build_base_query(db, None, None, None, None, None, dept_ids=scoped_dept_ids)
 
-        total = base_query.count()
-        pending = base_query.filter(Ticket.status == "PENDING").count()
+        total = kpi_query.count()
+        pending = attention_query.filter(Ticket.status == "PENDING").count()
 
         today_start = datetime.combine(datetime.now().date(), datetime.min.time())
-        created_today = base_query.filter(Ticket.created_at >= today_start).count()
+        created_today = attention_query.filter(Ticket.created_at >= today_start).count()
 
         stale_cutoff = datetime.now() - timedelta(days=_STALE_DAYS)
-        stale_count = base_query.filter(
+        stale_count = attention_query.filter(
             Ticket.status.in_(_ACTIVE_TICKET_STATUSES),
             Ticket.updated_at < stale_cutoff,
         ).count()
 
-        resolved_tickets = base_query.filter(Ticket.resolved_at.isnot(None)).all()
+        resolved_tickets = kpi_query.filter(Ticket.resolved_at.isnot(None)).all()
         res_hours = [_resolution_hours(t) for t in resolved_tickets if _resolution_hours(t) is not None]
         avg_resolution_hours = _safe_avg(res_hours)
         sla_ok = sum(1 for t in resolved_tickets if _within_sla(t))
@@ -132,7 +166,9 @@ class AdminDashboardService:
             },
         ]
 
-        recent = base_query.order_by(Ticket.created_at.desc()).limit(8).all()
+        # Sin filtrar por período: "últimos tickets" son los últimos, punto. Con
+        # "Hoy" seleccionado y un día tranquilo, la columna quedaría vacía.
+        recent = attention_query.order_by(Ticket.created_at.desc()).limit(8).all()
         recent_tickets = [t.to_dict(include_relations=True) for t in recent]
 
         return kpis, attention, recent_tickets

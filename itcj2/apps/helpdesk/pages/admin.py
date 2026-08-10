@@ -371,7 +371,7 @@ def _query_documents_ctx(request: Request, user_id: int, user_roles: set) -> dic
     }
 
 
-def _query_admin_overview_ctx(user: dict) -> dict:
+def _query_admin_overview_ctx(user: dict, preset: str | None = None) -> dict:
     """Compone KPIs + banda de atención + actividad reciente para el home admin.
 
     Reusado por la PÁGINA (render server-side, sin flash de "-" mientras carga
@@ -385,7 +385,7 @@ def _query_admin_overview_ctx(user: dict) -> dict:
 
     _db = SessionLocal()
     try:
-        return AdminDashboardService.get_overview(_db, user)
+        return AdminDashboardService.get_overview(_db, user, preset=preset)
     finally:
         _db.close()
 
@@ -398,7 +398,7 @@ async def home(
     """Dashboard principal de administrador de Help-Desk."""
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
-    overview = _query_admin_overview_ctx(user)
+    overview = _query_admin_overview_ctx(user, preset=request.query_params.get("preset"))
 
     return render_helpdesk(request, "helpdesk/admin/home.html", {
         "user_roles": user_roles,
