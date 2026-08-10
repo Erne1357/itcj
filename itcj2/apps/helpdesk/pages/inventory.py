@@ -63,18 +63,80 @@ async def dashboard(
 
 # Estados de equipo (fuente única para el filtro server-side). El color de cada
 # estado lo dan clases de Bootstrap en el fragmento; aquí solo etiquetas.
+# ACTIVE/MAINTENANCE/DAMAGED/LOST + RETIRED/PENDING_ASSIGNMENT (existen en datos
+# reales — ver STATUS_INFO en _items_list_results.html; faltaban en el filtro).
 _ITEM_STATUS_OPTIONS = [
     ("", "Todos"),
     ("ACTIVE", "Activo"),
     ("MAINTENANCE", "Mantenim."),
     ("DAMAGED", "Dañado"),
     ("LOST", "Extraviado"),
+    ("RETIRED", "Retirado"),
+    ("PENDING_ASSIGNMENT", "Pendiente"),
 ]
 _ITEM_ASSIGNED_OPTIONS = [
     ("", "Todos"),
     ("yes", "Asignados"),
     ("no", "Globales"),
 ]
+
+# Panel "Más filtros" (aditivo, opt-in): registro/garantía/verificación/marca/
+# mantenimiento/orden. Mismos param names que acepta GET /inventory/items (API)
+# Y `GET /inventory/items/export.xlsx` — la exportación descarga con los
+# params tal cual los deja este form.
+_ITEM_WARRANTY_OPTIONS = [
+    ("", "Todas"),
+    ("valid", "Vigente"),
+    ("expiring", "Por vencer (≤30 días)"),
+    ("expired", "Vencida"),
+    ("none", "Sin información"),
+]
+_ITEM_VERIFIED_OPTIONS = [
+    ("", "Todas"),
+    ("never", "Nunca verificado"),
+    ("recent", "Reciente (<30 días)"),
+    ("outdated", "Vencida (30-90 días)"),
+    ("critical", "Crítica (>90 días)"),
+]
+_ITEM_MAINTENANCE_OPTIONS = [
+    ("", "Todos"),
+    ("due", "Vencido"),
+    ("soon", "Próximo (≤30 días)"),
+]
+_ITEM_SORT_OPTIONS = [
+    ("", "Por defecto"),
+    ("recent", "Más recientes"),
+    ("oldest", "Más antiguos"),
+    ("number", "N° Inventario"),
+    ("warranty", "Garantía próxima"),
+    ("verified", "Verificación pendiente"),
+]
+_ITEM_WARRANTY_LABELS = dict(_ITEM_WARRANTY_OPTIONS)
+_ITEM_VERIFIED_LABELS = dict(_ITEM_VERIFIED_OPTIONS)
+_ITEM_MAINTENANCE_LABELS = dict(_ITEM_MAINTENANCE_OPTIONS)
+_ITEM_SORT_LABELS = dict(_ITEM_SORT_OPTIONS)
+
+
+def _build_items_filter_chips(raw: dict) -> list:
+    """Un chip por filtro NUEVO activo (panel "Más filtros"), quitable
+    individualmente desde el JS vía `data-chip-remove="<param>"` — mismo
+    mecanismo que `admin.py::_build_filter_chips` para tickets."""
+    chips = []
+    if raw.get("reg_start"):
+        chips.append({"param": "reg_start", "label": f"Registrado desde: {raw['reg_start']}"})
+    if raw.get("reg_end"):
+        chips.append({"param": "reg_end", "label": f"Registrado hasta: {raw['reg_end']}"})
+    if raw.get("warranty"):
+        chips.append({"param": "warranty", "label": f"Garantía: {_ITEM_WARRANTY_LABELS.get(raw['warranty'], raw['warranty'])}"})
+    if raw.get("verified"):
+        chips.append({"param": "verified", "label": f"Verificación: {_ITEM_VERIFIED_LABELS.get(raw['verified'], raw['verified'])}"})
+    if raw.get("brand"):
+        chips.append({"param": "brand", "label": f"Marca: {raw['brand']}"})
+    if raw.get("maintenance"):
+        chips.append({"param": "maintenance", "label": f"Mantenimiento: {_ITEM_MAINTENANCE_LABELS.get(raw['maintenance'], raw['maintenance'])}"})
+    if raw.get("sort"):
+        chips.append({"param": "sort", "label": f"Orden: {_ITEM_SORT_LABELS.get(raw['sort'], raw['sort'])}"})
+    return chips
 
 
 def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
@@ -87,8 +149,10 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
     usuario del Centro de Cómputo; jefe de depto = solo su departamento; el resto
     solo ve los equipos que tiene asignados (o un depto explícito).
     """
-    from sqlalchemy import or_
-
+    from itcj2.apps.helpdesk.api.inventory.items import (
+        _apply_item_common_filters,
+        _apply_item_sort,
+    )
     from itcj2.apps.helpdesk.models import InventoryItem
     from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
     from itcj2.apps.helpdesk.utils.inventory_access import (
@@ -104,6 +168,15 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
     status = (p.get("status", "") or "").strip() or None
     assigned = (p.get("assigned", "") or "").strip() or None
     dept_param = (p.get("department", "") or "").strip() or None
+    # Panel "Más filtros" (aditivo) — mismos param names que la API JSON y la
+    # exportación, para que los tres coincidan exactamente en resultados.
+    reg_start = (p.get("reg_start", "") or "").strip() or None
+    reg_end = (p.get("reg_end", "") or "").strip() or None
+    warranty = (p.get("warranty", "") or "").strip() or None
+    verified = (p.get("verified", "") or "").strip() or None
+    brand = (p.get("brand", "") or "").strip() or None
+    maintenance = (p.get("maintenance", "") or "").strip() or None
+    sort = (p.get("sort", "") or "").strip() or None
     try:
         page = max(1, int(p.get("page", "1")))
     except (ValueError, TypeError):
@@ -138,26 +211,14 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         else:
             q = q.filter(InventoryItem.assigned_to_user_id == user_id)
 
-        if category and category.isdigit():
-            q = q.filter(InventoryItem.category_id == int(category))
-        if status:
-            q = q.filter(InventoryItem.status == status.upper())
-        if assigned == "yes":
-            q = q.filter(InventoryItem.assigned_to_user_id.isnot(None))
-        elif assigned == "no":
-            q = q.filter(InventoryItem.assigned_to_user_id.is_(None))
-        if search:
-            like = f"%{search}%"
-            q = q.filter(or_(
-                InventoryItem.inventory_number.ilike(like),
-                InventoryItem.brand.ilike(like),
-                InventoryItem.model.ilike(like),
-                InventoryItem.supplier_serial.ilike(like),
-                InventoryItem.itcj_serial.ilike(like),
-                InventoryItem.id_tecnm.ilike(like),
-            ))
-
-        q = q.order_by(InventoryItem.id.asc())
+        category_id = int(category) if category and category.isdigit() else None
+        q = _apply_item_common_filters(
+            q,
+            category_id=category_id, status=status, assigned=assigned, search=search,
+            reg_start=reg_start, reg_end=reg_end, warranty=warranty, verified=verified,
+            brand=brand, maintenance=maintenance,
+        )
+        q = _apply_item_sort(q, sort)
         total = q.count()
         total_pages = max(1, (total + per_page - 1) // per_page)
         page = min(page, total_pages)
@@ -199,6 +260,13 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
     finally:
         _db.close()
 
+    raw_new_filters = {
+        "reg_start": reg_start, "reg_end": reg_end, "warranty": warranty,
+        "verified": verified, "brand": brand, "maintenance": maintenance, "sort": sort,
+    }
+    more_active = any(raw_new_filters.values())
+    chips = _build_items_filter_chips(raw_new_filters)
+
     return {
         "items": items_data,
         "total": total,
@@ -215,6 +283,15 @@ def _query_items_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         "f_status": status or "",
         "f_assigned": assigned or "",
         "f_department": dept_param or "",
+        "f_reg_start": reg_start or "",
+        "f_reg_end": reg_end or "",
+        "f_warranty": warranty or "",
+        "f_verified": verified or "",
+        "f_brand": brand or "",
+        "f_maintenance": maintenance or "",
+        "f_sort": sort or "",
+        "more_active": more_active,
+        "chips": chips,
     }
 
 
@@ -271,6 +348,12 @@ async def items_list(
         "user_roles": user_roles,
         "active_page": "inventory_items",
         "filter_fields": filter_fields,
+        # Opciones del panel "Más filtros" (fuente única server-side; usadas
+        # por el `{% call filter_bar(...) %}` de items_list.html).
+        "warranty_options": _ITEM_WARRANTY_OPTIONS,
+        "verified_options": _ITEM_VERIFIED_OPTIONS,
+        "maintenance_options": _ITEM_MAINTENANCE_OPTIONS,
+        "sort_options": _ITEM_SORT_OPTIONS,
     })
     return render_helpdesk(request, "helpdesk/inventory/items/items_list.html", ctx)
 

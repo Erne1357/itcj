@@ -18,6 +18,8 @@
     let _qaBodyDelegate = null;
     let _statusSubmit = null;
     let _confirmTransfer = null;
+    let _clearHandler = null;
+    let _exportHrefHandler = null;
 
     // === BS5 MODAL HELPERS ===
     function modalShow(id) { bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show(); }
@@ -207,8 +209,52 @@
         }
     }
 
-    function exportToExcel() {
-        showToast('Función de exportación en desarrollo', 'info');
+    // === EXPORTAR A EXCEL ===
+    // El botón es un <a href> real (sin blob, sin window.print()); mantenemos su
+    // href sincronizado con los valores ACTUALES del form de filtros para que la
+    // descarga incluya los mismos params que la lista visible en pantalla.
+    function updateExportHref() {
+        const form = document.getElementById('hd-filter-form');
+        const link = document.getElementById('btn-export-xlsx');
+        if (!form || !link) return;
+        const params = new URLSearchParams(new FormData(form));
+        [...params.keys()].forEach((k) => { if (!params.get(k)) params.delete(k); });
+        const qs = params.toString();
+        link.href = '/api/help-desk/v2/inventory/items/export.xlsx' + (qs ? `?${qs}` : '');
+    }
+
+    // === FILTROS: Limpiar + chips activos (panel "Más filtros") ===
+    function bindClearButton() {
+        const btn = document.getElementById('btnClearFilters');
+        const form = document.getElementById('hd-filter-form');
+        if (!btn || !form) return;
+        _clearHandler = function () {
+            form.querySelectorAll('select').forEach((s) => { s.value = ''; });
+            form.querySelectorAll('input[type="date"], input[type="text"]').forEach((i) => { i.value = ''; });
+            updateExportHref();
+            refreshList();
+        };
+        btn.addEventListener('click', _clearHandler);
+    }
+
+    // Cada chip trae un botón data-chip-remove="<param>" que limpia SOLO ese
+    // campo del form y refresca. Delegado en `document` (no en #hd-active-chips):
+    // cada refresco reemplaza ese contenedor por un OOB swap (outerHTML), así que
+    // un listener atado directamente al nodo se perdería tras el primer filtro.
+    function bindFilterChips() {
+        document.addEventListener('click', onFilterChipClick);
+    }
+
+    function onFilterChipClick(ev) {
+        const btn = ev.target.closest('#hd-active-chips [data-chip-remove]');
+        if (!btn) return;
+        const form = document.getElementById('hd-filter-form');
+        const param = btn.getAttribute('data-chip-remove');
+        const field = form && form.elements.namedItem(param);
+        if (!field) return;
+        field.value = '';
+        updateExportHref();
+        refreshList();
     }
 
     // === HTMX PAGE LIFECYCLE ===
@@ -246,11 +292,24 @@
             const btnConfirm = document.getElementById('btn-confirm-bulk-transfer');
             if (btnConfirm) { _confirmTransfer = executeBulkTransfer; btnConfirm.addEventListener('click', _confirmTransfer); }
 
+            // Filtros: botón "Limpiar" + chips activos del panel "Más filtros".
+            bindClearButton();
+            bindFilterChips();
+
+            // Exportar: href siempre sincronizado con el form (cambio de cualquier
+            // filtro, incluida la búsqueda con debounce del propio filter_bar).
+            const filterForm = document.getElementById('hd-filter-form');
+            if (filterForm) {
+                _exportHrefHandler = updateExportHref;
+                filterForm.addEventListener('change', _exportHrefHandler);
+                filterForm.addEventListener('keyup', _exportHrefHandler);
+            }
+            updateExportHref();
+
             // Expuestas para Alpine (@click) y onclick del template.
             window.hdItemsBulkTransfer = bulkTransfer;
             window.hdItemsBulkBaja = bulkBaja;
             window.hdItemsBulkLimbo = bulkLimbo;
-            window.exportToExcel = exportToExcel;
         },
 
         destroy() {
@@ -266,6 +325,16 @@
             const btnConfirm = document.getElementById('btn-confirm-bulk-transfer');
             if (btnConfirm && _confirmTransfer) btnConfirm.removeEventListener('click', _confirmTransfer);
 
+            const btnClear = document.getElementById('btnClearFilters');
+            if (btnClear && _clearHandler) btnClear.removeEventListener('click', _clearHandler);
+            document.removeEventListener('click', onFilterChipClick);
+
+            const filterForm = document.getElementById('hd-filter-form');
+            if (filterForm && _exportHrefHandler) {
+                filterForm.removeEventListener('change', _exportHrefHandler);
+                filterForm.removeEventListener('keyup', _exportHrefHandler);
+            }
+
             modalDispose('quickActionsModal');
             modalDispose('bulkTransferModal');
             modalDispose('changeStatusModal');
@@ -273,13 +342,14 @@
             delete window.hdItemsBulkTransfer;
             delete window.hdItemsBulkBaja;
             delete window.hdItemsBulkLimbo;
-            delete window.exportToExcel;
 
             allDepartments = [];
             _quickDelegate = null;
             _qaBodyDelegate = null;
             _statusSubmit = null;
             _confirmTransfer = null;
+            _clearHandler = null;
+            _exportHrefHandler = null;
         }
     });
 })();
