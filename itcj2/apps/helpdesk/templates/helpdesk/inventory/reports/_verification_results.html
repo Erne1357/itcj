@@ -41,6 +41,7 @@
           <th class="d-none d-md-table-cell">Equipo</th>
           <th class="d-none d-lg-table-cell">Departamento</th>
           <th class="d-none d-md-table-cell">Ubicación</th>
+          <th class="d-none d-lg-table-cell">Asignado a</th>
           <th>Última verificación</th>
           <th class="d-none d-sm-table-cell">Verificado por</th>
           <th>Estado</th>
@@ -58,6 +59,7 @@
             <td class="d-none d-md-table-cell">{{ equip or '—' }}</td>
             <td class="d-none d-lg-table-cell">{{ item.department.name if item.department else '—' }}</td>
             <td class="d-none d-md-table-cell small text-muted">{{ item.location_detail or '—' }}</td>
+            <td class="d-none d-lg-table-cell small">{{ item.assigned_to_user.full_name if item.assigned_to_user else '—' }}</td>
             <td class="small text-nowrap">{{ (item.last_verified_at | hd_date) or '—' }}</td>
             <td class="d-none d-sm-table-cell small">{{ item.last_verified_by.full_name if item.last_verified_by else '—' }}</td>
             <td><span class="badge bg-{{ info.color }}{{ ' text-dark' if info.color == 'warning' }}">{{ info.label }}</span></td>

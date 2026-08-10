@@ -70,7 +70,7 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "inventory_retirement_retirement_request_create": ["js/inventory/retirement/retirement_request_create.js"],
     "inventory_retirement_retirement_request_detail": ["js/inventory/retirement/retirement_request_detail.js"],
     "inventory_items_items_list": ["js/inventory/items/items_list.js"],
-    "inventory_items_item_create": ["js/inventory/items/item_create.js"],
+    "inventory_items_item_create": ["js/shared/inactive-user.js", "js/inventory/items/item_create.js"],
     "inventory_items_item_detail": ["js/inventory/items/item_detail.js"],
     "inventory_items_pending_items": ["js/inventory/items/pending_items.js"],
     "inventory_groups_groups_list": ["js/inventory/groups/groups_list.js"],
@@ -84,7 +84,7 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "js/inventory/assignment/my_equipment_modal.js",
         "js/inventory/assignment/my_equipment.js",
     ],
-    "inventory_reports_verification": ["js/inventory/reports/verification.js"],
+    "inventory_reports_verification": ["js/shared/inactive-user.js", "js/inventory/reports/verification.js"],
     "inventory_reports_reports": ["js/inventory/reports/reports.js"],
     # Reportes de sub-páginas (redirigen a /reports?tab=…; templates ya no se sirven
     # directamente — se registran para que hx-boost no se rompa si alguien llega aquí).

@@ -1431,6 +1431,7 @@ def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> 
                     joinedload(InventoryItem.department),
                     joinedload(InventoryItem.last_verified_by),
                     joinedload(InventoryItem.group),
+                    joinedload(InventoryItem.assigned_to_user),
                 )
                 .all()
             )
@@ -1460,6 +1461,17 @@ def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> 
         else:
             departments = []
         departments_data = [{"id": d.id, "name": d.name} for d in departments]
+
+        # El botón "Crear usuario inactivo" del modal de verificar solo se
+        # renderiza si el usuario tiene el permiso de CREAR inventario:
+        # verify_item vive detrás de helpdesk.inventory.api.verify (permiso
+        # DISTINTO) — quien solo verifica pero no crea recibiría un 403 al
+        # pulsarlo si el botón se mostrara igual.
+        from itcj2.core.services.authz_cache import cached_perms
+        from itcj2.dependencies import is_global_admin
+        can_create_inactive_user = is_global_admin(_user) or (
+            "helpdesk.inventory.api.create" in cached_perms(_db, user_id, "helpdesk")
+        )
     finally:
         _db.close()
 
@@ -1480,6 +1492,7 @@ def _query_verification_ctx(request: Request, user_id: int, user_roles: set) -> 
         "vr_urgent": urgent,
         "can_view_all": can_view_all,
         "departments": departments_data,
+        "can_create_inactive_user": can_create_inactive_user,
         "f_search": search or "",
         "f_department": dept_param or "",
         "f_status_filter": status_filter,
