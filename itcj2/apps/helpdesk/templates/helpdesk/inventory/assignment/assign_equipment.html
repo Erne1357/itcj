@@ -17,15 +17,16 @@
             </h1>
             <p class="text-muted mb-0 small d-none d-sm-block" id="department-info">Cargando información...</p>
         </div>
-        <div class="d-flex gap-2 flex-wrap align-items-center">
+        <div class="d-flex gap-2 flex-wrap align-items-center hd-header-toolbar">
             <!-- Selector de departamento (visible solo con perm cross-dept) -->
-            <div id="dept-selector-wrapper" class="d-none">
-                <label class="small mb-0 me-1 text-muted">Departamento:</label>
+            <div id="dept-selector-wrapper" class="d-none hd-dept-selector-wrapper">
+                <label for="dept-selector" class="small mb-0 text-muted">Departamento:</label>
                 <select id="dept-selector" class="form-select form-select-sm hd-dept-select">
                     <option value="">Cargando...</option>
                 </select>
             </div>
-            <button class="btn btn-outline-primary btn-sm" onclick="refreshData()">
+            <button class="btn btn-outline-primary btn-sm" id="btn-refresh-assign" onclick="refreshData()">
+                <span class="spinner-border spinner-border-sm hd-btn-spinner d-none" role="status" aria-hidden="true"></span>
                 <i class="fas fa-sync-alt"></i><span class="d-none d-sm-inline"> Actualizar</span>
             </button>
             <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.items_list')) }} class="btn btn-outline-secondary btn-sm">
@@ -43,40 +44,32 @@
     <!-- Main Content -->
     <div id="main-content" class="d-none">
 
-        <!-- Estadísticas Rápidas -->
-        <div class="row mb-3 mb-md-4 g-2">
-            <div class="col-6 col-md-3">
-                <div class="stats-card">
-                    <div class="stats-number" id="stat-total-users">0</div>
-                    <div class="small">Usuarios</div>
-                </div>
+        <!-- Estadísticas Rápidas: franja compacta, no 4 tarjetas de altura completa -->
+        <div class="hd-kpi-strip mb-3 mb-md-4">
+            <div class="hd-kpi-item">
+                <span class="hd-kpi-value" id="stat-total-users">0</span>
+                <span class="hd-kpi-label">Usuarios</span>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="stats-card">
-                    <div class="stats-number" id="stat-total-equipment">0</div>
-                    <div class="small"><span class="d-none d-sm-inline">Equipos </span>Totales</div>
-                </div>
+            <div class="hd-kpi-item">
+                <span class="hd-kpi-value" id="stat-total-equipment">0</span>
+                <span class="hd-kpi-label"><span class="d-none d-sm-inline">Equipos </span>Totales</span>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="stats-card">
-                    <div class="stats-number" id="stat-assigned">0</div>
-                    <div class="small">Asignados</div>
-                </div>
+            <div class="hd-kpi-item">
+                <span class="hd-kpi-value" id="stat-assigned">0</span>
+                <span class="hd-kpi-label">Asignados</span>
             </div>
-            <div class="col-6 col-md-3">
-                <div class="stats-card">
-                    <div class="stats-number" id="stat-available">0</div>
-                    <div class="small">Disponibles</div>
-                </div>
+            <div class="hd-kpi-item">
+                <span class="hd-kpi-value" id="stat-available">0</span>
+                <span class="hd-kpi-label">Disponibles</span>
             </div>
         </div>
 
         <!-- Layout de 2 Columnas -->
-        <div class="row">
+        <div class="row align-items-start">
 
             <!-- Columna Izquierda: Usuarios -->
             <div class="col-lg-5 mb-4">
-                <div class="card shadow h-100">
+                <div class="card shadow hd-assign-panel" id="users-panel">
                     <div class="card-header py-3 d-flex justify-content-between align-items-center flex-wrap gap-1">
                         <h6 class="m-0 fw-bold text-primary">
                             <i class="fas fa-users"></i> Usuarios del Departamento
@@ -112,7 +105,7 @@
 
             <!-- Columna Derecha: Equipos -->
             <div class="col-lg-7 mb-4">
-                <div class="card shadow h-100">
+                <div class="card shadow hd-assign-panel" id="equip-panel">
                     <div class="card-header py-3">
                         <h6 class="m-0 fw-bold text-success" id="equipment-panel-title">
                             <i class="fas fa-laptop"></i> Seleccione un usuario
@@ -139,7 +132,7 @@
                                         <span class="badge bg-info text-dark ms-2" id="assigned-count">0</span>
                                     </h6>
                                 </div>
-                                <div id="assigned-equipment-list">
+                                <div id="assigned-equipment-list" class="hd-scroll-assigned">
                                     <!-- Se llenará con JavaScript -->
                                 </div>
                             </div>
@@ -195,14 +188,14 @@
                                 <div class="tab-content" id="equipmentTabsContent">
                                     <!-- Tab: Equipos Individuales -->
                                     <div class="tab-pane fade show active" id="individual-equipment" role="tabpanel">
-                                        <div id="individual-equipment-list" class="mt-3">
+                                        <div id="individual-equipment-list" class="mt-3 hd-scroll-inner">
                                             <!-- Se llenará con JavaScript -->
                                         </div>
                                     </div>
 
                                     <!-- Tab: Grupos -->
                                     <div class="tab-pane fade" id="groups-equipment" role="tabpanel">
-                                        <div id="groups-list" class="mt-3">
+                                        <div id="groups-list" class="mt-3 hd-scroll-inner">
                                             <!-- Se llenará con JavaScript -->
                                         </div>
                                     </div>

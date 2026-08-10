@@ -55,36 +55,128 @@
     margin-bottom: 1rem;
 }
 
-.stats-card {
-    text-align: center;
-    padding: 0.75rem;
-    border-radius: var(--hd-r-sm);
-    background: var(--hd-gradient-accent);
-    color: #fff;
-}
-.stats-number {
-    font-size: 1.5rem;
-    font-weight: bold;
-}
-
 .empty-state {
     text-align: center;
     padding: 3rem 1rem;
     color: var(--hd-muted);
 }
 
-/* Utilidades de layout (reemplazan estilos inline del template) */
+/* ===== Franja de KPIs compacta (reemplaza las 4 .stats-card de gradiente) =====
+   Antes: 4 tarjetas col-6/col-md-3 con gradiente a ancho completo y números a
+   1.5rem — mucho alto para 4 cifras. Ahora: una sola franja con separadores. */
+.hd-kpi-strip {
+    display: flex;
+    flex-wrap: wrap;
+    background: var(--hd-surface);
+    border: 1px solid var(--hd-border);
+    border-radius: var(--hd-r-md);
+    box-shadow: var(--hd-shadow-sm);
+    overflow: hidden;
+}
+.hd-kpi-item {
+    flex: 1 1 0;
+    min-width: 7rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.5rem;
+    border-right: 1px solid var(--hd-border);
+}
+.hd-kpi-item:last-child {
+    border-right: 0;
+}
+.hd-kpi-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--hd-primary);
+    line-height: 1;
+}
+.hd-kpi-label {
+    font-size: 0.72rem;
+    color: var(--hd-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+@media (max-width: 575.98px) {
+    .hd-kpi-item {
+        flex: 1 1 50%;
+    }
+    .hd-kpi-item:nth-child(odd) {
+        border-right: 1px solid var(--hd-border);
+    }
+    .hd-kpi-item:nth-child(-n+2) {
+        border-bottom: 1px solid var(--hd-border);
+    }
+}
+
+/* ===== Header: selector de departamento + botones en la misma línea base =====
+   Antes: #dept-selector-wrapper era un <div> de bloque con label inline +
+   select inline-block sin centrar entre sí, así que su caja de línea no
+   coincidía con la altura de los .btn-sm vecinos (desfase visual). */
+.hd-header-toolbar {
+    min-height: 2.25rem;
+}
+.hd-dept-selector-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* ===== Utilidades de layout (reemplazan estilos inline del template) ===== */
 .hd-dept-select {
     min-width: 240px;
 }
+
+/* Paneles (tarjetas Usuarios/Equipos): antes usaban h-100 dentro del mismo
+   .row, así que el más alto (derecha, sin tope) estiraba también al de la
+   izquierda aunque tuviera menos ítems. Ahora cada panel se pega bajo el
+   header sticky de la app; el scroll vive DENTRO de las listas, nunca en
+   la página.
+   El max-height REAL lo pone assign_equipment.js (applyAssignLayout) como
+   inline style, medido contra la posición actual en pantalla del panel —
+   no puede ser un calc() fijo con --hd-sticky-top porque en la carga
+   inicial (scrollY=0) el panel vive en su posición NATURAL (más abajo que
+   el top "pegado" de sticky, porque el header/encabezado/KPIs de arriba
+   todavía no se scrollearon fuera de vista); un calc() basado en el top ya
+   "stuck" queda corto y el panel se sale del viewport de todos modos. El
+   valor de aquí es solo el fallback antes de que corra el JS.
+   Auditoría de ancestros (helpdesk.css + helpdesk-components.css): ni .card,
+   .card-body, .row, .col-lg-*, .container-fluid ni main.container-fluid
+   traen overflow propio, así que sticky no muere en silencio en esta vista. */
+.hd-assign-panel {
+    position: sticky;
+    top: var(--hd-sticky-top, 76px);
+    max-height: 85vh;
+    overflow: hidden;
+}
+
+/* Lista de usuarios: overflow-y con tope calculado en JS (fitScrollRegions).
+   El max-height de aquí es solo el fallback antes de que corra el JS. */
 .hd-scroll-list {
-    max-height: 600px;
+    max-height: 60vh;
     overflow-y: auto;
 }
 .hd-scroll-modal {
     max-height: 400px;
     overflow-y: auto;
 }
+
+/* Equipos asignados al usuario: lista secundaria, normalmente corta —
+   tope fijo (no depende del viewport) para no competir por altura con la
+   lista de equipos disponibles, que es la que de verdad puede crecer mucho. */
+.hd-scroll-assigned {
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+/* Equipos disponibles (individuales/grupos): igual que .hd-scroll-list, tope
+   calculado en JS; aquí solo el fallback. */
+.hd-scroll-inner {
+    max-height: 45vh;
+    overflow-y: auto;
+}
+
 .hd-user-avatar {
     width: 45px;
     height: 45px;
@@ -94,12 +186,14 @@
     font-size: 0.65rem;
 }
 
-/* Tabs personalizados */
-.nav-tabs {
+/* Tabs personalizados — acotados a #equipmentTabs/#equipmentTabsContent (IDs
+   propios de esta vista) en vez de .nav-tabs/.tab-content desnudos, que se
+   filtraban a cualquier otra pestaña Bootstrap de la página. */
+#equipmentTabs {
     border-bottom: 2px solid var(--hd-border);
 }
 
-.nav-tabs .nav-link {
+#equipmentTabs .nav-link {
     border: none;
     color: var(--hd-muted);
     font-weight: 500;
@@ -107,19 +201,19 @@
     transition: all var(--hd-transition);
 }
 
-.nav-tabs .nav-link:hover {
+#equipmentTabs .nav-link:hover {
     color: var(--hd-dark);
     border-bottom: 2px solid var(--hd-border);
 }
 
-.nav-tabs .nav-link.active {
+#equipmentTabs .nav-link.active {
     color: var(--hd-primary);
     border-bottom: 3px solid var(--hd-primary);
     background: transparent;
 }
 
 /* Tab content */
-.tab-content {
+#equipmentTabsContent {
     padding-top: 1rem;
 }
 
@@ -148,8 +242,9 @@
     transform: translateX(3px);
 }
 
-/* Badge de grupo en equipos asignados */
-.bg-info.mt-1 {
+/* Badge de grupo en equipos asignados (acotado por clase propia, no por el
+   par .bg-info.mt-1 desnudo que se filtraba a cualquier badge de la página) */
+.hd-group-inline-badge {
     display: inline-block;
     font-size: 0.75rem;
 }
