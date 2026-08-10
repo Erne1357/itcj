@@ -222,15 +222,41 @@ def _build_filter_chips(db, raw: dict) -> list:
     return chips
 
 
-def _tickets_filter_options() -> dict:
+def _visible_ticket_department_ids(db, user: dict) -> set:
+    """Departamentos cuyos tickets puede ver este usuario.
+
+    Misma fuente que usa el resto del app para el alcance de tickets: los
+    departamentos que le otorgan acceso a helpdesk (por procedencia) más el
+    subárbol de `helpdesk.tickets.api.read.subtree`. Se resuelve por permiso
+    efectivo, no por nombre de rol.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.core.services.departments_service import app_departments
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    user_id = int(user["sub"])
+    dept_ids = {d.id for d in app_departments(db, user_id, "helpdesk")}
+    if "helpdesk.tickets.api.read.subtree" in cached_perms(db, user_id, "helpdesk"):
+        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+    return dept_ids
+
+
+def _tickets_filter_options(user: dict) -> dict:
     """Opciones server-side para los selects del panel "Más filtros" — SOLO se
     necesitan en el render de la PÁGINA completa (el fragmento HTMX de resultados
     no vuelve a pintar la barra de filtros, así que pedirlas en cada cambio de
-    filtro sería trabajo de BD desperdiciado)."""
+    filtro sería trabajo de BD desperdiciado).
+
+    El desplegable de departamentos se acota al alcance visible del usuario. El
+    backend ya intersecta el filtro con ese alcance, así que ofrecer la lista
+    completa no era una fuga, pero sí una trampa de UX: elegir un departamento
+    ajeno devolvía cero resultados sin explicar por qué.
+    """
     from itcj2.apps.helpdesk.models.category import Category
     from itcj2.apps.helpdesk.services import assignment_service
     from itcj2.core.models.department import Department
     from itcj2.database import SessionLocal
+    from itcj2.dependencies import is_global_admin
 
     _db = SessionLocal()
     try:
@@ -242,12 +268,12 @@ def _tickets_filter_options() -> dict:
             .order_by(Category.area, Category.display_order, Category.name)
             .all()
         )
-        departments = (
-            _db.query(Department)
-            .filter_by(is_active=True)
-            .order_by(Department.name)
-            .all()
-        )
+        dept_q = _db.query(Department).filter_by(is_active=True)
+        if not is_global_admin(user):
+            visible = _visible_ticket_department_ids(_db, user)
+            # Sin alcance resoluble no se ofrece el filtro, en vez de ofrecer todo.
+            dept_q = dept_q.filter(Department.id.in_(visible or {-1}))
+        departments = dept_q.order_by(Department.name).all()
     finally:
         _db.close()
 
@@ -474,7 +500,7 @@ async def tickets_list(
         return render(request, "helpdesk/admin/_tickets_list_results.html", ctx)
 
     ctx.update({"user_roles": user_roles, "active_page": "admin_tickets_list"})
-    ctx.update(_tickets_filter_options())
+    ctx.update(_tickets_filter_options(user))
     return render_helpdesk(request, "helpdesk/admin/tickets_list.html", ctx)
 
 

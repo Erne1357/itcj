@@ -521,3 +521,65 @@ def test_chips_resolve_category_and_department_names(db_session):
     assert by_param["start"] == "Desde: 2026-01-01"
     assert by_param["end"] == "Hasta: 2026-01-31"
     assert by_param["sort"] == "Orden: Más antiguos"
+
+
+# ---------------------------------------------------------------------------
+# El desplegable de departamentos se acota al alcance visible.
+# El backend ya intersectaba el filtro, asi que ofrecer la lista completa no era
+# una fuga — pero si una trampa de UX: elegir un departamento ajeno devolvia cero
+# resultados sin explicar por que.
+# ---------------------------------------------------------------------------
+
+def test_dept_dropdown_solo_ofrece_el_subarbol_visible(db_session, monkeypatch):
+    from itcj2.apps.helpdesk.pages import admin as admin_pages
+
+    mine = _dept(db_session, "tlf_opt_mine")
+    child = _dept(db_session, "tlf_opt_child", mine.id)
+    foreign = _dept(db_session, "tlf_opt_foreign")
+    boss = _user(db_session, "OptBoss")
+    _grant_subtree(db_session, boss, mine)
+    db_session.flush()
+
+    # _tickets_filter_options abre su propia sesion; se la apuntamos a la del test
+    # para que vea las filas del savepoint.
+    monkeypatch.setattr(admin_pages, "SessionLocal", lambda: db_session, raising=False)
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None, raising=False)
+
+    opts = admin_pages._tickets_filter_options({"sub": str(boss.id), "role": None})
+    ofrecidos = {d.id for d in opts["departments"]}
+
+    assert mine.id in ofrecidos
+    assert child.id in ofrecidos
+    assert foreign.id not in ofrecidos
+
+
+def test_dept_dropdown_vacio_si_no_hay_alcance_resoluble(db_session, monkeypatch):
+    """Fail-closed tambien en la UI: sin alcance no se ofrece el filtro, en vez
+    de ofrecer todos los departamentos."""
+    from itcj2.apps.helpdesk.pages import admin as admin_pages
+
+    _dept(db_session, "tlf_opt_orphan")
+    nadie = _user(db_session, "OptNoScope")
+    db_session.flush()
+
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None, raising=False)
+
+    opts = admin_pages._tickets_filter_options({"sub": str(nadie.id), "role": None})
+
+    assert opts["departments"] == []
+
+
+def test_dept_dropdown_admin_global_ve_todos(db_session, monkeypatch):
+    from itcj2.apps.helpdesk.pages import admin as admin_pages
+
+    d = _dept(db_session, "tlf_opt_admin_sees")
+    db_session.flush()
+
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None, raising=False)
+
+    opts = admin_pages._tickets_filter_options({"sub": "1", "role": "admin"})
+
+    assert d.id in {x.id for x in opts["departments"]}
