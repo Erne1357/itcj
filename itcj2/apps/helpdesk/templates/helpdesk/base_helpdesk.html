@@ -182,9 +182,14 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" data-hd-boost-urls="{{ hd_boost_urls or '' }}" {% block hd_data %}{% endblock %}>
+    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" data-hd-boost-urls="{{ hd_boost_urls or '' }}" data-hd-origin="{{ hd_origin_self or '' }}" {% block hd_data %}{% endblock %}>
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Registro de orígenes del botón "Volver" (itcj2/apps/helpdesk/pages/origins.py).
+         Fuente única para ticket_detail e item_detail; antes cada uno resolvía su
+         destino con un switch propio y cuatro de esos destinos eran 404. -->
+    <script type="application/json" id="hd-origins">{{ (hd_origins or {}) | tojson }}</script>
 
     <!-- Toast Container -->
     <div id="toastContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 9999;"></div>

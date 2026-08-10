@@ -80,12 +80,47 @@ document.addEventListener('DOMContentLoaded', () => {
     var loadedModules = {};   // src -> true (evita recargar/re-declarar módulos)
     var boostUrlsRe = null;   // RegExp de páginas migradas (data-hd-boost-urls)
 
+    // Un modal abierto al navegar deja rastro en <body>: `.modal-backdrop` sí lo
+    // borra idiomorph, pero la clase `modal-open` y los estilos inline que pone
+    // Bootstrap viven en <body> mismo, no en su innerHTML, así que sobreviven al
+    // morph y la página destino queda sin scroll o con una barra fantasma.
+    // (Contraparte de closeOpenModals() en core/static/js/config/shared/config-page.js.)
+    function closeOpenModals() {
+        try {
+            if (window.bootstrap && window.bootstrap.Modal) {
+                document.querySelectorAll('.modal.show').forEach(function (el) {
+                    var inst = window.bootstrap.Modal.getInstance(el);
+                    if (inst) inst.hide();
+                });
+            }
+            document.querySelectorAll('.modal-backdrop').forEach(function (b) { b.remove(); });
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
+        } catch (e) {
+            console.error('[HelpdeskPage] closeOpenModals:', e);
+        }
+    }
+
     function teardown() {
         var hooks = currentKey && registry[currentKey];
         if (hooks && typeof hooks.destroy === 'function') {
             try { hooks.destroy(); }
             catch (e) { console.error('[HelpdeskPage] destroy ' + currentKey + ':', e); }
         }
+        closeOpenModals();
+    }
+
+    // Slug de origen de la página actual (data-hd-origin, de pages/origins.py).
+    // Se guarda ANTES de navegar para que el botón "Volver" del destino sepa de
+    // dónde viene: document.referrer no sirve bajo morph porque conserva la última
+    // carga completa, no el origen visual.
+    function rememberOrigin() {
+        try {
+            var root = document.querySelector('[data-hd-page]');
+            var slug = root && root.getAttribute('data-hd-origin');
+            if (slug) sessionStorage.setItem('hd_nav_origin', slug);
+        } catch (e) { /* sessionStorage bloqueado */ }
     }
 
     function setup() {
@@ -166,7 +201,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Solo en requests boosteados (navegación real); evita parpadeo si en el
     // futuro se agregan hx-get/hx-post in-page que no son navegación.
     function navStart(evt) {
-        if (evt && evt.detail && evt.detail.boosted) document.body.classList.add('hd-navigating');
+        if (evt && evt.detail && evt.detail.boosted) {
+            document.body.classList.add('hd-navigating');
+            // Los <a hx-boost> de los templates los maneja htmx directamente, sin
+            // pasar por navigate(); este es el único punto donde se puede anotar el
+            // origen antes de que el morph reemplace el <main> que lo declara.
+            rememberOrigin();
+        }
     }
     function navEnd() { document.body.classList.remove('hd-navigating'); }
 
@@ -209,6 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // opts.push === false → no toca el historial (lo usa refresh()).
     function navigate(url, opts) {
         if (!url) return;
+        if (!opts || opts.push !== false) rememberOrigin();   // refresh() no cambia de origen
         var htmx = window.htmx;
         if (!isBoostableClient(url) || !htmx || typeof htmx.ajax !== 'function') {
             window.location.href = url;      // fallback: cross-app / no migrada / sin htmx

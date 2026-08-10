@@ -7,8 +7,11 @@
 {% block header_subtitle %}Información Completa{% endblock %}
 
 {% block header_back %}
-<a href="#" id="backButton" class="btn btn-outline-light btn-sm">
-    <i class="fas fa-arrow-left me-2"></i><span id="backButtonText">Volver</span>
+{# Destino resuelto en el servidor (itcj2/templates.py::hd_origin) para que el
+   botón sirva desde el primer paint; el JS solo lo refina cuando no hay ?from=. #}
+{% set _back = hd_origin(request, 'my_tickets') %}
+<a href="{{ _back.url }}" id="backButton" class="btn btn-outline-light btn-sm" {{ hd_boost(_back.url) }}>
+    <i class="fas fa-arrow-left me-2"></i><span id="backButtonText">{{ _back.label }}</span>
 </a>
 {% endblock %}
 

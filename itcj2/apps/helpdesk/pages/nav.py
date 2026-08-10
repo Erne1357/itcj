@@ -414,6 +414,8 @@ def render_helpdesk(
         else {"helpdesk_nav_items": [], "current_route": request.url.path}
     )
 
+    from .origins import build_origins, origin_for_page
+
     hd_page = _template_to_key(template)
     ctx = {
         **(context or {}),
@@ -422,5 +424,9 @@ def render_helpdesk(
         "htmx_boost_enabled": HTMX_BOOST_ENABLED and _is_migrated(hd_page),
         "hd_modules": _hd_modules_attr(hd_page),
         "hd_boost_urls": boost_urls_regex(),
+        # Registro de orígenes del botón "Volver" (pages/origins.py). Se serializa
+        # una vez en el shell y lo lee HelpdeskUtils.initBackButton().
+        "hd_origins": build_origins(),
+        "hd_origin_self": origin_for_page(hd_page) or "",
     }
     return render(request, template, ctx, status_code)

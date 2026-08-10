@@ -385,21 +385,75 @@ async function confirmDialog(title, message, confirmText = 'Confirmar', cancelTe
 }
 
 
+// ==================== ORÍGENES DE NAVEGACIÓN ("Volver") ====================
+// Registro emitido por el servidor en #hd-origins (pages/origins.py). Sustituye a
+// los dos switch divergentes que tenían ticket_detail.js e item_detail.js, cuatro
+// de cuyos destinos eran 404, y a la heurística de document.referrer — inservible
+// bajo navegación morph, donde el referrer se queda en la última carga completa.
+const ORIGIN_ALIASES = {
+    secretary_dashboard: 'secretary',
+    admin: 'admin_tickets_list',
+    dashboard: 'my_tickets'
+};
+const NAV_ORIGIN_KEY = 'hd_nav_origin';
+
+let _originsCache = null;
+
+function getOrigins() {
+    // Se re-lee tras cada morph: el <script> vive fuera de <main> pero el shell
+    // completo se difea, así que la referencia vieja puede quedar huérfana.
+    const el = document.getElementById('hd-origins');
+    if (!el) return _originsCache || {};
+    try {
+        _originsCache = JSON.parse(el.textContent || '{}');
+    } catch (e) {
+        _originsCache = _originsCache || {};
+    }
+    return _originsCache;
+}
+
+function resolveOrigin(slug) {
+    if (!slug) return null;
+    const origins = getOrigins();
+    return origins[ORIGIN_ALIASES[slug] || slug] || null;
+}
+
+/**
+ * Cablea el botón "Volver" de una página de detalle.
+ * Precedencia: ?from= → sessionStorage (escrito por HelpdeskPage.navigate) → default.
+ * El botón SIEMPRE queda visible: con un default declarado no hay motivo para
+ * esconderlo, que es lo que hacía item_detail.js en entrada directa.
+ */
+function initBackButton(defaultSlug) {
+    const button = document.getElementById('backButton');
+    if (!button) return null;
+    const text = document.getElementById('backButtonText');
+    const container = document.getElementById('backButtonContainer');
+
+    const fromParam = new URLSearchParams(window.location.search).get('from');
+    let origin = resolveOrigin(fromParam);
+    if (!origin) {
+        try { origin = resolveOrigin(sessionStorage.getItem(NAV_ORIGIN_KEY)); } catch (e) { /* storage bloqueado */ }
+    }
+    if (!origin) origin = resolveOrigin(defaultSlug);
+    if (!origin) return null;
+
+    button.setAttribute('href', origin.url);
+    if (text) text.textContent = origin.label;
+    button.style.display = '';
+    if (container) container.style.display = '';
+    return origin;
+}
+
 // ==================== SMART NAVIGATION ====================
 function goToTicketDetail(ticketId, fromPage = null) {
-    // Determinar fromPage automáticamente si no se proporciona
+    // Sin `from` explícito se toma el origen que HelpdeskPage.navigate dejó en
+    // sessionStorage; antes se adivinaba desde location.pathname, que confundía
+    // el dashboard de técnico con las vistas de admin.
     if (!fromPage) {
-        const currentPath = window.location.pathname;
-        if (currentPath.includes('/user/tickets')) {
-            fromPage = 'my_tickets';
-        } else if (currentPath.includes('/department')) {
-            fromPage = 'department';
-        } else if (currentPath.includes('/admin') || currentPath.includes('/technician')) {
-            fromPage = 'admin';
-        } else if (currentPath.includes('/user')) {
-            fromPage = 'dashboard';
-        }
+        try { fromPage = sessionStorage.getItem(NAV_ORIGIN_KEY); } catch (e) { /* storage bloqueado */ }
     }
+    if (!resolveOrigin(fromPage)) fromPage = null;
 
     const url = fromPage ?
         `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
@@ -415,14 +469,10 @@ function goToTicketDetail(ticketId, fromPage = null) {
 }
 
 function goToTicketDetailNewTab(ticketId, fromPage = null) {
-    const currentPath = window.location.pathname;
     if (!fromPage) {
-        if (currentPath.includes('/department')) {
-            fromPage = 'department';
-        } else if (currentPath.includes('/admin') || currentPath.includes('/technician')) {
-            fromPage = 'admin';
-        }
+        try { fromPage = sessionStorage.getItem(NAV_ORIGIN_KEY); } catch (e) { /* storage bloqueado */ }
     }
+    if (!resolveOrigin(fromPage)) fromPage = null;
 
     const url = fromPage ?
         `/help-desk/user/tickets/${ticketId}?from=${fromPage}` :
@@ -516,6 +566,8 @@ window.HelpdeskUtils = {
     confirmDialog,
     goToTicketDetail,
     goToTicketDetailNewTab,
+    resolveOrigin,
+    initBackButton,
     getAttachments,
     renderCollaborators,
     NavState

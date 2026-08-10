@@ -7,7 +7,7 @@
     'use strict';
 
     // ==================== BS5 MODAL HELPERS (sin jQuery) ====================
-    function modalShow(id) { bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show(); }
+    function modalShow(id) { new bootstrap.Modal(document.getElementById(id)).show(); }
     function modalHide(id) {
         const el = document.getElementById(id);
         if (el) { try { bootstrap.Modal.getInstance(el)?.hide(); } catch (_) { /* ignore */ } }
@@ -42,29 +42,11 @@
         CAN_EDIT = root ? root.dataset.canEdit === 'true' : false;
         IS_ADMIN = root ? root.dataset.isAdmin === 'true' : false;
 
-        // Botón "Volver" inteligente (lógica del inline script del template anterior)
-        const backButton = document.getElementById('backButton');
-        const backButtonText = document.getElementById('backButtonText');
-        const backButtonContainer = document.getElementById('backButtonContainer');
-        const referrer = document.referrer;
-
-        if (backButton && referrer && referrer.includes('/help-desk/')) {
-            let backText = 'Volver';
-            if (referrer.includes('/help-desk/user/tickets/')) {
-                backText = 'Volver al Ticket';
-            } else if (referrer.includes('/help-desk/secretary/dashboard')) {
-                backText = 'Volver al Dashboard';
-            } else if (referrer.includes('/help-desk/inventory/items') && !referrer.includes('/items/')) {
-                backText = 'Volver a Inventario';
-            } else if (referrer.includes('/help-desk/admin')) {
-                backText = 'Volver a Admin';
-            } else if (referrer.includes('/help-desk/department')) {
-                backText = 'Volver a Departamento';
-            }
-            backButton.href = referrer;
-            if (backButtonText) backButtonText.textContent = backText;
-            if (backButtonContainer) backButtonContainer.style.display = 'block';
-        }
+        // Botón "Volver": registro compartido (pages/origins.py). La versión anterior
+        // dependía de document.referrer, que bajo navegación morph apunta a la última
+        // carga completa, y dejaba el botón OCULTO en entrada directa o desde una
+        // notificación. Con un default declarado siempre hay a dónde volver.
+        window.HelpdeskUtils.initBackButton('inventory_items');
 
         loadItemDetail();
         setupEventListeners();

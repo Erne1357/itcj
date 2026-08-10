@@ -97,11 +97,38 @@ def hd_boost(url) -> markupsafe.Markup:
     return _HD_BOOST_EMPTY
 
 
+def hd_origin(request, default_slug: str) -> dict:
+    """Resuelve el destino del botón "Volver" en el SERVIDOR.
+
+    El helper de cliente (``HelpdeskUtils.initBackButton``) sigue refinando el
+    destino cuando no hay ``?from=`` —usa el origen que dejó la navegación morph
+    en sessionStorage— pero el href tiene que existir ya en el HTML: los módulos
+    de página se cargan por ``<script>`` inyectado, así que entre el settle del
+    morph y el init del módulo el botón quedaba en ``href="#"`` y un click ahí no
+    navegaba a ningún lado.
+
+    Devuelve siempre un dict con ``url``/``label``/``icon``.
+    """
+    from itcj2.apps.helpdesk.pages.origins import resolve_origin
+
+    slug = None
+    try:
+        slug = request.query_params.get("from")
+    except Exception:  # pragma: no cover - defensivo: nunca romper el render
+        logger.debug("hd_origin no pudo leer query_params", exc_info=True)
+    return resolve_origin(slug) or resolve_origin(default_slug) or {
+        "url": "/help-desk/",
+        "label": "Volver",
+        "icon": "fa-arrow-left",
+    }
+
+
 templates.env.filters["hd_datetime"] = hd_datetime
 templates.env.filters["hd_date"] = hd_date
 # Registrado como global (uso `{{ hd_boost(url) }}`) y como filtro (`{{ url | hd_boost }}`).
 templates.env.globals["hd_boost"] = hd_boost
 templates.env.filters["hd_boost"] = hd_boost
+templates.env.globals["hd_origin"] = hd_origin
 
 # ---------------------------------------------------------------------------
 # Static versioning

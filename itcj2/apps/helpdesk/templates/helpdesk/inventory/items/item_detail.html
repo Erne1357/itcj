@@ -20,9 +20,13 @@
         <!-- Header -->
         <div class="d-flex justify-content-between align-items-start mb-3 mb-md-4 flex-wrap gap-2">
             <div>
-                <div class="mb-2" id="backButtonContainer" style="display: none;">
-                    <a href="#" id="backButton" class="text-muted small">
-                        <i class="fas fa-arrow-left"></i> <span id="backButtonText">Volver</span>
+                {# Destino resuelto en el servidor (itcj2/templates.py::hd_origin);
+                   antes dependía de document.referrer y quedaba OCULTO en entrada
+                   directa o llegando desde una notificación. #}
+                {% set _back = hd_origin(request, 'inventory_items') %}
+                <div class="mb-2" id="backButtonContainer">
+                    <a href="{{ _back.url }}" id="backButton" class="text-muted small" {{ hd_boost(_back.url) }}>
+                        <i class="fas fa-arrow-left"></i> <span id="backButtonText">{{ _back.label }}</span>
                     </a>
                 </div>
                 <h1 class="h4 h3-md mb-1 text-gray-800" id="item-title">

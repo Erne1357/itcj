@@ -155,106 +155,14 @@
         commentPendingFiles = [];
     }
 
-    // ==================== BACK BUTTON (formerly inline in header_back) ====================
+    // ==================== BACK BUTTON ====================
+    // Delegado en el registro compartido (pages/origins.py + HelpdeskUtils.initBackButton).
+    // Antes vivía aquí un switch de ocho casos, cuatro de ellos apuntando a rutas
+    // que no existen (/user/tickets, /user/dashboard, /department/tickets,
+    // /secretary/dashboard), más una heurística sobre document.referrer que bajo
+    // navegación morph siempre señalaba la última carga completa.
     function _initBackButton() {
-        const backButton = document.getElementById('backButton');
-        const backButtonText = document.getElementById('backButtonText');
-        if (!backButton) return;
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const fromParam = urlParams.get('from');
-        const referrer = document.referrer;
-
-        let backUrl = '/help-desk/user/tickets'; // Default fallback (url_for resolved server-side)
-        let backText = 'Mis Tickets';
-
-        if (fromParam) {
-            switch (fromParam) {
-                case 'dashboard':
-                    backUrl = '/help-desk/user/dashboard';
-                    backText = 'Dashboard';
-                    break;
-                case 'my_tickets':
-                    backUrl = '/help-desk/user/tickets';
-                    backText = 'Mis Tickets';
-                    break;
-                case 'department':
-                    backUrl = '/help-desk/department/tickets';
-                    backText = 'Departamento';
-                    break;
-                case 'admin':
-                    backUrl = '/help-desk/admin/tickets-list';
-                    backText = 'Administración';
-                    break;
-                case 'technician':
-                    backUrl = '/help-desk/technician/dashboard';
-                    backText = 'Panel de Técnicos';
-                    break;
-                case 'admin_tickets_list':
-                    backUrl = '/help-desk/admin/tickets-list';
-                    backText = 'Lista de Tickets';
-                    break;
-                case 'secretary':
-                    backUrl = '/help-desk/admin/assign-tickets';
-                    backText = 'Assignar Tickets';
-                    break;
-                case 'secretary_dashboard':
-                    backUrl = '/help-desk/secretary/dashboard';
-                    backText = 'Dashboard Secretaría';
-                    break;
-                default:
-                    break;
-            }
-        } else if (referrer) {
-            if (referrer.includes('/help-desk/user/dashboard')) {
-                backUrl = '/help-desk/user/dashboard';
-                backText = 'Dashboard';
-            } else if (referrer.includes('/help-desk/user/tickets')) {
-                backUrl = '/help-desk/user/tickets';
-                backText = 'Mis Tickets';
-            } else if (referrer.includes('/help-desk/admin/tickets-list')) {
-                backUrl = '/help-desk/admin/tickets-list';
-                backText = 'Lista de Tickets';
-            } else if (referrer.includes('/help-desk/department')) {
-                backUrl = '/help-desk/department/tickets';
-                backText = 'Departamento';
-            } else if (referrer.includes('/help-desk/admin/assign-tickets')) {
-                backUrl = '/help-desk/admin/assign-tickets';
-                backText = 'Administración';
-            } else if (referrer.includes('/help-desk/secretary/')) {
-                backUrl = '/help-desk/secretary/dashboard';
-                backText = 'Dashboard Secretaría';
-            } else if (referrer.includes('/help-desk')) {
-                backText = 'Volver';
-                backUrl = referrer;
-            }
-        }
-
-        // Fallback: sessionStorage
-        if (!fromParam && !referrer) {
-            try {
-                const lastPage = JSON.parse(sessionStorage.getItem('helpdesk_last_page') || '{}');
-                if (lastPage.url && lastPage.text) {
-                    backUrl = lastPage.url;
-                    backText = lastPage.text;
-                }
-            } catch (e) {
-                // Ignorar errores de JSON parsing
-            }
-        }
-
-        if (backUrl && (backUrl.includes('/help-desk/') || fromParam || (referrer && referrer.includes('/help-desk/')))) {
-            backButton.href = backUrl;
-            if (backButtonText) backButtonText.textContent = backText;
-            backButton.style.display = 'inline-block';
-
-            sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
-                url: backUrl,
-                text: backText
-            }));
-        } else {
-            backButton.style.display = 'none';
-        }
+        window.HelpdeskUtils.initBackButton('my_tickets');
     }
 
     // ==================== LOAD TICKET DETAIL ====================
