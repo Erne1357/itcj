@@ -1,38 +1,36 @@
 // itcj2/apps/helpdesk/static/js/admin/home.js
+//
+// Rediseño (2026-08): la página ahora se renderiza ENTERA server-side
+// (KPIs, banda de atención, riel de acciones, actividad reciente) — ver
+// `pages/admin.py::_query_admin_overview_ctx` / `AdminDashboardService`. Ya
+// no hay `loadDashboardStats()` con fetch + relleno manual del DOM: el botón
+// "Actualizar" re-navega la página vía `HelpdeskPage.refresh()` (mismo patrón
+// que `campaign_detail.js`), que hace un GET boosteado a la misma URL y
+// morfea el contenido con datos frescos del servidor — sin flash en blanco,
+// sin duplicar la lógica de render en JS.
 (function () {
     'use strict';
 
-    async function loadDashboardStats() {
-        try {
-            const response = await HelpdeskUtils.api.getGlobalStats();
-            const stats = response.data;
-
-            // Total tickets
-            document.getElementById('totalTickets').textContent = stats.total || 0;
-
-            // Pending tickets
-            const pending = (stats.by_status?.PENDING || 0) + (stats.by_status?.ASSIGNED || 0);
-            document.getElementById('pendingTickets').textContent = pending;
-
-            // Rated count
-            document.getElementById('activeUsers').textContent = stats.rated_count || 0;
-
-            // Satisfaction (avg_rating_attention is 1-5 scale)
-            if (stats.avg_rating_attention) {
-                document.getElementById('avgRating').textContent =
-                    `${stats.avg_rating_attention.toFixed(1)}/5`;
+    function bindRefreshButton() {
+        var btn = document.getElementById('hdHomeRefreshBtn');
+        if (!btn || btn.dataset.hdBound === '1') return;
+        btn.dataset.hdBound = '1';
+        btn.addEventListener('click', function () {
+            var icon = document.getElementById('hdHomeRefreshIcon');
+            if (icon) icon.classList.add('hd-spin');
+            btn.disabled = true;
+            if (window.HelpdeskPage && typeof window.HelpdeskPage.refresh === 'function') {
+                window.HelpdeskPage.refresh();
             } else {
-                document.getElementById('avgRating').textContent = '-';
+                window.location.reload();
             }
-        } catch (error) {
-            console.error('Error loading stats:', error);
-        }
+            // Fallback: si el morph tarda o falla, no dejar el botón bloqueado.
+            setTimeout(function () {
+                btn.disabled = false;
+                if (icon) icon.classList.remove('hd-spin');
+            }, 1500);
+        });
     }
 
-    // Antes inline en home.html (onclick del botón "Reporte Tickets").
-    window.generateTicketsReport = function () {
-        window.HelpdeskPage.navigate('/help-desk/admin/stats');
-    };
-
-    window.HelpdeskPage.page('admin_home', { init: loadDashboardStats });
+    window.HelpdeskPage.page('admin_home', { init: bindRefreshButton });
 })();

@@ -1,150 +1,214 @@
-<!-- itcj/apps/helpdesk/templates/admin/home.html -->
+{# itcj2/apps/helpdesk/templates/helpdesk/admin/home.html
+   Rediseño (2026-08): franja KPI compacta + banda "Requiere atención" +
+   riel de acciones permanente + actividad reciente (tickets/inventario).
+   Contexto: kpis, attention, recent_tickets, recent_inventory_events (ver
+   `pages/admin.py::_query_admin_overview_ctx` / `AdminDashboardService`). #}
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/ticket_card.html" import ticket_card %}
+{% from "helpdesk/_components/empty_state.html" import empty_state %}
 
 {% block title %}Admin - Dashboard{% endblock %}
 
 {% block header_title %}Panel de Administrador{% endblock %}
 {% block header_subtitle %}Help-Desk - Centro de Cómputo{% endblock %}
 
+{% block header_actions %}
+<button type="button" class="btn btn-outline-light btn-sm" id="hdHomeRefreshBtn">
+  <i class="fas fa-sync-alt me-1" id="hdHomeRefreshIcon"></i><span class="d-none d-sm-inline">Actualizar</span>
+</button>
+{% endblock %}
+
 {% block content %}
 
-<div class="row mb-4">
-    <div class="col-12">
-        <h2 class="mb-3">
-            <i class="fas fa-tachometer-alt me-2"></i>Dashboard de Administrador
-        </h2>
-        <p class="text-muted">Gestión completa del sistema de tickets y soporte técnico</p>
+{# === Franja KPI compacta ============================================== #}
+<div class="row row-cols-3 row-cols-md-6 g-2 mb-3">
+  <div class="col">
+    <div class="hd-kpi-tile">
+      <div class="hd-kpi-tile__value text-primary" id="kpiTotal">{{ kpis.total }}</div>
+      <div class="hd-kpi-tile__label">Total</div>
     </div>
+  </div>
+  <div class="col">
+    <div class="hd-kpi-tile">
+      <div class="hd-kpi-tile__value text-warning" id="kpiPending">{{ kpis.pending }}</div>
+      <div class="hd-kpi-tile__label">Pendientes</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="hd-kpi-tile">
+      <div class="hd-kpi-tile__value text-info" id="kpiToday">{{ kpis.created_today }}</div>
+      <div class="hd-kpi-tile__label">Hoy</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="hd-kpi-tile">
+      <div class="hd-kpi-tile__value text-success" id="kpiSatisfaction">
+        {%- if kpis.avg_rating_attention and kpis.avg_rating_attention > 0 -%}
+          {{ '%.1f'|format(kpis.avg_rating_attention) }}<i class="fas fa-star fs-6 ms-1"></i>
+        {%- else -%}—{%- endif -%}
+      </div>
+      <div class="hd-kpi-tile__label">Satisfacción</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="hd-kpi-tile">
+      <div class="hd-kpi-tile__value text-secondary" id="kpiResolution">
+        {%- set h = kpis.avg_resolution_hours -%}
+        {%- if h and h > 0 -%}
+          {%- if h >= 24 -%}{{ '%.1f'|format(h / 24) }}<span class="fs-6">d</span>
+          {%- else -%}{{ '%.1f'|format(h) }}<span class="fs-6">h</span>{%- endif -%}
+        {%- else -%}—{%- endif -%}
+      </div>
+      <div class="hd-kpi-tile__label">Resolución</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="hd-kpi-tile">
+      <div class="hd-kpi-tile__value text-primary" id="kpiSla">
+        {%- if kpis.sla_compliance_rate -%}{{ kpis.sla_compliance_rate }}<span class="fs-6">%</span>{%- else -%}—{%- endif -%}
+      </div>
+      <div class="hd-kpi-tile__label">SLA</div>
+    </div>
+  </div>
 </div>
 
-<!-- Quick Stats -->
-<div class="row mb-4 g-2 g-md-3">
-    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center py-2 py-md-3">
-                <i class="fas fa-ticket-alt fa-lg fa-md-2x text-primary mb-2 d-none d-sm-inline-block"></i>
-                <i class="fas fa-ticket-alt text-primary mb-2 d-sm-none"></i>
-                <h3 class="mb-1 fs-4 fs-md-3" id="totalTickets">-</h3>
-                <p class="text-muted mb-0 small">Total Tickets</p>
-            </div>
+{# === Banda "Requiere atención" ========================================= #}
+{% set active_attention = attention | selectattr('count', 'gt', 0) | list %}
+<div class="card border-0 shadow-sm mb-3 hd-attention-card">
+  <div class="card-body">
+    <h6 class="hd-section-title mb-3">
+      <i class="fas fa-triangle-exclamation me-2 text-warning"></i>Requiere atención
+    </h6>
+    {% if active_attention %}
+      <div class="hd-attention-list">
+        {% for row in active_attention %}
+        <div class="hd-attention-row">
+          <div class="hd-attention-row__icon"><i class="fas {{ row.icon }}"></i></div>
+          <div class="hd-attention-row__text">
+            <span class="fw-bold">{{ row.count }}</span> {{ row.label }}
+          </div>
+          <a href="{{ row.url }}" {{ hd_boost(row.url) }} class="btn btn-sm btn-outline-primary hd-attention-row__action">
+            {{ row.action_label }}<i class="fas fa-arrow-right ms-1 d-none d-sm-inline"></i>
+          </a>
         </div>
-    </div>
-    
-    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center py-2 py-md-3">
-                <i class="fas fa-clock fa-lg fa-md-2x text-warning mb-2 d-none d-sm-inline-block"></i>
-                <i class="fas fa-clock text-warning mb-2 d-sm-none"></i>
-                <h3 class="mb-1 fs-4 fs-md-3" id="pendingTickets">-</h3>
-                <p class="text-muted mb-0 small">Pendientes</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-6 col-lg-3 col-md-6 mb-2 mb-lg-0">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center py-2 py-md-3">
-                <i class="fas fa-star fa-lg fa-md-2x text-info mb-2 d-none d-sm-inline-block"></i>
-                <i class="fas fa-star text-info mb-2 d-sm-none"></i>
-                <h3 class="mb-1 fs-4 fs-md-3" id="activeUsers">-</h3>
-                <p class="text-muted mb-0 small">Evaluados</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-6 col-lg-3 col-md-6">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body text-center py-2 py-md-3">
-                <i class="fas fa-star fa-lg fa-md-2x text-success mb-2 d-none d-sm-inline-block"></i>
-                <i class="fas fa-star text-success mb-2 d-sm-none"></i>
-                <h3 class="mb-1 fs-4 fs-md-3" id="avgRating">-</h3>
-                <p class="text-muted mb-0 small">Satisfacción</p>
-            </div>
-        </div>
-    </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      {{ empty_state('fa-circle-check', 'Todo al día', 'No hay pendientes que requieran tu atención en este momento.') }}
+    {% endif %}
+  </div>
 </div>
 
-<!-- Main Actions -->
-<div class="row">
-    <!-- Tickets Section -->
-    <div class="col-md-6 mb-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-primary text-white py-2 py-md-3">
-                <h5 class="mb-0 fs-6 fs-md-5">
-                    <i class="fas fa-ticket-alt me-2"></i>Gestión de Tickets
-                </h5>
-            </div>
-            <div class="card-body p-2 p-md-3">
-                <div class="d-grid gap-2 gap-md-3">
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.assign_tickets')) }} class="btn btn-primary btn-sm btn-md-lg">
-                        <i class="fas fa-user-plus me-2"></i>Asignar Tickets
-                    </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.tickets_list') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.tickets_list')) }} class="btn btn-outline-primary btn-sm btn-md-lg">
-                        <i class="fas fa-list me-2"></i>Ver Todos los Tickets
-                    </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#categorias" {{ hd_boost(url_for('helpdesk_pages.admin_pages.config') ~ '#categorias') }} class="btn btn-outline-primary btn-sm btn-md-lg">
-                        <i class="fas fa-tags me-2"></i>Gestionar Categorías
-                    </a>
-                </div>
-            </div>
+{# === Riel de acciones — SIEMPRE presente, sin importar los conteos ==== #}
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="hd-section-title mb-3"><i class="fas fa-ticket-alt me-2"></i>Tickets</h6>
+        <div class="hd-action-tiles">
+          <a href="{{ url_for('helpdesk_pages.admin_pages.assign_tickets') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.assign_tickets')) }} class="hd-action-tile">
+            <i class="fas fa-user-plus"></i><span>Asignar</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.admin_pages.tickets_list') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.tickets_list')) }} class="hd-action-tile">
+            <i class="fas fa-list"></i><span>Lista</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#categorias" {{ hd_boost(url_for('helpdesk_pages.admin_pages.config') ~ '#categorias') }} class="hd-action-tile">
+            <i class="fas fa-tags"></i><span>Categorías</span>
+          </a>
         </div>
+      </div>
     </div>
-    
-    <!-- Inventory Section -->
-    <div class="col-md-6 mb-4">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-success text-white py-2 py-md-3">
-                <h5 class="mb-0 fs-6 fs-md-5">
-                    <i class="fas fa-warehouse me-2"></i>Gestión de Inventario
-                </h5>
-            </div>
-            <div class="card-body p-2 p-md-3">
-                <div class="d-grid gap-2 gap-md-3">
-                    <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.items_list')) }} class="btn btn-success btn-sm btn-md-lg">
-                        <i class="fas fa-boxes me-2"></i>Ver Inventario
-                    </a>
-                    <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.item_create')) }} class="btn btn-outline-success btn-sm btn-md-lg">
-                        <i class="fas fa-plus me-2"></i>Registrar Equipo
-                    </a>
-                    <a href="{{ url_for('helpdesk_pages.admin_pages.config') }}#inv-cat" {{ hd_boost(url_for('helpdesk_pages.admin_pages.config') ~ '#inv-cat') }} class="btn btn-outline-success btn-sm btn-md-lg">
-                        <i class="fas fa-folder me-2"></i>Categorías de Inventario
-                    </a>
-                </div>
-            </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="hd-section-title mb-3"><i class="fas fa-warehouse me-2"></i>Inventario</h6>
+        <div class="hd-action-tiles">
+          <a href="{{ url_for('helpdesk_pages.inventory_pages.items_list') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.items_list')) }} class="hd-action-tile">
+            <i class="fas fa-boxes"></i><span>Ver</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.inventory_pages.item_create') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.item_create')) }} class="hd-action-tile">
+            <i class="fas fa-plus"></i><span>Registrar</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.inventory_pages.verification') }}" {{ hd_boost(url_for('helpdesk_pages.inventory_pages.verification')) }} class="hd-action-tile">
+            <i class="fas fa-clipboard-check"></i><span>Verificación</span>
+          </a>
         </div>
+      </div>
     </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="hd-section-title mb-3"><i class="fas fa-chart-bar me-2"></i>Reportes</h6>
+        <div class="hd-action-tiles">
+          <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.stats')) }} class="hd-action-tile">
+            <i class="fas fa-chart-line"></i><span>Estadísticas</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.admin_pages.analysis') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.analysis')) }} class="hd-action-tile">
+            <i class="fas fa-magnifying-glass-chart"></i><span>Análisis</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.admin_pages.documents') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.documents')) }} class="hd-action-tile">
+            <i class="fas fa-file-lines"></i><span>Documentos</span>
+          </a>
+          <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_reports') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.inventory_reports')) }} class="hd-action-tile">
+            <i class="fas fa-file-export"></i><span>Inventario</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- Reports & Stats -->
-<div class="row">
-    <div class="col-12">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-info text-white py-2 py-md-3">
-                <h5 class="mb-0 fs-6 fs-md-5">
-                    <i class="fas fa-chart-bar me-2"></i>Reportes y Estadísticas
-                </h5>
-            </div>
-            <div class="card-body p-2 p-md-3">
-                <div class="row g-2">
-                    <div class="col-12 col-md-4 mb-2 mb-md-0">
-                        <a href="{{ url_for('helpdesk_pages.admin_pages.stats') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.stats')) }} class="btn btn-info w-100">
-                            <i class="fas fa-chart-line me-1 me-md-2"></i><span class="d-none d-sm-inline">Ver </span>Estadísticas
-                        </a>
-                    </div>
-                    <div class="col-12 col-md-4 mb-2 mb-md-0">
-                        <a href="{{ url_for('helpdesk_pages.admin_pages.inventory_reports') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.inventory_reports')) }} class="btn btn-outline-info w-100">
-                            <i class="fas fa-file-export me-1 me-md-2"></i><span class="d-none d-sm-inline">Reportes </span>Inventario
-                        </a>
-                    </div>
-                    <div class="col-12 col-md-4">
-                        <button class="btn btn-outline-info w-100" onclick="generateTicketsReport()">
-                            <i class="fas fa-file-download me-1 me-md-2"></i><span class="d-none d-sm-inline">Reporte </span>Tickets
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+{# === Dos columnas de actividad ========================================= #}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white d-flex align-items-center justify-content-between">
+        <h6 class="hd-section-title mb-0"><i class="fas fa-ticket-alt me-2"></i>Últimos tickets</h6>
+        <a href="{{ url_for('helpdesk_pages.admin_pages.tickets_list') }}" {{ hd_boost(url_for('helpdesk_pages.admin_pages.tickets_list')) }} class="small">Ver todos</a>
+      </div>
+      <div class="card-body p-0">
+        {% if recent_tickets %}
+          <div class="hd-ticket-list">
+            {% for t in recent_tickets %}
+              {{ ticket_card(t, href='/help-desk/user/tickets/' ~ t.id ~ '?from=admin_home', show_people=false, show_description=false) }}
+            {% endfor %}
+          </div>
+        {% else %}
+          {{ empty_state('fa-inbox', 'Sin tickets recientes', 'Todavía no hay tickets en tu alcance.') }}
+        {% endif %}
+      </div>
     </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white">
+        <h6 class="hd-section-title mb-0"><i class="fas fa-clock-rotate-left me-2"></i>Actividad de inventario</h6>
+      </div>
+      <div class="card-body p-0">
+        {% if recent_inventory_events %}
+          <div class="hd-activity-list">
+            {% for ev in recent_inventory_events %}
+            <div class="hd-activity-row">
+              <span class="badge bg-secondary-subtle text-secondary border hd-activity-row__badge">{{ ev.event_type }}</span>
+              <div class="hd-activity-row__text">
+                <span class="fw-bold">{{ ev.item.inventory_number if ev.item else '—' }}</span>
+                <span class="text-muted"> · {{ ev.event_description }}</span>
+              </div>
+              <div class="hd-activity-row__meta text-muted small">{{ ev.timestamp | hd_datetime }}</div>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          {{ empty_state('fa-boxes-stacked', 'Sin actividad reciente', 'No hay movimientos de inventario en los últimos días.') }}
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
 
 {% endblock %}

@@ -371,6 +371,25 @@ def _query_documents_ctx(request: Request, user_id: int, user_roles: set) -> dic
     }
 
 
+def _query_admin_overview_ctx(user: dict) -> dict:
+    """Compone KPIs + banda de atención + actividad reciente para el home admin.
+
+    Reusado por la PÁGINA (render server-side, sin flash de "-" mientras carga
+    JS) y por `GET /api/help-desk/v2/dashboard/admin-overview` (mismo
+    `AdminDashboardService`, así que página y JSON nunca divergen). Abre su
+    propia sesión — mismo patrón que `_helpdesk_roles`/`_tickets_filter_options`
+    en este archivo.
+    """
+    from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return AdminDashboardService.get_overview(_db, user)
+    finally:
+        _db.close()
+
+
 @router.get("/home", name="helpdesk.pages.admin.home")
 async def home(
     request: Request,
@@ -379,10 +398,12 @@ async def home(
     """Dashboard principal de administrador de Help-Desk."""
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    overview = _query_admin_overview_ctx(user)
 
     return render_helpdesk(request, "helpdesk/admin/home.html", {
         "user_roles": user_roles,
         "active_page": "admin_home",
+        **overview,
     })
 
 
