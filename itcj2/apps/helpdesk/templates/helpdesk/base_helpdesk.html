@@ -182,7 +182,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" data-hd-boost-urls="{{ hd_boost_urls or '' }}" data-hd-origin="{{ hd_origin_self or '' }}" {% block hd_data %}{% endblock %}>
+    <main class="container-fluid px-3 px-md-4 px-lg-5" data-hd-page="{{ hd_page or '' }}" data-hd-modules="{{ hd_modules or '' }}" data-hd-boost-urls="{{ hd_boost_urls or '' }}" data-hd-origin="{{ hd_origin_self or '' }}" data-current-user-id="{{ hd_current_user_id or '' }}" {% block hd_data %}{% endblock %}>
         {% block content %}{% endblock %}
     </main>
 

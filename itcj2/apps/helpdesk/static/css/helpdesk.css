@@ -55,6 +55,17 @@ body.modal-open {
   padding-right: 0 !important;
 }
 
+/* El canal de scrollbar-gutter:stable de arriba reserva ancho para la barra del
+   DOCUMENTO. Con un modal abierto, Bootstrap ya puso overflow:hidden en el body
+   (no hay scroll de documento que mostrar) y el modal trae la suya propia
+   (modal-dialog-scrollable) — el canal reservado se queda vacío, como una pista
+   inerte pegada al lado de la barra real del modal. Se libera solo mientras el
+   modal está abierto; al cerrarlo, html{scrollbar-gutter:stable} vuelve a
+   aplicar y el layout no salta. */
+body.modal-open {
+  scrollbar-gutter: auto;
+}
+
 body.modal-open .fixed-top,
 body.modal-open .fixed-bottom,
 body.modal-open .is-fixed,

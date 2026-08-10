@@ -1663,6 +1663,7 @@
         socket.off('ticket_reassigned');
 
         socket.on('ticket_status_changed', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_status_changed:', data);
                 HelpdeskUtils.showToast('El estado del ticket ha cambiado', 'info');
@@ -1671,6 +1672,7 @@
         });
 
         socket.on('ticket_comment_added', async (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_comment_added:', data);
                 HelpdeskUtils.showToast(`Nuevo comentario de ${data.author_name}`, 'info');
@@ -1684,6 +1686,7 @@
         });
 
         socket.on('ticket_assigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_assigned:', data);
                 HelpdeskUtils.showToast(`Ticket asignado a ${data.assigned_to_name}`, 'info');
@@ -1692,6 +1695,7 @@
         });
 
         socket.on('ticket_reassigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_reassigned:', data);
                 HelpdeskUtils.showToast(`Ticket reasignado a ${data.new_assigned_name}`, 'info');

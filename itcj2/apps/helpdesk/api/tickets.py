@@ -183,7 +183,7 @@ async def create_ticket(
                 "status": ticket.status,
                 "requester": ticket.requester.full_name if ticket.requester else "Desconocido",
                 "department_id": ticket.requester_department_id,
-            })
+            }, actor_id=user_id)
         except Exception as ws_err:
             logger.warning(f"WS broadcast ticket_created error: {ws_err}")
 
@@ -356,6 +356,7 @@ async def start_ticket(
                 "area": ticket.area,
             },
             department_id=ticket.requester_department_id,
+            actor_id=user_id,
         )
     except Exception as ws_err:
         logger.warning(f"WS broadcast ticket_status_changed (start) error: {ws_err}")
@@ -426,6 +427,7 @@ async def resolve_ticket(
                 "area": ticket.area,
             },
             department_id=ticket.requester_department_id,
+            actor_id=user_id,
         )
     except Exception as ws_err:
         logger.warning(f"WS broadcast ticket_status_changed (resolve) error: {ws_err}")
@@ -544,6 +546,7 @@ async def cancel_ticket(
                 "area": ticket.area,
             },
             department_id=ticket.requester_department_id,
+            actor_id=user_id,
         )
     except Exception as ws_err:
         logger.warning(f"WS broadcast ticket_status_changed (cancel) error: {ws_err}")

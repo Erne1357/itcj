@@ -167,22 +167,35 @@ def _can_join_ticket(user: dict | None, ticket_id: int) -> bool:
 
 # ==================== Async Broadcast Functions ====================
 
-async def broadcast_ticket_created(ticket_data: dict):
-    """Broadcast cuando se crea un ticket nuevo."""
-    area = (ticket_data.get("area") or "").lower()
-    department_id = ticket_data.get("department_id")
+async def broadcast_ticket_created(ticket_data: dict, actor_id: int = None):
+    """Broadcast cuando se crea un ticket nuevo.
+
+    Exactamente UN broadcast por evento: lo dispara la capa API (await-eada,
+    orden determinista), no `notification_helper` (fire-and-forget). Ver
+    docstring de `broadcast_ticket_assigned` para el detalle de `actor_id`.
+    """
+    payload = {**ticket_data, "actor_id": actor_id}
+    area = (payload.get("area") or "").lower()
+    department_id = payload.get("department_id")
 
     if area in ("desarrollo", "soporte"):
-        await sio.emit("ticket_created", ticket_data, to=_team_room(area), namespace=NAMESPACE)
+        await sio.emit("ticket_created", payload, to=_team_room(area), namespace=NAMESPACE)
     if department_id:
-        await sio.emit("ticket_created", ticket_data, to=_dept_room(int(department_id)), namespace=NAMESPACE)
-    await sio.emit("ticket_created", ticket_data, to=_admin_room(), namespace=NAMESPACE)
+        await sio.emit("ticket_created", payload, to=_dept_room(int(department_id)), namespace=NAMESPACE)
+    await sio.emit("ticket_created", payload, to=_admin_room(), namespace=NAMESPACE)
 
 
 async def broadcast_ticket_assigned(
-    ticket_id: int, assigned_to_id: int, area: str, payload: dict, department_id: int = None
+    ticket_id: int, assigned_to_id: int, area: str, payload: dict, department_id: int = None,
+    actor_id: int = None,
 ):
-    """Broadcast cuando se asigna un ticket a un técnico."""
+    """Broadcast cuando se asigna un ticket a un técnico.
+
+    `actor_id` identifica a quien disparó la acción (el admin/secretaria que
+    asignó). El cliente lo usa para ignorar el eco de su propia acción — ya
+    actualizó su UI de forma optimista al recibir la respuesta HTTP.
+    """
+    payload = {**payload, "actor_id": actor_id}
     await sio.emit("ticket_assigned", payload, to=_tech_room(assigned_to_id), namespace=NAMESPACE)
     await sio.emit("ticket_assigned", payload, to=_ticket_room(ticket_id), namespace=NAMESPACE)
     area_lower = (area or "").lower()
@@ -200,8 +213,10 @@ async def broadcast_ticket_reassigned(
     area: str,
     payload: dict,
     department_id: int = None,
+    actor_id: int = None,
 ):
-    """Broadcast cuando se reasigna un ticket."""
+    """Broadcast cuando se reasigna un ticket. Ver `actor_id` en `broadcast_ticket_assigned`."""
+    payload = {**payload, "actor_id": actor_id}
     await sio.emit("ticket_reassigned", payload, to=_tech_room(new_assigned_id), namespace=NAMESPACE)
     if prev_assigned_id:
         await sio.emit("ticket_reassigned", payload, to=_tech_room(prev_assigned_id), namespace=NAMESPACE)
@@ -215,9 +230,11 @@ async def broadcast_ticket_reassigned(
 
 
 async def broadcast_ticket_status_changed(
-    ticket_id: int, assignee_id: int, area: str, payload: dict, department_id: int = None
+    ticket_id: int, assignee_id: int, area: str, payload: dict, department_id: int = None,
+    actor_id: int = None,
 ):
-    """Broadcast cuando cambia el estado de un ticket."""
+    """Broadcast cuando cambia el estado de un ticket. Ver `actor_id` en `broadcast_ticket_assigned`."""
+    payload = {**payload, "actor_id": actor_id}
     await sio.emit("ticket_status_changed", payload, to=_ticket_room(ticket_id), namespace=NAMESPACE)
     if assignee_id:
         await sio.emit("ticket_status_changed", payload, to=_tech_room(assignee_id), namespace=NAMESPACE)
@@ -229,13 +246,21 @@ async def broadcast_ticket_status_changed(
     await sio.emit("ticket_status_changed", payload, to=_admin_room(), namespace=NAMESPACE)
 
 
-async def broadcast_ticket_comment_added(ticket_id: int, payload: dict):
-    """Broadcast cuando se agrega un comentario a un ticket."""
+async def broadcast_ticket_comment_added(ticket_id: int, payload: dict, actor_id: int = None):
+    """Broadcast cuando se agrega un comentario a un ticket.
+
+    Único caller: `notification_helper.notify_comment_added` (fire-and-forget vía
+    `_async_broadcast`). A diferencia de los demás eventos, aquí SÍ es el sitio
+    correcto porque `api/comments.py::create_comment` es sync y no puede await-earlo;
+    `api/ticket_comments.py` (el caller async) NO debe volver a emitirlo.
+    """
+    payload = {**payload, "actor_id": actor_id}
     await sio.emit("ticket_comment_added", payload, to=_ticket_room(ticket_id), namespace=NAMESPACE)
 
 
-async def broadcast_ticket_self_assigned(ticket_id: int, area: str, payload: dict):
+async def broadcast_ticket_self_assigned(ticket_id: int, area: str, payload: dict, actor_id: int = None):
     """Broadcast cuando un técnico toma un ticket del pool del equipo."""
+    payload = {**payload, "actor_id": actor_id}
     area_lower = (area or "").lower()
     if area_lower in ("desarrollo", "soporte"):
         await sio.emit("ticket_self_assigned", payload, to=_team_room(area_lower), namespace=NAMESPACE)

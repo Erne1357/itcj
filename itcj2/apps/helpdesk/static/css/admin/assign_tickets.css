@@ -1,3 +1,15 @@
+/* #editTicketModal: divisor entre columnas.
+   Vive como border-start de la columna DERECHA (data en la 2a col de la .row),
+   no como border-end de la izquierda: el modal usa modal-dialog-scrollable
+   (fix scroll doble), que pone overflow:hidden en .modal-content — un border-end
+   pegado a ese borde se recorta. A partir de lg porque debajo de eso las
+   columnas col-md-5/col-md-7 ya se apilan (no hace falta línea). */
+@media (min-width: 992px) {
+    .hd-edit-modal-col-divider {
+        border-left: 1px solid var(--bs-border-color, #dee2e6);
+    }
+}
+
 /* Technician cards */
 .technician-card {
     transition: all 0.2s ease;

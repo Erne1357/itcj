@@ -872,6 +872,6 @@
     href="{{ url_for('static', filename='helpdesk/css/user/ticket_tutorial.css') }}?v={{ sv('helpdesk', 'css/user/ticket_tutorial.css') }}">
 {% endblock %}
 
-{% block hd_data %}data-ticket-id="{{ ticket_id }}" data-current-user-id="{{ user_id }}"{% endblock %}
+{% block hd_data %}data-ticket-id="{{ ticket_id }}"{% endblock %}
 
 {% block extra_js %}{% endblock %}

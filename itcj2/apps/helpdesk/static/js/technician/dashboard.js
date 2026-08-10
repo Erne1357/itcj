@@ -44,6 +44,12 @@
             socket.off('ticket_created');
             socket.off('ticket_self_assigned');
         }
+        // Salir de tech:{uid} y team:{area} — sin esto el room se queda unido tras
+        // morfear a otra página (p.ej. admin/assign-tickets) y ese evento llega
+        // por partida doble ahí.
+        window.__hdLeaveTech?.();
+        if (techArea) window.__hdLeaveTeam?.(techArea);
+
         ticketToStart = null; ticketToResolve = null; ticketToSelfAssign = null;
         techArea = null; socketRoomsBound = false; resDropzoneSetup = false;
 
@@ -428,15 +434,16 @@
         socket.off('ticket_created');
         socket.off('ticket_self_assigned');
 
-        socket.on('ticket_assigned', function () { dRefreshAssigned(); });
-        socket.on('ticket_reassigned', function () { dRefreshAll(); showRealtimeToast('Ticket reasignado'); });
-        socket.on('ticket_status_changed', function () { dRefreshAll(); });
+        socket.on('ticket_assigned', function (data) { if (window.__hdIsOwnEvent?.(data)) return; dRefreshAssigned(); });
+        socket.on('ticket_reassigned', function (data) { if (window.__hdIsOwnEvent?.(data)) return; dRefreshAll(); showRealtimeToast('Ticket reasignado'); });
+        socket.on('ticket_status_changed', function (data) { if (window.__hdIsOwnEvent?.(data)) return; dRefreshAll(); });
         socket.on('ticket_created', function (data) {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (techArea && data.area && data.area.toLowerCase() === techArea) {
                 dRefreshTeam(); showRealtimeToast('Nuevo ticket: ' + data.ticket_number);
             }
         });
-        socket.on('ticket_self_assigned', function () { dRefreshTeam(); });
+        socket.on('ticket_self_assigned', function (data) { if (window.__hdIsOwnEvent?.(data)) return; dRefreshTeam(); });
 
         socketRoomsBound = true;
     }

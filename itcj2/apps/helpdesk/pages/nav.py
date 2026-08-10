@@ -428,5 +428,9 @@ def render_helpdesk(
         # una vez en el shell y lo lee HelpdeskUtils.initBackButton().
         "hd_origins": build_origins(),
         "hd_origin_self": origin_for_page(hd_page) or "",
+        # Id del usuario actual, expuesto en [data-hd-page] como data-current-user-id
+        # (base_helpdesk.html). Lo lee window.__hdIsOwnEvent (sockets/helpdesk_client.js)
+        # para que el cliente ignore el eco de sus propios broadcasts de socket.
+        "hd_current_user_id": int(user["sub"]) if user else None,
     }
     return render(request, template, ctx, status_code)
