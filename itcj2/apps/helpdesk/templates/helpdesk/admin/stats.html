@@ -1,4 +1,5 @@
 {% extends "helpdesk/base_helpdesk.html" %}
+{% from "helpdesk/_components/ticket_summary_modal.html" import ticket_summary_modal %}
 
 {% block title %}Estadísticas{% endblock %}
 {% block header_title %}Estadísticas{% endblock %}
@@ -474,6 +475,8 @@
     </div><!-- /tab-rating -->
 
   </div><!-- /tab-content -->
+
+  {{ ticket_summary_modal() }}
 </div>
 {% endblock %}
 

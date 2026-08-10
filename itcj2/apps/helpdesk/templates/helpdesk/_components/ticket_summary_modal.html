@@ -1,0 +1,59 @@
+{#
+  Modal compartido de resumen de ticket — shell estático (Bootstrap 5,
+  `getOrCreateInstance`). El contenido lo llena `js/shared/ticket-summary.js`
+  vía fetch a `GET /api/help-desk/v2/stats/tickets/{id}/summary`
+  (`HelpdeskUtils.showTicketSummary(ticketId, {from})`).
+
+  Incluir UNA vez por página con `{{ ticket_summary_modal() }}` — hoy en
+  admin/stats.html (comentarios de calificación) y admin/analysis.html
+  (outliers, clustering). El JS localiza el modal por id, así que no le
+  importa desde qué página se invocó.
+#}
+
+{% macro ticket_summary_modal() -%}
+<div class="modal fade" id="ticketSummaryModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title mb-0">
+          <i class="fas fa-ticket-alt me-2 text-success"></i><span id="ticketSummaryNumber">Ticket</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div id="ticketSummaryLoading" class="text-center py-5">
+          <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Cargando...</span></div>
+        </div>
+        <div id="ticketSummaryError" class="alert alert-danger d-none mb-0"></div>
+        <div id="ticketSummaryContent" class="d-none">
+          <h6 id="ticketSummaryTitle" class="fw-bold mb-2"></h6>
+          <div class="d-flex flex-wrap gap-2 mb-3" id="ticketSummaryBadges"></div>
+          <p id="ticketSummaryDescription" class="text-muted small mb-3"></p>
+          <div class="row row-cols-2 g-2 small mb-3" id="ticketSummaryMeta"></div>
+          <div id="ticketSummaryRatingBlock" class="border-top pt-3 d-none">
+            <div class="d-flex align-items-center gap-4 mb-2">
+              <div>
+                <span class="text-muted small d-block">Atención</span>
+                <span class="stats-stars" id="ticketSummaryRatingAtt"></span>
+              </div>
+              <div>
+                <span class="text-muted small d-block">Velocidad</span>
+                <span class="stats-stars" id="ticketSummaryRatingSpd"></span>
+              </div>
+            </div>
+            <div id="ticketSummaryRatingComment" class="rating-comment-card mb-0 d-none"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="ticketSummaryNewTabBtn">
+          <i class="fas fa-external-link-alt me-1"></i><span class="d-none d-sm-inline">Abrir en pestaña nueva</span>
+        </button>
+        <button type="button" class="btn btn-success btn-sm" id="ticketSummaryOpenBtn">
+          <span class="d-none d-sm-inline">Abrir ticket</span><i class="fas fa-arrow-right ms-sm-1"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{%- endmacro %}
