@@ -13,6 +13,16 @@
 {% if oob %}
 {# Actualiza el contador del header fuera de banda (está fuera del target) #}
 <span id="ticketCount" class="badge bg-secondary" hx-swap-oob="true">{{ total }} ticket{{ '' if total == 1 else 's' }}</span>
+{# Actualiza los chips de filtros activos (también fuera del target: viven en
+   la barra de filtros, no en #hd-tickets-results). #}
+<div class="d-flex flex-wrap gap-2{{ ' mt-2' if chips }}" id="hd-active-chips" hx-swap-oob="true">
+  {% for chip in chips %}
+  <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-1 hd-filter-chip" data-chip-param="{{ chip.param }}">
+    {{ chip.label }}
+    <button type="button" class="btn-close" style="font-size:0.55rem;" aria-label="Quitar filtro {{ chip.label }}" data-chip-remove="{{ chip.param }}"></button>
+  </span>
+  {% endfor %}
+</div>
 {% endif %}
 
 {% if tickets %}

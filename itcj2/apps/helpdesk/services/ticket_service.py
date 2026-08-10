@@ -2,8 +2,8 @@ import logging
 import os
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, case, or_
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.orm.attributes import flag_modified
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -311,6 +311,25 @@ def get_ticket_by_id(db: Session, ticket_id: int, user_id: int = None, check_per
     return ticket
 
 
+# Órdenes soportados por el filtro `sort` de la lista de tickets. `recent` es el
+# default histórico (created_at desc); `stale` = más tiempo sin actualizar
+# (updated_at asc).
+_SORT_CLAUSES = {
+    'oldest': lambda: [Ticket.created_at.asc()],
+    'priority': lambda: [
+        case(
+            (Ticket.priority == 'URGENTE', 1),
+            (Ticket.priority == 'ALTA', 2),
+            (Ticket.priority == 'MEDIA', 3),
+            (Ticket.priority == 'BAJA', 4),
+            else_=5,
+        ),
+        Ticket.created_at.desc(),
+    ],
+    'stale': lambda: [Ticket.updated_at.asc()],
+}
+
+
 # ==================== LISTAR TICKETS ====================
 def list_tickets(
     db: Session,
@@ -321,10 +340,16 @@ def list_tickets(
     priority: str = None,
     assigned_to_me: bool = False,
     assigned_to_team: str = None,
+    assigned_to_user_id: int = None,
+    unassigned: bool = False,
     created_by_me: bool = False,
     department_id: int = None,
     department_ids: set = None,
+    category_id: int = None,
+    created_from=None,
+    created_to=None,
     search: str = None,
+    sort: str = 'recent',
     page: int = 1,
     per_page: int = 20,
     include_metrics: bool = False
@@ -396,6 +421,21 @@ def list_tickets(
             Ticket.assigned_to_user_id == None
         )
 
+    # Filtro de técnico asignado (barra de filtros admin): id exacto, o "sin
+    # asignar del todo" (ni usuario ni equipo) — distinto de `assigned_to_team`
+    # arriba, que es "en cola de un equipo, sin técnico todavía".
+    if assigned_to_user_id:
+        query = query.filter(Ticket.assigned_to_user_id == assigned_to_user_id)
+
+    if unassigned:
+        query = query.filter(
+            Ticket.assigned_to_user_id.is_(None),
+            Ticket.assigned_to_team.is_(None),
+        )
+
+    if category_id:
+        query = query.filter(Ticket.category_id == category_id)
+
     if created_by_me:
         query = query.filter(Ticket.requester_id == user_id)
 
@@ -411,17 +451,44 @@ def list_tickets(
             Ticket.requester_department_id.in_(descendant_department_ids(db, department_id, include_self=True))
         )
 
+    if created_from:
+        query = query.filter(Ticket.created_at >= created_from)
+
+    if created_to:
+        # Límite superior EXCLUSIVO al día siguiente: `created_to` es una fecha
+        # (sin hora), así que un `<=` directo contra un datetime cortaría el
+        # propio día seleccionado a la medianoche.
+        from datetime import date as _date, datetime as _datetime, time as _time, timedelta as _timedelta
+        _end = created_to
+        if isinstance(_end, _date) and not isinstance(_end, _datetime):
+            _end = _datetime.combine(_end, _time.min)
+        query = query.filter(Ticket.created_at < _end + _timedelta(days=1))
+
     if search:
+        # Cubre también nombre del solicitante y del asignado (el placeholder de
+        # búsqueda de la barra de filtros ya lo prometía; antes solo tocaba
+        # title/ticket_number/description). outerjoin porque `assigned_to` puede
+        # ser NULL (ticket sin asignar todavía).
+        Requester = aliased(User)
+        Assignee = aliased(User)
+        query = (
+            query
+            .outerjoin(Requester, Ticket.requester_id == Requester.id)
+            .outerjoin(Assignee, Ticket.assigned_to_user_id == Assignee.id)
+        )
         search_term = f"%{search}%"
         query = query.filter(
             or_(
                 Ticket.title.ilike(search_term),
                 Ticket.ticket_number.ilike(search_term),
-                Ticket.description.ilike(search_term)
+                Ticket.description.ilike(search_term),
+                Requester.full_name.ilike(search_term),
+                Assignee.full_name.ilike(search_term),
             )
         )
 
-    query = query.order_by(Ticket.created_at.desc())
+    order_clauses = _SORT_CLAUSES.get(sort, lambda: [Ticket.created_at.desc()])()
+    query = query.order_by(*order_clauses)
 
     pagination = paginate(query, page=page, per_page=per_page)
 
