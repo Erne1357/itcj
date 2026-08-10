@@ -6,7 +6,11 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Static versioning
-    STATIC_VERSION: str = "1.0.1111498"
+    # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
+    # de orígenes, sockets, filtros, detalle de equipo, asignación, home). Sin
+    # este bump el navegador serviría los assets viejos desde caché y los
+    # cambios no se verían hasta un refresh forzado.
+    STATIC_VERSION: str = "1.0.1111499"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
