@@ -162,3 +162,55 @@ test.describe('assign_equipment — layout sin doble scroll (1920x1080)', () => 
     await expect(page.locator('#loading-state')).toBeHidden();
   });
 });
+
+// En móvil las dos columnas se apilan. Ambos paneles siguen siendo sticky, así
+// que hay que confirmar que ninguno se "pega" encima del otro ni deja la lista
+// más alta que el viewport (el tope se calcula en vivo, y en el flujo apilado
+// las posiciones naturales son muy distintas a las de desktop).
+test.describe('assign_equipment — apilado en móvil (390x844)', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('ningún panel excede el viewport ni tapa al otro', async ({ page }) => {
+    await gotoHelpdeskAs(page, DEPT_HEAD_USER_ID, ASSIGN_PAGE);
+    await expect(page.locator('#main-content')).toBeVisible({ timeout: 15_000 });
+
+    const firstUser = page.locator('#users-list .user-card').first();
+    test.skip((await firstUser.count()) === 0, 'sin usuarios en el departamento de prueba');
+    await firstUser.click();
+    await expect(page.locator('#user-equipment-section')).toBeVisible();
+
+    const boxes = await page.evaluate(() => {
+      const pick = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { top: r.top, height: r.height, maxHeight: getComputedStyle(el).maxHeight };
+      };
+      return {
+        users: pick('#users-panel'),
+        equip: pick('#equip-panel'),
+        viewport: window.innerHeight,
+      };
+    });
+
+    expect(boxes.users).not.toBeNull();
+    expect(boxes.equip).not.toBeNull();
+    // Ningún panel más alto que la ventana: si lo fuera, volvería el doble scroll.
+    expect(boxes.users.height).toBeLessThanOrEqual(boxes.viewport);
+    expect(boxes.equip.height).toBeLessThanOrEqual(boxes.viewport);
+    // Apilados: el de equipos empieza por debajo del de usuarios, no encima.
+    expect(boxes.equip.top).toBeGreaterThanOrEqual(boxes.users.top);
+  });
+
+  test('las listas internas conservan tope finito', async ({ page }) => {
+    await gotoHelpdeskAs(page, DEPT_HEAD_USER_ID, ASSIGN_PAGE);
+    await expect(page.locator('#main-content')).toBeVisible({ timeout: 15_000 });
+
+    const maxH = await page.evaluate(() => {
+      const el = document.querySelector('#users-list');
+      return el ? getComputedStyle(el).maxHeight : null;
+    });
+    expect(maxH).not.toBe('none');
+    expect(parseFloat(maxH)).toBeGreaterThan(0);
+  });
+});
