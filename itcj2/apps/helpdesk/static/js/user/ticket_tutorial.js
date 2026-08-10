@@ -125,7 +125,7 @@ const TutorialUtils = {
         }
 
         // Mostrar modal
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
     },
 
@@ -165,7 +165,7 @@ const TutorialUtils = {
             modal.querySelector('#tutorialConfirmModalBody').textContent = message;
         }
 
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
 
         // Event listeners
         const confirmBtn = modal.querySelector('#tutorialConfirmOk');

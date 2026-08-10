@@ -53,7 +53,7 @@
             const modalElement = document.getElementById('requesterModal');
             if (!modalElement) return;
 
-            this.modal = new bootstrap.Modal(modalElement);
+            this.modal = bootstrap.Modal.getOrCreateInstance(modalElement);
 
             document.getElementById('open-requester-modal')?.addEventListener('click', () => {
                 this.openModal();
@@ -488,13 +488,13 @@
             const groupEquipmentModalElement = document.getElementById('groupEquipmentModal');
 
             if (equipmentModalElement) {
-                AppState.modal = new bootstrap.Modal(equipmentModalElement);
+                AppState.modal = bootstrap.Modal.getOrCreateInstance(equipmentModalElement);
             }
             if (groupModalElement) {
-                AppState.groupModal = new bootstrap.Modal(groupModalElement);
+                AppState.groupModal = bootstrap.Modal.getOrCreateInstance(groupModalElement);
             }
             if (groupEquipmentModalElement) {
-                AppState.groupEquipmentModal = new bootstrap.Modal(groupEquipmentModalElement);
+                AppState.groupEquipmentModal = bootstrap.Modal.getOrCreateInstance(groupEquipmentModalElement);
             }
         },
 

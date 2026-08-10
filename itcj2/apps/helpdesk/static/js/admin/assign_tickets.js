@@ -749,7 +749,7 @@
             document.getElementById('teamSelect').value = 'soporte';
         }
 
-        _assignmentModalInstance = new bootstrap.Modal(document.getElementById('assignmentModal'));
+        _assignmentModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('assignmentModal'));
         _assignmentModalInstance.show();
     }
 
@@ -855,7 +855,7 @@
         document.getElementById('newTechnicianSelect').value = '';
         document.getElementById('reassignReason').value = '';
 
-        _reassignmentModalInstance = new bootstrap.Modal(document.getElementById('reassignmentModal'));
+        _reassignmentModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('reassignmentModal'));
         _reassignmentModalInstance.show();
     }
 
@@ -1253,7 +1253,7 @@
         loadTicketAttachments(ticketId);
 
         // Mostrar modal
-        _editTicketModalInstance = new bootstrap.Modal(document.getElementById('editTicketModal'));
+        _editTicketModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('editTicketModal'));
         _editTicketModalInstance.show();
     }
 

@@ -369,7 +369,7 @@ async function confirmDialog(title, message, confirmText = 'Confirmar', cancelTe
         `;
 
         document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
         bsModal.show();
 
         modal.querySelector('#confirm-btn').addEventListener('click', () => {

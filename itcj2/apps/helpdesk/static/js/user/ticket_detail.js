@@ -734,7 +734,7 @@
             </div>
         `;
 
-        const modal = new bootstrap.Modal(document.getElementById('startWorkModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('startWorkModal'));
         modal.show();
     }
 
@@ -1125,7 +1125,7 @@
 
         document.getElementById('btnSubmitRating').disabled = true;
 
-        const modal = new bootstrap.Modal(document.getElementById('ratingModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('ratingModal'));
         modal.show();
     }
 
@@ -1199,7 +1199,7 @@
 
     function openCancelModal() {
         document.getElementById('cancelReason').value = '';
-        const modal = new bootstrap.Modal(document.getElementById('cancelModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('cancelModal'));
         modal.show();
     }
 
@@ -1360,7 +1360,7 @@
             return;
         }
 
-        const modal = new bootstrap.Modal(document.getElementById('equipmentListModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('equipmentListModal'));
         renderEquipmentModalList(currentTicket.inventory_items);
         modal.show();
     }
@@ -1575,7 +1575,7 @@
     }
 
     function openPhotoModal(photoUrl) {
-        const modal = new bootstrap.Modal(document.getElementById('photoModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('photoModal'));
         document.getElementById('photoModalImage').src = photoUrl;
         modal.show();
     }
@@ -1779,7 +1779,7 @@
     function openResolutionFilesModal() {
         if (!currentTicket) return;
 
-        const modal = new bootstrap.Modal(document.getElementById('resolutionFilesModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('resolutionFilesModal'));
         loadResolutionFiles();
         setupResolutionDropzone();
         modal.show();
@@ -1940,7 +1940,7 @@
 
     // ==================== ATTACHMENT IMAGE VIEWER ====================
     function viewAttachmentImage(url, title) {
-        const modal = new bootstrap.Modal(document.getElementById('attachmentImageModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('attachmentImageModal'));
         document.getElementById('attachmentImageModalImg').src = url;
         document.getElementById('attachmentImageTitle').innerHTML = `<i class="fas fa-image me-2"></i>${title || 'Imagen'}`;
         modal.show();

@@ -153,7 +153,7 @@
         var b = document.getElementById('btnConfirmStart');
         if (b) { b.disabled = false; b.innerHTML = '<i class="fas fa-play me-2"></i>Sí, Iniciar'; }
         var modalEl = document.getElementById('startWorkModal');
-        if (modalEl) new bootstrap.Modal(modalEl).show();
+        if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
     async function confirmStartWork() {
@@ -368,7 +368,7 @@
         var b = document.getElementById('btnConfirmSelfAssign');
         if (b) { b.disabled = false; b.innerHTML = '<i class="fas fa-hand-paper me-2"></i>Sí, Tomar Ticket'; }
         var modalEl = document.getElementById('selfAssignModal');
-        if (modalEl) new bootstrap.Modal(modalEl).show();
+        if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
     async function confirmSelfAssign() {
@@ -465,7 +465,7 @@
         if (!modalEl) return;
         loadResolutionFiles();
         setupResolutionDropzone();
-        new bootstrap.Modal(modalEl).show();
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
     function setupResolutionDropzone() {
@@ -558,7 +558,7 @@
         var titleEl = document.getElementById('attachmentImageTitle');
         if (imgEl) imgEl.src = url;
         if (titleEl) titleEl.innerHTML = '<i class="fas fa-image me-2"></i>' + (title || 'Imagen');
-        new bootstrap.Modal(modalEl).show();
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
     // ==================== HELPERS ====================

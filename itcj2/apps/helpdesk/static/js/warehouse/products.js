@@ -49,7 +49,7 @@ const WarehouseProducts = (function () {
     async function showStock(productId, name) {
         document.getElementById('stockDetailBody').innerHTML =
             '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>';
-        new bootstrap.Modal(document.getElementById('stockDetailModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('stockDetailModal')).show();
 
         try {
             const res = await fetch(`${API}/stock-entries?product_id=${productId}&per_page=20`);
@@ -102,7 +102,7 @@ const WarehouseProducts = (function () {
         } catch (e) {
             console.error('Error loading product', e);
         }
-        new bootstrap.Modal(document.getElementById('productModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('productModal')).show();
     }
 
     async function save() {

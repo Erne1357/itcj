@@ -7,7 +7,7 @@
     'use strict';
 
     // ==================== BS5 MODAL HELPERS (sin jQuery) ====================
-    function modalShow(id) { new bootstrap.Modal(document.getElementById(id)).show(); }
+    function modalShow(id) { bootstrap.Modal.getOrCreateInstance(document.getElementById(id)).show(); }
     function modalHide(id) {
         const el = document.getElementById(id);
         if (el) { try { bootstrap.Modal.getInstance(el)?.hide(); } catch (_) { /* ignore */ } }
