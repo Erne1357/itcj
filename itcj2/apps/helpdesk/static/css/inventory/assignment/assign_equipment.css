@@ -149,31 +149,60 @@
     top: var(--hd-sticky-top, 76px);
     max-height: 85vh;
     overflow: hidden;
+    /* El reparto interno lo hace flexbox, no aritmética de max-height. La
+       versión anterior medía cada lista contra el fondo del VIEWPORT, pero las
+       listas viven dentro de este panel, que ya está recortado a una caja MENOR
+       y con overflow:hidden — así que los topes se pasaban y el panel cortaba lo
+       que sobraba: la lista de disponibles quedaba con su borde inferior fuera
+       del panel (medido: 884px contra un panel que acaba en 844) y se veía una
+       rebanada de fila. Con flex, los hijos no pueden rebasar al padre. */
+    display: flex;
+    flex-direction: column;
+}
+.hd-assign-panel > .card-header {
+    flex: 0 0 auto;
+}
+/* min-height:0 es imprescindible: sin él un hijo flex no baja de su contenido
+   y el scroll interno nunca aparece. */
+.hd-assign-panel > .card-body {
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
-/* Lista de usuarios: overflow-y con tope calculado en JS (fitScrollRegions).
-   El max-height de aquí es solo el fallback antes de que corra el JS. */
-.hd-scroll-list {
-    max-height: 60vh;
-    overflow-y: auto;
+/* Panel de USUARIOS: la búsqueda queda fija arriba y solo scrollea la lista. */
+#users-panel > .card-body {
+    display: flex;
+    flex-direction: column;
 }
+#users-panel > .card-body > .mb-3 {
+    flex: 0 0 auto;
+}
+.hd-scroll-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* Aire al final: sin esto la última tarjeta queda pegada al borde y parece
+       recortada en vez de "hay más abajo". */
+    padding-bottom: 0.5rem;
+}
+
+/* Panel de EQUIPOS: UN SOLO scroll. Antes había dos regiones scrolleables
+   apiladas (asignados con tope fijo de 220px + disponibles con tope calculado)
+   compitiendo por el alto del mismo panel: 5 equipos asignados se amontonaban en
+   2.2 tarjetas y lo de abajo quedaba inalcanzable. Ahora scrollea el card-body
+   entero y todo el contenido es alcanzable de una sola pasada. */
+#equip-panel > .card-body {
+    overflow-y: auto;
+    padding-bottom: 0.75rem;
+}
+.hd-scroll-assigned,
+.hd-scroll-inner {
+    max-height: none;
+    overflow: visible;
+}
+
 .hd-scroll-modal {
     max-height: 400px;
-    overflow-y: auto;
-}
-
-/* Equipos asignados al usuario: lista secundaria, normalmente corta —
-   tope fijo (no depende del viewport) para no competir por altura con la
-   lista de equipos disponibles, que es la que de verdad puede crecer mucho. */
-.hd-scroll-assigned {
-    max-height: 220px;
-    overflow-y: auto;
-}
-
-/* Equipos disponibles (individuales/grupos): igual que .hd-scroll-list, tope
-   calculado en JS; aquí solo el fallback. */
-.hd-scroll-inner {
-    max-height: 45vh;
     overflow-y: auto;
 }
 

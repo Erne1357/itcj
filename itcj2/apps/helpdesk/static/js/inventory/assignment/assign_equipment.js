@@ -69,10 +69,10 @@
     // el fondo del viewport, esté o no pegado.
     const HD_STICKY_GAP = 12;        // separación entre el header fijo y el panel (usa el "top" del sticky)
     const HD_BOTTOM_GAP = 16;        // aire entre el panel y el borde inferior del viewport
-    const HD_LIST_BOTTOM_GAP = 28;   // un poco más de aire para las listas: dejan lugar al padding
-                                      // inferior del card-body antes de tocar el overflow:hidden del panel
-    const HD_MIN_LIST_H = 140;       // piso para no dejar una lista inservible en viewports muy bajos
     const HD_MIN_PANEL_H = 240;
+    // Las listas de adentro ya no se miden aquí: su alto lo reparte flexbox
+    // dentro del panel (assign_equipment.css). Medirlas contra el viewport era
+    // justo lo que las hacía rebasar el panel y quedar recortadas.
 
     function getStickyTopPx() {
         const header = document.querySelector('.sitec-header-nav');
@@ -117,27 +117,14 @@
         // El tope del PANEL (con overflow:hidden) es la garantía dura de que
         // la página nunca necesita scroll propio; el de la LISTA es solo para
         // que su scrollbar interna quede bien ubicada dentro de ese tope.
+        // Solo se capea el PANEL. El reparto de adentro lo hace flexbox
+        // (assign_equipment.css): capear también las listas contra el fondo del
+        // viewport era el bug — viven dentro de un panel ya recortado a una caja
+        // menor, así que sus topes lo rebasaban y overflow:hidden se comía la
+        // última fila. Un hijo flex no puede rebasar a su padre.
         const panelBottomGap = HD_BOTTOM_GAP + getTrailingChromePx();
         fitToViewportBottom(document.getElementById('users-panel'), panelBottomGap, HD_MIN_PANEL_H);
-        fitToViewportBottom(document.getElementById('users-list'), HD_LIST_BOTTOM_GAP, HD_MIN_LIST_H);
-
         fitToViewportBottom(document.getElementById('equip-panel'), panelBottomGap, HD_MIN_PANEL_H);
-
-        const section = document.getElementById('user-equipment-section');
-        if (!section || section.classList.contains('d-none')) return;
-
-        const activePane = document.querySelector('#equipmentTabsContent .tab-pane.active');
-        const activeList = activePane ? activePane.querySelector('.hd-scroll-inner') : null;
-        if (!activeList) return;
-
-        fitToViewportBottom(activeList, HD_LIST_BOTTOM_GAP, HD_MIN_LIST_H);
-        // Individual y grupos comparten la misma posición dentro del tab-content
-        // (solo uno es visible a la vez), así que el mismo tope les cabe a ambos.
-        const sharedMaxHeight = activeList.style.maxHeight;
-        const individualList = document.getElementById('individual-equipment-list');
-        const groupsList = document.getElementById('groups-list');
-        if (individualList) individualList.style.maxHeight = sharedMaxHeight;
-        if (groupsList) groupsList.style.maxHeight = sharedMaxHeight;
     }
 
     // ==================== INIT / DESTROY ====================

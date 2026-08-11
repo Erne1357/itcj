@@ -86,10 +86,12 @@ test.describe('assign_equipment — layout sin doble scroll (1920x1080)', () => 
     }));
     expect(overflow.scrollHeight).toBeLessThanOrEqual(overflow.innerHeight + 4);
 
-    // 2) Cada lista con contenido scrollea DENTRO de sí misma (overflow-y
-    //    scrolleable) y su borde inferior cae dentro del viewport.
+    // 2) Cada panel scrollea DENTRO de su propia región y su borde inferior
+    //    cae dentro del viewport. Es UNA región por panel: cuando eran dos
+    //    apiladas (asignados + disponibles) competían por el alto del mismo
+    //    panel y la de abajo acababa recortada por su overflow:hidden.
     const viewportH = await page.evaluate(() => window.innerHeight);
-    for (const id of ['#users-list', '#assigned-equipment-list', '#individual-equipment-list']) {
+    for (const id of ['#users-list', '#equip-panel > .card-body']) {
       const info = await page.locator(id).evaluate((el) => ({
         overflowY: getComputedStyle(el).overflowY,
         bottom: el.getBoundingClientRect().bottom,
@@ -99,14 +101,28 @@ test.describe('assign_equipment — layout sin doble scroll (1920x1080)', () => 
     }
   });
 
-  test('los 3 contenedores del panel derecho tienen tope de altura (no ilimitado)', async ({ page }) => {
+  // Este test exigia antes que las 3 listas internas tuvieran max-height propio.
+  // Ese era justamente el diseno que rompia la vista: tres topes calculados
+  // contra el viewport dentro de un panel ya recortado a una caja menor. El
+  // contrato correcto es el contrario: el tope lo tiene el PANEL, y adentro
+  // reparte flexbox.
+  test('el tope de altura vive en el panel, no en cada lista interna', async ({ page }) => {
     const count = await gotoAndSelectFirstUser(page);
     test.skip(count === null, 'Usuario de prueba sin datos de inventario (sin depto o sin usuarios)');
 
-    for (const id of ['#assigned-equipment-list', '#individual-equipment-list', '#groups-list']) {
+    for (const id of ['#users-panel', '#equip-panel']) {
       const maxHeight = await page.locator(id).evaluate((el) => getComputedStyle(el).maxHeight);
       expect(maxHeight, `${id} debe tener un max-height finito`).not.toBe('none');
+      expect(parseFloat(maxHeight)).toBeGreaterThan(0);
     }
+
+    // Y ningun panel puede esconder contenido inalcanzable tras su overflow:hidden.
+    const inalcanzable = await page.evaluate(() => ({
+      izq: (() => { const e = document.querySelector('#users-panel'); return e.scrollHeight - e.clientHeight; })(),
+      der: (() => { const e = document.querySelector('#equip-panel'); return e.scrollHeight - e.clientHeight; })(),
+    }));
+    expect(inalcanzable.izq).toBe(0);
+    expect(inalcanzable.der).toBe(0);
   });
 
   test('el header no desfasa: selector de depto y botones comparten línea base', async ({ page }) => {
@@ -202,15 +218,98 @@ test.describe('assign_equipment — apilado en móvil (390x844)', () => {
     expect(boxes.equip.top).toBeGreaterThanOrEqual(boxes.users.top);
   });
 
-  test('las listas internas conservan tope finito', async ({ page }) => {
+  test('los paneles conservan tope finito al apilarse', async ({ page }) => {
     await gotoHelpdeskAs(page, DEPT_HEAD_USER_ID, ASSIGN_PAGE);
     await expect(page.locator('#main-content')).toBeVisible({ timeout: 15_000 });
 
+    // El tope vive en el panel; #users-list ya solo declara flex:1 + min-height:0
+    // y hereda el alto que le deja su panel.
     const maxH = await page.evaluate(() => {
-      const el = document.querySelector('#users-list');
+      const el = document.querySelector('#users-panel');
       return el ? getComputedStyle(el).maxHeight : null;
     });
     expect(maxH).not.toBe('none');
     expect(parseFloat(maxH)).toBeGreaterThan(0);
+  });
+});
+
+// Regresión del reporte del 2026-08-11: los topes de las listas se calculaban
+// contra el fondo del VIEWPORT, pero las listas viven dentro de un panel ya
+// recortado a una caja menor con overflow:hidden — así que los topes lo
+// rebasaban y el panel se comía el resto. Medido antes del arreglo: 56px de
+// contenido inalcanzable en el panel derecho, la lista de disponibles con su
+// borde en 884 contra un panel que acaba en 844, y 5 equipos asignados
+// amontonados en un cajón fijo de 220px.
+test.describe('assign_equipment — nada queda recortado dentro de los paneles', () => {
+  for (const alto of [1080, 900, 700]) {
+    test(`viewport ${alto}px: ningún panel esconde contenido inalcanzable`, async ({ page }) => {
+      await page.setViewportSize({ width: 1920, height: alto });
+      await gotoHelpdeskAs(page, DEPT_HEAD_USER_ID, ASSIGN_PAGE);
+      await expect(page.locator('#main-content')).toBeVisible({ timeout: 15_000 });
+
+      const primerUsuario = page.locator('#users-list .user-card').first();
+      test.skip((await primerUsuario.count()) === 0, 'sin usuarios en el departamento de prueba');
+      await primerUsuario.click();
+      await expect(page.locator('#user-equipment-section')).toBeVisible();
+
+      const medidas = await page.evaluate(() => {
+        const inalcanzable = (sel) => {
+          const el = document.querySelector(sel);
+          return el ? el.scrollHeight - el.clientHeight : null;
+        };
+        const desborde = (panelSel, hijoSel) => {
+          const p = document.querySelector(panelSel);
+          const h = document.querySelector(hijoSel);
+          if (!p || !h) return null;
+          return Math.round(h.getBoundingClientRect().bottom - p.getBoundingClientRect().bottom);
+        };
+        return {
+          inalcanzableIzq: inalcanzable('#users-panel'),
+          inalcanzableDer: inalcanzable('#equip-panel'),
+          desbordeListaUsuarios: desborde('#users-panel', '#users-list'),
+          desbordeCuerpoEquipos: desborde('#equip-panel', '#equip-panel > .card-body'),
+        };
+      });
+
+      // El panel recorta con overflow:hidden, así que cualquier excedente es
+      // contenido que el usuario NO puede alcanzar de ninguna forma.
+      expect(medidas.inalcanzableIzq).toBe(0);
+      expect(medidas.inalcanzableDer).toBe(0);
+      // Y ningún hijo puede sobresalir por debajo del panel que lo contiene.
+      expect(medidas.desbordeListaUsuarios).toBeLessThanOrEqual(1);
+      expect(medidas.desbordeCuerpoEquipos).toBeLessThanOrEqual(1);
+    });
+  }
+
+  test('el panel de equipos tiene UN solo área scrolleable, no dos compitiendo', async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 900 });
+    await gotoHelpdeskAs(page, DEPT_HEAD_USER_ID, ASSIGN_PAGE);
+    await expect(page.locator('#main-content')).toBeVisible({ timeout: 15_000 });
+
+    const primerUsuario = page.locator('#users-list .user-card').first();
+    test.skip((await primerUsuario.count()) === 0, 'sin usuarios en el departamento de prueba');
+    await primerUsuario.click();
+    await expect(page.locator('#user-equipment-section')).toBeVisible();
+
+    const scrolls = await page.evaluate(() => {
+      const scrolleable = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        return ['auto', 'scroll'].includes(getComputedStyle(el).overflowY);
+      };
+      return {
+        cuerpo: scrolleable('#equip-panel > .card-body'),
+        asignados: scrolleable('#assigned-equipment-list'),
+        individuales: scrolleable('#individual-equipment-list'),
+        grupos: scrolleable('#groups-list'),
+      };
+    });
+
+    expect(scrolls.cuerpo).toBe(true);
+    // Las listas internas ya no scrollean por su cuenta: eran ellas las que
+    // competían por el alto del panel y acababan recortadas.
+    expect(scrolls.asignados).toBe(false);
+    expect(scrolls.individuales).toBe(false);
+    expect(scrolls.grupos).toBe(false);
   });
 });
