@@ -121,6 +121,41 @@ document.addEventListener('DOMContentLoaded', () => {
         window.setTimeout(syncModalStack, 0);
     }, true);
 
+    // --- Panel "Más filtros": la elección del usuario manda ------------------
+    // El servidor renderiza el panel abierto cuando hay algún filtro avanzado
+    // activo (`more_open`), lo cual está bien como estado INICIAL. El problema
+    // es que lo reimponía en cada render completo: el usuario lo colapsaba y al
+    // siguiente refresh/navegación boosteada volvía a abrirse solo, así que
+    // parecía que el botón de colapsar no servía. Ahora `more_open` es solo el
+    // default y la preferencia explícita se recuerda por página.
+    function filterPanelKey() {
+        return 'hd_more_filters:' + (currentKey || 'global');
+    }
+
+    function restoreFilterPanel() {
+        var panel = document.getElementById('hdMoreFilters');
+        if (!panel) return;
+        var guardado;
+        try { guardado = sessionStorage.getItem(filterPanelKey()); } catch (e) { return; }
+        if (guardado === null) return;                       // sin preferencia: manda el server
+        var debeAbrir = guardado === '1';
+        var estaAbierto = panel.classList.contains('show');
+        if (debeAbrir === estaAbierto) return;
+        // Sin animación: es restauración de estado, no una interacción.
+        panel.classList.toggle('show', debeAbrir);
+        var btn = document.getElementById('btnMoreFilters');
+        if (btn) btn.setAttribute('aria-expanded', debeAbrir ? 'true' : 'false');
+    }
+
+    function recordarFiltro(e) {
+        if (!e.target || e.target.id !== 'hdMoreFilters') return;
+        try { sessionStorage.setItem(filterPanelKey(), e.type === 'shown.bs.collapse' ? '1' : '0'); }
+        catch (err) { /* sessionStorage bloqueado */ }
+    }
+
+    document.addEventListener('shown.bs.collapse', recordarFiltro, true);
+    document.addEventListener('hidden.bs.collapse', recordarFiltro, true);
+
     function teardown() {
         var hooks = currentKey && registry[currentKey];
         if (hooks && typeof hooks.destroy === 'function') {
@@ -336,7 +371,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('click', onDocumentClick);
 
-    function boot() { bindSidebar(); activate(); }
+    // restoreFilterPanel va FUERA de activate(): activate() sale temprano cuando
+    // la página destino es la misma (refresh() re-renderiza la actual), y es justo
+    // ahí donde el servidor reimponía el panel abierto.
+    function boot() { bindSidebar(); activate(); restoreFilterPanel(); }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);
     } else {
@@ -345,8 +383,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // afterSettle: tras swap boosteado. historyRestore: tras back/forward del browser
     // (htmx restaura el HTML cacheado) → re-sincroniza shell + corre init/destroy de la nueva página.
-    document.body.addEventListener('htmx:afterSettle', function () { bindSidebar(); activate(); });
-    document.body.addEventListener('htmx:historyRestore', function () { bindSidebar(); activate(); });
+    document.body.addEventListener('htmx:afterSettle', function () { bindSidebar(); activate(); restoreFilterPanel(); });
+    document.body.addEventListener('htmx:historyRestore', function () { bindSidebar(); activate(); restoreFilterPanel(); });
     document.body.addEventListener('htmx:beforeRequest', navStart);
     document.body.addEventListener('htmx:afterRequest', navEnd);
 
