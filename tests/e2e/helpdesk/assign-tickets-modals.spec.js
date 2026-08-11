@@ -130,3 +130,87 @@ test.describe('assign-tickets — editTicketModal: sin scroll doble ni residuos'
     void modal; // referenciado solo para dejar constancia de que se abrió antes del morph
   });
 });
+
+// Regresión del reporte del 2026-08-11: con modales APILADOS, Bootstrap 5 no
+// lleva la cuenta de cuántos hay abiertos y al cerrar el de encima quita
+// `modal-open` del <body> aunque el de abajo siga visible. Toda la compensación
+// de helpdesk.css cuelga de esa clase, así que al perderla el padding-right
+// inline de Bootstrap vuelve a aplicar y el contenido se encoge 15px de golpe
+// (medido: main pasa de 1425 a 1410), además de reaparecer el canal de
+// scrollbar reservado como una barra inerte.
+test.describe('modales apilados — sin salto ni scroll fantasma', () => {
+  const PAGINA = '/help-desk/inventory/items/create';
+
+  test('cerrar el modal de encima no encoge el contenido ni pierde modal-open', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoHelpdesk(page, PAGINA);
+
+    const hayDos = await page.evaluate(() =>
+      !!document.getElementById('createInactiveUserModal') && !!document.getElementById('successModal'));
+    test.skip(!hayDos, 'esta página no tiene dos modales que apilar');
+
+    const medidas = await page.evaluate(async () => {
+      const main = document.querySelector('main.container-fluid');
+      const ancho = () => Math.round(main.getBoundingClientRect().width);
+      const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+      const m1 = document.getElementById('createInactiveUserModal');
+      const m2 = document.getElementById('successModal');
+
+      const pasos = [{ etapa: 'inicio', ancho: ancho(), modalOpen: document.body.classList.contains('modal-open') }];
+      bootstrap.Modal.getOrCreateInstance(m1).show();
+      await espera(600);
+      pasos.push({ etapa: 'uno', ancho: ancho(), modalOpen: document.body.classList.contains('modal-open') });
+      bootstrap.Modal.getOrCreateInstance(m2).show();
+      await espera(600);
+      pasos.push({ etapa: 'dos', ancho: ancho(), modalOpen: document.body.classList.contains('modal-open') });
+      bootstrap.Modal.getOrCreateInstance(m2).hide();
+      await espera(800);
+      pasos.push({ etapa: 'cierra el de encima', ancho: ancho(), modalOpen: document.body.classList.contains('modal-open') });
+      bootstrap.Modal.getOrCreateInstance(m1).hide();
+      await espera(800);
+      pasos.push({ etapa: 'todo cerrado', ancho: ancho(), modalOpen: document.body.classList.contains('modal-open') });
+      return pasos;
+    });
+
+    const anchos = medidas.map((m) => m.ancho);
+    expect(Math.max(...anchos) - Math.min(...anchos), 'el contenido no debe saltar en ningún paso').toBe(0);
+
+    const trasCerrarElDeEncima = medidas.find((m) => m.etapa === 'cierra el de encima');
+    expect(trasCerrarElDeEncima.modalOpen, 'modal-open debe seguir puesto mientras quede un modal abierto').toBe(true);
+
+    const todoCerrado = medidas.find((m) => m.etapa === 'todo cerrado');
+    expect(todoCerrado.modalOpen, 'al cerrar el último sí debe quitarse').toBe(false);
+  });
+
+  test('al cerrar todos no queda backdrop ni overflow colgado', async ({ page }) => {
+    await gotoHelpdesk(page, PAGINA);
+    const hayDos = await page.evaluate(() =>
+      !!document.getElementById('createInactiveUserModal') && !!document.getElementById('successModal'));
+    test.skip(!hayDos, 'esta página no tiene dos modales que apilar');
+
+    const estado = await page.evaluate(async () => {
+      const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+      const m1 = document.getElementById('createInactiveUserModal');
+      const m2 = document.getElementById('successModal');
+      bootstrap.Modal.getOrCreateInstance(m1).show();
+      await espera(500);
+      bootstrap.Modal.getOrCreateInstance(m2).show();
+      await espera(500);
+      bootstrap.Modal.getOrCreateInstance(m2).hide();
+      await espera(700);
+      bootstrap.Modal.getOrCreateInstance(m1).hide();
+      await espera(900);
+      return {
+        backdrops: document.querySelectorAll('.modal-backdrop').length,
+        modalOpen: document.body.classList.contains('modal-open'),
+        overflow: document.body.style.overflow,
+        abiertos: document.querySelectorAll('.modal.show').length,
+      };
+    });
+
+    expect(estado.abiertos).toBe(0);
+    expect(estado.backdrops).toBe(0);
+    expect(estado.modalOpen).toBe(false);
+    expect(estado.overflow).toBe('');
+  });
+});

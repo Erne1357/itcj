@@ -102,6 +102,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- Modales apilados -----------------------------------------------------
+    // Bootstrap 5 no lleva la cuenta de cuántos modales hay abiertos: al cerrar
+    // el de encima quita `modal-open` del <body> aunque el de abajo siga ahí.
+    // Toda la compensación de helpdesk.css cuelga de esa clase —incluido
+    // `scrollbar-gutter: auto`— así que al perderla vuelve el canal reservado:
+    // aparece una barra de scroll inerte junto a la del modal y el contenido
+    // salta ~15px. Se vuelve a poner mientras quede algún modal visible.
+    // (`overflow` también se re-afirma: Bootstrap lo limpia en el mismo paso.)
+    function syncModalStack() {
+        if (!document.querySelector('.modal.show')) return;
+        document.body.classList.add('modal-open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    document.addEventListener('hidden.bs.modal', function () {
+        // Tras el hide de Bootstrap, no antes: si no, él lo deshace después.
+        window.setTimeout(syncModalStack, 0);
+    }, true);
+
     function teardown() {
         var hooks = currentKey && registry[currentKey];
         if (hooks && typeof hooks.destroy === 'function') {
