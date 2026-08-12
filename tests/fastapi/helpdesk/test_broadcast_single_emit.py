@@ -39,7 +39,11 @@ from itcj2.database import get_db
 from itcj2.main import create_app
 from itcj2.sockets import helpdesk as hd_sockets
 
-from ._catalog import ensure_helpdesk_category, ensure_helpdesk_priority
+from ._catalog import (
+    ensure_helpdesk_category,
+    ensure_helpdesk_priority,
+    ensure_status_transition,
+)
 
 TODAY = date.today()
 
@@ -306,6 +310,12 @@ class TestStatusChangedSingleBroadcast:
             area="SOPORTE", status="ASSIGNED", assigned_to_user_id=tech.id,
             requester_department_id=dept.id,
         )
+
+        # El catalogo de estados vive en BD y get_status_codes NO tiene fallback
+        # al dict literal: con helpdesk_ticket_status vacia (CI) cualquier cambio
+        # responde 400 "Estado invalido". En dev la tabla la carga database/DML/,
+        # que es gitignored y nunca llega al checkout del pipeline.
+        ensure_status_transition(db_session, "ASSIGNED", "IN_PROGRESS")
 
         resp = client.post(
             f"/api/help-desk/v2/tickets/{ticket.id}/start",

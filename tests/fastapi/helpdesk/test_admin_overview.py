@@ -145,6 +145,18 @@ def _ticket(db, number, requester, department, status="PENDING") -> Ticket:
     return t
 
 
+def _registrador(db) -> User:
+    """Usuario dueno de `registered_by_id`. Reusado entre items para no crear
+    uno por equipo."""
+    u = db.query(User).filter_by(last_name="OvRegistrador").first()
+    if not u:
+        u = User(first_name="T", last_name="OvRegistrador", is_active=True)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+    return u
+
+
 def _item(db, number, department, *, last_verified_at=None, warranty_expiration=None) -> InventoryItem:
     it = InventoryItem(
         inventory_number=number,
@@ -152,7 +164,10 @@ def _item(db, number, department, *, last_verified_at=None, warranty_expiration=
         department_id=department.id,
         status="ACTIVE",
         is_active=True,
-        registered_by_id=1,
+        # Un usuario real, no el id 1: ese existe en la BD de dev (cargada por
+        # database/DML/, gitignored) pero NO en la de CI, que arranca vacia con
+        # create_all -> ForeignKeyViolation solo en el pipeline.
+        registered_by_id=_registrador(db).id,
         last_verified_at=last_verified_at,
         warranty_expiration=warranty_expiration,
     )
