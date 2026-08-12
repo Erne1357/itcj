@@ -5,6 +5,7 @@ import logging
 
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from itcj2.dependencies import DbSession, require_perms
+from itcj2.core.utils.timezone import db_now
 
 router = APIRouter(tags=["helpdesk-inventory-retirement"])
 logger = logging.getLogger(__name__)
@@ -366,8 +367,8 @@ def generate_document(
     # Si la solicitud está en DRAFT, marcar que el oficio fue generado (habilita el flujo multi-firma)
     if req.status == "DRAFT" and req.oficio_data is None:
         from datetime import datetime as _dt
-        req.oficio_data = {"type": "system_generated", "generated_at": _dt.utcnow().isoformat()}
-        req.format_generated_at = _dt.utcnow()
+        req.oficio_data = {"type": "system_generated", "generated_at": db_now().isoformat()}
+        req.format_generated_at = db_now()
         db.commit()
 
     return Response(

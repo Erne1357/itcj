@@ -10,6 +10,7 @@ Uso:
 """
 import json
 import click
+from itcj2.core.utils.timezone import db_now
 
 
 @click.group(name="celery")
@@ -115,7 +116,7 @@ def run_task(task_slug: str, dry_run: bool, extra_kwargs: str):
             status="PENDING",
             trigger="MANUAL",
             args_json={"dry_run": dry_run, **extra},
-            created_at=datetime.utcnow(),
+            created_at=db_now(),
         )
         db.add(run)
         db.commit()

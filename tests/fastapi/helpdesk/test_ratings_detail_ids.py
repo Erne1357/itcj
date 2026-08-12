@@ -23,6 +23,7 @@ from itcj2.core.models.position import Position, PositionAppPerm, UserPosition
 from itcj2.core.models.user import User
 from itcj2.database import get_db
 from itcj2.main import create_app
+from itcj2.core.utils.timezone import db_now
 
 API = "/api/help-desk/v2/stats"
 SUBTREE = "helpdesk.stats.api.read.subtree"
@@ -112,7 +113,7 @@ def _grant(db, user, department, *, code=SUBTREE) -> Position:
 
 
 def _rated_ticket(db, number, requester, department, rating, comment):
-    now = datetime.utcnow()
+    now = db_now()
     t = Ticket(
         ticket_number=number,
         requester_id=requester.id,
@@ -158,7 +159,7 @@ class TestRecentCommentsIncludeTicketId:
         boss = _user(db_session, "Boss2")
         _grant(db_session, boss, dept)
 
-        now = datetime.utcnow()
+        now = db_now()
         t1 = _rated_ticket(db_session, "RID-2A", requester, dept, 5, "Comentario A")
         t1.rated_at = now - timedelta(minutes=1)
         t2 = _rated_ticket(db_session, "RID-2B", requester, dept, 3, "Comentario B")

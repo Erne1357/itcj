@@ -86,8 +86,9 @@ class PeriodicTask(Base):
         """
         try:
             from croniter import croniter
+            from itcj2.core.utils.timezone import db_now
             from datetime import datetime
-            itr = croniter(self.cron_expression, datetime.utcnow())
+            itr = croniter(self.cron_expression, db_now())
             return itr.get_next(datetime)
         except Exception:
             return None

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy.orm import Session
+from itcj2.core.utils.timezone import db_now
 
 
 class PhaseService:
@@ -71,7 +72,7 @@ class PhaseService:
 
         ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "approved"
-        ph.completed_at = datetime.utcnow()
+        ph.completed_at = db_now()
         ph.reviewed_by_id = reviewer_id
         ph.rejection_reason = None
 
@@ -84,13 +85,13 @@ class PhaseService:
         nxt = PhaseService._next_applicable(process, phase_number)
         if nxt is None:
             process.status = "completed"
-            process.completed_at = datetime.utcnow()
+            process.completed_at = db_now()
             PhaseService._log(db, process.id, reviewer_id, "process_completed", phase_number)
         else:
             nph = PhaseService._ensure_phase(db, process.id, nxt)
             if nph.status in ("pending", "rejected"):
                 nph.status = "in_progress"
-                nph.started_at = datetime.utcnow()
+                nph.started_at = db_now()
             process.current_phase = nxt
 
         PhaseService._log(db, process.id, reviewer_id, "phase_approved", phase_number)
