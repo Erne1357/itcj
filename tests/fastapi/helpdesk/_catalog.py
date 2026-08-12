@@ -10,8 +10,21 @@ reutiliza en vez de duplicarla.
 from itcj2.apps.helpdesk.models.category import Category
 from itcj2.apps.helpdesk.models.inventory_category import InventoryCategory
 from itcj2.apps.helpdesk.models.priority import Priority
+from itcj2.apps.helpdesk.models.status_transition import StatusTransition
+from itcj2.apps.helpdesk.models.ticket_status import TicketStatus
 from itcj2.core.models.department import Department
 from itcj2.core.models.role import Role
+
+# Metadatos mínimos por estado canónico, para no inventarlos en cada test.
+_STAGE_POR_ESTADO = {
+    "PENDING": ("created", True, False, False),
+    "ASSIGNED": ("assigned", True, False, False),
+    "IN_PROGRESS": ("working", True, False, False),
+    "RESOLVED_SUCCESS": ("resolved", False, True, False),
+    "RESOLVED_FAILED": ("resolved", False, True, False),
+    "CLOSED": ("closed", False, True, True),
+    "CANCELED": ("canceled", False, False, True),
+}
 
 
 def ensure_helpdesk_category(db, code="test_default_cat", area="DESARROLLO"):
@@ -104,3 +117,52 @@ def ensure_role(db, name):
     db.commit()
     db.refresh(role)
     return role
+
+
+def ensure_helpdesk_status(db, code):
+    """Estado activo de `helpdesk_ticket_status` + invalida el cache.
+
+    `ticket_service.change_status` valida contra `catalog_cache.get_status_codes`,
+    que —a diferencia de `_is_valid_status_transition`— NO tiene fallback al dict
+    literal: con la tabla vacía devuelve `set()` y cualquier cambio de estado
+    responde 400 "Estado inválido". En dev la tabla viene cargada por
+    `database/DML/`, que es gitignored y nunca llega al checkout de CI, así que
+    el test pasaba en local y fallaba en el pipeline.
+    """
+    st = db.query(TicketStatus).filter_by(code=code).first()
+    if not st:
+        stage, is_open, is_resolved, is_terminal = _STAGE_POR_ESTADO.get(
+            code, ("created", True, False, False))
+        st = TicketStatus(
+            code=code, label=code.replace("_", " ").capitalize(), stage=stage,
+            is_open=is_open, is_resolved=is_resolved, is_terminal=is_terminal,
+            is_active=True, progress_pct=0,
+        )
+        db.add(st)
+        db.commit()
+        db.refresh(st)
+    from itcj2.apps.helpdesk.utils.catalog_cache import invalidate_statuses
+    invalidate_statuses()
+    return st
+
+
+def ensure_status_transition(db, from_code, to_code):
+    """Arco válido en el grafo de estados, creando ambos estados si faltan.
+
+    `_is_valid_status_transition` sí tiene fallback al dict literal, pero solo
+    ante una EXCEPCIÓN (tabla inexistente). Con la tabla creada y vacía —el caso
+    de CI— no lanza: devuelve False y el cambio responde "Transición inválida".
+    """
+    origen = ensure_helpdesk_status(db, from_code)
+    destino = ensure_helpdesk_status(db, to_code)
+    tr = db.query(StatusTransition).filter_by(
+        from_status_id=origen.id, to_status_id=destino.id).first()
+    if not tr:
+        tr = StatusTransition(
+            from_status_id=origen.id, to_status_id=destino.id, is_active=True)
+        db.add(tr)
+        db.commit()
+        db.refresh(tr)
+    from itcj2.apps.helpdesk.utils.catalog_cache import invalidate_transitions
+    invalidate_transitions()
+    return tr
