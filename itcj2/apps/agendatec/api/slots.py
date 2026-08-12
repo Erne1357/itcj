@@ -49,7 +49,7 @@ def hold_slot(
     uid = int(user["sub"])
     slot_id = body.slot_id
 
-    slot = db.query(TimeSlot).get(slot_id)
+    slot = db.get(TimeSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="slot_not_found")
     if slot.is_booked:
@@ -188,7 +188,7 @@ def slot_status(
     """Consulta el estado puntual de un slot (FREE, HOLD, BOOKED)."""
     TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     rds = get_redis()
-    slot = db.query(TimeSlot).get(slot_id)
+    slot = db.get(TimeSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="slot_not_found")
 

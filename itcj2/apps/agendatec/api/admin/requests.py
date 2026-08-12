@@ -233,7 +233,7 @@ def admin_create_request(
     if req_type not in ("APPOINTMENT", "DROP"):
         raise HTTPException(status_code=400, detail="invalid_type")
 
-    student = db.query(User).get(body.student_id)
+    student = db.get(User, body.student_id)
     if not student:
         raise HTTPException(status_code=404, detail="student_not_found")
 
@@ -312,7 +312,7 @@ def admin_create_request(
     if not body.slot_id:
         raise HTTPException(status_code=400, detail="slot_id_required")
 
-    slot = db.query(TimeSlot).get(body.slot_id)
+    slot = db.get(TimeSlot, body.slot_id)
     if not slot or slot.is_booked:
         raise HTTPException(status_code=409, detail="slot_unavailable")
 

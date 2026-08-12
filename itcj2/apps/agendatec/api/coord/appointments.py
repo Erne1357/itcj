@@ -103,8 +103,8 @@ def coord_appointments(
     )
 
     def _row_to_item(ap, slot, prog, req, stu):
-        coord = db.query(Coordinator).get(ap.coordinator_id)
-        coord_user = db.query(User).get(coord.user_id) if coord else None
+        coord = db.get(Coordinator, ap.coordinator_id)
+        coord_user = db.get(User, coord.user_id) if coord else None
         return {
             "appointment_id": ap.id,
             "request_id": req.id,
@@ -190,7 +190,7 @@ async def update_appointment(
     """Actualiza el estado de una cita."""
     coord_id = require_coordinator(int(user["sub"]), db)
 
-    ap = db.query(Appointment).get(ap_id)
+    ap = db.get(Appointment, ap_id)
     if not ap:
         raise HTTPException(status_code=404, detail="appointment_not_found")
 
@@ -202,7 +202,7 @@ async def update_appointment(
     if new_status not in {"SCHEDULED", "DONE", "NO_SHOW", "CANCELED"}:
         raise HTTPException(status_code=400, detail="invalid_status")
 
-    req = db.query(Request).get(ap.request_id)
+    req = db.get(Request, ap.request_id)
     if not req:
         raise HTTPException(status_code=404, detail="request_not_found")
 
@@ -214,7 +214,7 @@ async def update_appointment(
         req.status = "NO_SHOW"
     elif new_status == "CANCELED":
         req.status = "CANCELED"
-        slot = db.query(TimeSlot).get(ap.slot_id)
+        slot = db.get(TimeSlot, ap.slot_id)
         if slot and slot.is_booked:
             slot.is_booked = False
 
@@ -223,7 +223,7 @@ async def update_appointment(
 
     try:
         from itcj2.sockets.requests import broadcast_request_status_changed
-        slot = db.query(TimeSlot).get(ap.slot_id)
+        slot = db.get(TimeSlot, ap.slot_id)
         await broadcast_request_status_changed(coord_id, {
             "type": "APPOINTMENT",
             "request_id": ap.request_id,

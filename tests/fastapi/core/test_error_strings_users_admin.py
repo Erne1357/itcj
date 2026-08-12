@@ -18,7 +18,11 @@ def test_create_user_invalid_type_error_is_string(app_client, auth_headers):
 
 def test_toggle_missing_user_error_is_string(app_client, auth_headers):
     mock_db = MagicMock()
-    mock_db.query.return_value.get.return_value = None
+    # `db.get(User, id)`, no el `db.query(User).get(id)` legacy que SQLAlchemy 2.0
+    # marca con LegacyAPIWarning. Con un MagicMock la diferencia importa: si se
+    # mockea el metodo equivocado, `db.get` devuelve un Mock (truthy) y el
+    # endpoint nunca entra a la rama de 404.
+    mock_db.get.return_value = None
 
     def override():
         yield mock_db

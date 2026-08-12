@@ -133,7 +133,7 @@ async def update_request_status(
     """Actualiza el estado de una solicitud (DROP o APPOINTMENT)."""
     coord_id = require_coordinator(int(user["sub"]), db)
 
-    r = db.query(Request).get(req_id)
+    r = db.get(Request, req_id)
     if not r:
         raise HTTPException(status_code=404, detail="request_not_found")
 
@@ -159,7 +159,7 @@ async def update_request_status(
                 ap.status = "NO_SHOW"
             elif new_status == "CANCELED":
                 ap.status = "CANCELED"
-                slot = db.query(TimeSlot).get(ap.slot_id)
+                slot = db.get(TimeSlot, ap.slot_id)
                 if slot and slot.is_booked:
                     slot.is_booked = False
 
@@ -172,7 +172,7 @@ async def update_request_status(
         if r.type == "APPOINTMENT":
             ap = db.query(Appointment).filter(Appointment.request_id == r.id).first()
             if ap:
-                s = db.query(TimeSlot).get(ap.slot_id)
+                s = db.get(TimeSlot, ap.slot_id)
                 day = str(s.day) if s else None
         await broadcast_request_status_changed(coord_id, {
             "type": r.type,

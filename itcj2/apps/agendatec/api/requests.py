@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def _get_student(user: dict, db: DbSession) -> User:
     """Obtiene el objeto User del estudiante autenticado."""
     uid = int(user["sub"])
-    return db.query(User).get(uid)
+    return db.get(User, uid)
 
 
 # ==================== GET /mine ====================
