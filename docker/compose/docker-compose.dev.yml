@@ -56,6 +56,13 @@ services:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
     env_file: ../../.env
+    # 2.1 — Dev reproduce el SPLIT de prod: este contenedor solo sirve HTTP y
+    # NO monta /socket.io/ (lo hace `sockets`). Sin esta paridad, un bug del
+    # split solo aparecería en producción.
+    # Los workers siguen siendo 1 (--reload no permite más), lo que se prueba
+    # aquí es la topología, no la concurrencia.
+    environment:
+      - APP_ROLE=http
     volumes:
       - ../../:/app
     depends_on:
@@ -67,6 +74,27 @@ services:
     entrypoint: ["/bin/sh", "/app/docker/backend/entrypoint-fastapi-dev.sh"]
     #ports:
     #  - "8001:8001"  # Para desarrollo directo sin nginx
+
+  # ============================================
+  # SOCKETS — Socket.IO dedicado (espejo de prod)
+  # ============================================
+  sockets:
+    build:
+      context: ../..
+      dockerfile: docker/backend/Dockerfile.fastapi
+    env_file: ../../.env
+    environment:
+      - APP_ROLE=socket
+      # Las migraciones las corre `backend`; dos alembic a la vez compiten.
+      - RUN_MIGRATIONS=0
+    volumes:
+      - ../../:/app
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/docker/backend/entrypoint-fastapi-dev.sh"]
 
   # ============================================
   # CELERY WORKER
@@ -118,7 +146,9 @@ services:
       - ../../itcj2/apps/titulatec/static:/www/static/titulatec:ro
       - ../../itcj2/apps/directory/static:/www/static/directory:ro
     depends_on:
+      # nginx resuelve los nombres de upstream al arrancar: ambos deben existir.
       - backend
+      - sockets
     ports:
       - "8080:80"
 

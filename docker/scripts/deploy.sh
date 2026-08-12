@@ -30,6 +30,32 @@ fi
 
 echo ">>> Color activo: $ACTIVE -> Desplegando: $NEW"
 
+# -- 1.2 Generador de upstream.conf (2.1: DOS upstreams) --
+# backend = tier HTTP blue/green (4 workers uvicorn). sockets = contenedor
+# unico de Socket.IO (1 worker), no tiene color.
+# OJO: nginx resuelve los nombres de upstream AL CARGAR la config, asi que
+# ambos contenedores deben existir antes de levantar/recargar nginx, y hay que
+# recargar si alguno se recrea (cambia de IP).
+write_upstream() {
+    local color="$1"
+    cat > "$UPSTREAM_FILE" <<NGINX_EOF
+# Archivo generado automaticamente por deploy.sh
+# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
+# Backend activo: $color
+
+upstream backend {
+    ip_hash;
+    server backend-${color}:8001 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+
+# Socket.IO: proceso unico (la sesion engine.io es estado en memoria).
+upstream sockets {
+    server sockets:8001 max_fails=3 fail_timeout=30s;
+}
+NGINX_EOF
+}
+
 # -- 1.1 Guardar manifiesto de estaticos ANTES del pull (Pilar 3) --
 OLD_MANIFEST=""
 if [ -f "static-manifest.json" ]; then
@@ -186,29 +212,27 @@ fi
 
 echo ">>> backend-$NEW esta healthy."
 
-# -- 7. Asegurar que upstream.conf existe ANTES de levantar Nginx --
-# CRÍTICO: Si el archivo no existe, Docker crea un directorio vacío y el bind mount se rompe
-if [ ! -f "$UPSTREAM_FILE" ]; then
-    echo ">>> Creando upstream.conf inicial (archivo no existía)..."
-    # Si hay un backend activo corriendo, apuntar a él; si no, apuntar al nuevo
-    if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
-        INITIAL_BACKEND="$ACTIVE"
-    else
-        INITIAL_BACKEND="$NEW"
-    fi
-    cat > "$UPSTREAM_FILE" <<NGINX_EOF
-# Archivo generado automaticamente por deploy.sh
-# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
-# Backend activo: $INITIAL_BACKEND
-
-upstream backend {
-    ip_hash;
-    server backend-${INITIAL_BACKEND}:8001 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}
-NGINX_EOF
-    echo "    upstream.conf creado apuntando a backend-$INITIAL_BACKEND"
+# -- 7.0. Asegurar que el contenedor de sockets existe (2.1) --
+# nginx resuelve `upstream sockets { server sockets:8001; }` al cargar la
+# config: si el contenedor no existe, nginx NO arranca. Aqui solo lo creamos
+# si falta (primer deploy tras el split); la recreacion con la imagen nueva va
+# al final, despues de promover el backend.
+if ! docker compose -f "$COMPOSE_FILE" ps -q sockets 2>/dev/null | grep -q .; then
+    echo ">>> Levantando contenedor de sockets (no existia)..."
+    docker compose -f "$COMPOSE_FILE" up -d sockets
 fi
+
+# -- 7. Regenerar upstream.conf ANTES de levantar Nginx --
+# CRÍTICO: Si el archivo no existe, Docker crea un directorio vacío y el bind mount se rompe.
+# Se regenera SIEMPRE (no solo si falta): un upstream.conf viejo sin el bloque
+# `sockets` haria fallar `nginx -t` y el contenedor no arrancaria.
+if docker compose -f "$COMPOSE_FILE" --profile "$ACTIVE" ps -q "backend-$ACTIVE" 2>/dev/null | grep -q .; then
+    INITIAL_BACKEND="$ACTIVE"
+else
+    INITIAL_BACKEND="$NEW"
+fi
+write_upstream "$INITIAL_BACKEND"
+echo ">>> upstream.conf regenerado (backend-$INITIAL_BACKEND + sockets)."
 
 # -- 7.1. Asegurar que Nginx esta corriendo --
 echo ">>> Verificando Nginx..."
@@ -252,32 +276,12 @@ fi
 echo ">>> Actualizando upstream de Nginx a backend-$NEW..."
 
 # Actualizar archivo en el host (bind mount sin :ro lo sincroniza automaticamente)
-cat > "$UPSTREAM_FILE" <<NGINX_EOF
-# Archivo generado automaticamente por deploy.sh
-# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
-# Backend activo: $NEW
-
-upstream backend {
-    ip_hash;
-    server backend-${NEW}:8001 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}
-NGINX_EOF
+write_upstream "$NEW"
 
 # Verificar que la configuracion es valida antes de reload
 if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -t > /dev/null 2>&1; then
     echo "ERROR: Configuracion de Nginx invalida. Restaurando upstream anterior..."
-    cat > "$UPSTREAM_FILE" <<NGINX_EOF
-# Archivo generado automaticamente por deploy.sh
-# NO EDITAR MANUALMENTE - se sobrescribe en cada deploy
-# Backend activo: $ACTIVE
-
-upstream backend {
-    ip_hash;
-    server backend-${ACTIVE}:8001 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}
-NGINX_EOF
+    write_upstream "$ACTIVE"
     echo ">>> Upstream restaurado a backend-$ACTIVE. Limpiando backend-$NEW..."
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" stop "backend-$NEW"
     docker compose -f "$COMPOSE_FILE" --profile "$NEW" rm -f "backend-$NEW"
@@ -347,6 +351,43 @@ docker image prune -f
 echo ">>> Actualizando Celery worker y beat..."
 docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate celery-worker celery-worker-reports celery-beat
 echo ">>> Celery workers (principal + reports) y beat actualizados."
+
+# -- 11.2 Recrear el contenedor de sockets con la imagen nueva (2.1) --
+# Es UN solo proceso (no hay blue/green): al recrearlo los WebSockets se caen
+# ~1-3s y los clientes reconectan solos. El trafico HTTP no se entera.
+# Va AL FINAL, ya con el backend nuevo promovido, para que el codigo de ambos
+# tiers coincida el menor tiempo posible.
+echo ">>> Recreando contenedor de sockets con itcj2-backend:$IMAGE_TAG..."
+docker compose -f "$COMPOSE_FILE" up -d --force-recreate sockets
+
+echo ">>> Esperando /ready de sockets..."
+SOCK_RETRIES=20
+SOCK_OK=false
+for i in $(seq 1 $SOCK_RETRIES); do
+    SOCK_CID=$(docker compose -f "$COMPOSE_FILE" ps -q sockets 2>/dev/null | head -1)
+    if [ -n "$SOCK_CID" ]; then
+        SOCK_STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$SOCK_CID" 2>/dev/null || echo "starting")
+        if [ "$SOCK_STATUS" = "healthy" ]; then
+            SOCK_OK=true
+            break
+        fi
+    fi
+    echo "    Intento $i/$SOCK_RETRIES - Esperando sockets ($SOCK_STATUS)..."
+    sleep 2
+done
+
+if [ "$SOCK_OK" != "true" ]; then
+    echo "WARN: el contenedor de sockets no paso health. El HTTP sigue OK, pero"
+    echo "      los WebSockets estaran caidos. Revisar: docker compose -f $COMPOSE_FILE logs --tail=50 sockets"
+    docker compose -f "$COMPOSE_FILE" logs --tail=30 sockets || true
+fi
+
+# El contenedor recreado tiene IP nueva y nginx cachea la resolucion del
+# upstream al cargar la config: sin este reload, /socket.io/ pega a la IP
+# muerta y da 502 hasta el siguiente deploy.
+echo ">>> Recargando Nginx para tomar la IP nueva de sockets..."
+docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
+echo ">>> Sockets actualizado."
 
 # -- 12. Notificar cambios de estaticos via WebSocket (Pilar 3) --
 if [ -n "$OLD_MANIFEST" ]; then

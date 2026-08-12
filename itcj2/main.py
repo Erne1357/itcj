@@ -92,17 +92,29 @@ async def lifespan(app: FastAPI):
     from itcj2.utils import set_main_loop
     set_main_loop(asyncio.get_running_loop())
 
-    # Iniciar subscriber de Redis Pub/Sub para eventos de tareas Celery.
-    subscriber_task = asyncio.create_task(_redis_task_subscriber())
+    # Subscriber de Redis Pub/Sub para eventos de tareas Celery.
+    # SOLO en el proceso que sirve Socket.IO (F2.1). Redis pub/sub entrega el
+    # mensaje a TODOS los suscriptores: si los 4 workers HTTP también
+    # escucharan, cada notificación de Celery se retransmitiría 4 veces y el
+    # usuario la vería duplicada. Con APP_ROLE=http este proceso solo EMITE
+    # (vía Redis), nunca retransmite.
+    from itcj2.config import get_settings
+
+    subscriber_task = None
+    if get_settings().APP_ROLE != "http":
+        subscriber_task = asyncio.create_task(_redis_task_subscriber())
+    else:
+        logger.info("APP_ROLE=http — subscriber de 'task_events' NO iniciado (lo corre el proceso de sockets)")
 
     yield
 
     # Shutdown: detener subscriber y cerrar pool de conexiones.
-    subscriber_task.cancel()
-    try:
-        await subscriber_task
-    except asyncio.CancelledError:
-        pass
+    if subscriber_task is not None:
+        subscriber_task.cancel()
+        try:
+            await subscriber_task
+        except asyncio.CancelledError:
+            pass
 
     from itcj2.database import engine
     engine.dispose()

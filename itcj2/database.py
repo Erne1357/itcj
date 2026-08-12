@@ -12,17 +12,24 @@ from .config import get_settings
 import itcj2.models  # noqa: F401
 
 # 2.2 Pool rebalanceado: la app NO debe demandar más conexiones de las que
-# pgbouncer puede entregar. pool_size 20 + max_overflow 20 = 40 máx, <= los
-# 50 backends reales de pgbouncer (default_pool_size 40 + reserve 10), todo
-# por debajo de Postgres max_connections=100. Antes pedía hasta 80 y 55 se
-# encolaban dentro de pgbouncer (falsa capacidad).
-# NOTA: al ir a múltiples workers (2.1), dividir pool_size entre el nº de
-# workers (p.ej. 4 workers → pool_size=10, max_overflow=0).
+# pgbouncer puede entregar. Antes pedía hasta 80 y 55 se encolaban dentro de
+# pgbouncer (falsa capacidad).
+# 2.1 El pool es POR PROCESO: con uvicorn --workers 4 el techo se multiplica
+# por 4. Por eso el tamaño ya no está hardcodeado — cada servicio lo fija por
+# env (DB_POOL_SIZE / DB_MAX_OVERFLOW en el compose):
+#   backend HTTP (4 workers): 8+4  → 48 conexiones cliente
+#   sockets (1 worker):       5+5  → 10
+#   celery / CLI / dev:      20+20 → 40 (default, comportamiento previo)
+# Todas son conexiones a pgbouncer (max_client_conn=500), que en transaction
+# mode las multiplexa sobre 50 backends reales (default_pool_size 40 + 10 de
+# reserva) < max_connections=100 de Postgres.
+_settings = get_settings()
+
 engine = create_engine(
-    get_settings().DATABASE_URL,
+    _settings.DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=20,
-    max_overflow=20,
+    pool_size=_settings.DB_POOL_SIZE,
+    max_overflow=_settings.DB_MAX_OVERFLOW,
     pool_timeout=10,
     pool_recycle=1800,
     pool_use_lifo=True,

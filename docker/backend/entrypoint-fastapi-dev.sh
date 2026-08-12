@@ -31,11 +31,19 @@ while True:
 PYEOF
 
 # ── Migraciones Alembic ────────────────────────────────────────────────
-echo "Ejecutando migraciones Alembic..."
-alembic -c migrations/alembic.ini upgrade head
+# RUN_MIGRATIONS=0 en el contenedor `sockets`: dos procesos corriendo
+# `alembic upgrade head` a la vez compiten por la misma tabla de versiones.
+if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+  echo "Ejecutando migraciones Alembic..."
+  alembic -c migrations/alembic.ini upgrade head
+else
+  echo "RUN_MIGRATIONS=0 — saltando Alembic (las corre el contenedor backend)."
+fi
 
 # ── Uvicorn con hot-reload ─────────────────────────────────────────────
-echo "Iniciando FastAPI (Uvicorn dev con --reload)..."
+# --reload implica 1 worker; dev reproduce el SPLIT de prod (APP_ROLE), no el
+# número de workers.
+echo "Iniciando FastAPI (Uvicorn dev con --reload) — APP_ROLE=${APP_ROLE:-all}..."
 exec uvicorn asgi:app \
   --host 0.0.0.0 \
   --port 8001 \

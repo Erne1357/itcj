@@ -15,6 +15,21 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
 
+    # Pool SQLAlchemy — POR PROCESO (F2.1). Con uvicorn --workers N cada worker
+    # abre su propio pool, así que el techo real es N*(POOL_SIZE+MAX_OVERFLOW).
+    # Prod: backend HTTP 8+4 x4 workers = 48; sockets 5+5 = 10. Todo por debajo
+    # de max_client_conn=500 de pgbouncer, que multiplexa a 50 backends reales.
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 20
+
+    # Rol del proceso (F2.1 — split HTTP / Socket.IO):
+    #   all    → un proceso sirve HTTP + /socket.io/ (dev, tests, CLI: default)
+    #   http   → NO monta Socket.IO ni retransmite task_events; solo emite por
+    #            Redis. Es el rol de los 4 workers uvicorn de prod.
+    #   socket → sirve /socket.io/ y retransmite task_events. 1 solo proceso.
+    # Ver docker/compose/docker-compose.prod.yml y docs/infra/RUNBOOK_workers.md
+    APP_ROLE: str = "all"
+
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 
