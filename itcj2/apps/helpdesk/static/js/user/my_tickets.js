@@ -285,7 +285,7 @@
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Enviar Calificación';
 
-        new bootstrap.Modal(document.getElementById('ratingModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('ratingModal')).show();
     }
 
     function updateStarButtons() {
@@ -351,7 +351,7 @@
         if (info) info.textContent = `Ticket ${btn.dataset.number}: ${btn.dataset.title}`;
         const reason = document.getElementById('cancelReason');
         if (reason) reason.value = '';
-        new bootstrap.Modal(document.getElementById('cancelModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('cancelModal')).show();
     }
 
     async function confirmCancel() {

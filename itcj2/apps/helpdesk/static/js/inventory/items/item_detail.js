@@ -42,29 +42,11 @@
         CAN_EDIT = root ? root.dataset.canEdit === 'true' : false;
         IS_ADMIN = root ? root.dataset.isAdmin === 'true' : false;
 
-        // Botón "Volver" inteligente (lógica del inline script del template anterior)
-        const backButton = document.getElementById('backButton');
-        const backButtonText = document.getElementById('backButtonText');
-        const backButtonContainer = document.getElementById('backButtonContainer');
-        const referrer = document.referrer;
-
-        if (backButton && referrer && referrer.includes('/help-desk/')) {
-            let backText = 'Volver';
-            if (referrer.includes('/help-desk/user/tickets/')) {
-                backText = 'Volver al Ticket';
-            } else if (referrer.includes('/help-desk/secretary/dashboard')) {
-                backText = 'Volver al Dashboard';
-            } else if (referrer.includes('/help-desk/inventory/items') && !referrer.includes('/items/')) {
-                backText = 'Volver a Inventario';
-            } else if (referrer.includes('/help-desk/admin')) {
-                backText = 'Volver a Admin';
-            } else if (referrer.includes('/help-desk/department')) {
-                backText = 'Volver a Departamento';
-            }
-            backButton.href = referrer;
-            if (backButtonText) backButtonText.textContent = backText;
-            if (backButtonContainer) backButtonContainer.style.display = 'block';
-        }
+        // Botón "Volver": registro compartido (pages/origins.py). La versión anterior
+        // dependía de document.referrer, que bajo navegación morph apunta a la última
+        // carga completa, y dejaba el botón OCULTO en entrada directa o desde una
+        // notificación. Con un default declarado siempre hay a dónde volver.
+        window.HelpdeskUtils.initBackButton('inventory_items');
 
         loadItemDetail();
         setupEventListeners();
@@ -194,77 +176,92 @@
         const container = document.getElementById('status-badge-container');
         const statusInfo = getStatusInfo(item.status);
 
+        // text-bg-* (Bootstrap 5.3) resuelve el color de texto con contraste
+        // correcto por variante — bg-warning/bg-info + text-white (el patrón
+        // anterior) caía por debajo de 4.5:1. Ver crítica impeccable P2.
         const lockBadge = item.is_locked
-            ? `<span class="badge bg-warning text-dark badge-lg px-3 py-2 ms-2" style="font-size:0.9rem;"
+            ? `<span class="badge text-bg-warning hd-badge-lg"
                    title="Bloqueado por campaña validada${item.validated_at ? ' el ' + formatDate(item.validated_at) : ''}">
                    <i class="fas fa-lock"></i> Bloqueado
                </span>`
             : '';
 
+        const deptBadge = item.department?.name
+            ? `<span class="badge text-bg-light border hd-badge-lg">
+                   <i class="fas fa-building me-1"></i>${escapeHtml(item.department.name)}
+               </span>`
+            : '';
+
+        const assignedBadge = item.is_assigned_to_user && item.assigned_to_user
+            ? `<span class="badge text-bg-primary hd-badge-lg">
+                   <i class="fas fa-user me-1"></i>${escapeHtml(item.assigned_to_user.full_name)}
+               </span>`
+            : `<span class="badge text-bg-light border hd-badge-lg">
+                   <i class="fas fa-building-user me-1"></i>Global del depto.
+               </span>`;
+
         container.innerHTML = `
-            <div class="d-inline-flex align-items-center flex-wrap gap-2">
-                <span class="badge bg-${statusInfo.color} text-white badge-lg px-3 py-2" style="font-size: 0.9rem;">
-                    <span class="status-indicator ${statusInfo.class}"></span>
-                    ${statusInfo.text}
-                </span>
-                ${lockBadge}
-            </div>
+            <span class="badge text-bg-${statusInfo.color} hd-badge-lg">
+                <span class="status-indicator"></span>${statusInfo.text}
+            </span>
+            ${lockBadge}
+            ${deptBadge}
+            ${assignedBadge}
         `;
     }
 
+    // Solo dos acciones visibles (las más frecuentes: crear ticket + editar);
+    // el resto vive en un kebab — 5-6 botones del mismo peso visual no dejaban
+    // ver cuál era la acción primaria (crítica impeccable P1).
     function renderActionButtons(item) {
         const container = document.getElementById('header-actions');
 
-        let buttons = `
-            <div class="btn-group">
-                <a href="/help-desk/user/create?item=${item.id}" class="btn btn-success action-button">
-                    <i class="fas fa-plus-circle"></i> Crear Ticket
-                </a>
-        `;
+        const createTicketBtn = `
+            <a href="/help-desk/user/create?item=${item.id}" class="btn btn-success btn-sm">
+                <i class="fas fa-plus-circle"></i> <span class="d-none d-sm-inline">Crear Ticket</span>
+            </a>`;
 
-        if (CAN_EDIT) {
-            buttons += `
-                <button class="btn btn-primary action-button" onclick="openEditModal()">
-                    <i class="fas fa-edit"></i> Editar
-                </button>
-                <button class="btn btn-warning action-button" onclick="openChangeStatusModal()">
-                    <i class="fas fa-toggle-on"></i> Cambiar Estado
-                </button>
-            `;
-
-            if (item.is_assigned_to_user) {
-                buttons += `
-                    <button class="btn btn-info action-button" onclick="unassignUser()">
-                        <i class="fas fa-user-times"></i> Liberar
-                    </button>
-                `;
-            } else {
-                buttons += `
-                    <button class="btn btn-info action-button" onclick="openAssignModal()">
-                        <i class="fas fa-user-plus"></i> Asignar
-                    </button>
-                `;
-            }
-
-            if (item.is_active) {
-                buttons += `
-                    <button class="btn btn-danger action-button" onclick="openDeactivateModal()">
-                        <i class="fas fa-trash-alt"></i> Dar de Baja
-                    </button>
-                `;
-            }
-
-            if (IS_ADMIN && item.is_locked) {
-                buttons += `
-                    <button class="btn btn-outline-danger action-button" onclick="openUnlockModal()">
-                        <i class="fas fa-lock-open"></i> Desbloquear
-                    </button>
-                `;
-            }
+        if (!CAN_EDIT) {
+            container.innerHTML = createTicketBtn;
+            return;
         }
 
-        buttons += `</div>`;
-        container.innerHTML = buttons;
+        const secondary = [];
+        secondary.push({ icon: 'fa-toggle-on', label: 'Cambiar Estado', action: 'openChangeStatusModal()' });
+        secondary.push(item.is_assigned_to_user
+            ? { icon: 'fa-user-times', label: 'Liberar Equipo', action: 'unassignUser()' }
+            : { icon: 'fa-user-plus', label: 'Asignar a Usuario', action: 'openAssignModal()' });
+        if (item.is_active) {
+            secondary.push({ icon: 'fa-trash-alt', label: 'Dar de Baja', action: 'openDeactivateModal()', danger: true });
+        }
+        if (IS_ADMIN && item.is_locked) {
+            secondary.push({ icon: 'fa-lock-open', label: 'Desbloquear Equipo', action: 'openUnlockModal()', danger: true });
+        }
+
+        let prevDanger = false;
+        const menuItems = secondary.map((a) => {
+            const divider = a.danger && !prevDanger ? '<li><hr class="dropdown-divider"></li>' : '';
+            prevDanger = !!a.danger;
+            const cls = a.danger ? 'dropdown-item text-danger' : 'dropdown-item';
+            return `${divider}<li><a class="${cls}" href="#" onclick="${a.action}; return false;">
+                        <i class="fas ${a.icon} fa-fw"></i> ${a.label}
+                    </a></li>`;
+        }).join('');
+
+        container.innerHTML = `
+            ${createTicketBtn}
+            <button class="btn btn-primary btn-sm" onclick="openEditModal()">
+                <i class="fas fa-edit"></i> <span class="d-none d-sm-inline">Editar</span>
+            </button>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Más acciones">
+                    <i class="fas fa-ellipsis-v"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    ${menuItems}
+                </ul>
+            </div>
+        `;
     }
 
     function _lockedFieldBtn(field, label, currentVal) {
@@ -281,43 +278,43 @@
         container.innerHTML = `
             <div class="info-label">Número de Inventario</div>
             <div class="info-value d-flex align-items-center">
-                ${item.inventory_number}
+                ${escapeHtml(item.inventory_number)}
                 ${_lockedFieldBtn('inventory_number', 'Número de Inventario', item.inventory_number)}
             </div>
 
             <div class="info-label">Categoría</div>
             <div class="info-value">
                 <i class="${item.category?.icon || 'fas fa-box'} me-2"></i>
-                ${item.category?.name || 'N/A'}
+                ${escapeHtml(item.category?.name || 'N/A')}
             </div>
 
             <div class="info-label">Marca</div>
             <div class="info-value ${item.brand ? '' : 'empty'} d-flex align-items-center">
-                ${item.brand || 'No especificada'}
+                ${escapeHtml(item.brand || 'No especificada')}
                 ${_lockedFieldBtn('brand', 'Marca', item.brand)}
             </div>
 
             <div class="info-label">Modelo</div>
             <div class="info-value ${item.model ? '' : 'empty'} d-flex align-items-center">
-                ${item.model || 'No especificado'}
+                ${escapeHtml(item.model || 'No especificado')}
                 ${_lockedFieldBtn('model', 'Modelo', item.model)}
             </div>
 
             <div class="info-label">Serial Proveedor</div>
             <div class="info-value ${item.supplier_serial ? '' : 'empty'} d-flex align-items-center">
-                ${item.supplier_serial || 'No registrado'}
+                ${escapeHtml(item.supplier_serial || 'No registrado')}
                 ${_lockedFieldBtn('supplier_serial', 'Serial Proveedor', item.supplier_serial)}
             </div>
 
             <div class="info-label">Serial ITCJ / Activo</div>
             <div class="info-value ${item.itcj_serial ? '' : 'empty'} d-flex align-items-center">
-                ${item.itcj_serial || 'No registrado'}
+                ${escapeHtml(item.itcj_serial || 'No registrado')}
                 ${_lockedFieldBtn('itcj_serial', 'Serial ITCJ', item.itcj_serial)}
             </div>
 
             <div class="info-label">ID TecNM</div>
             <div class="info-value ${item.id_tecnm ? '' : 'empty'} d-flex align-items-center">
-                ${item.id_tecnm || 'No registrado'}
+                ${escapeHtml(item.id_tecnm || 'No registrado')}
                 ${_lockedFieldBtn('id_tecnm', 'ID TecNM', item.id_tecnm)}
             </div>
 
@@ -328,8 +325,14 @@
 
             <div class="info-label">Registrado Por</div>
             <div class="info-value">
-                ${item.registered_by?.full_name || 'N/A'}
+                ${escapeHtml(item.registered_by?.full_name || 'N/A')}
                 <small class="text-muted d-block">${formatDateTime(item.registered_at)}</small>
+            </div>
+
+            <div class="info-label">Última Verificación</div>
+            <div class="info-value ${item.last_verified_at ? '' : 'empty'} mb-0">
+                ${item.last_verified_at ? formatDate(item.last_verified_at) : 'Nunca verificado'}
+                ${item.last_verified_by?.full_name ? `<small class="text-muted d-block">Por: ${escapeHtml(item.last_verified_by.full_name)}</small>` : ''}
             </div>
         `;
     }
@@ -340,13 +343,13 @@
             <div class="info-label">Departamento</div>
             <div class="info-value">
                 <i class="fas fa-building me-2 text-primary"></i>
-                ${item.department?.name || 'N/A'}
+                ${escapeHtml(item.department?.name || 'N/A')}
             </div>
 
             <div class="info-label">Ubicación Específica</div>
             <div class="info-value ${item.location_detail ? '' : 'empty'}">
                 <i class="fas fa-map-marker-alt me-2 text-danger"></i>
-                ${item.location_detail || 'No especificada'}
+                ${escapeHtml(item.location_detail || 'No especificada')}
             </div>
 
             <div class="info-label">Estado de Asignación</div>
@@ -354,23 +357,23 @@
                 ${item.is_assigned_to_user ? `
                     <div class="alert alert-info mb-0 py-2">
                         <i class="fas fa-user-check me-2"></i>
-                        <strong>Asignado a:</strong> ${item.assigned_to_user.full_name}
+                        <strong>Asignado a:</strong> ${escapeHtml(item.assigned_to_user.full_name)}
                         <br>
                         <small class="text-muted">
                             Fecha: ${formatDateTime(item.assigned_at)}<br>
-                            Por: ${item.assigned_by?.full_name || 'N/A'}
+                            Por: ${escapeHtml(item.assigned_by?.full_name || 'N/A')}
                         </small>
                     </div>
                 ` : `
-                    <span class="badge bg-secondary text-white">Global del Departamento</span>
+                    <span class="badge text-bg-secondary">Global del Departamento</span>
                 `}
             </div>
 
-            <div class="info-label">Tickets Relacionados</div>
-            <div class="info-value">
-                <span class="badge bg-info text-white">${item.tickets_count || 0} Total</span>
+            <div class="info-label mb-0">Tickets Relacionados</div>
+            <div class="info-value mb-0">
+                <span class="badge text-bg-info">${item.tickets_count || 0} Total</span>
                 ${item.active_tickets_count > 0 ? `
-                    <span class="badge bg-warning text-dark">${item.active_tickets_count} Activos</span>
+                    <span class="badge text-bg-warning">${item.active_tickets_count} Activos</span>
                 ` : ''}
             </div>
         `;
@@ -379,12 +382,22 @@
     function renderWarrantyInfo(item) {
         const card = document.getElementById('warranty-card');
         const container = document.getElementById('warranty-info');
+        // Semáforo: el estado se comunica con el color de fondo de TODA la
+        // tarjeta (clases Bootstrap *-subtle) — no con un border-left decorativo
+        // (patrón desaconsejado, colapsa a un color y a otro distinto dentro de
+        // la propia tarjeta a la vez). CAN_EDIT ofrece la salida directa al modal
+        // de edición en vez de un estado vacío sin acción.
+        card.classList.remove('hd-warranty-warning', 'hd-warranty-expired');
 
         if (!item.warranty_expiration) {
+            const cta = CAN_EDIT
+                ? '<button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="openEditModal()"><i class="fas fa-plus"></i> Agregar información</button>'
+                : '';
             container.innerHTML = `
-                <div class="text-center text-muted py-4">
-                    <i class="fas fa-info-circle fa-2x mb-3"></i>
-                    <p class="mb-0">No hay información de garantía registrada</p>
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-info-circle fa-2x mb-2"></i>
+                    <p class="mb-0 small">No hay información de garantía registrada</p>
+                    ${cta}
                 </div>
             `;
             return;
@@ -397,29 +410,23 @@
             if (days <= 30) {
                 alertClass = 'warning';
                 icon = 'exclamation-triangle';
-                card.classList.add('warranty-card', 'expiring');
-            } else {
-                card.classList.add('warranty-card');
+                card.classList.add('hd-warranty-warning');
             }
             container.innerHTML = `
-                <div class="alert alert-${alertClass} mb-0">
-                    <i class="fas fa-${icon} fa-2x float-start me-3"></i>
-                    <div>
-                        <strong>Garantía Vigente</strong><br>
-                        <span class="h5 mb-0">${days} días restantes</span><br>
-                        <small class="text-muted">Vence: ${formatDate(item.warranty_expiration)}</small>
-                    </div>
+                <div class="alert alert-${alertClass} mb-0 py-2">
+                    <i class="fas fa-${icon} me-2"></i>
+                    <strong>Garantía Vigente</strong><br>
+                    <span class="h5 mb-0">${days} días restantes</span><br>
+                    <small class="text-muted">Vence: ${formatDate(item.warranty_expiration)}</small>
                 </div>
             `;
         } else {
-            card.classList.add('warranty-card', 'expired');
+            card.classList.add('hd-warranty-expired');
             container.innerHTML = `
-                <div class="alert alert-danger mb-0">
-                    <i class="fas fa-times-circle fa-2x float-start me-3"></i>
-                    <div>
-                        <strong>Garantía Vencida</strong><br>
-                        <small class="text-muted">Venció: ${formatDate(item.warranty_expiration)}</small>
-                    </div>
+                <div class="alert alert-danger mb-0 py-2">
+                    <i class="fas fa-times-circle me-2"></i>
+                    <strong>Garantía Vencida</strong><br>
+                    <small class="text-muted">Venció: ${formatDate(item.warranty_expiration)}</small>
                 </div>
             `;
         }
@@ -429,10 +436,14 @@
         const container = document.getElementById('maintenance-info');
 
         if (!item.maintenance_frequency_days && !item.last_maintenance_date) {
+            const cta = CAN_EDIT
+                ? '<button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="openEditModal()"><i class="fas fa-plus"></i> Configurar plan</button>'
+                : '';
             container.innerHTML = `
-                <div class="text-center text-muted py-4">
-                    <i class="fas fa-tools fa-2x mb-3"></i>
-                    <p class="mb-0">No hay plan de mantenimiento configurado</p>
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-tools fa-2x mb-2"></i>
+                    <p class="mb-0 small">No hay plan de mantenimiento configurado</p>
+                    ${cta}
                 </div>
             `;
             return;
@@ -457,8 +468,8 @@
         if (item.next_maintenance_date) {
             const isOverdue = item.needs_maintenance;
             html += `
-                <div class="info-label">Próximo Mantenimiento</div>
-                <div class="info-value">
+                <div class="info-label mb-0">Próximo Mantenimiento</div>
+                <div class="info-value mb-0">
                     <div class="alert alert-${isOverdue ? 'danger' : 'info'} mb-0 py-2">
                         <i class="fas fa-${isOverdue ? 'exclamation-triangle' : 'calendar-alt'} me-2"></i>
                         ${formatDate(item.next_maintenance_date)}
@@ -493,20 +504,28 @@
             return;
         }
 
-        let html = '<div class="row">';
-        Object.entries(item.specifications).forEach(([key, value]) => {
+        // Tabla de definición (label | valor) en vez de chips de media anchura:
+        // en la columna principal (col-lg-8) el ancho real ahora sirve para algo
+        // — antes cada chip .spec-badge dejaba ~70% de su caja vacío para un
+        // valor de una palabra. Ver crítica impeccable P1.
+        const rows = Object.entries(item.specifications).map(([key, value]) => {
             const label = specTemplate[key]?.label || formatSpecLabel(key);
             const displayValue = formatSpecValue(value);
-            html += `
-                <div class="col-md-6 mb-3">
-                    <div class="spec-badge w-100">
-                        <strong>${label}:</strong> ${displayValue}
-                    </div>
-                </div>
+            return `
+                <tr>
+                    <th scope="row" class="hd-spec-label">${escapeHtml(label)}</th>
+                    <td>${displayValue}</td>
+                </tr>
             `;
-        });
-        html += '</div>';
-        container.innerHTML = editButton + html;
+        }).join('');
+
+        container.innerHTML = editButton + `
+            <div class="table-responsive">
+                <table class="table table-sm hd-spec-table mb-0">
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
     }
 
     function renderNotes(item) {
@@ -576,7 +595,7 @@
             const meta = getEventMeta(event.event_type);
             const diffBlock = renderEventDiff(event);
             const ticketLink = event.related_ticket
-                ? `<a href="/help-desk/user/tickets/${event.related_ticket.id}" class="badge bg-info text-white ms-1">
+                ? `<a href="/help-desk/user/tickets/${event.related_ticket.id}" class="badge text-bg-info ms-1">
                        <i class="fas fa-ticket-alt"></i> #${escapeHtml(event.related_ticket.ticket_number || event.related_ticket.id)}
                    </a>`
                 : '';
@@ -746,13 +765,13 @@
                 <a href="/help-desk/user/tickets/${ticket.id}" class="list-group-item list-group-item-action">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <strong>${ticket.ticket_number}</strong> - ${escapeHtml(ticket.title)}
+                            <strong>${escapeHtml(ticket.ticket_number)}</strong> - ${escapeHtml(ticket.title)}
                             <br>
                             <small class="text-muted">${formatDateTime(ticket.created_at)}</small>
                         </div>
                         <div class="text-end">
-                            <span class="badge bg-${statusBadge.color} text-white">${statusBadge.text}</span>
-                            <span class="badge bg-${priorityBadge.color} text-white">${priorityBadge.text}</span>
+                            <span class="badge text-bg-${statusBadge.color}">${statusBadge.text}</span>
+                            <span class="badge text-bg-${priorityBadge.color}">${priorityBadge.text}</span>
                         </div>
                     </div>
                 </a>
@@ -1366,13 +1385,13 @@
     // ==================== HELPERS ====================
     function getStatusInfo(status) {
         const statuses = {
-            'ACTIVE':      { text: 'Activo',             color: 'success',   class: 'active' },
-            'MAINTENANCE': { text: 'En Mantenimiento',   color: 'warning',   class: 'maintenance' },
-            'DAMAGED':     { text: 'Dañado',             color: 'danger',    class: 'damaged' },
-            'RETIRED':     { text: 'Retirado',           color: 'secondary', class: 'retired' },
-            'LOST':        { text: 'Extraviado',         color: 'dark',      class: 'lost' }
+            'ACTIVE':      { text: 'Activo',           color: 'success' },
+            'MAINTENANCE': { text: 'En Mantenimiento', color: 'warning' },
+            'DAMAGED':     { text: 'Dañado',           color: 'danger' },
+            'RETIRED':     { text: 'Retirado',         color: 'secondary' },
+            'LOST':        { text: 'Extraviado',       color: 'dark' }
         };
-        return statuses[status] || { text: status, color: 'secondary', class: '' };
+        return statuses[status] || { text: status, color: 'secondary' };
     }
 
     function getTicketStatusBadge(status) {

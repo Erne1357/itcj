@@ -50,8 +50,8 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "js/admin/config/notifications_tab.js",
         "js/admin/config/config_main.js",
     ],
-    "admin_stats": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "js/admin/stats.js"],
-    "admin_analysis": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js", "js/admin/analysis.js"],
+    "admin_stats": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "js/shared/ticket-summary.js", "js/admin/stats.js"],
+    "admin_analysis": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "https://cdn.jsdelivr.net/npm/apexcharts@3.44.0/dist/apexcharts.min.js", "js/shared/ticket-summary.js", "js/admin/analysis.js"],
     "admin_documents": ["js/admin/documents.js"],
     "admin_home": ["js/admin/home.js"],
     "admin_assign_tickets": ["js/admin/assign_tickets.js"],
@@ -70,7 +70,7 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
     "inventory_retirement_retirement_request_create": ["js/inventory/retirement/retirement_request_create.js"],
     "inventory_retirement_retirement_request_detail": ["js/inventory/retirement/retirement_request_detail.js"],
     "inventory_items_items_list": ["js/inventory/items/items_list.js"],
-    "inventory_items_item_create": ["js/inventory/items/item_create.js"],
+    "inventory_items_item_create": ["js/shared/inactive-user.js", "js/inventory/items/item_create.js"],
     "inventory_items_item_detail": ["js/inventory/items/item_detail.js"],
     "inventory_items_pending_items": ["js/inventory/items/pending_items.js"],
     "inventory_groups_groups_list": ["js/inventory/groups/groups_list.js"],
@@ -84,7 +84,7 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "js/inventory/assignment/my_equipment_modal.js",
         "js/inventory/assignment/my_equipment.js",
     ],
-    "inventory_reports_verification": ["js/inventory/reports/verification.js"],
+    "inventory_reports_verification": ["js/shared/inactive-user.js", "js/inventory/reports/verification.js"],
     "inventory_reports_reports": ["js/inventory/reports/reports.js"],
     # Reportes de sub-páginas (redirigen a /reports?tab=…; templates ya no se sirven
     # directamente — se registran para que hx-boost no se rompa si alguien llega aquí).
@@ -414,6 +414,8 @@ def render_helpdesk(
         else {"helpdesk_nav_items": [], "current_route": request.url.path}
     )
 
+    from .origins import build_origins, origin_for_page
+
     hd_page = _template_to_key(template)
     ctx = {
         **(context or {}),
@@ -422,5 +424,13 @@ def render_helpdesk(
         "htmx_boost_enabled": HTMX_BOOST_ENABLED and _is_migrated(hd_page),
         "hd_modules": _hd_modules_attr(hd_page),
         "hd_boost_urls": boost_urls_regex(),
+        # Registro de orígenes del botón "Volver" (pages/origins.py). Se serializa
+        # una vez en el shell y lo lee HelpdeskUtils.initBackButton().
+        "hd_origins": build_origins(),
+        "hd_origin_self": origin_for_page(hd_page) or "",
+        # Id del usuario actual, expuesto en [data-hd-page] como data-current-user-id
+        # (base_helpdesk.html). Lo lee window.__hdIsOwnEvent (sockets/helpdesk_client.js)
+        # para que el cliente ignore el eco de sus propios broadcasts de socket.
+        "hd_current_user_id": int(user["sub"]) if user else None,
     }
     return render(request, template, ctx, status_code)

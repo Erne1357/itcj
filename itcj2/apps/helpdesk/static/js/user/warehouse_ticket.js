@@ -47,7 +47,7 @@
         document.getElementById('warehouseQtyInput').value = '';
         document.getElementById('warehouseQtyInput').max = stock;
 
-        const modal = new bootstrap.Modal(document.getElementById('warehouseQtyModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('warehouseQtyModal'));
         modal.show();
         document.getElementById('warehouseQtyModal').addEventListener('shown.bs.modal', function () {
             document.getElementById('warehouseQtyInput').focus();

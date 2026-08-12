@@ -1445,151 +1445,26 @@
     }
 
     // ==================== CREAR USUARIO INACTIVO ====================
-    function _normalizeStr(s) {
-        return (s || '').toLowerCase()
-            .normalize('NFD').replace(/[̀-ͯ]/g, '')
-            .replace(/[^a-z0-9]/g, '');
-    }
-
-    function _generateUsernameCandidates(firstName, lastName, middleName) {
-        const fn = _normalizeStr(firstName.trim().split(/\s+/)[0]);
-        const fn2 = _normalizeStr((firstName.trim().split(/\s+/)[1] || ''));
-        const ln = _normalizeStr(lastName.trim().split(/\s+/)[0]);
-        const ln2 = _normalizeStr(middleName ? middleName.trim().split(/\s+/)[0] : '');
-
-        const candidates = [];
-        if (fn && ln) candidates.push(fn[0] + ln);
-        if (fn && ln2) candidates.push(fn[0] + ln2);
-        if (fn2 && ln) candidates.push(fn2[0] + ln);
-        if (fn && ln) candidates.push(fn + ln);
-        return candidates.filter((v, i, a) => v.length > 1 && a.indexOf(v) === i);
-    }
-
-    let _usernameCandidates = [];
-    let _usernameIndex = 0;
-
+    // Lógica compartida con verification.js — ver static/js/shared/inactive-user.js.
     function initCreateInactiveUser() {
-        const btnOpen = document.getElementById('btn-create-inactive-user');
-        if (!btnOpen) return;
+        window.HelpdeskInactiveUser.init({
+            getDepartmentId: () => parseInt(document.getElementById('department-id')?.value, 10) || null,
+            onCreated: (newUser) => {
+                const select = document.getElementById('assigned-to-user-id');
+                const opt = document.createElement('option');
+                opt.value = newUser.id;
+                opt.textContent = newUser.full_name;
+                opt.setAttribute('data-inactive', 'true');
+                select.appendChild(opt);
 
-        btnOpen.addEventListener('click', () => {
-            _usernameCandidates = [];
-            _usernameIndex = 0;
-            document.getElementById('inactive-first-name').value = '';
-            document.getElementById('inactive-last-name').value = '';
-            document.getElementById('inactive-middle-name').value = '';
-            document.getElementById('inactive-username').value = '';
-            document.getElementById('inactive-email').value = '';
-            document.getElementById('username-hint').textContent = 'Generado automáticamente. Puedes editarlo si hay conflicto.';
-            modalShow('createInactiveUserModal');
+                departmentUsers.push({
+                    id: newUser.id, full_name: newUser.full_name,
+                    username: newUser.username, email: newUser.email, is_active: false,
+                });
+
+                selectUserCombo(newUser.id, newUser.full_name);
+            },
         });
-
-        ['inactive-first-name', 'inactive-last-name', 'inactive-middle-name'].forEach(id => {
-            document.getElementById(id).addEventListener('input', () => {
-                const fn = document.getElementById('inactive-first-name').value;
-                const ln = document.getElementById('inactive-last-name').value;
-                const mn = document.getElementById('inactive-middle-name').value;
-                if (fn && ln) {
-                    _usernameCandidates = _generateUsernameCandidates(fn, ln, mn);
-                    _usernameIndex = 0;
-                    document.getElementById('inactive-username').value = _usernameCandidates[0] || '';
-                }
-            });
-        });
-
-        document.getElementById('btn-next-username').addEventListener('click', () => {
-            if (_usernameCandidates.length === 0) return;
-            _usernameIndex = (_usernameIndex + 1) % _usernameCandidates.length;
-            const next = _usernameCandidates[_usernameIndex];
-            document.getElementById('inactive-username').value = next || '';
-            if (_usernameIndex === 0) {
-                document.getElementById('username-hint').textContent = 'Volviste al inicio. Edítalo manualmente si ninguno funciona.';
-            } else {
-                document.getElementById('username-hint').textContent = `Variante ${_usernameIndex + 1} de ${_usernameCandidates.length}`;
-            }
-        });
-
-        document.getElementById('create-inactive-user-form').addEventListener('submit', handleCreateInactiveUser);
-    }
-
-    async function handleCreateInactiveUser(e) {
-        e.preventDefault();
-
-        const deptId = parseInt(document.getElementById('department-id')?.value);
-        if (!deptId) { showError('Selecciona primero el departamento del equipo.'); return; }
-
-        const firstName = document.getElementById('inactive-first-name').value.trim();
-        const lastName = document.getElementById('inactive-last-name').value.trim();
-        const middleName = document.getElementById('inactive-middle-name').value.trim();
-        const username = document.getElementById('inactive-username').value.trim();
-        const email = document.getElementById('inactive-email').value.trim();
-
-        if (!firstName || !lastName || !username) {
-            showError('Nombre, apellido y username son obligatorios.');
-            return;
-        }
-
-        const btn = document.getElementById('btn-confirm-inactive-user');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creando...';
-
-        try {
-            const res = await fetch('/api/core/v2/users/create-inactive', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    first_name: firstName, last_name: lastName,
-                    middle_name: middleName || null, email: email || null,
-                    username, department_id: deptId,
-                }),
-            });
-
-            const data = await res.json();
-
-            if (res.status === 409) {
-                const nextIdx = (_usernameIndex + 1) % (_usernameCandidates.length || 1);
-                const nextUser = _usernameCandidates[nextIdx];
-                if (nextUser && nextUser !== username) {
-                    _usernameIndex = nextIdx;
-                    document.getElementById('inactive-username').value = nextUser;
-                    document.getElementById('username-hint').textContent =
-                        `"${username}" ya está en uso. Prueba con "${nextUser}" u edítalo.`;
-                } else {
-                    document.getElementById('username-hint').textContent =
-                        `"${username}" ya está en uso. Edítalo manualmente.`;
-                }
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-save"></i> Crear usuario';
-                return;
-            }
-
-            if (!res.ok) throw new Error(data.error || 'Error al crear usuario');
-
-            const newUser = data.data;
-            const select = document.getElementById('assigned-to-user-id');
-            const opt = document.createElement('option');
-            opt.value = newUser.id;
-            opt.textContent = newUser.full_name;
-            opt.setAttribute('data-inactive', 'true');
-            select.appendChild(opt);
-
-            departmentUsers.push({
-                id: newUser.id, full_name: newUser.full_name,
-                username: newUser.username, email: newUser.email, is_active: false,
-            });
-
-            selectUserCombo(newUser.id, newUser.full_name);
-            modalHide('createInactiveUserModal');
-            showSuccess(`Usuario ${newUser.full_name} creado. Se seleccionó automáticamente.`);
-        } catch (err) {
-            showError(err.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-save"></i> Crear usuario';
-        }
     }
 
     // Exponer showPredecessorDetail para onclick generado dinámicamente

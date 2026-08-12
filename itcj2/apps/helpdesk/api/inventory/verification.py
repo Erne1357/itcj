@@ -219,6 +219,7 @@ def verify_item(
         serial_number:      str  (opcional)
         specifications:     dict (opcional)
         group_id:           int  (opcional, None = quitar del grupo)
+        assigned_to_user_id: int (opcional, None = liberar/global del depto)
     }
     """
     from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
@@ -229,6 +230,7 @@ def verify_item(
 
     user_id = int(user["sub"])
     ip = request.client.host if request.client else None
+    now = datetime.now()
 
     item = db.query(InventoryItem).filter_by(id=item_id).first()
     if not item:
@@ -280,6 +282,89 @@ def verify_item(
                 performed_by_id=user_id,
                 ip_address=ip,
             ))
+
+    # Asignación a usuario. TRAMPA: NO delegar en InventoryService.assign_to_user /
+    # unassign_from_user — ambos hacen su propio commit (partiría esta transacción)
+    # y assign_to_user exige status == 'ACTIVE' (el mismo submit puede marcar el
+    # equipo DAMAGED). Se escribe en línea, ANTES del cambio de estado, y viaja en
+    # el commit único de abajo.
+    if "assigned_to_user_id" in body:
+        from itcj2.core.models.position import Position, UserPosition
+        from itcj2.core.models.user import User
+
+        new_assigned_id = body["assigned_to_user_id"]
+        old_assigned_id = item.assigned_to_user_id
+
+        if new_assigned_id != old_assigned_id:
+            if new_assigned_id is not None:
+                # Debe existir Y pertenecer (puesto activo) al departamento del
+                # equipo — no se acepta cualquier id del sistema.
+                target_user = (
+                    db.query(User)
+                    .join(UserPosition, User.id == UserPosition.user_id)
+                    .join(Position, UserPosition.position_id == Position.id)
+                    .filter(
+                        User.id == new_assigned_id,
+                        Position.department_id == item.department_id,
+                        Position.is_active.is_(True),
+                        UserPosition.is_active.is_(True),
+                    )
+                    .first()
+                )
+                if not target_user:
+                    raise HTTPException(400, detail={
+                        "success": False,
+                        "error": "El usuario no pertenece al departamento del equipo",
+                    })
+
+                old_user = db.get(User, old_assigned_id) if old_assigned_id else None
+                item.assigned_to_user_id = new_assigned_id
+                item.assigned_by_id = user_id
+                item.assigned_at = now
+
+                db.add(InventoryHistory(
+                    item_id=item_id,
+                    event_type="ASSIGNED_TO_USER" if old_assigned_id is None else "REASSIGNED",
+                    old_value={
+                        "assigned_to_user_id": old_assigned_id,
+                        "assigned_to_user_name": old_user.full_name if old_user else None,
+                    },
+                    new_value={
+                        "assigned_to_user_id": new_assigned_id,
+                        "assigned_to_user_name": target_user.full_name,
+                    },
+                    notes=f"Asignado a {target_user.full_name} durante verificación física",
+                    performed_by_id=user_id,
+                    ip_address=ip,
+                ))
+            else:
+                # "Sin asignar" sobre un equipo ya global es no-op (no hay nada
+                # que liberar); solo actuamos si de verdad tenía dueño.
+                old_user = db.get(User, old_assigned_id) if old_assigned_id else None
+                item.assigned_to_user_id = None
+                item.assigned_by_id = None
+                item.assigned_at = None
+
+                db.add(InventoryHistory(
+                    item_id=item_id,
+                    event_type="UNASSIGNED",
+                    old_value={
+                        "assigned_to_user_id": old_assigned_id,
+                        "assigned_to_user_name": old_user.full_name if old_user else None,
+                    },
+                    new_value={"assigned_to_user_id": None, "status": "Global del departamento"},
+                    notes="Equipo liberado durante verificación física",
+                    performed_by_id=user_id,
+                    ip_address=ip,
+                ))
+
+            changes_applied["assigned_to_user_id"] = {"old": old_assigned_id, "new": new_assigned_id}
+            # Flush (no commit): los bloques de abajo (estado/grupo) hacen
+            # db.refresh(item) tras commits propios de otros services. Con
+            # autoflush=False (SessionLocal de producción) un refresh SIN flush
+            # previo pisaría esta asignación en memoria con lo que aún hay en BD.
+            # Sigue viajando en el commit único de más abajo, no finaliza nada.
+            db.flush()
 
     # Cambio de estado
     new_status = body.get("status")
@@ -333,8 +418,8 @@ def verify_item(
             except ValueError as e:
                 raise HTTPException(400, detail={"success": False, "error": str(e)})
 
-    # Crear registro de verificación
-    now = datetime.now()
+    # Crear registro de verificación (usa el mismo `now` de arriba, así
+    # assigned_at/verified_at/last_verified_at quedan consistentes entre sí).
     verification = InventoryVerification(
         inventory_item_id=item_id,
         verified_by_id=user_id,

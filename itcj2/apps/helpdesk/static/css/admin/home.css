@@ -1,14 +1,166 @@
-/* itcj2/apps/helpdesk/static/css/admin/home.css */
-.card {
-    transition: transform 0.2s, box-shadow 0.2s;
+/* itcj2/apps/helpdesk/static/css/admin/home.css
+   Rediseño (2026-08): franja KPI compacta + banda de atención + riel de
+   acciones + actividad reciente. Tokens --hd-* de helpdesk-tokens.css; color
+   semántico siempre por clases Bootstrap (text-primary/warning/...). */
+
+/* === Franja KPI ========================================================= */
+.hd-kpi-tile {
+    text-align: center;
+    padding: 0.6rem 0.25rem;
+    background: var(--hd-surface, #fff);
+    border: 1px solid var(--hd-border, #e5e7eb);
+    border-radius: var(--hd-r-md, 0.5rem);
+    height: 100%;
 }
 
-.card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15) !important;
+.hd-kpi-tile__value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.1;
 }
 
-.btn-lg {
-    padding: 0.75rem 1.5rem;
-    font-size: 1rem;
+.hd-kpi-tile__label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--hd-muted, #6b7280);
+    margin-top: 0.15rem;
+}
+
+@media (min-width: 768px) {
+    .hd-kpi-tile__value { font-size: 1.6rem; }
+    .hd-kpi-tile__label { font-size: 0.72rem; }
+}
+
+/* === Títulos de sección ================================================= */
+.hd-section-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--hd-dark, #374151);
+}
+
+/* === Banda "Requiere atención" ========================================== */
+.hd-attention-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.hd-attention-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--hd-surface-2, #f8fafc);
+    border: 1px solid var(--hd-border, #e5e7eb);
+    border-radius: var(--hd-r-md, 0.5rem);
+}
+
+.hd-attention-row__icon {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--hd-r-full, 999px);
+    background: var(--hd-surface, #fff);
+    color: var(--bs-warning, #f6c23e);
+    box-shadow: var(--hd-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+}
+
+.hd-attention-row__text {
+    flex: 1 1 auto;
+    font-size: 0.85rem;
+    min-width: 0;
+}
+
+.hd-attention-row__action {
+    flex: 0 0 auto;
+}
+
+/* === Riel de acciones ==================================================== */
+.hd-action-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.hd-action-tile {
+    flex: 1 1 calc(33.333% - 0.5rem);
+    min-width: 4.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.65rem 0.4rem;
+    background: var(--hd-surface-2, #f8fafc);
+    border: 1px solid var(--hd-border, #e5e7eb);
+    border-radius: var(--hd-r-md, 0.5rem);
+    color: var(--bs-primary, #0d6efd);
+    text-decoration: none;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: center;
+    transition: transform var(--hd-transition, 0.18s ease), box-shadow var(--hd-transition, 0.18s ease), background var(--hd-transition, 0.18s ease);
+}
+
+.hd-action-tile i {
+    font-size: 1.1rem;
+}
+
+.hd-action-tile:hover {
+    background: var(--hd-surface, #fff);
+    box-shadow: var(--hd-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06));
+    transform: translateY(-2px);
+    color: var(--bs-primary, #0d6efd);
+}
+
+/* === Actividad de inventario ============================================ */
+.hd-activity-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.hd-activity-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--hd-border, #e5e7eb);
+    font-size: 0.82rem;
+}
+
+.hd-activity-row:last-child { border-bottom: 0; }
+
+.hd-activity-row__badge {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+}
+
+.hd-activity-row__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.hd-activity-row__meta {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+}
+
+/* === Botón "Actualizar" (header_actions) — spin mientras refresca ====== */
+#hdHomeRefreshIcon.hd-spin {
+    animation: hd-home-spin 0.8s linear infinite;
+}
+
+@keyframes hd-home-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }

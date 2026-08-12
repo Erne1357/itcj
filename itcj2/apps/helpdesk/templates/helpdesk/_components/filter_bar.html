@@ -13,9 +13,27 @@
     search_value      str   valor actual (prefija el input).
     search_placeholder str  placeholder.
     clear             bool  incluir botón Limpiar (default true).
+    more_open         bool  si el panel "Más filtros" arranca expandido (default false;
+                             pásalo en true cuando el caller detectó algún filtro extra activo).
+    chips             list  de dicts {param, label} — un chip por filtro activo, quitable
+                             individualmente (data-chip-remove). Default [] (sin chips).
 
   IDs producidos (estables, los usa el JS/E2E): form #hd-filter-form,
-  select #filter{Name} (capitalize), input #searchInput, botón #btnClearFilters.
+  select #filter{Name} (capitalize), input #searchInput, botón #btnClearFilters,
+  contenedor de chips #hd-active-chips.
+
+  Panel "Más filtros" (ADITIVO, opt-in vía `{% call %}`): los `fields`/`search`
+  de arriba se quedan siempre visibles — es lo que ya usan las otras 12 vistas
+  que comparten este macro. Para agregar controles extra dentro del panel
+  colapsable, invoca el macro con `{% call %}...{% endcall %}` en vez de como
+  expresión `{{ filter_bar(...) }}`; el contenido del bloque se inyecta ahí:
+
+    {% call filter_bar(url, fields, more_open=f_more_active, chips=f_chips) %}
+      {{ filter_select('sort', 'Orden', 'fa-sort', sort_options, f_sort) }}
+    {% endcall %}
+
+  Sin `{% call %}` (como en las otras 12 vistas) el panel no se renderiza en
+  absoluto — `caller` no existe en ese modo de invocación de Jinja.
 #}
 
 {% macro filter_select(name, label, icon, options, selected='', col='col-6 col-md-3') %}
@@ -29,7 +47,7 @@
 </div>
 {% endmacro %}
 
-{% macro filter_bar(form_url, fields, target='#hd-tickets-results', search=true, search_name='search', search_value='', search_placeholder='Título, número, solicitante o asignado...', clear=true) %}
+{% macro filter_bar(form_url, fields, target='#hd-tickets-results', search=true, search_name='search', search_value='', search_placeholder='Título, número, solicitante o asignado...', clear=true, more_open=false, chips=[]) %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body p-2 p-md-3">
     <form id="hd-filter-form" class="row g-2 g-md-3 align-items-end"
@@ -57,7 +75,31 @@
         </button>
       </div>
       {% endif %}
+      {% if caller is defined %}
+      <div class="col-12">
+        <button class="btn btn-link btn-sm px-0 text-decoration-none" type="button"
+                data-bs-toggle="collapse" data-bs-target="#hdMoreFilters"
+                aria-expanded="{{ 'true' if more_open else 'false' }}" aria-controls="hdMoreFilters"
+                id="btnMoreFilters">
+          <i class="fas fa-sliders-h me-1"></i>Más filtros
+          <i class="fas fa-chevron-down ms-1 small"></i>
+        </button>
+        <div class="collapse{{ ' show' if more_open }} mt-2" id="hdMoreFilters">
+          <div class="row g-2 g-md-3 align-items-end">
+            {{ caller() }}
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </form>
+    <div class="d-flex flex-wrap gap-2{{ ' mt-2' if chips }}" id="hd-active-chips">
+      {% for chip in chips %}
+      <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-1 hd-filter-chip" data-chip-param="{{ chip.param }}">
+        {{ chip.label }}
+        <button type="button" class="btn-close" style="font-size:0.55rem;" aria-label="Quitar filtro {{ chip.label }}" data-chip-remove="{{ chip.param }}"></button>
+      </span>
+      {% endfor %}
+    </div>
   </div>
 </div>
 {% endmacro %}

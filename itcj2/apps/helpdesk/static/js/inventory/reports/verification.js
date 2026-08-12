@@ -105,11 +105,61 @@
         }
         if (el.verifGroupHint) el.verifGroupHint.textContent = '';
 
+        if (el.verifAssignedUser) {
+            el.verifAssignedUser.innerHTML = '<option value="">Cargando usuarios…</option>';
+            el.verifAssignedUser.disabled = true;
+        }
+        if (el.verifAssignedHint) el.verifAssignedHint.textContent = '';
+
         renderSpecFields(item);
 
         bsModal(el.modalVerify).show();
 
         loadGroupsForModal(item);
+        loadAssignedUserOptions(item);
+    }
+
+    /* ─── Usuario asignado (departamento del equipo) ──────────────────── */
+    async function loadAssignedUserOptions(item) {
+        const select = el.verifAssignedUser;
+        if (!select) return;
+
+        const deptId = item.department_id || (item.department && item.department.id);
+        const currentUserId = item.assigned_to_user_id || (item.assigned_to_user && item.assigned_to_user.id) || null;
+
+        if (!deptId) {
+            select.innerHTML = '<option value="">Sin asignar (global del departamento)</option>';
+            select.disabled = false;
+            return;
+        }
+
+        try {
+            const resp = await fetch(
+                `/api/core/v2/departments/${deptId}/users?include_inactive=true`,
+                { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+            );
+            const json = await resp.json();
+            if (!json.success) throw new Error(json.error || 'Error al cargar usuarios');
+
+            const users = (json.data && (json.data.users ?? json.data)) || [];
+            select.innerHTML = '<option value="">Sin asignar (global del departamento)</option>' +
+                users.map(u => {
+                    const inactiveAttr = u.is_active === false ? ' data-inactive="true"' : '';
+                    const selected = String(currentUserId) === String(u.id) ? ' selected' : '';
+                    return `<option value="${u.id}"${selected}${inactiveAttr}>${escHtml(u.full_name)}</option>`;
+                }).join('');
+
+            if (el.verifAssignedHint) {
+                el.verifAssignedHint.textContent = currentUserId
+                    ? `Asignado actualmente a: ${escHtml(item.assigned_to_user ? item.assigned_to_user.full_name : String(currentUserId))}`
+                    : 'Sin asignar actualmente (global del departamento)';
+            }
+        } catch (err) {
+            console.error('Error loading department users:', err);
+            select.innerHTML = '<option value="">Sin asignar (global del departamento)</option>';
+        } finally {
+            select.disabled = false;
+        }
     }
 
     /* ─── Grupos del departamento ─────────────────────────────────────── */
@@ -253,6 +303,11 @@
             const selectedGroupId = el.verifGroup.value ? parseInt(el.verifGroup.value, 10) : null;
             if (selectedGroupId !== currentGroupId) changes.push('grupo');
         }
+        if (el.verifAssignedUser && !el.verifAssignedUser.disabled) {
+            const currentUserId = item.assigned_to_user_id || (item.assigned_to_user && item.assigned_to_user.id) || null;
+            const selectedUserId = el.verifAssignedUser.value ? parseInt(el.verifAssignedUser.value, 10) : null;
+            if (selectedUserId !== currentUserId) changes.push('asignación');
+        }
         if (el.verifBrand.value !== (item.brand || '')) changes.push('marca');
         if (el.verifModel.value !== (item.model || '')) changes.push('modelo');
         if (el.verifSupplierSerial && el.verifSupplierSerial.value !== (item.supplier_serial || '')) changes.push('serial proveedor');
@@ -311,6 +366,9 @@
 
         if (el.verifGroup && !el.verifGroup.disabled) {
             payload.group_id = el.verifGroup.value ? parseInt(el.verifGroup.value, 10) : null;
+        }
+        if (el.verifAssignedUser && !el.verifAssignedUser.disabled) {
+            payload.assigned_to_user_id = el.verifAssignedUser.value ? parseInt(el.verifAssignedUser.value, 10) : null;
         }
 
         const specFields = el.specsContainer ? el.specsContainer.querySelectorAll('.spec-field') : [];
@@ -571,7 +629,31 @@
             el.verifGroup.addEventListener('change', detectChanges);
             _boundBtns.push({ el: el.verifGroup, ev: 'change', fn: detectChanges });
         }
+        if (el.verifAssignedUser) {
+            el.verifAssignedUser.addEventListener('change', detectChanges);
+            _boundBtns.push({ el: el.verifAssignedUser, ev: 'change', fn: detectChanges });
+        }
         bindBtn('btn-confirm-verify', 'click', submitVerification);
+
+        // Crear usuario inactivo (compartido con item_create.js). No-op si el
+        // botón no está en el DOM (usuario sin helpdesk.inventory.api.create).
+        if (window.HelpdeskInactiveUser) {
+            window.HelpdeskInactiveUser.init({
+                getDepartmentId: () => (state.currentItemData &&
+                    (state.currentItemData.department_id ||
+                        (state.currentItemData.department && state.currentItemData.department.id))) || null,
+                onCreated: (newUser) => {
+                    if (!el.verifAssignedUser) return;
+                    const opt = document.createElement('option');
+                    opt.value = newUser.id;
+                    opt.textContent = newUser.full_name;
+                    opt.setAttribute('data-inactive', 'true');
+                    el.verifAssignedUser.appendChild(opt);
+                    el.verifAssignedUser.value = newUser.id;
+                    detectChanges();
+                },
+            });
+        }
 
         // Barra de acciones masivas (fuera del fragmento → estable).
         bindBtn('btn-verif-bulk-transfer', 'click', () => {
@@ -613,6 +695,8 @@
             verifObs: qs('#verif-observations'),
             verifGroup: qs('#verif-group'),
             verifGroupHint: qs('#verif-group-hint'),
+            verifAssignedUser: qs('#verif-assigned-user'),
+            verifAssignedHint: qs('#verif-assigned-hint'),
             specsSection: qs('#specs-section'),
             specsContainer: qs('#specs-fields-container'),
             specsCollapse: qs('#specs-collapse'),
@@ -642,7 +726,7 @@
         _boundBtns.length = 0;
 
         // Dispose los modales BS5.
-        ['#modal-verif-bulk-transfer', '#modal-verify', '#modal-history'].forEach(function (sel) {
+        ['#modal-verif-bulk-transfer', '#modal-verify', '#modal-history', '#createInactiveUserModal'].forEach(function (sel) {
             try {
                 const modalEl = document.querySelector(sel);
                 if (modalEl) bootstrap.Modal.getInstance(modalEl)?.dispose();

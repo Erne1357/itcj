@@ -63,8 +63,22 @@ def _exclude_outlier_tickets(tickets: list) -> tuple:
     if not bounds:
         return tickets, None
     filtered = [t for t in tickets if _resolution_hours(t) is None or _resolution_hours(t) <= bounds["upper_fence"]]
-    excluded = len(tickets) - len(filtered)
-    return filtered, {"excluded_count": excluded, "upper_fence": bounds["upper_fence"]}
+    original_count = len(tickets)
+    filtered_count = len(filtered)
+    excluded = original_count - filtered_count
+    pct_excluded = round((excluded / original_count) * 100, 1) if original_count else 0
+    # `excluded_count` es el nombre histórico (stats.js:115 ya lo consume); las
+    # otras tres claves las agregamos aquí (fuente única: TODOS los endpoints
+    # con exclude_outliers pasan por esta función) porque el banner de
+    # exclusión de stats.js/analysis.js las lee y hoy no existían -> imprimía
+    # "undefined" en vez del conteo real.
+    return filtered, {
+        "excluded_count": excluded,
+        "upper_fence": bounds["upper_fence"],
+        "original_count": original_count,
+        "filtered_count": filtered_count,
+        "pct_excluded": pct_excluded,
+    }
 
 
 def _get_periods_list(db: Session) -> list:
@@ -238,6 +252,89 @@ def _cluster_label(centroid_h: float, centroid_r: float) -> str:
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.get("/tickets/{ticket_id}/summary")
+def get_ticket_summary(
+    ticket_id: int,
+    user: dict = require_perms("helpdesk", ["helpdesk.stats.api.read", "helpdesk.stats.api.read.subtree"]),
+    db: DbSession = None,
+):
+    """Resumen plano de un ticket para el modal de enlace desde stats/analysis.
+
+    Mismos permisos y mismo scope que el resto de `/stats/*`
+    (`_resolve_stats_scope`): quien puede ver un ticket en una tabla/gráfica de
+    estadísticas también puede abrir su resumen. Ojo con `has_full_access`:
+    devuelve `dept_ids=set()` (VACÍO) para acceso total — hay que ramificar en
+    `has_full_access` PRIMERO, nunca comparar contra `dept_ids` a secas o se
+    rechaza a todo admin/secretaría de centro de cómputo.
+    """
+    from itcj2.apps.helpdesk.models.category import Category
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.core.models.department import Department
+    from itcj2.core.models.user import User
+
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(404, detail={"error": "not_found", "message": "Ticket no encontrado"})
+
+    has_full_access, dept_ids = _resolve_stats_scope(db, user)
+    if not has_full_access:
+        # Fail-closed: sin depto propio (dept_ids vacío) o ticket fuera del
+        # subárbol -> 403. Un ticket sin departamento (requester_department_id
+        # NULL) tampoco autoriza a nadie acotado, aunque dept_ids no esté vacío.
+        if not dept_ids or ticket.requester_department_id not in dept_ids:
+            raise HTTPException(403, detail={"error": "forbidden", "message": "No tienes permiso para ver este ticket"})
+
+    requester_name = None
+    if ticket.requester_id:
+        requester = db.get(User, ticket.requester_id)
+        requester_name = requester.full_name if requester else None
+
+    assigned_to_name = None
+    if ticket.assigned_to_user_id:
+        assigned_to = db.get(User, ticket.assigned_to_user_id)
+        assigned_to_name = assigned_to.full_name if assigned_to else None
+
+    department_name = None
+    if ticket.requester_department_id:
+        department = db.get(Department, ticket.requester_department_id)
+        department_name = department.name if department else None
+
+    category_name = None
+    if ticket.category_id:
+        category = db.get(Category, ticket.category_id)
+        category_name = category.name if category else None
+
+    description = ticket.description or ""
+    if len(description) > 400:
+        description = description[:400] + "…"
+
+    res_hours = _resolution_hours(ticket)
+
+    return {
+        "success": True,
+        "data": {
+            "id": ticket.id,
+            "ticket_number": ticket.ticket_number,
+            "title": ticket.title,
+            "description": description,
+            "status": ticket.status,
+            "priority": ticket.priority,
+            "area": ticket.area,
+            "category_name": category_name,
+            "requester_name": requester_name,
+            "assigned_to_name": assigned_to_name,
+            "department_name": department_name,
+            "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+            "resolved_at": ticket.resolved_at.isoformat() if ticket.resolved_at else None,
+            "resolution_hours": round(res_hours, 2) if res_hours is not None else None,
+            "time_invested_hours": round(ticket.time_invested_minutes / 60, 2) if ticket.time_invested_minutes else None,
+            "rating_attention": ticket.rating_attention,
+            "rating_speed": ticket.rating_speed,
+            "rating_comment": ticket.rating_comment,
+        },
+    }
+
 
 @router.get("/department/{department_id}")
 def get_department_stats(
@@ -831,6 +928,7 @@ def get_ratings_detail(
         for t in sorted(rated, key=lambda x: getattr(x, "rated_at", None) or datetime.min, reverse=True)[:15]:
             if t.rating_comment:
                 recent_comments.append({
+                    "id": t.id,
                     "ticket_number": t.ticket_number,
                     "rating": t.rating_attention,
                     "comment": t.rating_comment,

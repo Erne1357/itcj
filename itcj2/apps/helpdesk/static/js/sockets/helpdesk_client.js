@@ -140,6 +140,36 @@
         socket.emit("leave_dept", { department_id: departmentId });
     };
 
+    // ==================== Own-Actor Echo Guard ====================
+    // Los broadcasts de ticket llevan `actor_id` (itcj2/sockets/helpdesk.py) con el
+    // usuario que disparó la acción. Quien la disparó ya actualizó su UI de forma
+    // optimista al recibir la respuesta HTTP — reaccionar también al eco del socket
+    // duplica toasts/refrescos. Los módulos de página llaman a __hdIsOwnEvent(data)
+    // al inicio de cada handler para descartar su propio eco.
+
+    /**
+     * Id del usuario actual, leído de [data-hd-page] (data-current-user-id,
+     * inyectado por render_helpdesk() en base_helpdesk.html). Se relee en cada
+     * llamada — barato y evita cachear un valor stale entre navegaciones morph.
+     */
+    window.__hdCurrentUserId = () => {
+        const root = document.querySelector("[data-hd-page]");
+        const raw = root ? root.dataset.currentUserId : null;
+        const n = raw ? parseInt(raw, 10) : NaN;
+        return Number.isFinite(n) ? n : null;
+    };
+
+    /**
+     * true si `data.actor_id` coincide con el usuario actual (eco de su propia acción).
+     * @param {object} data - payload del evento de socket
+     */
+    window.__hdIsOwnEvent = (data) => {
+        const actorId = data && data.actor_id;
+        if (actorId === undefined || actorId === null) return false;
+        const current = window.__hdCurrentUserId();
+        return current !== null && Number(actorId) === current;
+    };
+
     // ==================== Debug Confirmations ====================
 
     socket.on("joined_ticket", (data) => {

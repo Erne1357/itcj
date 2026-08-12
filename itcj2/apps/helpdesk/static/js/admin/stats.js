@@ -92,8 +92,11 @@
 
         if (period)  params.set('period_id', period);
         if (preset)  params.set('preset', preset);
-        if (start && !preset && !period) params.set('start_date', start);
-        if (end   && !preset && !period) params.set('end_date', end);
+        // El servidor declara `start`/`end` (api/stats.py), no `start_date`/
+        // `end_date`: con el nombre viejo FastAPI los ignoraba en silencio y
+        // el rango "Desde/Hasta" no filtraba nada.
+        if (start && !preset && !period) params.set('start', start);
+        if (end   && !preset && !period) params.set('end', end);
         if (area)    params.set('area', area);
         if (isClean) params.set('exclude_outliers', '1');
         return params.toString() ? '?' + params.toString() : '';
@@ -487,14 +490,45 @@
             el.innerHTML = '<p class="text-muted small text-center py-3">No hay comentarios en el período seleccionado.</p>';
             return;
         }
+        // Ligado a su ticket: tarjeta clickeable (mouse) y accesible por
+        // teclado (role="button" + tabindex, Enter/Espacio la activan —
+        // ver onCommentKeydown). El listener delegado vive en #recentComments
+        // (bindCommentClicks, llamado desde init()), así que sobrevive a cada
+        // re-render de innerHTML.
         el.innerHTML = comments.map(c => `
-            <div class="rating-comment-card">
+            <div class="rating-comment-card" role="button" tabindex="0" data-ticket-id="${c.id}" style="cursor:pointer">
                 <div class="d-flex justify-content-between align-items-start mb-1">
                     <span class="stats-stars">${starsHtml(c.rating)}</span>
                     <span class="ticket-ref">${esc(c.ticket_number)} · ${c.date ? new Date(c.date).toLocaleDateString('es-MX') : ''}</span>
                 </div>
                 <div class="text-dark">${esc(c.comment)}</div>
             </div>`).join('');
+    }
+
+    function openCommentTicketSummary(card) {
+        const id = card && card.dataset.ticketId;
+        if (!id) return;
+        HelpdeskUtils.showTicketSummary(parseInt(id, 10), { from: 'stats' });
+    }
+
+    function onCommentClick(e) {
+        const card = e.target.closest('.rating-comment-card');
+        if (card) openCommentTicketSummary(card);
+    }
+
+    function onCommentKeydown(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const card = e.target.closest('.rating-comment-card');
+        if (!card) return;
+        e.preventDefault();
+        openCommentTicketSummary(card);
+    }
+
+    function bindCommentClicks() {
+        const el = document.getElementById('recentComments');
+        if (!el) return;
+        el.addEventListener('click', onCommentClick);
+        el.addEventListener('keydown', onCommentKeydown);
     }
 
     // ── Helpers de badge ─────────────────────────────────────────
@@ -580,6 +614,7 @@
         dateDebounce = null;
 
         loadPeriods();
+        bindCommentClicks();
 
         // Tab listener
         document.querySelectorAll('#statsTabs .nav-link').forEach(link => {
@@ -668,6 +703,11 @@
         document.querySelectorAll('#statsModeBtns .btn').forEach(btn => {
             btn.replaceWith(btn.cloneNode(true));
         });
+
+        // Strip el listener delegado de comentarios (clone sin listeners; el
+        // próximo init() lo vuelve a bindear vía bindCommentClicks()).
+        const commentsEl = document.getElementById('recentComments');
+        if (commentsEl) commentsEl.replaceWith(commentsEl.cloneNode(true));
 
         destroyAllCharts();
     }

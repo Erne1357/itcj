@@ -116,6 +116,11 @@
             socket.off('ticket_self_assigned');
         }
 
+        // Salir del room admin:all — sin esto, un tech-admin que morfea a otra
+        // página con su propio join (p.ej. technician/dashboard) sigue recibiendo
+        // aquí los eventos y le llegan por partida doble.
+        window.__hdLeaveAdmin?.();
+
         // Limpiar timeouts de búsqueda
         if (_searchQueueTimeout !== null) {
             clearTimeout(_searchQueueTimeout);
@@ -749,7 +754,7 @@
             document.getElementById('teamSelect').value = 'soporte';
         }
 
-        _assignmentModalInstance = new bootstrap.Modal(document.getElementById('assignmentModal'));
+        _assignmentModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('assignmentModal'));
         _assignmentModalInstance.show();
     }
 
@@ -855,7 +860,7 @@
         document.getElementById('newTechnicianSelect').value = '';
         document.getElementById('reassignReason').value = '';
 
-        _reassignmentModalInstance = new bootstrap.Modal(document.getElementById('reassignmentModal'));
+        _reassignmentModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('reassignmentModal'));
         _reassignmentModalInstance.show();
     }
 
@@ -1110,6 +1115,7 @@
 
         // Nuevo ticket creado - actualiza cola de pendientes
         socket.on('ticket_created', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             console.log('[Assign] ticket_created:', data);
             const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
             const area = data?.area || '';
@@ -1124,6 +1130,7 @@
 
         // Ticket asignado - sale de pendientes, entra a activos
         socket.on('ticket_assigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             console.log('[Assign] ticket_assigned:', data);
             const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
             HelpdeskUtils.showToast(`Ticket ${ticketNum} asignado`, 'success');
@@ -1132,6 +1139,7 @@
 
         // Ticket reasignado
         socket.on('ticket_reassigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             console.log('[Assign] ticket_reassigned:', data);
             const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
             HelpdeskUtils.showToast(`Ticket ${ticketNum} reasignado`, 'info');
@@ -1140,6 +1148,7 @@
 
         // Cambio de estado
         socket.on('ticket_status_changed', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             console.log('[Assign] ticket_status_changed:', data);
             const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
             const newStatus = data?.new_status || '';
@@ -1149,6 +1158,7 @@
 
         // Técnico tomó un ticket del pool
         socket.on('ticket_self_assigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             console.log('[Assign] ticket_self_assigned:', data);
             const ticketNum = data?.ticket_number ? `#${data.ticket_number}` : '';
             HelpdeskUtils.showToast(`Ticket ${ticketNum} auto-asignado por técnico`, 'info');
@@ -1253,7 +1263,7 @@
         loadTicketAttachments(ticketId);
 
         // Mostrar modal
-        _editTicketModalInstance = new bootstrap.Modal(document.getElementById('editTicketModal'));
+        _editTicketModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('editTicketModal'));
         _editTicketModalInstance.show();
     }
 

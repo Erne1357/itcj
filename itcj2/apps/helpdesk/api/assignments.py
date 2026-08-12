@@ -67,6 +67,7 @@ async def assign_ticket(
                     "priority": ticket.priority,
                 },
                 department_id=ticket.requester_department_id,
+                actor_id=user_id,
             )
         except Exception as ws_err:
             logger.warning(f"WS broadcast ticket_assigned error: {ws_err}")
@@ -137,6 +138,7 @@ async def reassign_ticket(
                     "area": ticket.area,
                 },
                 department_id=ticket.requester_department_id,
+                actor_id=user_id,
             )
         except Exception as ws_err:
             logger.warning(f"WS broadcast ticket_reassigned error: {ws_err}")
@@ -188,6 +190,7 @@ async def self_assign_ticket(
                 "technician_name": technician.full_name if technician else None,
                 "area": ticket.area,
             },
+            actor_id=user_id,
         )
     except Exception as ws_err:
         logger.warning(f"WS broadcast ticket_self_assigned error: {ws_err}")

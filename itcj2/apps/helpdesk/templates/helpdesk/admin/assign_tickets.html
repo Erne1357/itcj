@@ -525,7 +525,7 @@
 
 <!-- Edit/Preview Ticket Modal -->
 <div class="modal fade" id="editTicketModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">
@@ -533,10 +533,10 @@
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+            <div class="modal-body">
                 <div class="row">
                     <!-- Columna Izquierda: Vista Previa (Solo Lectura) -->
-                    <div class="col-md-5 border-end">
+                    <div class="col-md-5">
                         <h6 class="text-muted mb-3">
                             <i class="fas fa-eye me-2"></i>Informacion del Ticket
                         </h6>
@@ -589,8 +589,12 @@
                         </div>
                     </div>
 
-                    <!-- Columna Derecha: Campos Editables -->
-                    <div class="col-md-7">
+                    <!-- Columna Derecha: Campos Editables.
+                         El divisor vive aquí (border-start, hd-edit-modal-col-divider en
+                         helpdesk.css) y no en border-end de la columna izquierda: con
+                         modal-dialog-scrollable el .modal-content tiene overflow:hidden,
+                         así que un border-end pegado al borde del contenedor se recorta. -->
+                    <div class="col-md-7 hd-edit-modal-col-divider">
                         <h6 class="text-muted mb-3">
                             <i class="fas fa-pencil-alt me-2"></i>Editar Campos
                         </h6>

@@ -38,25 +38,266 @@ def _helpdesk_roles(user_id: int) -> set:
         _db.close()
 
 
+_TICKETS_SORT_VALUES = {"oldest", "priority", "stale"}
+
+_TICKETS_STATUS_LABELS = {
+    "PENDING": "Pendiente", "ASSIGNED": "Asignado", "IN_PROGRESS": "En Progreso",
+    "RESOLVED_SUCCESS": "Resuelto", "RESOLVED_FAILED": "No Resuelto",
+    "CLOSED": "Cerrado", "CANCELED": "Cancelado",
+}
+_TICKETS_AREA_LABELS = {"DESARROLLO": "Desarrollo", "SOPORTE": "Soporte"}
+_TICKETS_PRIORITY_LABELS = {"URGENTE": "Urgente", "ALTA": "Alta", "MEDIA": "Media", "BAJA": "Baja"}
+_TICKETS_SORT_LABELS = {"oldest": "Más antiguos", "priority": "Por prioridad", "stale": "Sin actualizar"}
+
+
+def _parse_tickets_filters(qp) -> dict:
+    """Parsea los query params de la lista de tickets (admin) a kwargs para
+    `ticket_service.list_tickets` + valores de display (`f_*`) para prefijar el
+    form. Función PURA (sin BD) — testable en aislamiento con un dict plano.
+
+    `qp` es cualquier objeto con `.get(name, default='')` (`request.query_params`
+    o un dict normal en tests).
+    """
+    status = qp.get("status")
+    if status:
+        status = [s.strip().upper() for s in status.split(",") if s.strip()] or None
+    try:
+        page = max(1, int(qp.get("page", "1")))
+    except (ValueError, TypeError):
+        page = 1
+
+    area = qp.get("area") or None
+    priority = qp.get("priority") or None
+    search = (qp.get("search", "") or "").strip() or None
+
+    # --- Técnico asignado: id numérico | 'unassigned' | 'team:<area>' ---
+    raw_technician = (qp.get("technician", "") or "").strip()
+    assigned_to_user_id = None
+    unassigned = False
+    assigned_to_team = None
+    if raw_technician.isdigit():
+        assigned_to_user_id = int(raw_technician)
+    elif raw_technician == "unassigned":
+        unassigned = True
+    elif raw_technician.startswith("team:"):
+        assigned_to_team = raw_technician.split(":", 1)[1].strip().lower() or None
+        if not assigned_to_team:
+            raw_technician = ""
+    else:
+        raw_technician = ""  # valor no reconocido: se ignora, no queda "activo"
+
+    # --- Categoría ---
+    raw_category = (qp.get("category", "") or "").strip()
+    category_id = int(raw_category) if raw_category.isdigit() else None
+    if raw_category and category_id is None:
+        raw_category = ""
+
+    # --- Depto. solicitante: SIEMPRE se intersecta con el scope visible dentro
+    # de `list_tickets` (nunca lo sustituye) — mismo mecanismo que ya usa el
+    # scope departamental de la lista, no uno paralelo. ---
+    raw_dept = (qp.get("req_department", "") or "").strip()
+    department_ids = {int(raw_dept)} if raw_dept.isdigit() else None
+    if raw_dept and department_ids is None:
+        raw_dept = ""
+
+    # --- Rango de fechas (creación) ---
+    from datetime import date as _date
+    raw_start = (qp.get("start", "") or "").strip()
+    raw_end = (qp.get("end", "") or "").strip()
+    created_from = None
+    created_to = None
+    if raw_start:
+        try:
+            created_from = _date.fromisoformat(raw_start)
+        except ValueError:
+            raw_start = ""
+    if raw_end:
+        try:
+            created_to = _date.fromisoformat(raw_end)
+        except ValueError:
+            raw_end = ""
+
+    # --- Orden: sustituye el order_by por defecto, no lo envuelve ---
+    raw_sort = (qp.get("sort") or "").strip().lower()
+    sort = raw_sort if raw_sort in _TICKETS_SORT_VALUES else "recent"
+    f_sort = raw_sort if raw_sort in _TICKETS_SORT_VALUES else ""
+
+    more_active = bool(raw_technician or raw_category or raw_dept or raw_start or raw_end or f_sort)
+
+    return {
+        "kwargs": dict(
+            status=status,
+            area=area,
+            priority=priority,
+            search=search,
+            assigned_to_user_id=assigned_to_user_id,
+            unassigned=unassigned,
+            assigned_to_team=assigned_to_team,
+            category_id=category_id,
+            department_ids=department_ids,
+            created_from=created_from,
+            created_to=created_to,
+            sort=sort,
+            page=page,
+            per_page=20,
+        ),
+        "display": {
+            "f_status": qp.get("status", ""),
+            "f_area": qp.get("area", ""),
+            "f_priority": qp.get("priority", ""),
+            "f_search": qp.get("search", ""),
+            "f_technician": raw_technician,
+            "f_category": raw_category,
+            "f_req_department": raw_dept,
+            "f_start": raw_start,
+            "f_end": raw_end,
+            "f_sort": f_sort,
+        },
+        "raw": {
+            "status": qp.get("status", "") or "",
+            "area": area,
+            "priority": priority,
+            "search": search,
+            "technician": raw_technician,
+            "category": raw_category,
+            "req_department": raw_dept,
+            "start": raw_start,
+            "end": raw_end,
+            "sort": f_sort,
+        },
+        "more_active": more_active,
+    }
+
+
+def _build_filter_chips(db, raw: dict) -> list:
+    """Un chip por filtro activo de la lista de tickets (quitable individualmente
+    desde el JS vía `data-chip-remove="<param>"`). Hace lookups PUNTUALES (no las
+    listas completas) para resolver nombres legibles de técnico/categoría/depto —
+    barato incluso en el fragmento HTMX de cada cambio de filtro.
+    """
+    from itcj2.apps.helpdesk.models.category import Category
+    from itcj2.core.models.department import Department
+    from itcj2.core.models.user import User
+
+    chips = []
+
+    if raw.get("status"):
+        for code in [s.strip().upper() for s in raw["status"].split(",") if s.strip()]:
+            chips.append({"param": "status", "label": f"Estado: {_TICKETS_STATUS_LABELS.get(code, code)}"})
+    if raw.get("area"):
+        chips.append({"param": "area", "label": f"Área: {_TICKETS_AREA_LABELS.get(raw['area'], raw['area'])}"})
+    if raw.get("priority"):
+        chips.append({"param": "priority", "label": f"Prioridad: {_TICKETS_PRIORITY_LABELS.get(raw['priority'], raw['priority'])}"})
+    if raw.get("search"):
+        chips.append({"param": "search", "label": f"Buscar: {raw['search']}"})
+
+    tech = raw.get("technician") or ""
+    if tech.isdigit():
+        u = db.get(User, int(tech))
+        chips.append({"param": "technician", "label": f"Técnico: {u.full_name if u else tech}"})
+    elif tech == "unassigned":
+        chips.append({"param": "technician", "label": "Técnico: Sin asignar"})
+    elif tech.startswith("team:"):
+        team = tech.split(":", 1)[1].strip().capitalize()
+        chips.append({"param": "technician", "label": f"Técnico: Cola de {team}"})
+
+    cat = raw.get("category") or ""
+    if cat.isdigit():
+        c = db.get(Category, int(cat))
+        chips.append({"param": "category", "label": f"Categoría: {c.name if c else cat}"})
+
+    dept = raw.get("req_department") or ""
+    if dept.isdigit():
+        d = db.get(Department, int(dept))
+        chips.append({"param": "req_department", "label": f"Depto. solicitante: {d.name if d else dept}"})
+
+    if raw.get("start"):
+        chips.append({"param": "start", "label": f"Desde: {raw['start']}"})
+    if raw.get("end"):
+        chips.append({"param": "end", "label": f"Hasta: {raw['end']}"})
+
+    if raw.get("sort"):
+        chips.append({"param": "sort", "label": f"Orden: {_TICKETS_SORT_LABELS.get(raw['sort'], raw['sort'])}"})
+
+    return chips
+
+
+def _visible_ticket_department_ids(db, user: dict) -> set:
+    """Departamentos cuyos tickets puede ver este usuario.
+
+    Misma fuente que usa el resto del app para el alcance de tickets: los
+    departamentos que le otorgan acceso a helpdesk (por procedencia) más el
+    subárbol de `helpdesk.tickets.api.read.subtree`. Se resuelve por permiso
+    efectivo, no por nombre de rol.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.core.services.departments_service import app_departments
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    user_id = int(user["sub"])
+    dept_ids = {d.id for d in app_departments(db, user_id, "helpdesk")}
+    if "helpdesk.tickets.api.read.subtree" in cached_perms(db, user_id, "helpdesk"):
+        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+    return dept_ids
+
+
+def _tickets_filter_options(user: dict) -> dict:
+    """Opciones server-side para los selects del panel "Más filtros" — SOLO se
+    necesitan en el render de la PÁGINA completa (el fragmento HTMX de resultados
+    no vuelve a pintar la barra de filtros, así que pedirlas en cada cambio de
+    filtro sería trabajo de BD desperdiciado).
+
+    El desplegable de departamentos se acota al alcance visible del usuario. El
+    backend ya intersecta el filtro con ese alcance, así que ofrecer la lista
+    completa no era una fuga, pero sí una trampa de UX: elegir un departamento
+    ajeno devolvía cero resultados sin explicar por qué.
+    """
+    from itcj2.apps.helpdesk.models.category import Category
+    from itcj2.apps.helpdesk.services import assignment_service
+    from itcj2.core.models.department import Department
+    from itcj2.database import SessionLocal
+    from itcj2.dependencies import is_global_admin
+
+    _db = SessionLocal()
+    try:
+        technicians_desarrollo = assignment_service.get_technicians_by_area(_db, "DESARROLLO")
+        technicians_soporte = assignment_service.get_technicians_by_area(_db, "SOPORTE")
+        categories = (
+            _db.query(Category)
+            .filter_by(is_active=True)
+            .order_by(Category.area, Category.display_order, Category.name)
+            .all()
+        )
+        dept_q = _db.query(Department).filter_by(is_active=True)
+        if not is_global_admin(user):
+            visible = _visible_ticket_department_ids(_db, user)
+            # Sin alcance resoluble no se ofrece el filtro, en vez de ofrecer todo.
+            dept_q = dept_q.filter(Department.id.in_(visible or {-1}))
+        departments = dept_q.order_by(Department.name).all()
+    finally:
+        _db.close()
+
+    return {
+        "technicians_desarrollo": technicians_desarrollo,
+        "technicians_soporte": technicians_soporte,
+        "categories_desarrollo": [c for c in categories if c.area == "DESARROLLO"],
+        "categories_soporte": [c for c in categories if c.area == "SOPORTE"],
+        "departments": departments,
+    }
+
+
 def _query_tickets_ctx(request: Request, user_id: int, user_roles: set) -> dict:
     """Consulta la lista de tickets para la vista admin.
 
     Reusado por la PÁGINA (`tickets_list`, render completo) y el PARTIAL HTMX
     (`tickets_list_partial`, fragmento). Reusa `ticket_service.list_tickets`
     (mismo motor que el endpoint API). Devuelve también la selección actual de
-    filtros para prefijar el form en el render completo.
+    filtros (para prefijar el form) y los chips de filtros activos.
     """
     from itcj2.apps.helpdesk.services import ticket_service
     from itcj2.database import SessionLocal
 
-    p = request.query_params
-    status = p.get("status")
-    if status:
-        status = [s.strip().upper() for s in status.split(",") if s.strip()] or None
-    try:
-        page = max(1, int(p.get("page", "1")))
-    except (ValueError, TypeError):
-        page = 1
+    parsed = _parse_tickets_filters(request.query_params)
 
     _db = SessionLocal()
     try:
@@ -64,13 +305,9 @@ def _query_tickets_ctx(request: Request, user_id: int, user_roles: set) -> dict:
             _db,
             user_id=user_id,
             user_roles=user_roles,
-            status=status,
-            area=p.get("area") or None,
-            priority=p.get("priority") or None,
-            search=(p.get("search", "") or "").strip() or None,
-            page=page,
-            per_page=20,
+            **parsed["kwargs"],
         )
+        chips = _build_filter_chips(_db, parsed["raw"])
     finally:
         _db.close()
 
@@ -80,10 +317,9 @@ def _query_tickets_ctx(request: Request, user_id: int, user_roles: set) -> dict:
         "current_page": result["current_page"],
         "total_pages": result["pages"],
         # selección actual de filtros (prefija el form en el render completo)
-        "f_status": p.get("status", ""),
-        "f_area": p.get("area", ""),
-        "f_priority": p.get("priority", ""),
-        "f_search": p.get("search", ""),
+        **parsed["display"],
+        "more_active": parsed["more_active"],
+        "chips": chips,
     }
 
 
@@ -135,6 +371,25 @@ def _query_documents_ctx(request: Request, user_id: int, user_roles: set) -> dic
     }
 
 
+def _query_admin_overview_ctx(user: dict, preset: str | None = None) -> dict:
+    """Compone KPIs + banda de atención + actividad reciente para el home admin.
+
+    Reusado por la PÁGINA (render server-side, sin flash de "-" mientras carga
+    JS) y por `GET /api/help-desk/v2/dashboard/admin-overview` (mismo
+    `AdminDashboardService`, así que página y JSON nunca divergen). Abre su
+    propia sesión — mismo patrón que `_helpdesk_roles`/`_tickets_filter_options`
+    en este archivo.
+    """
+    from itcj2.apps.helpdesk.services.admin_dashboard_service import AdminDashboardService
+    from itcj2.database import SessionLocal
+
+    _db = SessionLocal()
+    try:
+        return AdminDashboardService.get_overview(_db, user, preset=preset)
+    finally:
+        _db.close()
+
+
 @router.get("/home", name="helpdesk.pages.admin.home")
 async def home(
     request: Request,
@@ -143,10 +398,12 @@ async def home(
     """Dashboard principal de administrador de Help-Desk."""
     user_id = int(user["sub"])
     user_roles = _helpdesk_roles(user_id)
+    overview = _query_admin_overview_ctx(user, preset=request.query_params.get("preset"))
 
     return render_helpdesk(request, "helpdesk/admin/home.html", {
         "user_roles": user_roles,
         "active_page": "admin_home",
+        **overview,
     })
 
 
@@ -264,6 +521,7 @@ async def tickets_list(
         return render(request, "helpdesk/admin/_tickets_list_results.html", ctx)
 
     ctx.update({"user_roles": user_roles, "active_page": "admin_tickets_list"})
+    ctx.update(_tickets_filter_options(user))
     return render_helpdesk(request, "helpdesk/admin/tickets_list.html", ctx)
 
 

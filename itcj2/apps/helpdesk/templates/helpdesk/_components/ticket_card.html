@@ -94,7 +94,15 @@
         </div>
       {% endif %}
       {% if actions %}
-        <div class="mt-2 d-flex flex-column gap-2" onclick="event.stopPropagation()">{{ actions }}</div>
+        {#
+          stopPropagation() por sí solo NO cancela la acción por defecto del <a>
+          ancestro (navegar): el navegador decide la acción por defecto según el
+          árbol DOM, no según a dónde llegó la propagación del evento. Sin
+          preventDefault(), pulsar un botón de acción (Iniciar/Resolver/Tomar…)
+          abriría su modal Y ADEMÁS navegaría al detalle. onDocumentClick
+          (static/js/shared/base.js) ya respeta e.defaultPrevented.
+        #}
+        <div class="mt-2 d-flex flex-column gap-2" onclick="event.stopPropagation(); event.preventDefault();">{{ actions }}</div>
       {% endif %}
     </div>
   </div>

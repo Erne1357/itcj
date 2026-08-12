@@ -1,5 +1,5 @@
 {% extends "helpdesk/base_helpdesk.html" %}
-{% from "helpdesk/_components/filter_bar.html" import filter_bar %}
+{% from "helpdesk/_components/filter_bar.html" import filter_bar, filter_select %}
 
 {% block title %}Inventario de Equipos - Help-Desk ITCJ{% endblock %}
 
@@ -35,20 +35,43 @@
                 <i class="fas fa-plus-circle"></i><span class="d-none d-sm-inline"> Registrar</span>
             </a>
             {% endif %}
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="exportToExcel()">
+            <a href="/api/help-desk/v2/inventory/items/export.xlsx" id="btn-export-xlsx" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-file-excel"></i><span class="d-none d-sm-inline"> Exportar</span>
-            </button>
+            </a>
         </div>
     </div>
 
-    <!-- Filtros: macro filter_bar (form HTMX → recarga #hd-items-results sin JS) -->
-    {{ filter_bar(
+    <!-- Filtros: macro filter_bar (form HTMX → recarga #hd-items-results sin JS).
+         Los 4 originales (categoría/estado/asignación/depto) quedan siempre
+         visibles; los nuevos van en el panel colapsable "Más filtros" (se abre
+         solo si alguno viene activo por URL), con un chip quitable por filtro
+         activo. -->
+    {% call filter_bar(
         '/help-desk/inventory/items',
         filter_fields,
         target='#hd-items-results',
         search_value=f_search,
-        search_placeholder='Número, marca, modelo, serie...'
-    ) }}
+        search_placeholder='Número, marca, modelo, serie...',
+        more_open=more_active,
+        chips=chips
+    ) %}
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold small"><i class="fas fa-calendar-alt me-1 d-none d-sm-inline"></i>Registrado desde</label>
+        <input type="date" class="form-control form-control-sm" id="filterReg_start" name="reg_start" value="{{ f_reg_start }}">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold small"><i class="fas fa-calendar-check me-1 d-none d-sm-inline"></i>Registrado hasta</label>
+        <input type="date" class="form-control form-control-sm" id="filterReg_end" name="reg_end" value="{{ f_reg_end }}">
+      </div>
+      {{ filter_select('warranty', 'Garantía', 'fa-shield-alt', warranty_options, f_warranty, 'col-6 col-md-3') }}
+      {{ filter_select('verified', 'Verificación', 'fa-clipboard-check', verified_options, f_verified, 'col-6 col-md-3') }}
+      <div class="col-6 col-md-3">
+        <label class="form-label fw-semibold small"><i class="fas fa-tag me-1 d-none d-sm-inline"></i>Marca</label>
+        <input type="text" class="form-control form-control-sm" id="filterBrand" name="brand" value="{{ f_brand }}" placeholder="HP, Dell, Epson...">
+      </div>
+      {{ filter_select('maintenance', 'Mantenimiento', 'fa-tools', maintenance_options, f_maintenance, 'col-6 col-md-3') }}
+      {{ filter_select('sort', 'Orden', 'fa-sort', sort_options, f_sort, 'col-6 col-md-3') }}
+    {% endcall %}
 
     <!-- Barra de acciones masivas (Alpine: visible al seleccionar equipos) -->
     <div class="hd-bulk-bar" x-show="sel.size" x-cloak>

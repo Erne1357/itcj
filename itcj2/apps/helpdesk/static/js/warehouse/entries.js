@@ -76,7 +76,7 @@ const WarehouseEntries = (function () {
     function voidEntry(id) {
         document.getElementById('voidEntryId').value = id;
         document.getElementById('voidReason').value = '';
-        new bootstrap.Modal(document.getElementById('voidModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('voidModal')).show();
     }
 
     async function confirmVoid() {

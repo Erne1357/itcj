@@ -193,22 +193,11 @@ async def add_comment(
     except Exception as notif_error:
         logger.error(f"Error al enviar notificación: {notif_error}")
 
-    try:
-        from itcj2.sockets.helpdesk import broadcast_ticket_comment_added
-        preview = comment.content[:100] + "..." if len(comment.content) > 100 else comment.content
-        await broadcast_ticket_comment_added(
-            ticket_id,
-            {
-                "ticket_id": ticket_id,
-                "ticket_number": ticket.ticket_number if ticket else None,
-                "comment_id": comment.id,
-                "author_id": user_id,
-                "author_name": author.full_name if author else None,
-                "is_internal": is_internal,
-                "preview": preview,
-            },
-        )
-    except Exception as ws_err:
-        logger.warning(f"WS broadcast ticket_comment_added error: {ws_err}")
+    # Sin broadcast de socket aquí a propósito: `notify_comment_added` (llamado
+    # arriba) ya emite `ticket_comment_added` — es el único caller de comentarios
+    # que puede await-earlo (async), así que exponerlo también aquí duplicaba el
+    # evento. Excepción a la regla general del resto de endpoints: para
+    # comentarios el broadcast vive en el helper porque `api/comments.py` (el otro
+    # caller de `notify_comment_added`) es sync y no puede emitir por su cuenta.
 
     return {"message": "Comentario agregado exitosamente", "comment": comment.to_dict()}

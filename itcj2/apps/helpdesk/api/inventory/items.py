@@ -1,15 +1,191 @@
 """
-Inventory Items API v2 — 10 endpoints.
+Inventory Items API v2 — 11 endpoints.
 Fuente: itcj/apps/helpdesk/routes/api/inventory/inventory_items.py
 """
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from itcj2.dependencies import DbSession, require_perms, require_app
 
 router = APIRouter(tags=["helpdesk-inventory-items"])
 logger = logging.getLogger(__name__)
+
+# Umbrales de verificación (en días) — MISMOS que api/inventory/verification.py
+# (`_RECENT_DAYS`/`_OUTDATED_DAYS`), para que el filtro `verified=` de la lista
+# y el reporte de verificación clasifiquen los equipos igual.
+_VERIFIED_RECENT_DAYS = 30
+_VERIFIED_OUTDATED_DAYS = 90
+# Ventana "por vencer"/"próximo" para garantía y mantenimiento.
+_UPCOMING_WINDOW_DAYS = 30
+
+
+def _apply_item_department_scope(query, visible, department_id, user_id):
+    """Aplica el scope departamental (visible_department_ids ∩ department_id).
+
+    `visible`: None = ve todo (aplica `department_id` tal cual si viene). set =
+    intersecta con `department_id` (fuera de scope ⇒ vacío, NUNCA datos
+    ajenos). set vacío (sin depto/subárbol resoluble) = fail-closed: solo lo
+    que tiene asignado directamente.
+
+    Reusada por `get_items` (JSON) y `InventoryExportService` — mismo scope,
+    mismos resultados, para que "exporta lo que el usuario ve" se cumpla.
+    """
+    from itcj2.apps.helpdesk.models import InventoryItem
+
+    if visible is None:
+        if department_id:
+            query = query.filter(InventoryItem.department_id == department_id)
+    elif department_id:
+        wanted = visible & {department_id}
+        query = query.filter(InventoryItem.department_id.in_(wanted or {-1}))
+    elif visible:
+        query = query.filter(InventoryItem.department_id.in_(visible))
+    else:
+        query = query.filter(InventoryItem.assigned_to_user_id == user_id)
+    return query
+
+
+def _apply_item_common_filters(
+    query,
+    *,
+    category_id: int | None = None,
+    status: str | None = None,
+    assigned: str | None = None,
+    search: str | None = None,
+    reg_start: str | None = None,
+    reg_end: str | None = None,
+    warranty: str | None = None,
+    verified: str | None = None,
+    brand: str | None = None,
+    maintenance: str | None = None,
+):
+    """Filtros comunes de InventoryItem (categoría/estado/asignación/búsqueda +
+    los nuevos: fecha de registro, garantía, verificación, marca, mantenimiento).
+
+    NO toca el scope departamental (ver `_apply_item_department_scope`) — cada
+    caller lo resuelve antes de llamar aquí. Reusada por el endpoint JSON
+    (`get_items`), la página HTMX (`pages/inventory.py::_query_items_ctx`) y
+    `InventoryExportService`, para que los tres coincidan exactamente en
+    resultados (mismos filtros ⇒ mismo `total`).
+    """
+    from sqlalchemy import or_
+
+    from itcj2.apps.helpdesk.models import InventoryItem
+
+    if category_id:
+        query = query.filter(InventoryItem.category_id == category_id)
+    if status:
+        query = query.filter(InventoryItem.status == status.upper())
+    if assigned:
+        low = assigned.lower()
+        if low == "yes":
+            query = query.filter(InventoryItem.assigned_to_user_id.isnot(None))
+        elif low == "no":
+            query = query.filter(InventoryItem.assigned_to_user_id.is_(None))
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(
+            InventoryItem.inventory_number.ilike(like),
+            InventoryItem.brand.ilike(like),
+            InventoryItem.model.ilike(like),
+            InventoryItem.supplier_serial.ilike(like),
+            InventoryItem.itcj_serial.ilike(like),
+            InventoryItem.id_tecnm.ilike(like),
+        ))
+
+    if reg_start:
+        try:
+            d = date.fromisoformat(reg_start)
+            query = query.filter(InventoryItem.registered_at >= datetime.combine(d, datetime.min.time()))
+        except ValueError:
+            pass
+    if reg_end:
+        try:
+            d = date.fromisoformat(reg_end)
+            # Fin de día inclusivo: < (día siguiente a las 00:00).
+            query = query.filter(InventoryItem.registered_at < datetime.combine(d, datetime.min.time()) + timedelta(days=1))
+        except ValueError:
+            pass
+
+    if brand:
+        query = query.filter(InventoryItem.brand.ilike(f"%{brand}%"))
+
+    today = date.today()
+    if warranty == "valid":
+        query = query.filter(
+            InventoryItem.warranty_expiration.isnot(None),
+            InventoryItem.warranty_expiration >= today,
+        )
+    elif warranty == "expiring":
+        query = query.filter(
+            InventoryItem.warranty_expiration.isnot(None),
+            InventoryItem.warranty_expiration >= today,
+            InventoryItem.warranty_expiration <= today + timedelta(days=_UPCOMING_WINDOW_DAYS),
+        )
+    elif warranty == "expired":
+        query = query.filter(
+            InventoryItem.warranty_expiration.isnot(None),
+            InventoryItem.warranty_expiration < today,
+        )
+    elif warranty == "none":
+        query = query.filter(InventoryItem.warranty_expiration.is_(None))
+
+    now = datetime.now()
+    recent_cutoff = now - timedelta(days=_VERIFIED_RECENT_DAYS)
+    outdated_cutoff = now - timedelta(days=_VERIFIED_OUTDATED_DAYS)
+    if verified == "never":
+        query = query.filter(InventoryItem.last_verified_at.is_(None))
+    elif verified == "recent":
+        query = query.filter(
+            InventoryItem.last_verified_at.isnot(None),
+            InventoryItem.last_verified_at >= recent_cutoff,
+        )
+    elif verified == "outdated":
+        query = query.filter(
+            InventoryItem.last_verified_at.isnot(None),
+            InventoryItem.last_verified_at < recent_cutoff,
+            InventoryItem.last_verified_at >= outdated_cutoff,
+        )
+    elif verified == "critical":
+        query = query.filter(
+            InventoryItem.last_verified_at.isnot(None),
+            InventoryItem.last_verified_at < outdated_cutoff,
+        )
+
+    if maintenance == "due":
+        query = query.filter(
+            InventoryItem.next_maintenance_date.isnot(None),
+            InventoryItem.next_maintenance_date <= today,
+        )
+    elif maintenance == "soon":
+        query = query.filter(
+            InventoryItem.next_maintenance_date.isnot(None),
+            InventoryItem.next_maintenance_date <= today + timedelta(days=_UPCOMING_WINDOW_DAYS),
+        )
+
+    return query
+
+
+def _apply_item_sort(query, sort: str | None):
+    """Ordena InventoryItem según `sort` (recent/oldest/number/warranty/verified).
+
+    Sin `sort` reconocido: orden por defecto histórico (`id ASC`). Reusada por
+    `get_items`, la página y el servicio de exportación.
+    """
+    from itcj2.apps.helpdesk.models import InventoryItem
+
+    if sort == "recent":
+        return query.order_by(InventoryItem.registered_at.desc(), InventoryItem.id.desc())
+    if sort == "oldest":
+        return query.order_by(InventoryItem.registered_at.asc(), InventoryItem.id.asc())
+    if sort == "number":
+        return query.order_by(InventoryItem.inventory_number.asc())
+    if sort == "warranty":
+        return query.order_by(InventoryItem.warranty_expiration.asc().nullslast())
+    if sort == "verified":
+        return query.order_by(InventoryItem.last_verified_at.asc().nullsfirst())
+    return query.order_by(InventoryItem.id.asc())
 
 
 @router.get("")
@@ -19,7 +195,6 @@ def get_items(
     db: DbSession = None,
 ):
     from itcj2.apps.helpdesk.models import InventoryItem
-    from sqlalchemy import or_
 
     from itcj2.apps.helpdesk.utils.inventory_access import visible_department_ids
 
@@ -34,54 +209,30 @@ def get_items(
     # scope ⇒ vacío, jamás datos ajenos). Consistente con get_item (detalle).
     visible = visible_department_ids(db, user)
     department_id = params.get("department_id")
-
-    if visible is None:
-        if department_id:
-            query = query.filter(InventoryItem.department_id == int(department_id))
-    elif department_id:
-        wanted = visible & {int(department_id)}
-        query = query.filter(InventoryItem.department_id.in_(wanted or {-1}))
-    elif visible:
-        query = query.filter(InventoryItem.department_id.in_(visible))
-    else:
-        query = query.filter(InventoryItem.assigned_to_user_id == user_id)
+    query = _apply_item_department_scope(
+        query, visible, int(department_id) if department_id else None, user_id,
+    )
 
     campaign_id = params.get("campaign_id")
     if campaign_id:
         query = query.filter(InventoryItem.campaign_id == int(campaign_id))
 
     category_id = params.get("category_id")
-    if category_id:
-        query = query.filter(InventoryItem.category_id == int(category_id))
+    query = _apply_item_common_filters(
+        query,
+        category_id=int(category_id) if category_id else None,
+        status=params.get("status"),
+        assigned=params.get("assigned"),
+        search=params.get("search"),
+        reg_start=params.get("reg_start"),
+        reg_end=params.get("reg_end"),
+        warranty=params.get("warranty"),
+        verified=params.get("verified"),
+        brand=params.get("brand"),
+        maintenance=params.get("maintenance"),
+    )
 
-    status = params.get("status")
-    if status:
-        query = query.filter(InventoryItem.status == status.upper())
-
-    assigned = params.get("assigned")
-    if assigned:
-        if assigned.lower() == "yes":
-            query = query.filter(InventoryItem.assigned_to_user_id.isnot(None))
-        elif assigned.lower() == "no":
-            query = query.filter(InventoryItem.assigned_to_user_id.is_(None))
-
-    search = params.get("search")
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(or_(
-            InventoryItem.inventory_number.ilike(search_term),
-            InventoryItem.brand.ilike(search_term),
-            InventoryItem.model.ilike(search_term),
-            InventoryItem.supplier_serial.ilike(search_term),
-            InventoryItem.itcj_serial.ilike(search_term),
-            InventoryItem.id_tecnm.ilike(search_term),
-        ))
-
-    sort = params.get("sort", "")
-    if sort == "recent":
-        query = query.order_by(InventoryItem.registered_at.desc(), InventoryItem.id.desc())
-    else:
-        query = query.order_by(InventoryItem.id.asc())
+    query = _apply_item_sort(query, params.get("sort") or None)
 
     page = int(params.get("page", "1"))
     per_page = min(int(params.get("per_page", "50")), 100)
@@ -170,6 +321,36 @@ def get_department_equipment(
 
     items = InventoryService.get_items_for_department(db, department_id, include_assigned.lower() == "true")
     return {"success": True, "data": [item.to_dict(include_relations=True) for item in items], "total": len(items)}
+
+
+@router.get("/export.xlsx")
+def export_items_xlsx(
+    request: Request,
+    user: dict = require_app("helpdesk"),
+    db: DbSession = None,
+):
+    """Exporta a Excel el MISMO listado (mismo scope, mismos filtros) que
+    `GET /inventory/items` y la página `/help-desk/inventory/items` — acepta
+    los mismos nombres de query param que el FORM de la página (category,
+    department, status, assigned, search + los nuevos: reg_start, reg_end,
+    warranty, verified, brand, maintenance, sort), no los de este endpoint
+    JSON (category_id/department_id), porque el botón "Exportar" descarga con
+    los params tal cual los deja el form de filtros.
+
+    Sin permiso dedicado (`helpdesk.inventory.api.export*` no existe): exporta
+    exactamente lo que el usuario YA puede ver en la lista — exigir un permiso
+    aparte rompería esa invariante ("exporta lo que ves").
+    """
+    from fastapi.responses import StreamingResponse
+
+    from itcj2.apps.helpdesk.services.inventory_export_service import InventoryExportService
+
+    buf, filename = InventoryExportService.export_items(db, user, request.query_params)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{item_id}")

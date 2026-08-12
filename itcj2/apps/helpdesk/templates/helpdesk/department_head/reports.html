@@ -6,7 +6,7 @@
 {% block header_subtitle %}{{ department.name if department else 'Mi Departamento' }}{% endblock %}
 
 {% block header_back %}
-<a href="{{ url_for('helpdesk.pages.department.tickets') }}" class="btn btn-outline-light btn-sm">
+<a href="{{ url_for('helpdesk_pages.department_pages.tickets') }}" class="btn btn-outline-light btn-sm">
     <i class="fas fa-arrow-left me-2"></i>Dashboard
 </a>
 {% endblock %}
@@ -23,7 +23,7 @@
                     Esta sección está en desarrollo. Próximamente podrás ver estadísticas
                     de tickets, tiempos de respuesta y métricas de tu departamento.
                 </p>
-                <a href="{{ url_for('helpdesk.pages.department.tickets') }}" class="btn btn-outline-primary">
+                <a href="{{ url_for('helpdesk_pages.department_pages.tickets') }}" class="btn btn-outline-primary">
                     <i class="fas fa-arrow-left me-2"></i>Volver al Dashboard
                 </a>
             </div>

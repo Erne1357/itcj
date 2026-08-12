@@ -288,7 +288,13 @@ def can_user_assign_tickets(db: Session, user_id: int) -> bool:
 
 def get_technicians_by_area(db: Session, area: str) -> list:
     """
-    Obtiene la lista de técnicos disponibles para un área.
+    Obtiene la lista de técnicos activos disponibles para un área.
+
+    `.distinct()` + `User.is_active` porque un usuario con más de un `UserAppRole`
+    relacionado puede salir duplicado en el join, y una cuenta desactivada no debe
+    ofrecerse como destino de asignación. `order_by` en columnas físicas (no
+    `full_name`, que es una expresión derivada) para que sea compatible con
+    `SELECT DISTINCT` en Postgres.
     """
     from itcj2.core.models.user_app_role import UserAppRole
     from itcj2.core.models.role import Role
@@ -306,9 +312,23 @@ def get_technicians_by_area(db: Session, area: str) -> list:
         .join(Role, Role.id == UserAppRole.role_id)
         .filter(
             UserAppRole.app_id == app.id,
-            Role.name == role_name
+            Role.name == role_name,
+            User.is_active == True,  # noqa: E712
         )
+        .distinct()
+        .order_by(User.last_name, User.first_name)
         .all()
     )
 
     return technicians
+
+
+def get_all_technicians(db: Session) -> list:
+    """Técnicos activos de AMBAS áreas (DESARROLLO + SOPORTE), sin duplicados —
+    para poblar selects server-side (p. ej. el filtro "Técnico asignado" de la
+    lista de tickets admin, que no distingue área)."""
+    seen = {}
+    for area in ('DESARROLLO', 'SOPORTE'):
+        for tech in get_technicians_by_area(db, area):
+            seen.setdefault(tech.id, tech)
+    return sorted(seen.values(), key=lambda u: (u.last_name or '', u.first_name or ''))

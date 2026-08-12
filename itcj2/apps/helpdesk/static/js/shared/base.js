@@ -80,12 +80,101 @@ document.addEventListener('DOMContentLoaded', () => {
     var loadedModules = {};   // src -> true (evita recargar/re-declarar módulos)
     var boostUrlsRe = null;   // RegExp de páginas migradas (data-hd-boost-urls)
 
+    // Un modal abierto al navegar deja rastro en <body>: `.modal-backdrop` sí lo
+    // borra idiomorph, pero la clase `modal-open` y los estilos inline que pone
+    // Bootstrap viven en <body> mismo, no en su innerHTML, así que sobreviven al
+    // morph y la página destino queda sin scroll o con una barra fantasma.
+    // (Contraparte de closeOpenModals() en core/static/js/config/shared/config-page.js.)
+    function closeOpenModals() {
+        try {
+            if (window.bootstrap && window.bootstrap.Modal) {
+                document.querySelectorAll('.modal.show').forEach(function (el) {
+                    var inst = window.bootstrap.Modal.getInstance(el);
+                    if (inst) inst.hide();
+                });
+            }
+            document.querySelectorAll('.modal-backdrop').forEach(function (b) { b.remove(); });
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
+        } catch (e) {
+            console.error('[HelpdeskPage] closeOpenModals:', e);
+        }
+    }
+
+    // --- Modales apilados -----------------------------------------------------
+    // Bootstrap 5 no lleva la cuenta de cuántos modales hay abiertos: al cerrar
+    // el de encima quita `modal-open` del <body> aunque el de abajo siga ahí.
+    // Toda la compensación de helpdesk.css cuelga de esa clase —incluido
+    // `scrollbar-gutter: auto`— así que al perderla vuelve el canal reservado:
+    // aparece una barra de scroll inerte junto a la del modal y el contenido
+    // salta ~15px. Se vuelve a poner mientras quede algún modal visible.
+    // (`overflow` también se re-afirma: Bootstrap lo limpia en el mismo paso.)
+    function syncModalStack() {
+        if (!document.querySelector('.modal.show')) return;
+        document.body.classList.add('modal-open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    document.addEventListener('hidden.bs.modal', function () {
+        // Tras el hide de Bootstrap, no antes: si no, él lo deshace después.
+        window.setTimeout(syncModalStack, 0);
+    }, true);
+
+    // --- Panel "Más filtros": la elección del usuario manda ------------------
+    // El servidor renderiza el panel abierto cuando hay algún filtro avanzado
+    // activo (`more_open`), lo cual está bien como estado INICIAL. El problema
+    // es que lo reimponía en cada render completo: el usuario lo colapsaba y al
+    // siguiente refresh/navegación boosteada volvía a abrirse solo, así que
+    // parecía que el botón de colapsar no servía. Ahora `more_open` es solo el
+    // default y la preferencia explícita se recuerda por página.
+    function filterPanelKey() {
+        return 'hd_more_filters:' + (currentKey || 'global');
+    }
+
+    function restoreFilterPanel() {
+        var panel = document.getElementById('hdMoreFilters');
+        if (!panel) return;
+        var guardado;
+        try { guardado = sessionStorage.getItem(filterPanelKey()); } catch (e) { return; }
+        if (guardado === null) return;                       // sin preferencia: manda el server
+        var debeAbrir = guardado === '1';
+        var estaAbierto = panel.classList.contains('show');
+        if (debeAbrir === estaAbierto) return;
+        // Sin animación: es restauración de estado, no una interacción.
+        panel.classList.toggle('show', debeAbrir);
+        var btn = document.getElementById('btnMoreFilters');
+        if (btn) btn.setAttribute('aria-expanded', debeAbrir ? 'true' : 'false');
+    }
+
+    function recordarFiltro(e) {
+        if (!e.target || e.target.id !== 'hdMoreFilters') return;
+        try { sessionStorage.setItem(filterPanelKey(), e.type === 'shown.bs.collapse' ? '1' : '0'); }
+        catch (err) { /* sessionStorage bloqueado */ }
+    }
+
+    document.addEventListener('shown.bs.collapse', recordarFiltro, true);
+    document.addEventListener('hidden.bs.collapse', recordarFiltro, true);
+
     function teardown() {
         var hooks = currentKey && registry[currentKey];
         if (hooks && typeof hooks.destroy === 'function') {
             try { hooks.destroy(); }
             catch (e) { console.error('[HelpdeskPage] destroy ' + currentKey + ':', e); }
         }
+        closeOpenModals();
+    }
+
+    // Slug de origen de la página actual (data-hd-origin, de pages/origins.py).
+    // Se guarda ANTES de navegar para que el botón "Volver" del destino sepa de
+    // dónde viene: document.referrer no sirve bajo morph porque conserva la última
+    // carga completa, no el origen visual.
+    function rememberOrigin() {
+        try {
+            var root = document.querySelector('[data-hd-page]');
+            var slug = root && root.getAttribute('data-hd-origin');
+            if (slug) sessionStorage.setItem('hd_nav_origin', slug);
+        } catch (e) { /* sessionStorage bloqueado */ }
     }
 
     function setup() {
@@ -166,7 +255,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Solo en requests boosteados (navegación real); evita parpadeo si en el
     // futuro se agregan hx-get/hx-post in-page que no son navegación.
     function navStart(evt) {
-        if (evt && evt.detail && evt.detail.boosted) document.body.classList.add('hd-navigating');
+        if (evt && evt.detail && evt.detail.boosted) {
+            document.body.classList.add('hd-navigating');
+            // Los <a hx-boost> de los templates los maneja htmx directamente, sin
+            // pasar por navigate(); este es el único punto donde se puede anotar el
+            // origen antes de que el morph reemplace el <main> que lo declara.
+            rememberOrigin();
+        }
     }
     function navEnd() { document.body.classList.remove('hd-navigating'); }
 
@@ -209,6 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // opts.push === false → no toca el historial (lo usa refresh()).
     function navigate(url, opts) {
         if (!url) return;
+        if (!opts || opts.push !== false) rememberOrigin();   // refresh() no cambia de origen
         var htmx = window.htmx;
         if (!isBoostableClient(url) || !htmx || typeof htmx.ajax !== 'function') {
             window.location.href = url;      // fallback: cross-app / no migrada / sin htmx
@@ -275,7 +371,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('click', onDocumentClick);
 
-    function boot() { bindSidebar(); activate(); }
+    // restoreFilterPanel va FUERA de activate(): activate() sale temprano cuando
+    // la página destino es la misma (refresh() re-renderiza la actual), y es justo
+    // ahí donde el servidor reimponía el panel abierto.
+    function boot() { bindSidebar(); activate(); restoreFilterPanel(); }
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', boot);
     } else {
@@ -284,8 +383,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // afterSettle: tras swap boosteado. historyRestore: tras back/forward del browser
     // (htmx restaura el HTML cacheado) → re-sincroniza shell + corre init/destroy de la nueva página.
-    document.body.addEventListener('htmx:afterSettle', function () { bindSidebar(); activate(); });
-    document.body.addEventListener('htmx:historyRestore', function () { bindSidebar(); activate(); });
+    document.body.addEventListener('htmx:afterSettle', function () { bindSidebar(); activate(); restoreFilterPanel(); });
+    document.body.addEventListener('htmx:historyRestore', function () { bindSidebar(); activate(); restoreFilterPanel(); });
     document.body.addEventListener('htmx:beforeRequest', navStart);
     document.body.addEventListener('htmx:afterRequest', navEnd);
 

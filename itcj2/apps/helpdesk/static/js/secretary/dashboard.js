@@ -45,6 +45,9 @@
             socket.off('ticket_assigned');
             socket.off('ticket_status_changed');
         }
+        // Salir de dept:{id} antes de perder la referencia — si no, el room queda
+        // unido tras morfear a otra página y sus eventos llegan por partida doble.
+        if (DEPARTMENT_ID) window.__hdLeaveDept?.(DEPARTMENT_ID);
         if (_socketPoller !== null) { clearInterval(_socketPoller); _socketPoller = null; }
         if (_summaryTabHandler) {
             const summaryTab = document.getElementById('summary-tab');
@@ -267,9 +270,10 @@
         socket.off('ticket_created');
         socket.off('ticket_assigned');
         socket.off('ticket_status_changed');
-        socket.on('ticket_created', debouncedRefresh);
-        socket.on('ticket_assigned', debouncedRefresh);
-        socket.on('ticket_status_changed', debouncedRefresh);
+        const onEvent = (data) => { if (!window.__hdIsOwnEvent?.(data)) debouncedRefresh(); };
+        socket.on('ticket_created', onEvent);
+        socket.on('ticket_assigned', onEvent);
+        socket.on('ticket_status_changed', onEvent);
     }
 
     // ==================== ACTIONS ====================

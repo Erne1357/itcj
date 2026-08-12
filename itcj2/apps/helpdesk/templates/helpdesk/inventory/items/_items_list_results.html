@@ -24,6 +24,16 @@
 
 {% if oob %}
 <span id="total-items-text" hx-swap-oob="true">{{ total }} equipo{{ '' if total == 1 else 's' }} en total</span>
+{# Chips de filtros activos del panel "Más filtros" — viven fuera de este
+   target (en la barra de filtros), así que se actualizan por OOB swap. #}
+<div class="d-flex flex-wrap gap-2{{ ' mt-2' if chips }}" id="hd-active-chips" hx-swap-oob="true">
+  {% for chip in chips %}
+  <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-1 hd-filter-chip" data-chip-param="{{ chip.param }}">
+    {{ chip.label }}
+    <button type="button" class="btn-close" style="font-size:0.55rem;" aria-label="Quitar filtro {{ chip.label }}" data-chip-remove="{{ chip.param }}"></button>
+  </span>
+  {% endfor %}
+</div>
 {% endif %}
 
 {% if items %}

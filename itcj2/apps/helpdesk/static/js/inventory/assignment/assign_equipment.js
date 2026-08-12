@@ -23,6 +23,8 @@
     let _handlers = {};
     let _deptSelectorHandler = null;
     let _active = false;
+    let _resizeHandler = null;
+    let _tabShownHandler = null;
 
     // ==================== HELPERS ====================
     function escapeHtml(text) {
@@ -47,6 +49,83 @@
 
     function show(id) { document.getElementById(id)?.classList.remove('d-none'); }
     function hide(id) { document.getElementById(id)?.classList.add('d-none'); }
+
+    function debounce(fn, delay) {
+        let timer;
+        return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
+    }
+
+    // ==================== LAYOUT: sin doble scroll ====================
+    // Los paneles (#users-panel, #equip-panel) son position:sticky, pero el
+    // tope de altura NO puede asumir que el panel ya está "pegado" (stuck):
+    // en la carga inicial (scrollY=0) el panel vive en su posición NATURAL,
+    // más abajo que el top de sticky (top: var(--hd-sticky-top)), porque el
+    // header + encabezado + franja de KPIs todavía no se scrollearon fuera
+    // de vista. Un max-height calculado sobre el top "stuck" (más chico) es
+    // demasiado generoso para esa posición natural (más abajo) y el panel se
+    // sale del viewport de todos modos — doble scroll otra vez.
+    // Por eso el tope se mide siempre contra la posición REAL de cada
+    // elemento (getBoundingClientRect().top en vivo): el panel nunca rebasa
+    // el fondo del viewport, esté o no pegado.
+    const HD_STICKY_GAP = 12;        // separación entre el header fijo y el panel (usa el "top" del sticky)
+    const HD_BOTTOM_GAP = 16;        // aire entre el panel y el borde inferior del viewport
+    const HD_MIN_PANEL_H = 240;
+    // Las listas de adentro ya no se miden aquí: su alto lo reparte flexbox
+    // dentro del panel (assign_equipment.css). Medirlas contra el viewport era
+    // justo lo que las hacía rebasar el panel y quedar recortadas.
+
+    function getStickyTopPx() {
+        const header = document.querySelector('.sitec-header-nav');
+        const headerH = header ? header.getBoundingClientRect().height : 64;
+        return headerH + HD_STICKY_GAP;
+    }
+
+    // Espacio real que queda DEBAJO del panel antes del fondo del documento:
+    // el margin-bottom de su columna (.mb-4 = 24px) + el padding-bottom del
+    // <main class="container-fluid"> (helpdesk.css, safe-area-inset). Medido
+    // en vivo (no hardcodeado) porque son reglas de otras hojas de estilo que
+    // pueden cambiar; sin esto el panel se ajustaba al viewport pero ese
+    // margen/padding de todos modos empujaba el documento más allá — el
+    // mismo doble scroll por otra vía.
+    function getTrailingChromePx() {
+        const col = document.querySelector('.col-lg-7.mb-4');
+        const colMarginBottom = col ? parseFloat(getComputedStyle(col).marginBottom) || 0 : 0;
+        const container = document.querySelector('main.container-fluid');
+        const containerPaddingBottom = container ? parseFloat(getComputedStyle(container).paddingBottom) || 0 : 0;
+        return colMarginBottom + containerPaddingBottom;
+    }
+
+    // Capea `el` para que su borde inferior no rebase el fondo del viewport,
+    // usando su posición ACTUAL en pantalla (no una posición "stuck"
+    // hipotética) — por eso funciona igual esté o no pegado el ancestro sticky.
+    function fitToViewportBottom(el, bottomGap, minHeight) {
+        if (!el) return;
+        const top = el.getBoundingClientRect().top;
+        const maxH = Math.max(minHeight, window.innerHeight - top - bottomGap);
+        el.style.maxHeight = maxH + 'px';
+    }
+
+    // Recalcula los topes de ambos paneles y de las 3 listas con scroll
+    // interno (usuarios, equipos individuales, grupos). Se llama tras
+    // cualquier cambio que afecte la altura del "chrome" arriba de las
+    // listas: carga inicial, selección de usuario, cambio de pestaña,
+    // toggle de filtros, refresh, cambio de departamento y resize de ventana.
+    function applyAssignLayout() {
+        if (!_active) return;
+        document.documentElement.style.setProperty('--hd-sticky-top', getStickyTopPx() + 'px');
+
+        // El tope del PANEL (con overflow:hidden) es la garantía dura de que
+        // la página nunca necesita scroll propio; el de la LISTA es solo para
+        // que su scrollbar interna quede bien ubicada dentro de ese tope.
+        // Solo se capea el PANEL. El reparto de adentro lo hace flexbox
+        // (assign_equipment.css): capear también las listas contra el fondo del
+        // viewport era el bug — viven dentro de un panel ya recortado a una caja
+        // menor, así que sus topes lo rebasaban y overflow:hidden se comía la
+        // última fila. Un hijo flex no puede rebasar a su padre.
+        const panelBottomGap = HD_BOTTOM_GAP + getTrailingChromePx();
+        fitToViewportBottom(document.getElementById('users-panel'), panelBottomGap, HD_MIN_PANEL_H);
+        fitToViewportBottom(document.getElementById('equip-panel'), panelBottomGap, HD_MIN_PANEL_H);
+    }
 
     // ==================== INIT / DESTROY ====================
     function init() {
@@ -73,6 +152,18 @@
             deptSel.removeEventListener('change', _deptSelectorHandler);
         }
         _deptSelectorHandler = null;
+
+        // Remover listeners de layout (resize + cambio de tab)
+        if (_resizeHandler) {
+            window.removeEventListener('resize', _resizeHandler);
+            _resizeHandler = null;
+        }
+        const equipmentTabs = document.getElementById('equipmentTabs');
+        if (equipmentTabs && _tabShownHandler) {
+            equipmentTabs.removeEventListener('shown.bs.tab', _tabShownHandler);
+        }
+        _tabShownHandler = null;
+        document.documentElement.style.removeProperty('--hd-sticky-top');
 
         // Remover listeners de formularios/inputs
         const searchUsers = document.getElementById('search-users');
@@ -149,6 +240,16 @@
         document.getElementById('assign-form').addEventListener('submit', _handlers.handleAssign);
         document.getElementById('unassign-form').addEventListener('submit', _handlers.handleUnassign);
         // Tabs de equipos/grupos: BS5 los maneja nativamente vía data-bs-toggle="tab".
+
+        // Layout sin doble scroll: recalcular topes al cambiar el tamaño de
+        // ventana o al cambiar de pestaña (individual/grupos comparten el
+        // mismo hueco, pero recalculamos igual por si el navegador difiere
+        // en el alto de línea entre badges).
+        _resizeHandler = debounce(applyAssignLayout, 150);
+        window.addEventListener('resize', _resizeHandler);
+
+        _tabShownHandler = applyAssignLayout;
+        document.getElementById('equipmentTabs')?.addEventListener('shown.bs.tab', _tabShownHandler);
     }
 
     // ==================== CARGAR DATOS ====================
@@ -159,6 +260,7 @@
             await reloadDepartmentData();
             await loadCategories();
             hideLoading();
+            applyAssignLayout();
         } catch (error) {
             console.error('Error cargando datos:', error);
             const errorMessage = error.message || 'Error desconocido';
@@ -212,6 +314,7 @@
                         selectedUser = null;
                         await reloadDepartmentData();
                         hideLoading();
+                        applyAssignLayout();
                     }
                 };
                 selector.addEventListener('change', _deptSelectorHandler);
@@ -453,6 +556,7 @@
         `;
 
         renderUserEquipment();
+        applyAssignLayout();
     }
 
     function renderUserEquipment() {
@@ -577,7 +681,7 @@
         let groupBadge = '';
         if (item.is_in_group && item.group) {
             groupBadge = `
-                <br><small class="badge bg-info text-white mt-1">
+                <br><small class="badge bg-info text-white mt-1 hd-group-inline-badge">
                     <i class="fas fa-layer-group me-1"></i>${escapeHtml(item.group.name)}
                 </small>
             `;
@@ -766,6 +870,9 @@
 
     function toggleFilters() {
         document.getElementById('equipment-filters')?.classList.toggle('d-none');
+        // Mostrar/ocultar el bloque de filtros cambia el "chrome" arriba de
+        // la lista de equipos disponibles → recalcular su tope.
+        applyAssignLayout();
     }
 
     // ==================== ASIGNACIÓN ====================
@@ -878,8 +985,13 @@
     }
 
     // ==================== REFRESH ====================
+    // Antes llamaba showLoading()/hideLoading(), que desmonta #main-content
+    // completo (la página entera parpadeaba en blanco al pulsar "Actualizar").
+    // Ahora el feedback es un spinner local en el botón; el contenido nunca
+    // se desmonta.
     async function refreshData() {
-        showLoading();
+        const btn = document.getElementById('btn-refresh-assign');
+        setButtonBusy(btn, true);
 
         try {
             await loadDepartmentUsers();
@@ -887,7 +999,7 @@
             await loadDepartmentGroups();
 
             renderStats();
-            renderUsersList();
+            renderUsersList(document.getElementById('search-users')?.value || '');
 
             if (selectedUser) {
                 const updatedUser = departmentUsers.find(u => u.id === selectedUser.id);
@@ -897,12 +1009,25 @@
                 }
             }
 
-            hideLoading();
+            applyAssignLayout();
 
         } catch (error) {
             console.error('Error:', error);
             showError('Error al actualizar datos');
+        } finally {
+            setButtonBusy(btn, false);
         }
+    }
+
+    // Alterna el spinner inline de un botón sin tocar su contenido/ancho
+    // (el ícono y el texto se ocultan, el spinner los reemplaza).
+    function setButtonBusy(btn, isBusy) {
+        if (!btn) return;
+        btn.disabled = isBusy;
+        const spinner = btn.querySelector('.hd-btn-spinner');
+        const icon = btn.querySelector('.fa-sync-alt');
+        if (spinner) spinner.classList.toggle('d-none', !isBusy);
+        if (icon) icon.classList.toggle('d-none', isBusy);
     }
 
     // ==================== HELPERS UI ====================

@@ -11,6 +11,7 @@ from itcj2.apps.helpdesk.api.categories import router as categories_router
 from itcj2.apps.helpdesk.api.attachments import router as attachments_router
 from itcj2.apps.helpdesk.api.documents import router as documents_router
 from itcj2.apps.helpdesk.api.stats import router as stats_router
+from itcj2.apps.helpdesk.api.dashboard import router as dashboard_router
 from itcj2.apps.helpdesk.api.inventory import inventory_router
 from itcj2.apps.helpdesk.api.department_head import router as department_head_router
 from itcj2.apps.helpdesk.api.config import config_router
@@ -27,6 +28,7 @@ helpdesk_router.include_router(categories_router, prefix="/categories")
 helpdesk_router.include_router(attachments_router, prefix="/attachments")
 helpdesk_router.include_router(documents_router, prefix="/documents")
 helpdesk_router.include_router(stats_router, prefix="/stats")
+helpdesk_router.include_router(dashboard_router, prefix="/dashboard")
 helpdesk_router.include_router(inventory_router, prefix="/inventory")
 helpdesk_router.include_router(department_head_router, prefix="/department-head")
 helpdesk_router.include_router(config_router)

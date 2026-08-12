@@ -43,8 +43,11 @@
 
         if (period)  params.set('period_id', period);
         if (preset)  params.set('preset', preset);
-        if (start && !preset && !period) params.set('start_date', start);
-        if (end   && !preset && !period) params.set('end_date', end);
+        // El servidor declara `start`/`end` (api/stats.py), no `start_date`/
+        // `end_date`: con el nombre viejo FastAPI los ignoraba en silencio y
+        // el rango "Desde/Hasta" no filtraba nada.
+        if (start && !preset && !period) params.set('start', start);
+        if (end   && !preset && !period) params.set('end', end);
         if (area)    params.set('area', area);
         if (excludeMode && isClean) params.set('exclude_outliers', '1');
         return params.toString() ? '?' + params.toString() : '';
@@ -214,7 +217,7 @@
             const AREA = { DESARROLLO: 'info', SOPORTE: 'success' };
 
             return `<tr class="${rowClass}">
-                <td><a href="/help-desk/user/tickets/${t.id}" target="_blank" class="fw-semibold text-decoration-none">${esc(t.ticket_number)}</a></td>
+                <td><button type="button" class="btn btn-link btn-sm p-0 fw-semibold text-decoration-none" onclick="window.showTicketSummaryFromAnalysis(${t.id})">${esc(t.ticket_number)}</button></td>
                 <td class="text-muted small d-none d-sm-table-cell" style="max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(t.title)}</td>
                 <td class="text-center"><span class="badge bg-${PRIO[t.priority] || 'secondary'}-subtle text-${PRIO[t.priority] || 'secondary'}">${t.priority}</span></td>
                 <td class="text-center"><span class="badge bg-${AREA[t.area] || 'secondary'}-subtle text-${AREA[t.area] || 'secondary'}">${t.area}</span></td>
@@ -305,7 +308,7 @@
         const PRIO = { URGENTE: 'danger', ALTA: 'warning', MEDIA: 'primary', BAJA: 'success' };
         tbody.innerHTML = cluster.tickets.map(t => `
             <tr>
-                <td><a href="/help-desk/user/tickets/${t.id}" target="_blank" class="text-decoration-none fw-semibold small">${esc(t.ticket_number)}</a></td>
+                <td><button type="button" class="btn btn-link btn-sm p-0 text-decoration-none fw-semibold small" onclick="window.showTicketSummaryFromAnalysis(${t.id})">${esc(t.ticket_number)}</button></td>
                 <td class="text-muted small d-none d-sm-table-cell">${esc(t.title)}</td>
                 <td><span class="badge bg-${PRIO[t.priority] || 'secondary'}-subtle text-${PRIO[t.priority] || 'secondary'} small">${t.priority}</span></td>
                 <td class="text-center">${t.resolution_hours}h</td>
@@ -326,7 +329,17 @@
         }));
 
         scatterChart = new ApexCharts(container, {
-            chart: { type: 'scatter', height: 380, zoom: { enabled: true, type: 'xy' }, toolbar: { show: true } },
+            chart: {
+                type: 'scatter', height: 380, zoom: { enabled: true, type: 'xy' }, toolbar: { show: true },
+                events: {
+                    // Clic en un punto del scatter -> modal de resumen del ticket
+                    // (mismo destino que el folio de la tabla drill-down).
+                    dataPointSelection: function (event, chartContext, opts) {
+                        const pt = series[opts.seriesIndex] && series[opts.seriesIndex].data[opts.dataPointIndex];
+                        if (pt && pt.id) window.showTicketSummaryFromAnalysis(pt.id);
+                    },
+                },
+            },
             series,
             colors: CLUSTER_COLORS,
             xaxis: {
@@ -340,7 +353,7 @@
             tooltip: {
                 custom: ({ series, seriesIndex, dataPointIndex, w }) => {
                     const pt = w.config.series[seriesIndex].data[dataPointIndex];
-                    return `<div class="px-2 py-1 small"><strong>${esc(pt.num)}</strong><br>Tiempo: ${pt.x}h<br>Calif.: ${pt.y} ⭐</div>`;
+                    return `<div class="px-2 py-1 small"><strong>${esc(pt.num)}</strong><br>Tiempo: ${pt.x}h<br>Calif.: ${pt.y} ⭐<br><span class="text-muted fst-italic">Clic para ver el ticket</span></div>`;
                 },
             },
             markers: { size: 6, hover: { sizeOffset: 3 } },
@@ -574,6 +587,9 @@
         // Exponer window funcs en init
         window.showOutlierType   = _showOutlierType;
         window.showClusterDetail = _showClusterDetail;
+        window.showTicketSummaryFromAnalysis = function (ticketId) {
+            HelpdeskUtils.showTicketSummary(ticketId, { from: 'analysis' });
+        };
 
         loadPeriods();
 
@@ -656,6 +672,7 @@
         // Remove window funcs
         delete window.showOutlierType;
         delete window.showClusterDetail;
+        delete window.showTicketSummaryFromAnalysis;
 
         // Remove tab listeners (clone)
         document.querySelectorAll('#analysisTabs .nav-link').forEach(link => {

@@ -157,8 +157,6 @@ class HelpdeskNotificationHelper:
         Notifica a secretaria/admins cuando se crea un nuevo ticket.
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_created
-
             recipients = set()
 
             users_by_position = _get_users_with_position(db, ['secretary_comp_center']) or []
@@ -203,16 +201,10 @@ class HelpdeskNotificationHelper:
                 f"Notificación TICKET_CREATED enviada a {len(recipients)} usuarios para ticket #{ticket.ticket_number}"
             )
 
-            _async_broadcast(broadcast_ticket_created({
-                'id': ticket.id,
-                'ticket_number': ticket.ticket_number,
-                'title': ticket.title,
-                'area': ticket.area,
-                'priority': ticket.priority,
-                'status': ticket.status,
-                'requester': ticket.requester.full_name if ticket.requester else 'Desconocido',
-                'department_id': ticket.requester_department_id
-            }))
+            # Sin broadcast de socket aquí a propósito: `api/tickets.py::create_ticket`
+            # ya emite `ticket_created` (await-eado, orden determinista) tras el commit.
+            # Emitirlo también aquí duplicaba el evento — exactamente un broadcast por
+            # evento (ver notas de causa 1 del fix de sockets duplicados).
 
         except Exception as e:
             logger.error(
@@ -226,8 +218,6 @@ class HelpdeskNotificationHelper:
         Notifica al técnico cuando se le asigna un ticket.
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_assigned
-
             fallback_title = f'Ticket #{ticket.ticket_number} asignado a ti'
             fallback_body = f'{ticket.title} - Prioridad: {ticket.priority}'
 
@@ -259,19 +249,8 @@ class HelpdeskNotificationHelper:
                 f"Notificación TICKET_ASSIGNED enviada a {assigned_user.full_name} para ticket #{ticket.ticket_number}"
             )
 
-            _async_broadcast(broadcast_ticket_assigned(
-                ticket.id, assigned_user.id, ticket.area,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'title': ticket.title,
-                    'assigned_to_id': assigned_user.id,
-                    'assigned_to_name': assigned_user.full_name,
-                    'area': ticket.area,
-                    'priority': ticket.priority
-                },
-                department_id=ticket.requester_department_id
-            ))
+            # Sin broadcast de socket aquí: `api/assignments.py::assign_ticket` ya
+            # emite `ticket_assigned` tras el commit. Ver nota en notify_ticket_created.
 
         except Exception as e:
             logger.error(f"Error enviando notificación TICKET_ASSIGNED: {e}", exc_info=True)
@@ -282,8 +261,6 @@ class HelpdeskNotificationHelper:
         Notifica al nuevo técnico y opcionalmente al anterior cuando se reasigna un ticket.
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_reassigned
-
             # Notificación para el nuevo técnico asignado
             fallback_title_new = f'Ticket #{ticket.ticket_number} reasignado a ti'
             fallback_body_new = f'{ticket.title} - Prioridad: {ticket.priority}'
@@ -340,22 +317,8 @@ class HelpdeskNotificationHelper:
                     ticket_id=ticket.id
                 )
 
-            prev_id = previous_assigned_user.id if previous_assigned_user else None
-            _async_broadcast(broadcast_ticket_reassigned(
-                ticket.id, new_assigned_user.id, prev_id,
-                ticket.area,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'title': ticket.title,
-                    'new_assigned_id': new_assigned_user.id,
-                    'new_assigned_name': new_assigned_user.full_name,
-                    'prev_assigned_id': prev_id,
-                    'prev_assigned_name': previous_assigned_user.full_name if previous_assigned_user else None,
-                    'area': ticket.area
-                },
-                department_id=ticket.requester_department_id
-            ))
+            # Sin broadcast de socket aquí: `api/assignments.py::reassign_ticket` ya
+            # emite `ticket_reassigned` tras el commit. Ver nota en notify_ticket_created.
 
         except Exception as e:
             logger.error(f"Error enviando notificación TICKET_REASSIGNED: {e}", exc_info=True)
@@ -366,8 +329,6 @@ class HelpdeskNotificationHelper:
         Notifica al solicitante cuando un técnico toma su ticket del pool del equipo.
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_self_assigned
-
             fallback_title = f'Tu ticket #{ticket.ticket_number} fue tomado'
             fallback_body = f'{technician.full_name} comenzará a trabajar en tu ticket'
 
@@ -395,17 +356,9 @@ class HelpdeskNotificationHelper:
                 ticket_id=ticket.id
             )
 
-            _async_broadcast(broadcast_ticket_self_assigned(
-                ticket.id, ticket.area,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'title': ticket.title,
-                    'technician_id': technician.id,
-                    'technician_name': technician.full_name,
-                    'area': ticket.area
-                }
-            ))
+            # Sin broadcast de socket aquí: `api/assignments.py::self_assign_ticket`
+            # ya emite `ticket_self_assigned` tras el commit. Ver nota en
+            # notify_ticket_created.
 
         except Exception as e:
             logger.error(f"Error enviando notificación TICKET_SELF_ASSIGNED: {e}", exc_info=True)
@@ -416,8 +369,6 @@ class HelpdeskNotificationHelper:
         Notifica al solicitante cuando el técnico marca el ticket como "en progreso".
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
-
             technician_name = ticket.assigned_to.full_name if ticket.assigned_to else 'Un técnico'
 
             fallback_title = f'Trabajando en tu ticket #{ticket.ticket_number}'
@@ -446,18 +397,8 @@ class HelpdeskNotificationHelper:
                 ticket_id=ticket.id
             )
 
-            assignee_id = ticket.assigned_to_user_id if hasattr(ticket, 'assigned_to_user_id') else None
-            _async_broadcast(broadcast_ticket_status_changed(
-                ticket.id, assignee_id, ticket.area,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'old_status': 'ASSIGNED',
-                    'new_status': 'IN_PROGRESS',
-                    'area': ticket.area
-                },
-                department_id=ticket.requester_department_id
-            ))
+            # Sin broadcast de socket aquí: `api/tickets.py::start_ticket` ya emite
+            # `ticket_status_changed` tras el commit. Ver nota en notify_ticket_created.
 
         except Exception as e:
             logger.error(f"Error enviando notificación TICKET_IN_PROGRESS: {e}", exc_info=True)
@@ -468,8 +409,6 @@ class HelpdeskNotificationHelper:
         Notifica al solicitante cuando su ticket fue resuelto.
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
-
             status_text = {
                 'RESOLVED_SUCCESS': 'resuelto exitosamente',
                 'RESOLVED_FAILED': 'atendido pero no pudo resolverse completamente'
@@ -501,18 +440,8 @@ class HelpdeskNotificationHelper:
                 ticket_id=ticket.id
             )
 
-            assignee_id = ticket.assigned_to_user_id if hasattr(ticket, 'assigned_to_user_id') else None
-            _async_broadcast(broadcast_ticket_status_changed(
-                ticket.id, assignee_id, ticket.area,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'old_status': 'IN_PROGRESS',
-                    'new_status': ticket.status,
-                    'area': ticket.area
-                },
-                department_id=ticket.requester_department_id
-            ))
+            # Sin broadcast de socket aquí: `api/tickets.py::resolve_ticket` ya emite
+            # `ticket_status_changed` tras el commit. Ver nota en notify_ticket_created.
 
         except Exception as e:
             logger.error(f"Error enviando notificación TICKET_RESOLVED: {e}", exc_info=True)
@@ -568,8 +497,6 @@ class HelpdeskNotificationHelper:
         Notifica al técnico asignado (si existe) cuando el usuario cancela el ticket.
         """
         try:
-            from itcj2.sockets.helpdesk import broadcast_ticket_status_changed
-
             if ticket.assigned_to_user_id:
                 fallback_title = f'Ticket #{ticket.ticket_number} cancelado'
                 fallback_body = f'El solicitante canceló el ticket: {ticket.title}'
@@ -596,18 +523,8 @@ class HelpdeskNotificationHelper:
                     ticket_id=ticket.id
                 )
 
-            assignee_id = ticket.assigned_to_user_id if hasattr(ticket, 'assigned_to_user_id') else None
-            _async_broadcast(broadcast_ticket_status_changed(
-                ticket.id, assignee_id, ticket.area,
-                {
-                    'ticket_id': ticket.id,
-                    'ticket_number': ticket.ticket_number,
-                    'old_status': ticket.status,
-                    'new_status': 'CANCELED',
-                    'area': ticket.area
-                },
-                department_id=ticket.requester_department_id
-            ))
+            # Sin broadcast de socket aquí: `api/tickets.py::cancel_ticket` ya emite
+            # `ticket_status_changed` tras el commit. Ver nota en notify_ticket_created.
 
         except Exception as e:
             logger.error(f"Error enviando notificación TICKET_CANCELED: {e}", exc_info=True)
@@ -729,6 +646,11 @@ class HelpdeskNotificationHelper:
                 f"Notificación TICKET_COMMENT enviada a {len(recipients)} usuarios para ticket #{ticket.ticket_number}"
             )
 
+            # Único broadcast de `ticket_comment_added` (excepción a la regla de "un
+            # broadcast por evento en la API"): `api/comments.py::create_comment` es
+            # sync y no puede await-earlo, así que este helper fire-and-forget es el
+            # único sitio que lo emite. `api/ticket_comments.py::add_comment` (el
+            # caller async, con pareja) YA NO lo emite — ver ese archivo.
             preview = comment.content[:100] + '...' if len(comment.content) > 100 else comment.content
             _async_broadcast(broadcast_ticket_comment_added(
                 ticket.id,
@@ -740,7 +662,8 @@ class HelpdeskNotificationHelper:
                     'author_name': author.full_name,
                     'is_internal': comment.is_internal,
                     'preview': preview
-                }
+                },
+                actor_id=author.id,
             ))
 
         except Exception as e:

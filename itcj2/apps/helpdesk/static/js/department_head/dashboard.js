@@ -389,7 +389,7 @@
 
         // Crear o reutilizar la instancia Bootstrap Modal
         if (!_createTicketModalInstance) {
-            _createTicketModalInstance = new bootstrap.Modal(modalEl);
+            _createTicketModalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
         }
 
         // Limpiar formulario

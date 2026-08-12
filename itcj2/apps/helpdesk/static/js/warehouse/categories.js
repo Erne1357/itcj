@@ -114,7 +114,7 @@ const WarehouseCategories = (function () {
         document.getElementById('subcatId').value = id;
         document.getElementById('subcatName').value = name;
         document.getElementById('subcatDesc').value = desc;
-        new bootstrap.Modal(document.getElementById('subcategoryModal')).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('subcategoryModal')).show();
     }
 
     async function saveSubcategory() {

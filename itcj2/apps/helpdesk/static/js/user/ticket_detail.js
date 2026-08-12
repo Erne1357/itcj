@@ -155,106 +155,14 @@
         commentPendingFiles = [];
     }
 
-    // ==================== BACK BUTTON (formerly inline in header_back) ====================
+    // ==================== BACK BUTTON ====================
+    // Delegado en el registro compartido (pages/origins.py + HelpdeskUtils.initBackButton).
+    // Antes vivía aquí un switch de ocho casos, cuatro de ellos apuntando a rutas
+    // que no existen (/user/tickets, /user/dashboard, /department/tickets,
+    // /secretary/dashboard), más una heurística sobre document.referrer que bajo
+    // navegación morph siempre señalaba la última carga completa.
     function _initBackButton() {
-        const backButton = document.getElementById('backButton');
-        const backButtonText = document.getElementById('backButtonText');
-        if (!backButton) return;
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const fromParam = urlParams.get('from');
-        const referrer = document.referrer;
-
-        let backUrl = '/help-desk/user/tickets'; // Default fallback (url_for resolved server-side)
-        let backText = 'Mis Tickets';
-
-        if (fromParam) {
-            switch (fromParam) {
-                case 'dashboard':
-                    backUrl = '/help-desk/user/dashboard';
-                    backText = 'Dashboard';
-                    break;
-                case 'my_tickets':
-                    backUrl = '/help-desk/user/tickets';
-                    backText = 'Mis Tickets';
-                    break;
-                case 'department':
-                    backUrl = '/help-desk/department/tickets';
-                    backText = 'Departamento';
-                    break;
-                case 'admin':
-                    backUrl = '/help-desk/admin/tickets-list';
-                    backText = 'Administración';
-                    break;
-                case 'technician':
-                    backUrl = '/help-desk/technician/dashboard';
-                    backText = 'Panel de Técnicos';
-                    break;
-                case 'admin_tickets_list':
-                    backUrl = '/help-desk/admin/tickets-list';
-                    backText = 'Lista de Tickets';
-                    break;
-                case 'secretary':
-                    backUrl = '/help-desk/admin/assign-tickets';
-                    backText = 'Assignar Tickets';
-                    break;
-                case 'secretary_dashboard':
-                    backUrl = '/help-desk/secretary/dashboard';
-                    backText = 'Dashboard Secretaría';
-                    break;
-                default:
-                    break;
-            }
-        } else if (referrer) {
-            if (referrer.includes('/help-desk/user/dashboard')) {
-                backUrl = '/help-desk/user/dashboard';
-                backText = 'Dashboard';
-            } else if (referrer.includes('/help-desk/user/tickets')) {
-                backUrl = '/help-desk/user/tickets';
-                backText = 'Mis Tickets';
-            } else if (referrer.includes('/help-desk/admin/tickets-list')) {
-                backUrl = '/help-desk/admin/tickets-list';
-                backText = 'Lista de Tickets';
-            } else if (referrer.includes('/help-desk/department')) {
-                backUrl = '/help-desk/department/tickets';
-                backText = 'Departamento';
-            } else if (referrer.includes('/help-desk/admin/assign-tickets')) {
-                backUrl = '/help-desk/admin/assign-tickets';
-                backText = 'Administración';
-            } else if (referrer.includes('/help-desk/secretary/')) {
-                backUrl = '/help-desk/secretary/dashboard';
-                backText = 'Dashboard Secretaría';
-            } else if (referrer.includes('/help-desk')) {
-                backText = 'Volver';
-                backUrl = referrer;
-            }
-        }
-
-        // Fallback: sessionStorage
-        if (!fromParam && !referrer) {
-            try {
-                const lastPage = JSON.parse(sessionStorage.getItem('helpdesk_last_page') || '{}');
-                if (lastPage.url && lastPage.text) {
-                    backUrl = lastPage.url;
-                    backText = lastPage.text;
-                }
-            } catch (e) {
-                // Ignorar errores de JSON parsing
-            }
-        }
-
-        if (backUrl && (backUrl.includes('/help-desk/') || fromParam || (referrer && referrer.includes('/help-desk/')))) {
-            backButton.href = backUrl;
-            if (backButtonText) backButtonText.textContent = backText;
-            backButton.style.display = 'inline-block';
-
-            sessionStorage.setItem('helpdesk_last_page', JSON.stringify({
-                url: backUrl,
-                text: backText
-            }));
-        } else {
-            backButton.style.display = 'none';
-        }
+        window.HelpdeskUtils.initBackButton('my_tickets');
     }
 
     // ==================== LOAD TICKET DETAIL ====================
@@ -826,7 +734,7 @@
             </div>
         `;
 
-        const modal = new bootstrap.Modal(document.getElementById('startWorkModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('startWorkModal'));
         modal.show();
     }
 
@@ -1217,7 +1125,7 @@
 
         document.getElementById('btnSubmitRating').disabled = true;
 
-        const modal = new bootstrap.Modal(document.getElementById('ratingModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('ratingModal'));
         modal.show();
     }
 
@@ -1291,7 +1199,7 @@
 
     function openCancelModal() {
         document.getElementById('cancelReason').value = '';
-        const modal = new bootstrap.Modal(document.getElementById('cancelModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('cancelModal'));
         modal.show();
     }
 
@@ -1452,7 +1360,7 @@
             return;
         }
 
-        const modal = new bootstrap.Modal(document.getElementById('equipmentListModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('equipmentListModal'));
         renderEquipmentModalList(currentTicket.inventory_items);
         modal.show();
     }
@@ -1667,7 +1575,7 @@
     }
 
     function openPhotoModal(photoUrl) {
-        const modal = new bootstrap.Modal(document.getElementById('photoModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('photoModal'));
         document.getElementById('photoModalImage').src = photoUrl;
         modal.show();
     }
@@ -1755,6 +1663,7 @@
         socket.off('ticket_reassigned');
 
         socket.on('ticket_status_changed', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_status_changed:', data);
                 HelpdeskUtils.showToast('El estado del ticket ha cambiado', 'info');
@@ -1763,6 +1672,7 @@
         });
 
         socket.on('ticket_comment_added', async (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_comment_added:', data);
                 HelpdeskUtils.showToast(`Nuevo comentario de ${data.author_name}`, 'info');
@@ -1776,6 +1686,7 @@
         });
 
         socket.on('ticket_assigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_assigned:', data);
                 HelpdeskUtils.showToast(`Ticket asignado a ${data.assigned_to_name}`, 'info');
@@ -1784,6 +1695,7 @@
         });
 
         socket.on('ticket_reassigned', (data) => {
+            if (window.__hdIsOwnEvent?.(data)) return;
             if (data.ticket_id == ticketId) {
                 console.log('[Ticket Detail] ticket_reassigned:', data);
                 HelpdeskUtils.showToast(`Ticket reasignado a ${data.new_assigned_name}`, 'info');
@@ -1871,7 +1783,7 @@
     function openResolutionFilesModal() {
         if (!currentTicket) return;
 
-        const modal = new bootstrap.Modal(document.getElementById('resolutionFilesModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('resolutionFilesModal'));
         loadResolutionFiles();
         setupResolutionDropzone();
         modal.show();
@@ -2032,7 +1944,7 @@
 
     // ==================== ATTACHMENT IMAGE VIEWER ====================
     function viewAttachmentImage(url, title) {
-        const modal = new bootstrap.Modal(document.getElementById('attachmentImageModal'));
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('attachmentImageModal'));
         document.getElementById('attachmentImageModalImg').src = url;
         document.getElementById('attachmentImageTitle').innerHTML = `<i class="fas fa-image me-2"></i>${title || 'Imagen'}`;
         modal.show();

@@ -3,10 +3,9 @@ Modelo para el historial de verificaciones físicas de equipos del inventario.
 Cada registro indica que alguien verificó presencialmente que un equipo existe,
 está en el lugar correcto y con los datos correctos.
 """
-from datetime import datetime
-
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from itcj2.models.base import Base
 
@@ -37,9 +36,12 @@ class InventoryVerification(Base):
     )
 
     # Cuándo se verificó
+    # OJO: default=func.now() (evaluado por el motor en cada INSERT), NUNCA
+    # default=datetime.now() (se evaluaría UNA vez en tiempo de import y
+    # quedaría congelado al arranque del proceso).
     verified_at = Column(
         DateTime,
-        default=datetime.now(),
+        default=func.now(),
         nullable=False,
         index=True,
     )
