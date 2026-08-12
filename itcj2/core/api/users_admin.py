@@ -419,7 +419,7 @@ def reset_user_password(
     from itcj2.core.models.user import User
     from itcj2.core.utils.security import hash_nip
 
-    u = db.query(User).get(user_id)
+    u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, detail="Usuario no encontrado")
 
@@ -445,7 +445,7 @@ def toggle_user_status(
     """Activa o desactiva la cuenta de un usuario."""
     from itcj2.core.models.user import User
 
-    u = db.query(User).get(user_id)
+    u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, detail="Usuario no encontrado")
 
@@ -481,7 +481,7 @@ def update_user(
     from itcj2.core.models.user import User
     from sqlalchemy.exc import IntegrityError
 
-    u = db.query(User).get(user_id)
+    u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, detail="Usuario no encontrado")
 

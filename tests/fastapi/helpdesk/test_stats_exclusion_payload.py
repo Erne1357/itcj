@@ -30,6 +30,7 @@ from itcj2.core.models.position import Position, PositionAppPerm, UserPosition
 from itcj2.core.models.user import User
 from itcj2.database import get_db
 from itcj2.main import create_app
+from itcj2.core.utils.timezone import db_now
 
 API = "/api/help-desk/v2/stats"
 SUBTREE = "helpdesk.stats.api.read.subtree"
@@ -121,7 +122,7 @@ def _grant(db, user, department, *, code=SUBTREE) -> Position:
 
 
 def _resolved_ticket(db, number, requester, department, hours):
-    created = datetime.utcnow() - timedelta(hours=hours + 1)
+    created = db_now() - timedelta(hours=hours + 1)
     resolved = created + timedelta(hours=hours)
     t = Ticket(
         ticket_number=number,

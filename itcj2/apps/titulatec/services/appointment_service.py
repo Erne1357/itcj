@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy.orm import Session
+from itcj2.core.utils.timezone import db_now
 
 CHANGE_REQUEST_PREFIX = "[CAMBIO] "
 
@@ -232,7 +233,7 @@ class AppointmentService:
     def confirm(db: Session, appt, actor_id: int):
         """El alumno confirma asistencia."""
         appt.status = "confirmed"
-        appt.confirmed_at = datetime.utcnow()
+        appt.confirmed_at = db_now()
         AppointmentService._log(db, appt.process_id, actor_id, "appointment_confirmed")
         db.commit()
         db.refresh(appt)

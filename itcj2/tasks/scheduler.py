@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from celery.beat import Scheduler, ScheduleEntry
 from celery.schedules import crontab
+from itcj2.core.utils.timezone import db_now
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,16 @@ def _parse_cron(expression: str) -> crontab:
     )
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+def _db_now() -> datetime:
+    """Hora local naive, igual que la que escribe `NOW()` en Postgres.
+
+    Antes devolvia UTC, pero `TaskRun.created_at` y `PeriodicTask.last_run_at`
+    tienen `server_default=func.now()`: la misma columna acababa con hora local
+    cuando la escribia la base y UTC cuando la escribia el scheduler, seis horas
+    aparte. Los deltas del tick no se ven afectados: ambos extremos usan este
+    mismo reloj.
+    """
+    return db_now()
 
 
 class DatabaseScheduler(Scheduler):
@@ -73,7 +82,7 @@ class DatabaseScheduler(Scheduler):
 
     def tick(self, *args, **kwargs):
         """Override del loop de tick para recargar schedules periódicamente."""
-        now = _utcnow()
+        now = _db_now()
         if self._last_db_reload is None or (now - self._last_db_reload).total_seconds() >= self.sync_every:
             self._reload_from_db()
             self._last_db_reload = now
@@ -189,7 +198,7 @@ class DatabaseScheduler(Scheduler):
                     trigger="SCHEDULED",
                     periodic_task_id=periodic_task_id,
                     args_json=dict(entry.kwargs or {}),
-                    created_at=_utcnow(),
+                    created_at=_db_now(),
                 )
                 db.add(run)
                 db.commit()
@@ -200,7 +209,7 @@ class DatabaseScheduler(Scheduler):
                 if periodic_task_id:
                     # Usar update() para evitar lock/refresh issues
                     db.query(PeriodicTask).filter(PeriodicTask.id == periodic_task_id).update(
-                        {"last_run_at": _utcnow()}
+                        {"last_run_at": _db_now()}
                     )
                     db.commit()
 

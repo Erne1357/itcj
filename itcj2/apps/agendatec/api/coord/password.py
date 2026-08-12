@@ -28,7 +28,7 @@ def coord_password_state(
 ):
     """Verifica si el coordinador debe cambiar su contraseña."""
     uid = int(user["sub"])
-    u = db.query(User).get(uid)
+    u = db.get(User, uid)
     if not u:
         raise HTTPException(status_code=404, detail="user_not_found")
 
@@ -46,7 +46,7 @@ def change_password(
 ):
     """Cambia la contraseña del coordinador."""
     uid = int(user["sub"])
-    u = db.query(User).get(uid)
+    u = db.get(User, uid)
     if not u:
         raise HTTPException(status_code=404, detail="user_not_found")
 

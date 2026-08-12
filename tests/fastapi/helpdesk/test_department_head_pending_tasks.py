@@ -18,6 +18,7 @@ from itcj2.core.models.department import Department
 from itcj2.core.models.permission import Permission
 from itcj2.core.models.user import User
 from itcj2.core.models.position import Position, UserPosition, PositionAppPerm
+from itcj2.core.utils.timezone import db_now
 
 SUBTREE = "helpdesk.tickets.api.read.subtree"
 
@@ -48,7 +49,7 @@ def _unrated_ticket(db, number, requester, department):
         requester_department_id=department.id, area="SOPORTE",
         category_id=_category(db).id, priority="MEDIA", title=number,
         description="x", status="RESOLVED_SUCCESS",
-        resolved_at=datetime.utcnow() - timedelta(days=1),
+        resolved_at=db_now() - timedelta(days=1),
         created_by_id=requester.id, updated_by_id=requester.id,
     )
     db.add(t); db.commit()

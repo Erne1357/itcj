@@ -71,7 +71,10 @@ class TestUpdateControlNumber:
         u.control_number = "12345678"  # es estudiante → aplica la rama de update
         u.to_dict.return_value = {"id": 1}
         db = MagicMock()
-        db.query.return_value.get.return_value = u
+        # db.get(User, id), no el db.query(User).get(id) legacy: con MagicMock
+        # mockear el metodo viejo devuelve un Mock en vez de `u`, y el test pasa
+        # sin ejercitar de verdad la rama de estudiante.
+        db.get.return_value = u
         db.query.return_value.filter.return_value.first.return_value = None
         return db
 

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request
 
 from itcj2.dependencies import DbSession, require_perms
+from itcj2.core.utils.timezone import db_now
 
 router = APIRouter(tags=["helpdesk-department-head"])
 logger = logging.getLogger(__name__)
@@ -167,7 +168,7 @@ def get_pending_tasks(
         # Fail-closed, y por SUBÁRBOL: el contador debe cuadrar con la lista de
         # tickets del jefe, que ya incluye sus sub-departamentos.
         dept_ids = _visible_department_ids(db, user_id)
-        cutoff = datetime.utcnow() - timedelta(days=30)
+        cutoff = db_now() - timedelta(days=30)
 
         count_query = db.query(Ticket).filter(
             Ticket.status.in_(["RESOLVED_SUCCESS", "RESOLVED_FAILED"]),

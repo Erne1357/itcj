@@ -44,7 +44,7 @@ def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = Fal
     roles = set(user_roles_in_app(db, uid, "agendatec"))
     if "student" not in roles:
         return  # no es estudiante — pasa
-    u = db.query(User).get(uid)
+    u = db.get(User, uid)
     if u and u.control_number in TEMP_TEST_GATE_CONTROL_NUMBER:
         return
     if is_page:
@@ -66,7 +66,7 @@ def TEMP_TEST_GATE_check_student_sync(user: dict) -> bool:
         roles = set(user_roles_in_app(db, uid, "agendatec"))
         if "student" not in roles:
             return True
-        u = db.query(User).get(uid)
+        u = db.get(User, uid)
         return bool(u and u.control_number in TEMP_TEST_GATE_CONTROL_NUMBER)
 # ============================================================
 

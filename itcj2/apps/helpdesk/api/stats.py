@@ -164,7 +164,7 @@ def _build_base_query(
     if period_id:
         try:
             from itcj2.core.models.academic_period import AcademicPeriod
-            p = db.query(AcademicPeriod).get(period_id)
+            p = db.get(AcademicPeriod, period_id)
             if p:
                 start_dt = p.start_date
                 end_dt = p.end_date
@@ -604,7 +604,7 @@ def get_stats_by_department(
             if dept_id:
                 try:
                     from itcj2.core.models.department import Department
-                    dept = db.query(Department).get(dept_id)
+                    dept = db.get(Department, dept_id)
                     if dept:
                         dept_name = dept.name
                 except Exception:
@@ -633,7 +633,7 @@ def get_stats_by_department(
             if top_cat_id:
                 try:
                     from itcj2.apps.helpdesk.models.category import Category
-                    cat = db.query(Category).get(top_cat_id)
+                    cat = db.get(Category, top_cat_id)
                     if cat:
                         top_cat_name = cat.name
                 except Exception:
@@ -730,7 +730,7 @@ def get_stats_by_technician(
             tech_name = f"Usuario #{tid}"
             try:
                 from itcj2.core.models.user import User
-                u = db.query(User).get(tid)
+                u = db.get(User, tid)
                 if u:
                     tech_name = u.full_name
             except Exception:
@@ -887,7 +887,7 @@ def get_ratings_detail(
             name = f"Usuario #{tid}"
             try:
                 from itcj2.core.models.user import User
-                u = db.query(User).get(tid)
+                u = db.get(User, tid)
                 if u:
                     name = u.full_name
             except Exception:
@@ -911,7 +911,7 @@ def get_ratings_detail(
             if did:
                 try:
                     from itcj2.core.models.department import Department
-                    d = db.query(Department).get(did)
+                    d = db.get(Department, did)
                     if d:
                         name = d.name
                 except Exception:
@@ -1187,7 +1187,7 @@ def get_distribution(
             if cat_id:
                 try:
                     from itcj2.apps.helpdesk.models.category import Category
-                    cat = db.query(Category).get(cat_id)
+                    cat = db.get(Category, cat_id)
                     if cat:
                         name = cat.name
                 except Exception:

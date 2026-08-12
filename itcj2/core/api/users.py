@@ -28,7 +28,7 @@ def _get_user(user_data: dict, db):
     """Helper: obtiene el modelo User desde la sesión FastAPI."""
     from itcj2.core.models.user import User
 
-    return db.query(User).get(int(user_data["sub"]))
+    return db.get(User, int(user_data["sub"]))
 
 
 @router.get("/password-state", response_model=PasswordStateResponse)
@@ -185,7 +185,7 @@ def update_profile(body: UpdateProfileRequest, user: CurrentUser, db: DbSession)
     """Actualiza campos no críticos del perfil (email)."""
     from itcj2.core.models.user import User
 
-    u = db.query(User).get(int(user["sub"]))
+    u = db.get(User, int(user["sub"]))
     if not u:
         raise HTTPException(404, detail="Usuario no encontrado")
 

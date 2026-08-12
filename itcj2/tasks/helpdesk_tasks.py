@@ -12,6 +12,7 @@ import os
 
 from itcj2.celery_app import celery_app
 from itcj2.tasks.base import LoggedTask
+from itcj2.core.utils.timezone import db_now
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ def cleanup_attachments(self, task_run_id: int | None = None, dry_run: bool = Fa
                 from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
                 from sqlalchemy.orm import joinedload
                 from datetime import datetime, timedelta
-                _now = datetime.utcnow()
+                _now = db_now()
                 _cutoff = _now - timedelta(days=AUTO_DELETE_DAYS)
                 expired = (
                     db.query(Attachment)
@@ -249,7 +250,7 @@ def _cleanup_with_metrics(db, errors: list) -> tuple:
     from itcj2.apps.helpdesk.services.attachment_cleanup import AUTO_DELETE_DAYS
     from sqlalchemy.orm import joinedload
 
-    now = datetime.utcnow()
+    now = db_now()
     cutoff = now - timedelta(days=AUTO_DELETE_DAYS)
 
     expired = (
@@ -535,7 +536,7 @@ def convert_document(
     # ── Paso 2: guardar PDF en disco ─────────────────────────────────────
     self.update_progress(task_run_id, current=2, total=3, message="Guardando archivo...")
 
-    timestamp = _dt.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = db_now().strftime("%Y%m%d_%H%M%S")
     filename = f"{doc_type}_{ticket_number}_{timestamp}.pdf"
     exports_dir = _get_exports_dir()
     pdf_path = os.path.join(exports_dir, filename)
@@ -645,7 +646,7 @@ def export_inventory_report(
     )
 
     # ── Paso 2: generar el archivo ────────────────────────────────────────
-    timestamp = _dt.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = db_now().strftime("%Y%m%d_%H%M%S")
     filename = f"inventario_{timestamp}.{format}"
     exports_dir = _get_exports_dir()
     file_path = os.path.join(exports_dir, filename)

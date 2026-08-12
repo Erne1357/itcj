@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy.orm import Session
+from itcj2.core.utils.timezone import db_now
 
 # Campos por paso (nombres = columnas del modelo FormatB / names del form).
 STEP_FIELDS = {
@@ -97,7 +98,7 @@ class FormatBService:
         fb.status = status
         if status == "approved":
             fb.approved_by_id = reviewer_id
-            fb.approved_at = datetime.utcnow()
+            fb.approved_at = db_now()
             fb.rejection_reason = None
         else:
             fb.rejection_reason = note or None

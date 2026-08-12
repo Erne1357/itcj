@@ -52,7 +52,7 @@ def _resolve_coordinator_id(user: dict, db: DbSession, override_id: Optional[int
     Si se pasa override_id (para admins), lo usa como fallback.
     """
     uid = int(user["sub"])
-    u = db.query(User).get(uid)
+    u = db.get(User, uid)
     if u:
         c = db.query(Coordinator).filter_by(user_id=u.id).first()
         if c:
@@ -78,7 +78,7 @@ def list_slots_for_program_day(
     else:
         d = date.today()
 
-    prog = db.query(Program).get(program_id)
+    prog = db.get(Program, program_id)
     if not prog:
         raise HTTPException(status_code=404, detail="program_not_found")
 

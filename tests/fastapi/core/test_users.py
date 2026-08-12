@@ -159,7 +159,7 @@ class TestGetCurrentUser:
         mock_db = MagicMock()
         mock_db.query.return_value.all.return_value = [mock_app]
         mock_db.query.return_value.filter_by.return_value.all.return_value = []
-        mock_db.query.return_value.get.return_value = fake_user
+        mock_db.get.return_value = fake_user
 
         from itcj2.database import get_db
 
@@ -264,7 +264,7 @@ class TestUpdateProfile:
         """Actualizar email."""
         fake_user = FakeUser(id=200, email="old@test.com")
         mock_db = MagicMock()
-        mock_db.query.return_value.get.return_value = fake_user
+        mock_db.get.return_value = fake_user
 
         with patch("itcj2.database.SessionLocal", return_value=mock_db):
             resp = app_client.patch(
