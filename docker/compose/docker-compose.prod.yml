@@ -221,12 +221,18 @@ services:
       - INSTANCE_COLOR=sockets
       - APP_ROLE=socket
       - UVICORN_WORKERS=1
-      # Los handlers de socket abren sesion de BD sincrona (helpdesk.py,
-      # maint.py, slots.py). En el herd de apertura de AgendaTec entran cientos
-      # de connects a la vez contra UN solo proceso: 10+10 da margen sin costar
-      # nada real (pgbouncer multiplexa; max_client_conn=500).
-      - DB_POOL_SIZE=10
-      - DB_MAX_OVERFLOW=10
+      # Los handlers de socket pegan a la BD via asyncio.to_thread (slots.py,
+      # helpdesk.py, maint.py). El techo de concurrencia real lo pone el
+      # executor por defecto de asyncio: min(32, os.cpu_count()+4) -> 16 en el
+      # host de prod (12 vCPU), 32 si el host crece. El pool DEBE quedar por
+      # encima de ese techo, si no el pool es el cuello y las esperas se comen
+      # el pool_timeout=10s.
+      # Medido (ensayo 2026-08-13, 300 alumnos entrando a /slots a la vez): con
+      # 10+10 el pico se clavaba en 20/20 = pool 100% saturada, sin margen.
+      # 16+16=32 cubre el peor caso aunque el host tenga mas cores.
+      # Cuesta nada: son conexiones cliente a pgbouncer (max_client_conn=500).
+      - DB_POOL_SIZE=16
+      - DB_MAX_OVERFLOW=16
     volumes:
       - ../../static-manifest.json:/app/static-manifest.json:ro
       - ../../database:/app/database:ro

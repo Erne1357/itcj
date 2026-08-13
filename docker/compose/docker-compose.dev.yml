@@ -87,6 +87,9 @@ services:
       - APP_ROLE=socket
       # Las migraciones las corre `backend`; dos alembic a la vez compiten.
       - RUN_MIGRATIONS=0
+      # Mismo pool que prod (paridad): asi el herd se ensaya con el valor real.
+      - DB_POOL_SIZE=16
+      - DB_MAX_OVERFLOW=16
     volumes:
       - ../../:/app
     depends_on:
