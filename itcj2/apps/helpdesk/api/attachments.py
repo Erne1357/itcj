@@ -298,14 +298,37 @@ def download_custom_field_file(
     if not ticket.custom_fields or field_key not in ticket.custom_fields:
         raise HTTPException(404, detail={"error": "field_not_found", "message": f'El campo "{field_key}" no existe'})
 
+    # `custom_fields` es una columna JSON que el cliente envía completa al crear el
+    # ticket (api/tickets.py:51 json.loads del form) y se guarda verbatim: el
+    # validador solo revisa las llaves declaradas en la plantilla de la categoría,
+    # las demás pasan intactas. El guard anterior era `startswith("/instance/")`,
+    # que "/instance/../../../etc/passwd" satisface — cualquiera podía leer
+    # arbitrariamente montando su propio ticket. Ahora la ruta se ancla al
+    # directorio real de custom_fields con safe_join.
     file_value = ticket.custom_fields[field_key]
-    if not isinstance(file_value, str) or not file_value.startswith("/instance/"):
-        raise HTTPException(404, detail={"error": "invalid_file_path", "message": "El campo no contiene una ruta de archivo válida"})
+    invalid = HTTPException(404, detail={"error": "invalid_file_path", "message": "El campo no contiene una ruta de archivo válida"})
 
-    relative_path = file_value.lstrip("/")
-    filepath = os.path.join(os.getcwd(), relative_path)
+    if not isinstance(file_value, str):
+        raise invalid
 
-    if not os.path.exists(filepath):
+    from itcj2.config import get_settings
+    from itcj2.core.utils.safe_paths import UnsafePath, safe_join
+
+    custom_fields_root = os.path.join(get_settings().INSTANCE_PATH, "apps", "helpdesk", "custom_fields")
+    prefix = "/instance/apps/helpdesk/custom_fields/"
+    if not file_value.startswith(prefix):
+        raise invalid
+
+    try:
+        filepath = safe_join(custom_fields_root, file_value[len(prefix):])
+    except UnsafePath:
+        logger.warning(
+            "download_custom_field_file: ruta fuera de custom_fields en ticket %s campo %r (usuario %s)",
+            ticket_id, field_key, user_id,
+        )
+        raise invalid
+
+    if not filepath.is_file():
         raise HTTPException(404, detail={"error": "file_not_found", "message": "El archivo ya no está disponible en el servidor."})
 
     filename = os.path.basename(filepath)

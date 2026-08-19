@@ -122,13 +122,20 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    from itcj2.config import get_settings
+
+    # Swagger/ReDoc/openapi.json exponen sin auth el inventario completo de rutas,
+    # parámetros y schemas — un mapa listo para un escáner. Solo se montan fuera de
+    # producción; FLASK_ENV=production los deja en 404.
+    _is_prod = get_settings().FLASK_ENV == "production"
+
     app = FastAPI(
         title="ITCJ Platform API",
         version="2.0.0",
         description="API v2 de la plataforma ITCJ (FastAPI)",
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/openapi.json",
+        docs_url=None if _is_prod else "/api/docs",
+        redoc_url=None if _is_prod else "/api/redoc",
+        openapi_url=None if _is_prod else "/api/openapi.json",
         lifespan=lifespan,
     )
 
@@ -150,6 +157,10 @@ def create_app() -> FastAPI:
     # para que blue/green NO promueva un backend que booteó pero no conecta.
     @app.get("/ready", tags=["system"])
     def ready():
+        # El endpoint es público (lo consultan el healthcheck de Docker y el gate de
+        # deploy.sh). La excepción cruda de psycopg2/redis trae host, puerto, usuario
+        # y a veces la contraseña del DSN, así que al cliente solo le llega qué
+        # dependencia falló; el detalle va al log.
         from sqlalchemy import text
         errors = {}
         try:
@@ -157,12 +168,14 @@ def create_app() -> FastAPI:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
         except Exception as e:  # pragma: no cover
-            errors["db"] = str(e)
+            logger.error("readiness: fallo de DB: %s", e)
+            errors["db"] = "unavailable"
         try:
             from itcj2.core.utils.redis_conn import get_redis
             get_redis().ping()
         except Exception as e:  # pragma: no cover
-            errors["redis"] = str(e)
+            logger.error("readiness: fallo de Redis: %s", e)
+            errors["redis"] = "unavailable"
         if errors:
             return JSONResponse(status_code=503, content={"ready": False, "errors": errors})
         return {"ready": True}

@@ -23,8 +23,18 @@ def _base() -> Path:
 
 
 def process_documents_dir(period_code: str, control_number: str) -> Path:
-    """Carpeta de documentos del alumno en una convocatoria (la crea si no existe)."""
-    d = _base() / str(period_code) / str(control_number) / "documents"
+    """Carpeta de documentos del alumno en una convocatoria (la crea si no existe).
+
+    `control_number` viene de core_users.control_number, que el importador de CSV
+    de TitulaTec escribe SIN validar (import_service.import_rows solo comprueba que
+    no esté vacío), a diferencia de core/api/users_admin.py que sí aplica
+    CONTROL_NUMBER_RE. Un valor con "../" convertiría este mkdir(parents=True) en
+    creación y escritura de archivos fuera de instance/apps/titulatec/ — el mismo
+    patrón que produjo el incidente de instance/apps/. safe_join lo ancla.
+    """
+    from itcj2.core.utils.safe_paths import safe_join
+
+    d = safe_join(_base(), str(period_code), str(control_number), "documents")
     d.mkdir(parents=True, exist_ok=True)
     return d
 

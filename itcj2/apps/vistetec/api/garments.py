@@ -13,6 +13,10 @@ from itcj2.dependencies import DbSession, require_perms
 router = APIRouter(tags=["vistetec-garments"])
 logger = logging.getLogger(__name__)
 
+# Solo se sirven imágenes por este endpoint. Deriva de VISTETEC_ALLOWED_EXTENSIONS
+# (config) más "jpeg", que image_service produce al recomprimir.
+_SERVABLE_IMAGE_EXTS = {"jpg", "jpeg", "png", "webp", "gif"}
+
 
 @router.get("")
 def list_garments(
@@ -162,8 +166,17 @@ def serve_garment_image(
     user: dict = require_perms("vistetec", ["vistetec.catalog.api.list"]),
     db: DbSession = None,
 ):
-    """Sirve la imagen de una prenda desde el directorio de uploads."""
+    """Sirve la imagen de una prenda desde el directorio de uploads.
+
+    `image_path` es `{...:path}`, así que la URL completa después de /image/ llega
+    aquí sin normalizar: `/` y `..` incluidos, y nginx hace proxy_pass sin tocar la
+    URI. `os.path.join(raiz, "/etc/passwd")` además DESCARTA la raíz. Por eso la
+    ruta se ancla con safe_join y se limita a extensiones de imagen: sin esto el
+    endpoint servía cualquier archivo legible por el proceso (.env, los caches
+    OAuth de instance/apps/*/email/) a cualquier alumno con acceso a VisteTec.
+    """
     from itcj2.config import get_settings
+    from itcj2.core.utils.safe_paths import UnsafePath, safe_join
 
     settings = get_settings()
     upload_path = getattr(settings, "VISTETEC_UPLOAD_PATH", None)
@@ -171,9 +184,25 @@ def serve_garment_image(
     if not upload_path:
         raise HTTPException(500, detail={"error": "config_error", "message": "Ruta de imágenes no configurada"})
 
-    full_path = os.path.join(upload_path, image_path)
+    not_found = HTTPException(404, detail={"error": "not_found", "message": "Imagen no encontrada"})
 
-    if not os.path.exists(full_path):
-        raise HTTPException(404, detail={"error": "not_found", "message": "Imagen no encontrada"})
+    # Los tramos vacíos de un "//" y los "." se descartan; cualquier ".." o tramo
+    # absoluto hace que safe_join lance.
+    parts = [seg for seg in image_path.split("/") if seg not in ("", ".")]
+    if not parts:
+        raise not_found
+
+    if parts[-1].rsplit(".", 1)[-1].lower() not in _SERVABLE_IMAGE_EXTS:
+        raise not_found
+
+    try:
+        full_path = safe_join(upload_path, *parts)
+    except UnsafePath:
+        logger.warning("serve_garment_image: intento de traversal %r por usuario %s",
+                       image_path, user.get("sub"))
+        raise not_found
+
+    if not full_path.is_file():
+        raise not_found
 
     return FileResponse(full_path)

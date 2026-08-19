@@ -7,12 +7,16 @@ Los tokens se almacenan por separado en instance/apps/{app_key}/email/.
 Se usa un unico registro de app en Azure AD (credenciales compartidas).
 """
 import json
+import logging
 import os
+import re
 import threading
 from pathlib import Path
 
 import msal
 import requests
+
+logger = logging.getLogger(__name__)
 
 TENANT_ID = os.getenv("MS_TENANT_ID", "")
 CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
@@ -34,13 +38,38 @@ _INSTANCE_BASE = Path(
 )
 _LOCK = threading.Lock()
 
+# app_key se usa como componente de ruta bajo instance/apps/. Antes se aceptaba
+# cualquier string: el callback OAuth (sin auth previo a 09d8c58) pasaba el query
+# param `state` crudo hasta mkdir(parents=True), y un escaneo automatizado creo
+# ~80 directorios con nombres de payload bajo instance/apps/. La validacion vive
+# aqui, no solo en el endpoint, para que ningun caller futuro pueda saltarsela.
+_APP_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+class InvalidAppKey(ValueError):
+    """app_key que no puede usarse como componente de ruta."""
+
+
+def _safe_app_key(app_key) -> str:
+    if not isinstance(app_key, str) or not _APP_KEY_RE.fullmatch(app_key):
+        raise InvalidAppKey(f"app_key invalido: {app_key!r}")
+    return app_key
+
 
 def _scopes_for_auth():
     return [s for s in _SCOPES_RAW if s and s not in _RESERVED]
 
 
 def _email_dir(app_key: str) -> Path:
-    return _INSTANCE_BASE / app_key / "email"
+    """Directorio de tokens de una app. Lanza InvalidAppKey si el key no es seguro.
+
+    Doble candado: allowlist por regex + verificacion de que la ruta resuelta
+    sigue colgando de _INSTANCE_BASE (por si el regex se relajara despues).
+    """
+    d = _INSTANCE_BASE / _safe_app_key(app_key) / "email"
+    if _INSTANCE_BASE.resolve() not in d.resolve().parents:
+        raise InvalidAppKey(f"app_key escapa de la base: {app_key!r}")
+    return d
 
 
 def _cache_path(app_key: str) -> Path:
@@ -56,7 +85,8 @@ def _ensure_dirs(app_key: str):
 
 
 def load_cache(app_key: str) -> msal.SerializableTokenCache:
-    _ensure_dirs(app_key)
+    # Sin _ensure_dirs: leer NO debe crear directorios. Solo save_cache /
+    # save_account_info crean, y solo despues de que app_key paso la validacion.
     cache = msal.SerializableTokenCache()
     cp = _cache_path(app_key)
     if cp.exists():
@@ -96,7 +126,13 @@ def save_account_info(app_key: str, account: dict):
 
 
 def read_account_info(app_key: str) -> dict | None:
-    ap = _acct_path(app_key)
+    # Fail-soft: la pagina de correo itera TODAS las apps de core_apps; un key raro
+    # en BD no debe tumbar la pagina entera. Las escrituras si lanzan.
+    try:
+        ap = _acct_path(app_key)
+    except InvalidAppKey:
+        logger.warning("read_account_info con app_key invalido: %r", app_key)
+        return None
     if not ap.exists():
         return None
     with _LOCK, open(ap, "r", encoding="utf-8") as f:
@@ -104,9 +140,13 @@ def read_account_info(app_key: str) -> dict | None:
 
 
 def clear_account_and_cache(app_key: str):
-    with _LOCK:
+    try:
         cp = _cache_path(app_key)
         ap = _acct_path(app_key)
+    except InvalidAppKey:
+        logger.warning("clear_account_and_cache con app_key invalido: %r", app_key)
+        return
+    with _LOCK:
         if cp.exists():
             cp.unlink()
         if ap.exists():
@@ -120,6 +160,7 @@ def build_auth_url(app_key: str, state: str | None = None) -> str:
     (persistido en Redis como oauth:state:{nonce} -> app_key, C6). Fallback
     legacy ``state=app_key`` solo por retro-compatibilidad de firma.
     """
+    _safe_app_key(app_key)
     app = get_msal_app(app_key)
     return app.get_authorization_request_url(
         _scopes_for_auth(),
@@ -133,7 +174,11 @@ def process_auth_code(app_key: str, code: str) -> dict:
     """
     Intercambia el code por tokens y persiste cache + archivo de cuenta.
     Retorna dict con info basica de usuario (name, preferred_username).
+
+    Lanza InvalidAppKey si app_key no es usable como componente de ruta: esta es
+    la ruta que el escaneo abuso, asi que aqui se falla duro, no en silencio.
     """
+    _safe_app_key(app_key)
     cache = load_cache(app_key)
     app = get_msal_app(app_key, cache)
     result = app.acquire_token_by_authorization_code(
@@ -165,6 +210,11 @@ def process_auth_code(app_key: str, code: str) -> dict:
 
 def acquire_token_silent(app_key: str) -> str | None:
     """Intenta renovar un access token usando el refresh token del cache."""
+    try:
+        _safe_app_key(app_key)
+    except InvalidAppKey:
+        logger.warning("acquire_token_silent con app_key invalido: %r", app_key)
+        return None
     cache = load_cache(app_key)
     app = get_msal_app(app_key, cache)
     acct = read_account_info(app_key)

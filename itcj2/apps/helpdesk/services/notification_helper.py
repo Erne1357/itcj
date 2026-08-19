@@ -11,7 +11,8 @@ se usa el string hardcoded como fallback para preservar el comportamiento previo
 import logging
 from typing import Optional
 
-from jinja2 import Environment, DebugUndefined, TemplateSyntaxError
+from jinja2 import DebugUndefined, TemplateSyntaxError
+from jinja2.sandbox import SandboxedEnvironment
 from sqlalchemy.orm import Session
 
 from itcj2.core.services.notification_service import NotificationService
@@ -23,7 +24,15 @@ logger = logging.getLogger(__name__)
 
 # ==================== JINJA2 ENV ====================
 
-_jinja_env = Environment(autoescape=False, undefined=DebugUndefined)
+# SandboxedEnvironment: las plantillas viven en BD y las edita cualquiera con
+# helpdesk.config.notifications.api.update. Con un Environment normal, un
+# `{{ ''.__class__.__mro__[1].__subclasses__() }}` es SSTI → RCE en el proceso del
+# backend. maint ya usaba sandbox (apps/maint/services/notification_helper.py:67);
+# helpdesk se había quedado atrás.
+# autoescape=True: title/body se inyectan por innerHTML en el widget de
+# notificaciones del core, así que sin escape es XSS almacenado. Mismo criterio
+# que maint.
+_jinja_env = SandboxedEnvironment(autoescape=True, undefined=DebugUndefined)
 
 
 # ==================== HELPERS DE RENDERIZADO ====================
@@ -34,6 +43,8 @@ def _safe_render(template_str: str, context: dict) -> str:
         return _jinja_env.from_string(template_str).render(**context)
     except (TemplateSyntaxError, Exception) as e:
         logger.warning(f"Error al renderizar fragmento de plantilla: {e}")
+        # Se devuelve la plantilla cruda; no se renderiza nada, así que un intento
+        # de sandbox escape (SecurityError) no filtra resultado, solo el texto.
         return template_str
 
 

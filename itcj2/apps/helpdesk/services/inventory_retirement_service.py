@@ -321,8 +321,6 @@ class InventoryRetirementService:
     @staticmethod
     def attach_document(db: Session, request_id: int, file, filename: str, user_id: int) -> InventoryRetirementRequest:
         """Guarda un archivo adjunto a la solicitud."""
-        import shutil
-
         req = db.get(InventoryRetirementRequest, request_id)
         if not req:
             raise ValueError("Solicitud no encontrada")
@@ -335,11 +333,38 @@ class InventoryRetirementService:
         if ext not in ALLOWED_EXTENSIONS:
             raise ValueError(f"Tipo de archivo no permitido. Permitidos: {', '.join(ALLOWED_EXTENSIONS)}")
 
+        # Límite de tamaño: este path era el único de subida sin ninguno — hacía
+        # copyfileobj directo a disco tras validar solo la extensión, así que un
+        # usuario podía llenar el volumen de instance/ con subidas grandes.
+        max_size = get_settings().HELPDESK_MAX_DOCUMENT_SIZE
+        try:
+            file.seek(0, os.SEEK_END)
+            size = file.tell()
+            file.seek(0)
+        except (AttributeError, OSError):
+            size = None
+        if size is not None and size > max_size:
+            raise ValueError(f"El archivo no debe exceder {max_size // (1024 * 1024)}MB")
+
         os.makedirs(UPLOAD_BASE, exist_ok=True)
         dest_path = os.path.join(UPLOAD_BASE, f"{req.folio}.{ext}")
 
+        written = 0
         with open(dest_path, "wb") as f:
-            shutil.copyfileobj(file, f)
+            # Copia por bloques con corte duro: si el stream no soportó seek (size
+            # None), este es el único freno real.
+            while True:
+                chunk = file.read(64 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_size:
+                    f.close()
+                    os.remove(dest_path)
+                    raise ValueError(
+                        f"El archivo no debe exceder {max_size // (1024 * 1024)}MB"
+                    )
+                f.write(chunk)
 
         req.document_path = dest_path
         req.document_original_name = filename
