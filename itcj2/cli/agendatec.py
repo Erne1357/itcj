@@ -16,7 +16,18 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def _execute_sql_scripts(db, scripts_dir: str) -> int:
-    """Ejecuta todos los scripts SQL de un directorio en orden alfabético."""
+    """Ejecuta todos los scripts SQL de un directorio en orden alfabético.
+
+    Invalida el caché de authz al final, incondicionalmente. Este helper es
+    compartido por todos los comandos de agendatec que cargan DML por
+    directorio (`seed-periods`, `load-help`, `load-split-scope-2026-08`, y
+    cualquiera futuro): varios de esos directorios SÍ tocan permisos/roles
+    (p.ej. `database/DML/agendatec/periods/`, `.../help/`), y dejarlo a
+    criterio de cada comando es exactamente el tipo de decisión que alguien
+    olvida. El costo de invalidar de más en un comando que solo corre en
+    deploy (un refill de caché) es aceptable frente al de dejar un permiso
+    revocado autorizando hasta AUTHZ_CACHE_TTL (300s).
+    """
     scripts_path = Path(scripts_dir)
     if not scripts_path.exists():
         click.echo(f"   ⚠️  Directorio no encontrado: {scripts_dir}")
@@ -37,6 +48,15 @@ def _execute_sql_scripts(db, scripts_dir: str) -> int:
         except Exception as e:
             click.echo(f"   ❌ Error en {sql_file.name}: {str(e)}")
             raise
+
+    try:
+        from itcj2.core.services.authz_cache import invalidate_all
+        invalidate_all()
+        click.echo("   🧹 Caché de authz invalidado.")
+    except Exception as e:
+        click.echo(f"   ⚠️  No se pudo invalidar el caché de authz ({e}). "
+                   "Aplicará en ≤5 min por TTL.")
+
     return executed
 
 
