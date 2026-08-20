@@ -177,23 +177,13 @@ function openModal(periodId) {
     document.getElementById("fStartDate").value = period.start_date;
     document.getElementById("fEndDate").value   = period.end_date;
 
-    if (period.agendatec_config?.student_admission_start) {
-      const admStart = new Date(period.agendatec_config.student_admission_start);
-      document.getElementById("fAdmissionStartDate").value = admStart.toISOString().split("T")[0];
-      document.getElementById("fAdmissionStartTime").value = admStart.toTimeString().slice(0, 5);
-    } else {
-      document.getElementById("fAdmissionStartDate").value = "";
-      document.getElementById("fAdmissionStartTime").value = "00:00";
-    }
+    const admStart = splitAppDateTime(period.agendatec_config?.student_admission_start);
+    document.getElementById("fAdmissionStartDate").value = admStart ? admStart.date : "";
+    document.getElementById("fAdmissionStartTime").value = admStart ? admStart.time : "00:00";
 
-    if (period.agendatec_config?.student_admission_deadline) {
-      const deadline = new Date(period.agendatec_config.student_admission_deadline);
-      document.getElementById("fDeadlineDate").value = deadline.toISOString().split("T")[0];
-      document.getElementById("fDeadlineTime").value = deadline.toTimeString().slice(0, 5);
-    } else {
-      document.getElementById("fDeadlineDate").value = "";
-      document.getElementById("fDeadlineTime").value = "18:00";
-    }
+    const deadline = splitAppDateTime(period.agendatec_config?.student_admission_deadline);
+    document.getElementById("fDeadlineDate").value = deadline ? deadline.date : "";
+    document.getElementById("fDeadlineTime").value = deadline ? deadline.time : "18:00";
 
     document.getElementById("fStatus").value = period.status;
   } else {
@@ -234,8 +224,11 @@ async function savePeriod() {
   if (!deadlineTime) { setFieldError("fDeadlineTime", "Obligatorio"); hasError = true; }
   if (hasError) return;
 
-  const admissionStartISO = `${admissionStartDate}T${admissionStartTime}:00-07:00`;
-  const deadlineISO       = `${deadlineDate}T${deadlineTime}:00-07:00`;
+  // Wall time SIN offset: el backend lo interpreta en America/Ciudad_Juarez
+  // (helpers.py:231-233 aplica get_app_tz() a los naive), resolviendo DST solo.
+  // Hardcodear -07:00 rompía en horario de verano, cuando la zona es -06:00.
+  const admissionStartISO = `${admissionStartDate}T${admissionStartTime}:00`;
+  const deadlineISO       = `${deadlineDate}T${deadlineTime}:00`;
 
   if (new Date(deadlineISO) <= new Date(admissionStartISO)) {
     setFieldError("fDeadlineDate", "La fecha límite debe ser posterior al inicio de admisión");
@@ -399,6 +392,25 @@ function configureDays(periodId) {
   window.location.href = cfg.daysPage.replace("{id}", periodId);
 }
 
+// === UTILIDADES DE ZONA HORARIA ===
+// Los campos del formulario son wall time en America/Ciudad_Juarez (lo declara el
+// propio form-text del template). Leer con `new Date().toISOString()` mezclaba la
+// fecha en UTC con la hora del navegador, corriendo el cierre de admisión un día.
+const APP_TZ = "America/Ciudad_Juarez";
+
+/** Parte un ISO datetime en {date:"YYYY-MM-DD", time:"HH:MM"} siempre en APP_TZ. */
+function splitAppDateTime(isoStr) {
+  if (!isoStr) return null;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return null;
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TZ,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(d).reduce((acc, x) => (acc[x.type] = x.value, acc), {});
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
+}
+
 // === UTILIDADES ===
 function formatDate(dateStr) {
   if (!dateStr) return "-";
@@ -409,7 +421,10 @@ function formatDate(dateStr) {
 
 function formatDateTime(dateTimeStr) {
   if (!dateTimeStr) return "-";
+  // Siempre en APP_TZ: un admin conectado desde otra zona debe ver la misma hora
+  // que capturó, no la suya.
   return new Date(dateTimeStr).toLocaleString("es-MX", {
+    timeZone: APP_TZ,
     year: "numeric", month: "short", day: "numeric",
     hour: "2-digit", minute: "2-digit", timeZoneName: "short",
   });
