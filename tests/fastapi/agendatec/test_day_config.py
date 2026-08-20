@@ -106,41 +106,77 @@ def test_regenerating_the_same_duration_notifies_nobody(client, db_session, coor
         user_id=alum.id, type="APPOINTMENT_RESCHEDULED").count() == 0
 
 
-def test_misaligned_split_is_rejected_with_offenders(client, coord_setup, make_grid,
-                                                     make_user, make_booking, frozen_morning):
-    """15 -> 10 con una cita en 9:15: no cae en la grilla nueva."""
+def test_misaligned_split_is_now_applied(client, db_session, coord_setup, make_grid,
+                                         make_user, make_booking, frozen_morning):
+    """15 -> 10 con una cita en 9:15 ya no devuelve 409.
+
+    La cita conserva su hora de entrada y se acorta a 9:15-9:25; el resto del
+    rango se re-divide alrededor.
+    """
     ctx = coord_setup(n_programs=1)
     _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 15, ctx["program_ids"])
     reservado = next(s for s in slots if s.start_time == time(9, 15))
     alum = make_user(first_name="C", last_name="CUATRO", control_number="20990503")
     make_booking(reservado, alum, ctx["program_ids"][0], ctx["period"].id)
+    rid = reservado.id
 
     resp = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
         "day": DAY_S, "start": "09:00", "end": "10:00", "slot_minutes": 10,
     })
-    assert resp.status_code == 409
-    body = resp.json()
-    # JSONResponse plano: NO el {"error": {...}} anidado del handler global.
-    assert body["error"] == "misaligned_booked_slots"
-    assert body["offenders"][0]["reason"] == "not_on_grid"
-    assert body["offenders"][0]["start"] == "09:15"
+    assert resp.status_code == 200, resp.text
+
+    db_session.expire_all()
+    s_res = db_session.get(TimeSlot, rid)
+    assert (s_res.start_time, s_res.end_time) == (time(9, 15), time(9, 25))
+    _assert_no_overlaps(db_session, ctx["coord"].id)
 
 
-def test_rejected_split_mutates_nothing(client, db_session, coord_setup, make_grid,
-                                        make_user, make_booking, frozen_morning):
+def test_range_fully_in_the_past_mutates_nothing(client, db_session, coord_setup, make_grid):
+    """Sustituye al viejo test de rechazo: ya no hay 409 por desalineacion.
+
+    El unico rechazo que queda en el camino normal es el rango que ya paso.
+    """
     ctx = coord_setup(n_programs=1)
-    _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 15, ctx["program_ids"])
-    reservado = next(s for s in slots if s.start_time == time(9, 15))
-    alum = make_user(first_name="C", last_name="CINCO", control_number="20990504")
-    make_booking(reservado, alum, ctx["program_ids"][0], ctx["period"].id)
-
+    make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 15, ctx["program_ids"])
     antes = [(s.start_time, s.end_time) for s in _slots(db_session, ctx["coord"].id)]
-    client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
-        "day": DAY_S, "start": "09:00", "end": "10:00", "slot_minutes": 10,
-    })
+
+    with patch("itcj2.apps.agendatec.services.slot_service.now_app",
+               return_value=_at(time(23, 0))),          patch("itcj2.apps.agendatec.api.coord.day_config.now_app",
+               return_value=_at(time(23, 0))):
+        resp = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+            "day": DAY_S, "start": "09:00", "end": "10:00", "slot_minutes": 10,
+        })
+    assert resp.status_code == 400
+    assert "range_fully_in_past" in resp.text
+
     db_session.expire_all()
     despues = [(s.start_time, s.end_time) for s in _slots(db_session, ctx["coord"].id)]
     assert antes == despues
+
+
+def test_preview_and_post_agree_on_the_exact_slots(client, db_session, coord_setup, make_grid,
+                                                   make_user, make_booking, frozen_morning):
+    """El preview promete horarios concretos; el POST debe crear ESOS.
+
+    Antes apply_split re-derivaba la rejilla, asi que con citas desalineadas
+    prometia unos horarios y creaba otros -- con el mismo conteo, que es lo que
+    hacia que los tests no lo vieran.
+    """
+    ctx = coord_setup(n_programs=1)
+    _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 10, ctx["program_ids"])
+    alum = make_user(first_name="C", last_name="SEIS", control_number="20990506")
+    make_booking(slots[0], alum, ctx["program_ids"][0], ctx["period"].id)
+
+    cuerpo = {"day": DAY_S, "start": "09:00", "end": "10:00", "slot_minutes": 25}
+    prev = client.post("/api/agendatec/v2/coord/day-config/preview",
+                       headers=ctx["headers"], json=cuerpo)
+    assert prev.status_code == 200, prev.text
+    prometidos = prev.json()["slots_to_create"]
+
+    post = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json=cuerpo)
+    assert post.status_code == 200, post.text
+    assert post.json()["slots_created"] == prometidos,         "el conteo del preview y el del POST tienen que coincidir"
+    _assert_no_overlaps(db_session, ctx["coord"].id)
 
 
 def test_empty_range_generates_the_grid(client, db_session, coord_setup, frozen_morning):
@@ -244,20 +280,23 @@ def test_preview_reports_affected_without_mutating(client, db_session, coord_set
         "preview no debe mutar nada"
 
 
-def test_preview_reports_offenders_when_blocked(client, coord_setup, make_grid,
-                                                make_user, make_booking, frozen_morning):
+def test_preview_reports_what_could_not_change(client, coord_setup, make_grid,
+                                               make_user, make_booking, frozen_morning):
+    """Ya nada bloquea, pero el coordinador debe ver que bloques no cambiaron."""
     ctx = coord_setup(n_programs=1)
-    _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 15, ctx["program_ids"])
-    reservado = next(s for s in slots if s.start_time == time(9, 15))
+    _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 5, ctx["program_ids"])
     alum = make_user(first_name="D", last_name="DOS", control_number="20990511")
-    make_booking(reservado, alum, ctx["program_ids"][0], ctx["period"].id)
+    make_booking(slots[0], alum, ctx["program_ids"][0], ctx["period"].id)
 
     resp = client.post("/api/agendatec/v2/coord/day-config/preview",
                        headers=ctx["headers"], json={
                            "day": DAY_S, "start": "09:00", "end": "10:00", "slot_minutes": 10,
                        })
     assert resp.status_code == 200
-    assert resp.json()["blocked"] is True
+    body = resp.json()
+    assert body["blocked"] is False
+    assert len(body["kept_as_is"]) == 1
+    assert body["kept_as_is"][0]["range"] == "09:00–09:05"
 
 
 def test_preview_reports_out_of_scope_appointments(client, coord_setup, make_grid,
@@ -348,3 +387,46 @@ def test_coord_programs_excludes_other_coordinators_programs(client, coord_setup
     resp = client.get("/api/agendatec/v2/coord/programs", headers=ctx["headers"])
     assert resp.status_code == 200
     assert ajena.id not in [p["id"] for p in resp.json()["data"]]
+
+
+# ===========================================================================
+# Duraciones libres: cualquier entero de 5 a 60
+# ===========================================================================
+@pytest.mark.parametrize("minutos", [5, 7, 13, 25, 59, 60])
+def test_arbitrary_durations_are_accepted(client, coord_setup, minutos, frozen_morning):
+    """Antes solo se aceptaba el conjunto fijo 5/10/15/20/30/60."""
+    ctx = coord_setup(n_programs=1)
+    resp = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+        "day": DAY_S, "start": "09:00", "end": "11:00", "slot_minutes": minutos,
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["slots_created"] == 120 // minutos
+
+
+@pytest.mark.parametrize("minutos", [0, -5, 4, 61, 1000])
+def test_durations_outside_the_bounds_are_rejected(client, coord_setup, minutos,
+                                                   frozen_morning):
+    """El 0 y los negativos son los peligrosos: colgarían el generador."""
+    ctx = coord_setup(n_programs=1)
+    resp = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+        "day": DAY_S, "start": "09:00", "end": "11:00", "slot_minutes": minutos,
+    })
+    assert resp.status_code in (400, 422), resp.text
+
+
+def test_a_day_can_mix_durations_across_ranges(client, db_session, coord_setup,
+                                               frozen_morning):
+    """Dos rangos del mismo día con duraciones distintas conviven sin solaparse."""
+    ctx = coord_setup(n_programs=1)
+    for inicio, fin, mins in (("09:00", "10:00", 10), ("10:00", "11:00", 7)):
+        r = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+            "day": DAY_S, "start": inicio, "end": fin, "slot_minutes": mins,
+        })
+        assert r.status_code == 200, r.text
+
+    db_session.expire_all()
+    todos = _slots(db_session, ctx["coord"].id)
+    dur = lambda s: (s.end_time.hour * 60 + s.end_time.minute) - (s.start_time.hour * 60 + s.start_time.minute)  # noqa: E731
+    assert {dur(s) for s in todos if s.start_time < time(10, 0)} == {10}
+    assert {dur(s) for s in todos if s.start_time >= time(10, 0)} == {7}
+    _assert_no_overlaps(db_session, ctx["coord"].id)

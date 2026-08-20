@@ -228,39 +228,51 @@ def test_10_to_5_with_a_booking_is_allowed(db_session, coord_setup, make_grid,
     assert len(plan.to_notify) == 1
 
 
-def test_15_to_10_with_a_booking_is_rejected(db_session, coord_setup, make_grid,
-                                             make_user, make_booking):
-    """9:15 no cae en la grilla de 10 min anclada en 9:00 -> C1 falla.
+def test_15_to_10_with_a_booking_is_now_allowed(db_session, coord_setup, make_grid,
+                                                make_user, make_booking):
+    """La regla vieja lo rechazaba; la de bloques lo permite.
 
-    Es exactamente el caso que el usuario describió como "no sería tan posible".
+    9:15 no cae en la rejilla de 10 anclada en 9:00, pero eso ya no importa: la
+    cita es un ancla inamovible, conserva su 9:15 y solo se acorta a 9:15-9:25.
     """
     ctx = coord_setup(n_programs=1)
     _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 15, ctx["program_ids"])
     reservado = next(s for s in slots if s.start_time == time(9, 15))
     alum = make_user(first_name="A", last_name="DOS", control_number="20990402")
     make_booking(reservado, alum, ctx["program_ids"][0], ctx["period"].id)
+    rid = reservado.id
 
     with patch("itcj2.apps.agendatec.services.slot_service.now_app", return_value=_at(time(8, 0))):
         plan = SlotService.plan_split(db_session, ctx["coord"].id, DAY,
                                       time(9, 0), time(10, 0), 10, ctx["program_ids"])
 
-    assert plan.blocked is True
-    assert plan.offenders[0].reason == "not_on_grid"
+    assert plan.blocked is False
+    acortado = next(x for x in plan.to_shorten if x.slot_id == rid)
+    assert acortado.new_start == time(9, 15), "la hora de entrada no se mueve"
+    assert acortado.new_end == time(9, 25)
 
 
-def test_growing_is_rejected(db_session, coord_setup, make_grid, make_user, make_booking):
-    """5 -> 10 alargaría la cita: solo se reduce."""
+def test_a_booking_that_cannot_shrink_is_kept_as_is(db_session, coord_setup, make_grid,
+                                                    make_user, make_booking):
+    """5 -> 10 no puede acortar una cita de 5 min, pero ya no rechaza el rango.
+
+    Esa cita conserva su geometria y se reporta en kept_as_is; el resto del
+    rango si se re-divide.
+    """
     ctx = coord_setup(n_programs=1)
     _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 5, ctx["program_ids"])
     alum = make_user(first_name="A", last_name="TRES", control_number="20990403")
     make_booking(slots[0], alum, ctx["program_ids"][0], ctx["period"].id)
+    rid = slots[0].id
 
     with patch("itcj2.apps.agendatec.services.slot_service.now_app", return_value=_at(time(8, 0))):
         plan = SlotService.plan_split(db_session, ctx["coord"].id, DAY,
                                       time(9, 0), time(10, 0), 10, ctx["program_ids"])
 
-    assert plan.blocked is True
-    assert plan.offenders[0].reason == "would_grow"
+    assert plan.blocked is False, "una cita que no encaja ya no bloquea el rango"
+    assert [k.slot_id for k in plan.kept_as_is] == [rid]
+    assert rid not in [x.slot_id for x in plan.to_shorten], "no se alarga"
+    assert plan.to_create, "el resto del rango si se re-divide"
 
 
 def test_c2_only_applies_when_the_slot_actually_changes(db_session, coord_setup, make_grid,
