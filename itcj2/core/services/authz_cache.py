@@ -193,19 +193,26 @@ def invalidate_user(user_id: int) -> None:
 
 
 def invalidate_all() -> None:
-    """Borra TODO el caché de authz.
+    """Borra TODO el caché de authz — y SOLO el caché.
 
     Para cambios role/position-wide que afectan a muchos usuarios:
     RolePermission (perms de un rol), PositionAppRole / PositionAppPerm
-    (config de un puesto), activar/desactivar un puesto. Son operaciones de
-    admin poco frecuentes; el SCAN sobre un keyspace pequeño es aceptable.
+    (config de un puesto), activar/desactivar un puesto.
+
+    NUNCA usar el glob ``authz:v1:*``: bajo ese prefijo vive también
+    ``authz:v1:sessionver:{uid}`` (session_service), que NO es caché sino la
+    versión de sesión del usuario. Barrerla pone ``current_version`` en 0 para
+    todos, desloguea a cuantos tengan ``sv >= 1`` y resucita tokens ya
+    revocados — el incidente del 2026-08-20. Enumerar los kinds, jamás comodín.
     """
     r = _redis()
     if r is None:
         return
     try:
-        keys = list(r.scan_iter(match=f"{_PREFIX}:*", count=1000))
-        if keys:
-            r.delete(*keys)
+        keys = []
+        for kind in _KINDS:
+            keys += list(r.scan_iter(match=f"{_PREFIX}:{kind}:*", count=1000))
+        keys.append(_DEPTMAP_KEY)
+        r.delete(*keys)
     except Exception as e:
         logger.warning("authz_cache: invalidate_all err (%s)", e)
