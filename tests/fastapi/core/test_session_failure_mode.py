@@ -23,16 +23,29 @@ def _tok(uid, sv):
     )
 
 
-def test_current_version_returns_none_when_redis_errors():
+def test_current_version_returns_none_when_redis_errors(monkeypatch):
     """Ni Redis ni Postgres pueden responder: sin informacion, no se revoca.
 
-    Redis lanza, y el uid no existe en `core_users`, asi que la fuente de verdad
-    tampoco tiene un numero que devolver -> None (nunca 0).
+    Ambos almacenes LANZAN. Ese es el unico caso de None: un uid inexistente con
+    la consulta sana vale 0, no None (ver test_missing_user_is_zero_not_none en
+    test_session_epoch_durability.py), asi que la BD tiene que romperse de
+    verdad para ejercitar este camino.
     """
     class _Boom:
         def get(self, *a, **k):
             raise ConnectionError("redis caido")
 
+    class _DbBoom:
+        def execute(self, *a, **k):
+            raise ConnectionError("postgres caido")
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: _DbBoom())
     with patch.object(ss, "_redis", return_value=_Boom()):
         assert ss.current_version(1234567) is None
 

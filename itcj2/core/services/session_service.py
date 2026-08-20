@@ -14,10 +14,11 @@ un barrido accidental) no resucita sesiones cerradas ni desloguea a nadie — el
 valor se repuebla desde la BD. Antes el entero vivía SOLO en Redis (sin AOF,
 compartido con Celery/Socket.IO/holds de AgendaTec).
 
-Modo de fallo: ``current_version`` devuelve ``None`` cuando no puede consultar el
-almacén (Redis y Postgres caídos, o el usuario no existe). Los consumidores
-(middleware, socket_auth) tratan ``None`` como "sin información" y NO revocan —
-fail-open real. Solo un MISMATCH numérico revoca.
+Modo de fallo: ``current_version`` devuelve ``None`` SOLO cuando no puede
+consultar ningún almacén (Redis y Postgres caídos). Los consumidores (middleware,
+socket_auth) tratan ``None`` como "sin información" y NO revocan — fail-open real.
+Solo un MISMATCH numérico revoca. Que el usuario no exista NO es ``None`` sino
+``0``: su token con ``sv >= 1`` debe seguir quedando revocado.
 """
 from __future__ import annotations
 
@@ -33,6 +34,34 @@ _KEY = "session:v1:ver:{uid}"
 
 _TTL = 3600  # segundos que vive la copia en Redis (Postgres es la verdad)
 
+# Escritura monótona del caché: puede SUBIR el valor, nunca bajarlo.
+# Postgres es la verdad y su epoch sólo crece; sin esta guarda, dos bumps
+# concurrentes —o el SET tardío de un lector que leyó Postgres ANTES de un
+# bump— podrían dejar en Redis un valor MENOR que el real, y una sesión ya
+# revocada seguiría autenticando hasta que expirara el TTL.
+_SET_IF_GREATER = """
+local cur = redis.call('GET', KEYS[1])
+if (not cur) or (tonumber(cur) < tonumber(ARGV[1])) then
+  redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+end
+return 1
+"""
+
+
+def _cache_epoch(r, user_id: int, value: int) -> None:
+    """Publica la época en Redis sin poder bajarla nunca (best-effort).
+
+    Antes de esta tarea el contador era un ``INCR`` sobre la ÚNICA fuente de
+    verdad, así que el valor cacheado no podía quedar por debajo del real.
+    Separar verdad (Postgres) de caché (Redis) introdujo un read-modify-write
+    entre procesos; la guarda lo cierra. Un fallo de escritura del caché NO es
+    fatal: el próximo lector repuebla desde Postgres.
+    """
+    try:
+        r.eval(_SET_IF_GREATER, 1, _KEY.format(uid=user_id), value, _TTL)
+    except Exception as e:
+        logger.warning("session_service: no se pudo cachear la época (%s)", e)
+
 
 def _redis():
     try:
@@ -43,7 +72,17 @@ def _redis():
 
 
 def _read_epoch_from_db(user_id: int) -> int | None:
-    """Lee `core_users.session_epoch`. None si el usuario no existe o la BD falla."""
+    """Lee `core_users.session_epoch`.
+
+    - ``N``    → época del usuario.
+    - ``0``    → la consulta FUNCIONÓ y el usuario no existe. Es 0 y no ``None``
+      a propósito: restaura la semántica previa a esta tarea, donde la ausencia
+      de clave valía 0 y por tanto un token con ``sv >= 1`` de un usuario
+      borrado quedaba revocado. Devolver ``None`` significaría "no se pudo
+      determinar" y lo dejaría autenticando hasta que expirara. NO simplificar
+      ambos casos al mismo valor: distinguirlos es justo el punto.
+    - ``None`` → la consulta FALLÓ (BD inalcanzable). El llamador no debe revocar.
+    """
     from sqlalchemy import select
 
     from itcj2.core.models.user import User
@@ -53,7 +92,7 @@ def _read_epoch_from_db(user_id: int) -> int | None:
     try:
         val = db.execute(select(User.session_epoch).where(User.id == user_id)).scalar_one_or_none()
         db.rollback()
-        return int(val) if val is not None else None
+        return int(val) if val is not None else 0
     except Exception as e:
         logger.warning("session_service: lectura de session_epoch falló (%s)", e)
         try:
@@ -71,10 +110,11 @@ def _read_epoch_from_db(user_id: int) -> int | None:
 def current_version(user_id: int) -> int | None:
     """Época de sesión vigente. Read-through: Redis primero, Postgres si hay MISS.
 
-    - ``0``    → el usuario nunca fue bumpeado.
+    - ``0``    → el usuario nunca fue bumpeado, O no existe (fila ausente). En
+      ambos casos un token con ``sv >= 1`` queda revocado, como antes de esta tarea.
     - ``N>0``  → época vigente.
-    - ``None`` → no se pudo determinar (Redis y Postgres caídos, o usuario inexistente).
-      El llamador NO debe revocar.
+    - ``None`` → no se pudo determinar: ni Redis ni Postgres pudieron responder.
+      El llamador NO debe revocar. "El usuario no existe" NO es este caso.
     """
     r = _redis()
     if r is not None:
@@ -91,10 +131,7 @@ def current_version(user_id: int) -> int | None:
         return None
 
     if r is not None:
-        try:
-            r.setex(_KEY.format(uid=user_id), _TTL, epoch)
-        except Exception:
-            pass
+        _cache_epoch(r, user_id, epoch)
     return epoch
 
 
@@ -140,13 +177,13 @@ def bump_version(user_id: int, db=None) -> int | None:
 
     r = _redis()
     if r is not None:
-        try:
-            if owns:
-                r.setex(_KEY.format(uid=user_id), _TTL, val)
-            else:
-                # El caller aún no commiteó: publicar el valor nuevo podría revertirse.
-                # Se invalida y el próximo lector lo relee de Postgres ya commiteado.
+        if owns:
+            _cache_epoch(r, user_id, val)
+        else:
+            # El caller aún no commiteó: publicar el valor nuevo podría revertirse.
+            # Se invalida y el próximo lector lo relee de Postgres ya commiteado.
+            try:
                 r.delete(_KEY.format(uid=user_id))
-        except Exception:
-            pass
+            except Exception:
+                pass
     return val
