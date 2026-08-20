@@ -393,8 +393,17 @@ def migrate_session_keys_command(dry_run):
             migrated += 1
             continue
         # RENAMENX: si la clave nueva ya existe (el usuario pasó por el código
-        # mientras corría esto), la vieja es la obsoleta y se descarta.
-        if r.renamenx(key, _KEY.format(uid=uid)):
+        # mientras corría esto), la vieja es la obsoleta y se descarta. Si la
+        # vieja ya no existe (otro proceso la migró vía current_version()/
+        # bump_version() mientras corría este barrido), RENAMENX lanza
+        # ResponseError: se cuenta como ya migrada y se sigue, sin tumbar el
+        # resto del lote con un traceback crudo.
+        try:
+            renamed = r.renamenx(key, _KEY.format(uid=uid))
+        except Exception:
+            skipped += 1
+            continue
+        if renamed:
             migrated += 1
         else:
             r.delete(key)
