@@ -12,7 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.apps.agendatec.helpers import parse_range_from_params
+from itcj2.apps.agendatec.helpers import app_dt, now_app, parse_range_from_params
+from itcj2.apps.agendatec.models.time_slot_program import TimeSlotProgram
 from itcj2.apps.agendatec.schemas.admin import ChangeRequestStatusBody, AdminCreateRequestBody
 from itcj2.apps.agendatec.models.appointment import Appointment
 from itcj2.apps.agendatec.models.request import Request as Req
@@ -329,9 +330,14 @@ def admin_create_request(
     if slot.day not in enabled_days:
         raise HTTPException(status_code=400, detail="day_not_enabled")
 
-    if datetime.now() > datetime.combine(slot.day, slot.start_time):
+    # Aware: el proceso corre en UTC dentro del contenedor y este guard
+    # comparaba contra horas de slot locales.
+    if now_app() > app_dt(slot.day, slot.start_time):
         raise HTTPException(status_code=400, detail="slot_time_passed")
 
+    # Mismo criterio que el camino del alumno: se validan AMBAS cosas. Sin el
+    # check de scope, el admin vería una lista scopeada pero podría reservar
+    # cualquier slot armando el POST a mano.
     link = (
         db.query(ProgramCoordinator)
         .filter(
@@ -340,7 +346,12 @@ def admin_create_request(
         )
         .first()
     )
-    if not link:
+    in_scope = (
+        db.query(TimeSlotProgram)
+        .filter_by(slot_id=slot.id, program_id=body.program_id)
+        .first()
+    )
+    if not link or not in_scope:
         raise HTTPException(status_code=400, detail="slot_not_for_program")
 
     try:

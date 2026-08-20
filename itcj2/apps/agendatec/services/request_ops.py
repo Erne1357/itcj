@@ -88,6 +88,11 @@ def admin_change_request_status(
             slot = db.get(TimeSlot, ap.slot_id)
             if slot and slot.is_booked:
                 slot.is_booked = False
+                # Al liberarse, el slot vuelve a la query del alumno. Si conservaba
+                # una carrera fuera de scope por grandfathering, reaparecería
+                # ofreciendola: hay que devolverlo al scope de su ventana.
+                from itcj2.apps.agendatec.services.slot_service import SlotService
+                SlotService.reconcile_slot_programs(db, slot)
                 slot_day_str = str(slot.day)
 
     r.status = new_status

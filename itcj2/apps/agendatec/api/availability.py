@@ -3,14 +3,13 @@ Availability API v2 — Slots y ventanas de disponibilidad.
 Fuente: itcj/apps/agendatec/routes/api/availability.py
 """
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from itcj2.apps.agendatec.schemas.availability import CreateWindowBody, GenerateSlotsBody
 from itcj2.dependencies import DbSession, require_perms, require_roles
-from itcj2.apps.agendatec.helpers import parse_date_str, TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
+from itcj2.apps.agendatec.helpers import now_app, parse_date_str, TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
 
 from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
@@ -22,9 +21,6 @@ from itcj2.core.services import period_service
 
 router = APIRouter(tags=["agendatec-availability"])
 logger = logging.getLogger(__name__)
-
-_VALID_SLOT_MINUTES = (5, 10, 15, 20, 30, 60)
-
 
 def _get_enabled_days_for_active_period(db) -> set[date]:
     period = period_service.get_active_period(db)
@@ -91,16 +87,29 @@ def list_slots_for_program_day(
     if not coor_ids:
         return {"day": str(d), "program_id": program_id, "items": []}
 
-    slots = (
+    from itcj2.apps.agendatec.models import TimeSlotProgram
+
+    q = (
         db.query(TimeSlot)
+        # El scope del rango: el coordinador pudo limitarlo a ciertas carreras.
+        # `coordinator_id.in_(coor_ids)` se conserva porque TimeSlotProgram por
+        # sí solo no garantiza que el coordinador siga asignado a esa carrera.
+        .join(TimeSlotProgram, TimeSlotProgram.slot_id == TimeSlot.id)
         .filter(
+            TimeSlotProgram.program_id == program_id,
             TimeSlot.coordinator_id.in_(coor_ids),
             TimeSlot.day == d,
             TimeSlot.is_booked == False,
         )
-        .order_by(TimeSlot.start_time.asc())
-        .all()
     )
+
+    # No ofrecer lo que ya pasó: antes el alumno solo se enteraba al confirmar,
+    # con un 400 slot_time_passed tras haber completado todo el wizard.
+    now_local = now_app()
+    if d == now_local.date():
+        q = q.filter(TimeSlot.start_time > now_local.time())
+
+    slots = q.order_by(TimeSlot.start_time.asc()).all()
 
     coordinators_info = {}
     if len(coor_ids) > 1:
@@ -132,119 +141,37 @@ def list_slots_for_program_day(
     return response
 
 
-# ==================== POST /windows ====================
+# ==================== Endpoints retirados ====================
+# POST /windows y POST /generate-slots quedaron retirados (410).
+#
+# `generate_slots` iteraba las AvailabilityWindow del día SIN filtrar por
+# coordinador, así que cualquier portador de agendatec.slots.api.create
+# generaba slots de TODOS los coordinadores del sistema. Y su comprobación de
+# duplicado solo comparaba `start_time ==`, sin detectar solapes: corrido
+# después de un split, recreaba la grilla vieja encima de la nueva.
+#
+# `create_availability_window` creaba la ventana pero NO sus slots ni su scope
+# por carrera, dejando configuraciones a medias.
+#
+# Ningún frontend los llamaba (verificado por grep sobre .js y .html). La
+# generación de slots vive ahora en SlotService, vía POST /coord/day-config,
+# que es el único camino que aplica el scope y el split.
 
-@router.post("/windows", status_code=201)
-def create_availability_window(
-    body: CreateWindowBody,
-    user: dict = require_perms("agendatec", ["agendatec.slots.api.create"]),
-    db: DbSession = None,
-):
-    """Crea una ventana de disponibilidad para un coordinador."""
-    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
-    d = parse_date_str(body.day)
-    if not d:
-        raise HTTPException(status_code=400, detail="invalid_day_format")
-
-    _require_allowed_day(d, db)
-
-    coord_id = _resolve_coordinator_id(user, db, override_id=body.coordinator_id)
-    if not coord_id:
-        raise HTTPException(status_code=404, detail="coordinator_not_found")
-
-    try:
-        sh, sm = map(int, body.start.split(":"))
-        eh, em = map(int, body.end.split(":"))
-        start_t = datetime.strptime(f"{sh:02d}:{sm:02d}", "%H:%M").time()
-        end_t = datetime.strptime(f"{eh:02d}:{em:02d}", "%H:%M").time()
-    except Exception:
-        raise HTTPException(status_code=400, detail="invalid_time_format")
-
-    if end_t <= start_t or body.slot_minutes not in _VALID_SLOT_MINUTES:
-        raise HTTPException(status_code=400, detail="invalid_time_range_or_slot_size")
-
-    av = AvailabilityWindow(
-        coordinator_id=coord_id,
-        day=d,
-        start_time=start_t,
-        end_time=end_t,
-        slot_minutes=body.slot_minutes,
-    )
-    db.add(av)
-    db.commit()
-    return {"ok": True, "id": av.id}
+_GONE = (
+    "Endpoint retirado. La generación de horarios vive en "
+    "POST /api/agendatec/v2/coord/day-config, el único camino que aplica el "
+    "scope por carrera y la re-división de rangos."
+)
 
 
-# ==================== POST /generate-slots ====================
+@router.post("/windows")
+def create_availability_window_gone():
+    raise HTTPException(status_code=410, detail=_GONE)
+
 
 @router.post("/generate-slots")
-def generate_slots(
-    body: GenerateSlotsBody,
-    user: dict = require_perms("agendatec", ["agendatec.slots.api.create"]),
-    db: DbSession = None,
-):
-    """Genera time_slots a partir de availability_windows para uno o más días."""
-    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
-    days_input = body.days or ([body.day] if body.day else None)
-    if not days_input:
-        raise HTTPException(status_code=400, detail="invalid_payload_days")
-
-    period = period_service.get_active_period(db)
-    enabled_days = set(period_service.get_enabled_days(db, period.id)) if period else set()
-
-    parsed_days: list[date] = []
-    for s in days_input:
-        d = parse_date_str(str(s))
-        if not d:
-            raise HTTPException(status_code=400, detail="invalid_day_format")
-        if d not in enabled_days:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "day_not_allowed",
-                    "day": str(d),
-                    "allowed": [str(x) for x in sorted(enabled_days)],
-                },
-            )
-        parsed_days.append(d)
-
-    created = 0
-    for d in parsed_days:
-        wins = db.query(AvailabilityWindow).filter(AvailabilityWindow.day == d).all()
-        for w in wins:
-            step = timedelta(minutes=w.slot_minutes)
-            cur_dt = datetime.combine(w.day, w.start_time)
-            end_dt = datetime.combine(w.day, w.end_time)
-
-            while (cur_dt + step) <= end_dt:
-                start_t = cur_dt.time()
-                end_t = (cur_dt + step).time()
-
-                exists = (
-                    db.query(TimeSlot.id)
-                    .filter(
-                        TimeSlot.coordinator_id == w.coordinator_id,
-                        TimeSlot.day == w.day,
-                        TimeSlot.start_time == start_t,
-                    )
-                    .first()
-                )
-                if not exists:
-                    db.add(
-                        TimeSlot(
-                            coordinator_id=w.coordinator_id,
-                            day=w.day,
-                            start_time=start_t,
-                            end_time=end_t,
-                            is_booked=False,
-                        )
-                    )
-                    created += 1
-
-                cur_dt += step
-
-    db.commit()
-    return {"ok": True, "slots_created": created, "days": [str(d) for d in parsed_days]}
+def generate_slots_gone():
+    raise HTTPException(status_code=410, detail=_GONE)
 
 
 # ==================== GET /windows ====================

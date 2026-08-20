@@ -58,6 +58,32 @@ def client(app_client, db_session):
     app_client.app.dependency_overrides.pop(get_db, None)
 
 
+@pytest.fixture()
+def patched_session_local(db_session, monkeypatch):
+    """Hace que el código que abre `SessionLocal()` use la sesión del test.
+
+    Varios helpers de agendatec no reciben la sesión por parámetro y abren la
+    suya (`require_admission_open`, los ACL de sockets). Sin esto ven la BD de
+    dev real en vez de las fixtures — p.ej. `require_admission_open` encuentra
+    el periodo real, con la ventana cerrada, y devuelve 503.
+
+    El proxy deja pasar todo menos `close()`: esos helpers cierran la sesión en
+    su `finally`, y cerrar la del test rompería cualquier aserción posterior.
+    """
+    class _NoClose:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: _NoClose(db_session))
+    return db_session
+
+
 # ---------------------------------------------------------------------------
 # Semilla de la app agendatec
 # ---------------------------------------------------------------------------
@@ -175,6 +201,23 @@ def grant_app_role(db_session, agendatec_app):
         return role
 
     return _grant
+
+
+@pytest.fixture()
+def make_student(make_user, grant_app_role):
+    """Alumno con el rol `student` EN AGENDATEC.
+
+    `require_roles("agendatec", ["student"])` resuelve contra
+    core_user_app_roles, no contra el rol del JWT: un usuario con role=student
+    en el token pero sin la fila recibe 403.
+    """
+    def _make(control_number, first_name="ALUM", last_name="TEST"):
+        u = make_user(first_name=first_name, last_name=last_name,
+                      control_number=control_number, role_name="student")
+        grant_app_role(u, "student", perm_codes=[])
+        return u
+
+    return _make
 
 
 @pytest.fixture()
