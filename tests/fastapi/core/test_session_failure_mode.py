@@ -48,3 +48,51 @@ def test_token_survives_redis_outage(app_client):
     with patch.object(ss, "current_version", return_value=None):
         r = app_client.get("/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={tok}"})
     assert r.status_code == 200
+
+
+class _StubUserRow:
+    """Fila mínima para el bloque de refresh de middleware.py: is_active=True
+    fuerza que NO se enmascare el chequeo de current_version en :112-114
+    (`if not _user_active: return response` corta antes de llegar ahí). role
+    debe ser genuinamente None (no un MagicMock) porque fluye al payload del
+    JWT: `_global_role = _u.role.name if _u.role else None`."""
+    is_active = True
+    role = None
+
+
+class _StubDB:
+    def get(self, model, pk):
+        return _StubUserRow()
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_refresh_does_not_rotate_cookie_when_version_unknown(app_client):
+    """R5 en el bloque de refresh de middleware.py (:115-125 antes de esta tarea):
+    si `current_version` no puede determinar la versión vigente, el refresh de
+    cookie NO debe acuñar un sv inventado — debe devolver la respuesta sin rotar.
+
+    Token dentro de la ventana de refresh (exp - now < JWT_REFRESH_THRESHOLD_SECONDS
+    = 7200s) para forzar `needs_refresh = True`. SessionLocal se stubea (no una fila
+    real de core_users) para que `_user_active` sea True sin depender de la BD.
+
+    Contra el código previo a la Tarea 4, `current_version(...)` se pasaba directo
+    al payload (`"sv": None`) y SÍ se rotaba la cookie -> este test falla ahí porque
+    encuentra un Set-Cookie con itcj_token cuando no debería haber ninguno.
+    """
+    uid = 5559202
+    now = int(time.time())
+    tok = jwt.encode(
+        {"sub": str(uid), "role": "admin", "name": "x", "cn": None,
+         "iat": now, "exp": now + 3600},  # < 7200s: dispara needs_refresh
+        SECRET, algorithm="HS256",
+    )
+    with patch("itcj2.database.SessionLocal", return_value=_StubDB()), \
+         patch.object(ss, "current_version", return_value=None):
+        r = app_client.get("/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={tok}"})
+    assert r.status_code == 200
+    assert "itcj_token" not in r.cookies

@@ -3,6 +3,7 @@ Tests para /api/core/v2/auth (login, me, logout).
 """
 from unittest.mock import patch
 
+import jwt
 import pytest
 
 from tests.conftest import (
@@ -95,6 +96,38 @@ class TestLogin:
 
         # Pydantic valida que control_number es requerido
         assert resp.status_code == 422
+
+    @patch("itcj2.core.services.auth_service.authenticate")
+    def test_login_mints_sv_zero_when_version_unknown(self, mock_auth, app_client):
+        """R5: si `current_version` no puede determinar la versión al loguear
+        (Redis inalcanzable), el login debe acuñar sv=0, nunca sv=null.
+
+        Contra el código previo a la Tarea 4, `current_version(...)` se
+        pasaba directo al payload del JWT: `"sv": None` en vez de `"sv": 0`,
+        así que este test falla contra ese código (`payload["sv"] == 0` con
+        `payload["sv"]` en realidad `None`).
+        """
+        mock_auth.return_value = FAKE_STUDENT
+
+        with patch(
+            "itcj2.core.services.session_service.current_version",
+            return_value=None,
+        ):
+            resp = app_client.post(
+                "/api/core/v2/auth/login",
+                json={"control_number": "20210001", "nip": "mypassword"},
+            )
+
+        assert resp.status_code == 200
+        assert "itcj_token" in resp.cookies
+        payload = jwt.decode(
+            resp.cookies["itcj_token"],
+            TEST_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+        assert "sv" in payload
+        assert payload["sv"] == 0
 
 
 # ───────────────────────────────────────────────────────────────────

@@ -1,11 +1,16 @@
 """Handshake WS: revocación por token-version (claim sv), espejo de middleware.py:60-69.
 
 Afecta a TODOS los namespaces (helpdesk, maint, agendatec, /notify, /system)
-porque todos autentican vía current_user_from_environ. Las 3 ramas:
+porque todos autentican vía current_user_from_environ. Las 4 ramas:
   1. sv presente y desactualizado -> rechazado (None)
   2. sv AUSENTE -> pasa aunque haya versión bumpeada (compat; los tokens de
      e2e/global-setup no traen sv)
-  3. Redis/servicio caído -> fail-open (pasa)
+  3. current_version() lanza una excepción cruda -> el try/except de
+     current_user_from_environ ya la perdonaba ANTES de la Tarea 4 (fail-open
+     "por accidente"; no ejercita el guard `cur is not None`)
+  4. current_version() devuelve None explícitamente (Redis inalcanzable, sin
+     excepción) -> fail-open real, es el guard `cur is not None` agregado en la
+     Tarea 4 (socket_auth.py:28-29)
 Usa el Redis real del stack para bump_version. El fixture autouse del conftest
 limpia el CACHÉ de authz (roles/perms/has) pero NO las versiones de sesión: barrerlas
 desloguearía usuarios reales si la suite corre contra un Redis compartido. Este módulo
@@ -47,6 +52,12 @@ def test_token_sin_sv_pasa_aunque_haya_version():
 
 
 def test_redis_caido_fail_open():
+    """current_version() lanza una excepción cruda. El try/except de
+    current_user_from_environ ya perdonaba esto ANTES de la Tarea 4 — esta
+    rama NO ejercita el guard `cur is not None` agregado por esa tarea. Se
+    conserva porque sigue siendo un caso de fail-open real (aunque por una
+    ruta distinta), no porque cubra el cambio de esta tarea.
+    """
     uid = 5661004
     env = _environ({"sub": str(uid), "role": "staff", "cn": None, "name": "X", "sv": 99})
     # patch en el MÓDULO FUENTE (socket_auth hace import local dentro de la función)
@@ -55,3 +66,22 @@ def test_redis_caido_fail_open():
         side_effect=RuntimeError("redis down"),
     ):
         assert socket_auth.current_user_from_environ(env) is not None
+
+
+def test_current_version_none_fail_open():
+    """R5: current_version() devuelve None explícitamente (Redis inalcanzable,
+    sin lanzar) -> NO revoca. Este es el guard nuevo `cur is not None` en
+    socket_auth.py:28-29 (Tarea 4). A diferencia de test_redis_caido_fail_open,
+    esta rama SÍ falla contra el código previo a la Tarea 4: ahí la comparación
+    era `int(data.get("sv", 0)) != current_version(...)`, es decir
+    `99 != None` -> True -> revocado (retorna None).
+    """
+    uid = 5661005
+    env = _environ({"sub": str(uid), "role": "staff", "cn": None, "name": "X", "sv": 99})
+    with patch(
+        "itcj2.core.services.session_service.current_version",
+        return_value=None,
+    ):
+        user = socket_auth.current_user_from_environ(env)
+    assert user is not None
+    assert user["sub"] == str(uid)
