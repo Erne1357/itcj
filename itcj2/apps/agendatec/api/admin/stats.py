@@ -24,7 +24,7 @@ from itcj2.core.models.user import User
 router = APIRouter(tags=["agendatec-admin-stats"])
 logger = logging.getLogger(__name__)
 
-DashPerm = require_perms("agendatec", ["agendatec.admin_dashboard.read"])
+DashPerm = require_perms("agendatec", ["agendatec.admin_dashboard.api.read"])
 
 
 # ==================== GET /stats/overview ====================

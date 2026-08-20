@@ -39,6 +39,12 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# Formato de número de control. Copia deliberada del regex de
+# itcj2/core/api/users_admin.py:23 — importarlo en top-level desde un módulo de
+# core/api crea ciclo de imports (gotcha #2 del CLAUDE.md). Mantener en sync.
+CONTROL_NUMBER_RE = re.compile(r"^(\d{8}|[A-Za-z]\d{7,9})$")
+
+
 def _imports_dir() -> Path:
     d = Path(get_settings().TITULATEC_UPLOAD_PATH) / "_imports"
     d.mkdir(parents=True, exist_ok=True)
@@ -49,20 +55,42 @@ def _mapping_store() -> Path:
     return _imports_dir() / "_mapping.json"
 
 
+# El token del CSV temporal lo genera el servidor con secrets.token_hex(8)
+# (pages/admin.py:464) pero VUELVE del formulario en revalidate/commit, así que es
+# entrada del usuario al usarse como componente de ruta: un token con "../" leía y
+# borraba cualquier *.csv del contenedor. Se exige exactamente el formato emitido.
+_TOKEN_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _temp_csv_path(token: str) -> Path | None:
+    """Ruta del CSV temporal de un token, o None si el token no tiene el formato."""
+    if not isinstance(token, str) or not _TOKEN_RE.fullmatch(token):
+        return None
+    return _imports_dir() / f"{token}.csv"
+
+
 class ImportService:
     # ---------- persistencia del token (CSV temporal) ----------
     @staticmethod
     def save_temp(raw: bytes, token: str) -> None:
-        (_imports_dir() / f"{token}.csv").write_bytes(raw)
+        p = _temp_csv_path(token)
+        if p is None:
+            raise ValueError(f"token de importación inválido: {token!r}")
+        p.write_bytes(raw)
 
     @staticmethod
     def read_temp(token: str) -> bytes | None:
-        p = _imports_dir() / f"{token}.csv"
+        p = _temp_csv_path(token)
+        if p is None:
+            return None
         return p.read_bytes() if p.exists() else None
 
     @staticmethod
     def delete_temp(token: str) -> None:
-        (_imports_dir() / f"{token}.csv").unlink(missing_ok=True)
+        p = _temp_csv_path(token)
+        if p is None:
+            return
+        p.unlink(missing_ok=True)
 
     # ---------- mapeo reusable ----------
     @staticmethod
@@ -170,6 +198,10 @@ class ImportService:
             issues = []
             if not control:
                 issues.append(("error", "Sin número de control"))
+            elif not CONTROL_NUMBER_RE.fullmatch(control):
+                # import_rows descarta estas filas; sin esto el preview decía "ok"
+                # y el conteo final no cuadraba.
+                issues.append(("error", f"Número de control inválido: {control}"))
             if not full_name:
                 issues.append(("error", "Sin nombre"))
             if email and not email.lower().endswith(_INSTITUTIONAL_DOMAIN):
@@ -230,6 +262,13 @@ class ImportService:
             control = (r.get("control_number") or "").strip()
             full_name = (r.get("full_name") or "").strip()
             if not control or not full_name:
+                skipped += 1
+                continue
+
+            # Mismo regex que core/api/users_admin.py (CONTROL_NUMBER_RE): este
+            # importador lo omitía, y control_number termina siendo componente de
+            # ruta en instance/apps/titulatec/{period}/{control}/documents/.
+            if not CONTROL_NUMBER_RE.fullmatch(control):
                 skipped += 1
                 continue
 

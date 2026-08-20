@@ -114,6 +114,11 @@ upstream backend {
     server backend-${TARGET_COLOR}:8001 max_fails=3 fail_timeout=30s;
     keepalive 32;
 }
+
+# Socket.IO: proceso unico (2.1). Se recrea mas abajo con la misma imagen.
+upstream sockets {
+    server sockets:8001 max_fails=3 fail_timeout=30s;
+}
 NGINX_EOF
 
 if ! docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -t > /dev/null 2>&1; then
@@ -127,6 +132,27 @@ echo ">>> Nginx recargado. Tráfico en backend-$TARGET_COLOR."
 echo ">>> Recreando Celery con itcj2-backend:$TARGET_IMG..."
 docker compose -f "$COMPOSE_FILE" up -d --no-build --force-recreate \
     celery-worker celery-worker-reports celery-beat
+
+# -- 7.1 Recrear sockets con la imagen previa (2.1) --
+# Si no se recrea, el tier de Socket.IO se queda con el código malo. Los
+# clientes reconectan solos tras ~1-3s de corte.
+echo ">>> Recreando sockets con itcj2-backend:$TARGET_IMG..."
+docker compose -f "$COMPOSE_FILE" up -d --no-build --force-recreate sockets
+
+echo ">>> Esperando /ready de sockets..."
+for i in $(seq 1 20); do
+    SOCK_CID="$(docker compose -f "$COMPOSE_FILE" ps -q sockets 2>/dev/null | head -1)"
+    if [ -n "$SOCK_CID" ]; then
+        SOCK_STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$SOCK_CID" 2>/dev/null || echo starting)"
+        [ "$SOCK_STATUS" = "healthy" ] && break
+    fi
+    sleep 2
+done
+
+# Recargar nginx: el contenedor recreado tiene IP nueva y nginx cachea la
+# resolucion del upstream al cargar la config.
+docker compose -f "$COMPOSE_FILE" exec -T nginx nginx -s reload
+echo ">>> Sockets revertido y nginx recargado."
 
 # -- 8. Drenar y detener el backend malo --
 echo ">>> Esperando 30s para drenar backend-$ACTIVE..."

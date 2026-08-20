@@ -1,11 +1,14 @@
 """Servicio de manejo de imágenes de prendas."""
 import io
+import logging
 import os
 import uuid
 from datetime import datetime
 
 from PIL import Image, ExifTags
 from werkzeug.utils import secure_filename
+
+logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 
@@ -122,15 +125,29 @@ def save_garment_image(file, garment_code):
 
 
 def delete_garment_image(relative_path):
-    """Elimina la imagen de una prenda del filesystem."""
+    """Elimina la imagen de una prenda del filesystem.
+
+    `relative_path` sale de la columna image_path (la escribe save_garment_image,
+    no el cliente), pero un borrado arbitrario es un primitivo demasiado caro para
+    dejarlo dependiendo de esa suposición: se ancla igual que el endpoint que sirve.
+    """
     if not relative_path:
         return
 
     from itcj2.config import get_settings
-    upload_path = get_settings().VISTETEC_UPLOAD_PATH
-    full_path = os.path.join(upload_path, relative_path)
+    from itcj2.core.utils.safe_paths import UnsafePath, safe_join
 
-    if os.path.exists(full_path):
+    upload_path = get_settings().VISTETEC_UPLOAD_PATH
+    parts = [seg for seg in str(relative_path).replace("\\", "/").split("/") if seg not in ("", ".")]
+    if not parts:
+        return
+    try:
+        full_path = safe_join(upload_path, *parts)
+    except UnsafePath:
+        logger.warning("delete_garment_image: ruta fuera del directorio de uploads: %r", relative_path)
+        return
+
+    if full_path.is_file():
         os.remove(full_path)
 
 

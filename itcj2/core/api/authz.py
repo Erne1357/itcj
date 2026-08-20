@@ -115,6 +115,11 @@ class UserPermBody(BaseModel):
     allow: bool = True
 
 
+# App.key viaja a rutas del filesystem (instance/apps/{key}/email/). Mismo patron
+# que itcj2/core/utils/msgraph_mail._APP_KEY_RE — mantener ambos en sync.
+_APP_KEY_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
 # ── Apps ──────────────────────────────────────────────────────────────────────
 
 @router.get("/apps")
@@ -153,6 +158,16 @@ def create_app(
     name = body.name.strip()
     if not key or not name:
         raise HTTPException(400, detail="La clave y el nombre son requeridos")
+
+    # La key se usa como componente de ruta en instance/apps/{key}/ (tokens de
+    # correo por app). Un key con "/" o ".." seria inyeccion de ruta de segundo
+    # orden: pasa por BD y sale en un mkdir. Misma allowlist que msgraph_mail.
+    if not _APP_KEY_RE.fullmatch(key):
+        raise HTTPException(
+            400,
+            detail="Clave inválida: usa minúsculas, dígitos, '-' o '_', "
+                   "empezando por letra (máx. 32 caracteres)",
+        )
 
     if db.query(App).filter_by(key=key).first():
         raise HTTPException(409, detail="Ya existe una aplicación con esa clave")
