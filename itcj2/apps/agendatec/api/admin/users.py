@@ -253,7 +253,7 @@ def create_coordinator(
         except Exception as e:
             logger.warning(f"No se pudo asignar rol staff: {e}")
 
-    actor_id = user.get("sub")
+    actor_id = int(user["sub"]) if user.get("sub") else None
     db.add(
         AuditLog(
             actor_id=actor_id,
@@ -328,15 +328,14 @@ def update_coordinator(
                 db.add(ProgramCoordinator(program_id=pid, coordinator_id=c.id))
 
     after = {"name": c.user.full_name, "email": c.contact_email, "program_ids": body.program_ids}
-    actor_id = user.get("sub")
+    actor_id = int(user["sub"]) if user.get("sub") else None
     db.add(
         AuditLog(
-            actor_user_id=actor_id,
+            actor_id=actor_id,
             entity="coordinator",
             entity_id=c.id,
             action="update",
-            from_json=before,
-            to_json=after,
+            payload_json={"before": before, "after": after},
         )
     )
     db.commit()
