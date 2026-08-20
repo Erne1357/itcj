@@ -321,3 +321,27 @@ def test_delete_rejects_when_there_are_bookings(client, coord_setup, make_grid,
                           json={"day": DAY_S, "start": "09:00", "end": "10:00"})
     assert resp.status_code == 409
     assert resp.json()["error"] == "overlap_booked_slots_exist"
+
+
+# ===========================================================================
+# GET /coord/programs — alimenta el multi-select de scope
+# ===========================================================================
+def test_coord_programs_lists_own_programs(client, coord_setup):
+    ctx = coord_setup(n_programs=3)
+    resp = client.get("/api/agendatec/v2/coord/programs", headers=ctx["headers"])
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    assert sorted(p["id"] for p in body["data"]) == sorted(ctx["program_ids"])
+    assert all("name" in p for p in body["data"])
+
+
+def test_coord_programs_excludes_other_coordinators_programs(client, coord_setup,
+                                                             make_program, make_coordinator):
+    ctx = coord_setup(n_programs=1)
+    ajena = make_program("Carrera De Otro CP")
+    make_coordinator([ajena.id], first_name="OTRO", last_name="CP")
+
+    resp = client.get("/api/agendatec/v2/coord/programs", headers=ctx["headers"])
+    assert resp.status_code == 200
+    assert ajena.id not in [p["id"] for p in resp.json()["data"]]
