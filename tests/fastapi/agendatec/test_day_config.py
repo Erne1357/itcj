@@ -99,8 +99,11 @@ def test_regenerating_the_same_duration_notifies_nobody(client, db_session, coor
     })
     assert resp.status_code == 200
     assert resp.json()["appointments_notified"] == 0
+    # Acotado al alumno del test: sin el filtro, cuenta también las
+    # notificaciones reales de la BD de dev y falla en cuanto alguien usa el
+    # feature en su navegador.
     assert db_session.query(Notification).filter_by(
-        type="APPOINTMENT_RESCHEDULED").count() == 0
+        user_id=alum.id, type="APPOINTMENT_RESCHEDULED").count() == 0
 
 
 def test_misaligned_split_is_rejected_with_offenders(client, coord_setup, make_grid,

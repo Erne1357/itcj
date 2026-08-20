@@ -18,6 +18,7 @@ from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from itcj2.apps.agendatec.config.constants import STUDENT_REQUESTS_URL
 from itcj2.apps.agendatec.models.appointment import Appointment
 from itcj2.apps.agendatec.models.request import Request
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
@@ -548,7 +549,7 @@ class RequestService:
                 type="DROP_CREATED",
                 title="Solicitud de baja creada",
                 body="Tu solicitud de baja fue registrada.",
-                data={"request_id": request.id},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": request.id},
                 source_request_id=request.id,
                 program_id=request.program_id,
             )
@@ -614,7 +615,12 @@ class RequestService:
                 type="APPOINTMENT_CREATED",
                 title="Cita agendada",
                 body=f"{slot_day} {slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')}",
-                data={"request_id": request.id, "appointment_id": appointment.id, "day": slot_day},
+                data={
+                    "url": STUDENT_REQUESTS_URL,
+                    "request_id": request.id,
+                    "appointment_id": appointment.id,
+                    "day": slot_day,
+                },
                 source_request_id=request.id,
                 source_appointment_id=appointment.id,
                 program_id=appointment.program_id,
@@ -686,7 +692,7 @@ class RequestService:
                 type="APPOINTMENT_CANCELED" if request.type == "APPOINTMENT" else "REQUEST_STATUS_CHANGED",
                 title="Solicitud cancelada",
                 body="Has cancelado tu solicitud.",
-                data={"request_id": request.id},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": request.id},
                 source_request_id=request.id,
                 program_id=request.program_id,
             )

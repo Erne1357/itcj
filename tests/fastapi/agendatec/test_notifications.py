@@ -192,3 +192,50 @@ def test_list_only_returns_agendatec_notifications(client, db_session, scenario)
     titles = [i["title"] for i in resp.json()["items"]]
     assert "de agendatec" in titles
     assert "de helpdesk" not in titles
+
+
+# ---------------------------------------------------------------------------
+# TODAS las notificaciones deben llevar URL
+# ---------------------------------------------------------------------------
+def test_every_notification_call_site_passes_the_url():
+    """Ningún sitio que cree notificaciones puede olvidar data["url"].
+
+    Es un test ESTRUCTURAL a propósito: cubrir cada flujo con un test de
+    integración deja huecos silenciosos — así se coló "Cita agendada" sin URL.
+    Sin url, action_url es null y el click solo marca como leída sin navegar.
+    """
+    import ast
+    import pathlib
+
+    raiz = pathlib.Path(__file__).resolve().parents[3] / "itcj2" / "apps" / "agendatec"
+    fallas = []
+
+    for archivo in raiz.rglob("*.py"):
+        arbol = ast.parse(archivo.read_text(encoding="utf-8"))
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.Call):
+                continue
+            fn = nodo.func
+            nombre = getattr(fn, "attr", None) or getattr(fn, "id", None)
+            if nombre not in ("create", "create_notification"):
+                continue
+            # NotificationService.create / create_notification
+            if nombre == "create":
+                duenio = getattr(fn, "value", None)
+                if getattr(duenio, "id", None) != "NotificationService":
+                    continue
+
+            kwargs = {k.arg: k.value for k in nodo.keywords}
+            data = kwargs.get("data")
+            ubic = f"{archivo.relative_to(raiz.parent.parent.parent)}:{nodo.lineno}"
+
+            if data is None:
+                fallas.append(f"{ubic} — sin argumento data=")
+                continue
+            if not isinstance(data, ast.Dict):
+                continue   # se arma en una variable: no se puede verificar aquí
+            claves = [k.value for k in data.keys if isinstance(k, ast.Constant)]
+            if "url" not in claves:
+                fallas.append(f"{ubic} — data sin clave 'url'")
+
+    assert not fallas, "Notificaciones sin URL de destino:\n  " + "\n  ".join(fallas)
