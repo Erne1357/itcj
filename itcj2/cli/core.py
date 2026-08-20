@@ -373,6 +373,36 @@ def execute_single_sql_command(sql_file):
         raise
 
 
+@click.command("migrate-session-keys")
+@click.option("--dry-run", is_flag=True, help="Solo reporta, no renombra nada.")
+def migrate_session_keys_command(dry_run):
+    """Migra las versiones de sesión al namespace propio `session:v1:ver:*`.
+
+    Correr UNA VEZ después de desplegar el fix de keyspace. El código ya migra en
+    el sitio al leer, así que esto solo barre la cola de usuarios inactivos.
+    """
+    from itcj2.core.services.session_service import _KEY, _LEGACY_KEY
+    from itcj2.core.utils.redis_conn import get_redis
+
+    r = get_redis()
+    prefix = _LEGACY_KEY.format(uid="")
+    migrated = skipped = 0
+    for key in r.scan_iter(match=f"{prefix}*", count=1000):
+        uid = key[len(prefix):]
+        if dry_run:
+            migrated += 1
+            continue
+        # RENAMENX: si la clave nueva ya existe (el usuario pasó por el código
+        # mientras corría esto), la vieja es la obsoleta y se descarta.
+        if r.renamenx(key, _KEY.format(uid=uid)):
+            migrated += 1
+        else:
+            r.delete(key)
+            skipped += 1
+    verb = "Se migrarían" if dry_run else "Migradas"
+    click.echo(f"✅ {verb} {migrated} claves de sesión; {skipped} descartadas por duplicado.")
+
+
 @click.command("init-themes")
 def init_themes_command():
     """Inicializa los permisos y datos base para el sistema de temáticas."""
@@ -713,6 +743,7 @@ core_cli.add_command(seed_reference_data_command)
 core_cli.add_command(reset_database_command)
 core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
+core_cli.add_command(migrate_session_keys_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
 core_cli.add_command(init_config_2026_07_command)
