@@ -185,6 +185,22 @@ class AppNotificationFAB {
                 console.log(`[FAB-${this.appName}] WebSocket connected`, data);
             });
 
+            // Puente DOM para páginas que reaccionan a notificaciones sin abrir
+            // el FAB (p.ej. agendatec student/requests.js autorefresca su lista).
+            // Se registra UNA sola vez por socket: el socket es compartido
+            // (window.__notifySocket) y puede haber varios FAB montados, lo que
+            // duplicaría el evento. El FAB es el único dueño del socket, así que
+            // hacerlo aquí evita la race que tendría un segundo cliente
+            // compitiendo por crearlo.
+            if (!this.socket.__notifBridgeAttached) {
+                this.socket.__notifBridgeAttached = true;
+                this.socket.on('notify', (notification) => {
+                    document.dispatchEvent(
+                        new CustomEvent('notif:push', { detail: notification })
+                    );
+                });
+            }
+
             // Evento: nueva notificación
             this.socket.on('notify', (notification) => {
                 // Solo procesar si es de esta app
