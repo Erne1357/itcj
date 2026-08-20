@@ -33,7 +33,10 @@ def list_notifications(
     TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     uid = int(user["sub"])
 
-    q = db.query(Notification).filter(Notification.user_id == uid)
+    q = db.query(Notification).filter(
+        Notification.user_id == uid,
+        Notification.app_name == "agendatec",
+    )
     if unread:
         q = q.filter(Notification.is_read == False)
     if before_id:
@@ -75,7 +78,11 @@ def mark_all_read(
     """Marca todas las notificaciones del usuario como leídas."""
     TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
     uid = int(user["sub"])
-    db.query(Notification).filter_by(user_id=uid, is_read=False).update(
+    # El filtro por app_name es obligatorio: sin él, un alumno que abre agendatec
+    # borra también sus badges de helpdesk y vistetec.
+    db.query(Notification).filter_by(
+        user_id=uid, app_name="agendatec", is_read=False
+    ).update(
         {"is_read": True, "read_at": datetime.now()},
         synchronize_session=False,
     )
