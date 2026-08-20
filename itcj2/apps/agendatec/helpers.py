@@ -21,17 +21,39 @@ from itcj2.exceptions import PageForbidden
 
 
 # ============================================================
-# TEMP_TEST_GATE — REMOVE AFTER TESTING (período exclusivo jefa)
-# Solo permite al estudiante con control_number = "22111360".
-# Coord / admin / social_service NO se ven afectados (sus endpoints
-# usan otro role).
-# Grep: TEMP_TEST_GATE  → borrar este bloque + sus llamadas.
+# TEMP_TEST_GATE — DESACTIVADO (2026-08-20)
+#
+# Restringía AgendaTec a los estudiantes de la lista blanca de abajo
+# (período exclusivo de pruebas). Con el gate activo, cualquier alumno
+# fuera de la tupla recibía 403 / PageForbidden y NO podía solicitar
+# cita: inviable con el periodo abierto a todos.
+#
+# Se apaga desde aquí en vez de comentar las ~44 llamadas repartidas en
+# 12 archivos (api/{availability,notifications,periods,programs,requests,
+# slots,social}.py, pages/{landing,student}.py, sockets/{slots,requests}.py):
+# los dos helpers salen en corto y el resto del código sigue igual. En los
+# sockets, `allowed` queda siempre en True y sus bloques se vuelven no-op.
+#
+# PARA VOLVER A USARLO: poner TEMP_TEST_GATE_ENABLED = True y ajustar la
+# tupla de números de control. Nada más — las llamadas siguen puestas.
+#
+# Efecto lateral bueno de tenerlo apagado: cada llamada hacía
+# user_roles_in_app() + db.get(User), o sea 2 golpes a BD por endpoint y
+# por connect de socket. Apagado, ni se tocan.
+#
+# Grep: TEMP_TEST_GATE  → este bloque + sus llamadas.
 # ============================================================
+TEMP_TEST_GATE_ENABLED = False
 TEMP_TEST_GATE_CONTROL_NUMBER = ("22111360", "94110667", "21111182")
 
 
 def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = False) -> None:
-    """Bloquea estudiantes excepto el de pruebas. Coord/admin/social pasan."""
+    """Bloquea estudiantes excepto los de la lista blanca. Coord/admin/social pasan.
+
+    No-op mientras TEMP_TEST_GATE_ENABLED sea False.
+    """
+    if not TEMP_TEST_GATE_ENABLED:
+        return
     if (user or {}).get("role") == "admin":
         return
     try:
@@ -53,7 +75,12 @@ def TEMP_TEST_GATE_check_student(user: dict, db: Session, *, is_page: bool = Fal
 
 
 def TEMP_TEST_GATE_check_student_sync(user: dict) -> bool:
-    """Versión sync para Socket.IO connect. True = permitir, False = bloquear."""
+    """Versión sync para Socket.IO connect. True = permitir, False = bloquear.
+
+    Siempre True mientras TEMP_TEST_GATE_ENABLED sea False.
+    """
+    if not TEMP_TEST_GATE_ENABLED:
+        return True
     if (user or {}).get("role") == "admin":
         return True
     try:
