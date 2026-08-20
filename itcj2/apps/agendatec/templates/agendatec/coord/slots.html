@@ -44,7 +44,11 @@
               <option>20</option>
               <option>30</option>
               <option>60</option>
+              <option value="custom">Otra…</option>
             </select>
+            <input type="number" class="form-control form-control-sm mt-1"
+                   id="cfgMinutesCustom" min="5" max="60" step="1" value="12"
+                   aria-label="Minutos por cita (personalizado)" hidden>
           </div>
           <div class="col-6 col-sm-2 d-grid">
             <button class="btn btn-primary btn-sm" id="btnSaveCfg" type="submit">

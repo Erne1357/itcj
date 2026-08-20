@@ -23,6 +23,22 @@ class SplitOffender:
 
 
 @dataclass
+class KeptAsIs:
+    """Slot reservado que NO admite la duración nueva y se deja intacto.
+
+    Ocurre cuando la duración pedida es mayor o igual a la que ya tiene:
+    acortarlo es imposible y alargarlo pisaría el siguiente. En vez de rechazar
+    el rango entero, ese bloque conserva su geometría y el resto sí se
+    re-divide. El preview los lista para que el coordinador sepa qué no cambió.
+    """
+
+    slot_id: int
+    start: time
+    end: time
+    current_minutes: int
+
+
+@dataclass
 class ShortenedSlot:
     """Slot reservado que cambia de duración.
 
@@ -74,6 +90,7 @@ class SplitPlan:
     new_minutes: int
     to_shorten: List[ShortenedSlot] = field(default_factory=list)        # TODOS los que cambian
     to_notify: List[AffectedAppointment] = field(default_factory=list)   # solo los SCHEDULED
+    kept_as_is: List[KeptAsIs] = field(default_factory=list)             # no admiten la duración
     to_delete_ids: List[int] = field(default_factory=list)
     to_create: List[Tuple[time, time]] = field(default_factory=list)
     occupied: List[Tuple[time, time]] = field(default_factory=list)      # huecos que la grilla salta

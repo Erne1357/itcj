@@ -109,6 +109,9 @@
       const r = await fetch(url, { credentials: "include" });
       if (!r.ok) throw new Error();
       const data = await r.json();
+      // Los huecos vienen del mismo endpoint: se guardan aparte porque el
+      // render de la tira los pinta al final, no como un chip mas.
+      lastGaps = data.gaps || [];
       return data.slots || [];
     } catch {
       return [];
@@ -157,16 +160,65 @@
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = `at-slot-chip at-slot-chip--${state} at-slot-chip--interactive`;
-      chip.setAttribute("data-slot-id", s.id || "");
-      chip.setAttribute("title", `${s.start}–${s.end} · ${who}`);
-      chip.setAttribute("aria-label", `Horario ${s.start} a ${s.end} — ${who}`);
+      // El endpoint devuelve slot_id, no id: antes esto salía siempre vacío.
+      chip.setAttribute("data-slot-id", s.slot_id || "");
 
-      chip.innerHTML = `<span class="at-slot-chip__time">${escapeHtml(s.start)}–${escapeHtml(s.end)}</span>`;
+      // Scope por carrera: con rangos limitados, la tira es el único sitio
+      // donde el coordinador ve a quién le está ofreciendo cada bloque.
+      const limitado = Array.isArray(s.programs) && s.programs.length && !s.programs_are_all;
+      const carreras = limitado ? s.programs.map((p) => p.name).join(", ") : "";
+      const dur = s.duration_minutes ? ` · ${s.duration_minutes} min` : "";
+
+      chip.setAttribute(
+        "title",
+        `${s.start}–${s.end}${dur} · ${who}` + (limitado ? ` · Solo: ${carreras}` : "")
+      );
+      chip.setAttribute(
+        "aria-label",
+        `Horario ${s.start} a ${s.end} — ${who}` +
+          (limitado ? `, limitado a ${carreras}` : "")
+      );
+
+      chip.innerHTML =
+        `<span class="at-slot-chip__time">${escapeHtml(s.start)}–${escapeHtml(s.end)}</span>` +
+        // Marca discreta: los nombres de carrera no caben en el chip, así que
+        // solo se indica que está limitado; el detalle va en el title y en el
+        // mini-modal.
+        (limitado
+          ? `<span class="at-slot-chip__scoped" aria-hidden="true"
+                   >${s.programs.length}</span>`
+          : "");
+
+      if (limitado) chip.classList.add("at-slot-chip--scoped");
 
       // Click → mini-modal con detalle
       chip.addEventListener("click", () => openSlotDetail(s));
       strip.appendChild(chip);
     }
+
+    renderGaps(strip, lastGaps);
+  }
+
+  // === HUECOS SIN SLOT ===
+  // Tramos dentro de una ventana que quedaron sin ningún slot, normalmente por
+  // el sobrante de una re-división. Sin esto el coordinador no tiene forma de
+  // enterarse de que ahí perdió capacidad.
+  let lastGaps = [];
+
+  function renderGaps(container, gaps) {
+    if (!container || !Array.isArray(gaps) || !gaps.length) return;
+
+    const total = gaps.reduce((acc, g) => acc + (g.minutes || 0), 0);
+    const detalle = gaps.map((g) => `${g.start}–${g.end} (${g.minutes} min)`).join(", ");
+
+    const aviso = document.createElement("div");
+    aviso.className = "at-strip-gaps text-muted small mt-2";
+    aviso.setAttribute("title", detalle);
+    aviso.innerHTML =
+      `<i class="bi bi-dash-circle" aria-hidden="true"></i> ` +
+      `${total} min sin horario dentro de tus ventanas ` +
+      `<span class="at-strip-gaps__detail">(${escapeHtml(detalle)})</span>`;
+    container.appendChild(aviso);
   }
 
   // === TABLA ===

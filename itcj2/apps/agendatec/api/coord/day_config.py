@@ -76,6 +76,18 @@ def _parse_and_validate(body, user, db):
     return coord_id, d, start_t, end_t
 
 
+def _kept_payload(plan):
+    """Bloques que NO admitieron la duracion nueva y se dejaron intactos."""
+    return [
+        {
+            "slot_id": k.slot_id,
+            "range": f"{k.start:%H:%M}–{k.end:%H:%M}",
+            "current_minutes": k.current_minutes,
+        }
+        for k in plan.kept_as_is
+    ]
+
+
 def _offenders_payload(plan):
     return [
         {"slot_id": o.slot_id, "start": o.start.strftime("%H:%M"),
@@ -247,6 +259,7 @@ def preview_day_config(body: PreviewDayConfigBody, user: dict = CreatePerm, db: 
         "slots_preserved_with_history": len(plan.preserved_with_history),
         "appointments_affected": [_fmt(a) for a in plan.to_notify],
         "out_of_scope_appointments": [_fmt(a) for a in plan.out_of_scope],
+        "kept_as_is": _kept_payload(plan),
         "blocked": plan.blocked,
         "offenders": _offenders_payload(plan),
         "advisory": "El resultado puede cambiar si un alumno reserva antes de confirmar.",
@@ -310,6 +323,7 @@ def set_day_config(body: SetDayConfigBody, user: dict = CreatePerm, db: DbSessio
         "slots_deleted": result.slots_deleted,
         "slots_shortened": result.slots_shortened,
         "slots_preserved_with_history": len(plan.preserved_with_history),
+        "slots_kept_as_is": len(plan.kept_as_is),
         "appointments_notified": len(result.affected),
         **win_stats,
     }

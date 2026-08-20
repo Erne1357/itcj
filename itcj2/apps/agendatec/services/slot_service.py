@@ -32,6 +32,67 @@ def _overlaps_any(start: time, end: time, intervals: List[Tuple[time, time]]) ->
     return any(start < o_end and end > o_start for o_start, o_end in intervals)
 
 
+def _fill_gaps(
+    day: date,
+    start: time,
+    end: time,
+    minutes: int,
+    occupied: List[Tuple[time, time]],
+) -> List[Tuple[time, time]]:
+    """Genera slots en los huecos que dejan las anclas.
+
+    Dos reglas, en este orden:
+
+    1. **Rejilla canónica.** Los slots se enganchan a `start + k·minutes`. Sin
+       esto, una sola cita en un offset raro (9:03–9:08 que no se puede
+       acortar) contagiaría sus minutos al resto del día: 9:08, 9:18, 9:28…
+    2. **Fallback local.** Si anclar en la canónica dejaría el hueco VACÍO
+       pudiendo caber al menos un slot, se ancla al inicio del hueco. Un hueco
+       de 9:08 a 9:18 con slots de 10 daría 9:10–9:20, que se sale; con el
+       fallback da 9:08–9:18 y no se desperdicia.
+
+    El sobrante de cada hueco queda sin slot: todo slot ofrecido dura
+    exactamente `minutes`.
+
+    `occupied` debe venir ORDENADO y sin solapes entre sí.
+    """
+    base = datetime.combine(day, start)
+    fin = datetime.combine(day, end)
+    step = timedelta(minutes=minutes)
+    out: List[Tuple[time, time]] = []
+
+    def _snap(punto: datetime) -> datetime:
+        """Sube `punto` al siguiente múltiplo de la rejilla canónica."""
+        delta = int((punto - base).total_seconds() // 60)
+        if delta <= 0:
+            return base
+        k = -(-delta // minutes)          # ceil de la división entera
+        return base + timedelta(minutes=k * minutes)
+
+    def _tramo(lo: datetime, hi: datetime) -> None:
+        if hi <= lo:
+            return
+        cur = _snap(lo)
+        antes = len(out)
+        while cur + step <= hi:
+            out.append((cur.time(), (cur + step).time()))
+            cur += step
+        if len(out) == antes and (hi - lo) >= step:
+            # La canónica desperdició un hueco donde sí cabía: anclar local.
+            cur = lo
+            while cur + step <= hi:
+                out.append((cur.time(), (cur + step).time()))
+                cur += step
+
+    cursor = base
+    for a_ini, a_fin in occupied:
+        _tramo(cursor, datetime.combine(day, a_ini))
+        cursor = max(cursor, datetime.combine(day, a_fin))
+    _tramo(cursor, fin)
+
+    return out
+
+
 def _appointment_program_id(db: Session, slot_id: int) -> Optional[int]:
     from itcj2.apps.agendatec.models import Appointment
 
@@ -138,18 +199,37 @@ class SlotService:
         cur = datetime.combine(day, start)
         end_dt = datetime.combine(day, end)
 
-        created = []
+        intervals = []
         while (cur + step) <= end_dt:
             cur_end = cur + step
             if not _overlaps_any(cur.time(), cur_end.time(), skip):
-                slot = TimeSlot(
-                    coordinator_id=coord_id, day=day,
-                    start_time=cur.time(), end_time=cur_end.time(),
-                    is_booked=False,
-                )
-                db.add(slot)
-                created.append(slot)
+                intervals.append((cur.time(), cur_end.time()))
             cur = cur_end
+
+        return SlotService.create_slots(db, coord_id, day, intervals, program_ids)
+
+    @staticmethod
+    def create_slots(db: Session, coord_id: int, day: date,
+                     intervals: List[Tuple[time, time]], program_ids: List[int]) -> list:
+        """Materializa intervalos EXPLÍCITOS con su scope. No decide fronteras.
+
+        Único punto de INSERT de slots del proyecto. Separarlo de
+        `generate_range` es lo que permite que `apply_split` escriba los
+        intervalos que calculó el planner en vez de re-derivar una rejilla que
+        ya no coincide con ellos.
+
+        NO hace commit.
+        """
+        from itcj2.apps.agendatec.models import TimeSlot, TimeSlotProgram
+
+        created = []
+        for st, en in intervals:
+            slot = TimeSlot(
+                coordinator_id=coord_id, day=day,
+                start_time=st, end_time=en, is_booked=False,
+            )
+            db.add(slot)
+            created.append(slot)
 
         db.flush()   # se necesitan los ids para la proyección de scope
         for slot in created:
@@ -179,7 +259,7 @@ class SlotService:
         from itcj2.apps.agendatec.config.constants import SPLIT_GRACE_MINUTES
         from itcj2.apps.agendatec.models import Appointment, TimeSlot
         from itcj2.apps.agendatec.schemas.slot_plan import (
-            AffectedAppointment, ShortenedSlot, SplitOffender, SplitPlan,
+            AffectedAppointment, KeptAsIs, ShortenedSlot, SplitPlan,
         )
 
         now_local = now_app()
@@ -246,67 +326,15 @@ class SlotService:
         booked = [s for s in in_range if s.is_booked]
         free = [s for s in in_range if not s.is_booked]
 
-        anchor_min = start_efectivo.hour * 60 + start_efectivo.minute
-        end_min = end.hour * 60 + end.minute
-
-        # --- Validación C1 / C2 / C3 sobre los reservados --------------------
-        for s in booked:
-            s_min = s.start_time.hour * 60 + s.start_time.minute
-            cur_len = _minutes(s.start_time, s.end_time)
-            offset = s_min - anchor_min
-
-            if offset < 0 or offset % new_minutes != 0:
-                plan.offenders.append(
-                    SplitOffender(s.id, s.start_time, s.end_time, "not_on_grid"))
-                continue
-            if new_minutes > cur_len:
-                plan.offenders.append(
-                    SplitOffender(s.id, s.start_time, s.end_time, "would_grow"))
-                continue
-
-            # C2 solo aplica si el slot realmente cambia: evaluarla siempre
-            # produce 409 falsos al recortar la cola vacía de un rango.
-            needs_change = cur_len != new_minutes
-            if needs_change and (s_min + new_minutes) > end_min:
-                plan.offenders.append(
-                    SplitOffender(s.id, s.start_time, s.end_time, "does_not_fit"))
-                continue
-
-            if needs_change:
-                new_end = (datetime.combine(day, s.start_time)
-                           + timedelta(minutes=new_minutes)).time()
-                # TODO slot que cambia se acorta, tenga o no cita SCHEDULED.
-                plan.to_shorten.append(ShortenedSlot(
-                    slot_id=s.id,
-                    old_start=s.start_time, old_end=s.end_time,
-                    new_start=s.start_time, new_end=new_end,
-                ))
-                # Solo los SCHEDULED se notifican: DONE y NO_SHOW dejan
-                # is_booked=True pero avisarles es ruido.
-                ap = (
-                    db.query(Appointment)
-                    .options(joinedload(Appointment.student), joinedload(Appointment.program))
-                    .filter_by(slot_id=s.id, status="SCHEDULED")
-                    .first()
-                )
-                if ap:
-                    plan.to_notify.append(AffectedAppointment(
-                        slot_id=s.id,
-                        appointment_id=ap.id,
-                        request_id=ap.request_id,
-                        student_id=ap.student_id,
-                        student_name=(ap.student.full_name if ap.student else ""),
-                        program_name=(ap.program.name if ap.program else ""),
-                        old_start=s.start_time, old_end=s.end_time,
-                        new_start=s.start_time, new_end=new_end,
-                    ))
-
-        if plan.offenders:
-            return plan   # bloqueado: no se planea nada más
-
-        # --- Borrado: excluir slots con historial de citas -------------------
-        # agendatec_appointments.slot_id es ON DELETE CASCADE, y hay citas
-        # CANCELED viviendo sobre slots libres. Borrarlas destruye historial.
+        # --- Qué slots sobreviven, y con qué geometría -----------------------
+        # Cada superviviente es un ANCLA INAMOVIBLE: su hora de inicio no se
+        # toca nunca. Solo puede acortarse.
+        #
+        # Sobreviven: los reservados (siempre) y los libres CON historial de
+        # citas — agendatec_appointments.slot_id es ON DELETE CASCADE, así que
+        # borrarlos destruiría citas CANCELED. Pero el CASCADE solo prohíbe
+        # BORRAR: a los de historial sí se les puede cambiar la duración, y hay
+        # que hacerlo o quedarían reservables con la duración vieja para siempre.
         free_ids = [s.id for s in free]
         with_history = set()
         if free_ids:
@@ -314,33 +342,64 @@ class SlotService:
                 row[0] for row in
                 db.query(Appointment.slot_id).filter(Appointment.slot_id.in_(free_ids)).all()
             }
+
+        survivors = list(booked)
         for s in free:
             if s.id in with_history:
                 plan.preserved_with_history.append(s.id)
+                survivors.append(s)
             else:
                 plan.to_delete_ids.append(s.id)
 
-        # --- Huecos ocupados por los supervivientes --------------------------
-        # Se guardan EN EL PLAN. apply_split los reusa tal cual: recalcularlos
-        # con reglas distintas hacía que /preview reportara más slots creados
-        # de los que el POST realmente crea.
-        shortened_by_id = {s.slot_id: s for s in plan.to_shorten}
-        for s in booked:
-            sh = shortened_by_id.get(s.id)
-            plan.occupied.append((s.start_time, sh.new_end if sh else s.end_time))
-        for sid in plan.preserved_with_history:
-            s = next(x for x in free if x.id == sid)
-            plan.occupied.append((s.start_time, s.end_time))
+        survivors.sort(key=lambda s: s.start_time)   # el no-solape depende del orden
 
-        # --- Grilla nueva ----------------------------------------------------
-        cur = datetime.combine(day, start_efectivo)
-        end_dt = datetime.combine(day, end)
-        step = timedelta(minutes=new_minutes)
-        while (cur + step) <= end_dt:
-            cur_end = cur + step
-            if not _overlaps_any(cur.time(), cur_end.time(), plan.occupied):
-                plan.to_create.append((cur.time(), cur_end.time()))
-            cur = cur_end
+        # --- Acortar lo que se pueda; el resto se deja igual -----------------
+        # Nunca se rechaza el rango: si una cita no admite la duración nueva,
+        # conserva la suya y el resto del rango sí se re-divide.
+        for s in survivors:
+            cur_len = _minutes(s.start_time, s.end_time)
+            if new_minutes >= cur_len:
+                # Acortar es imposible y alargar pisaría al siguiente.
+                plan.kept_as_is.append(
+                    KeptAsIs(s.id, s.start_time, s.end_time, cur_len))
+                plan.occupied.append((s.start_time, s.end_time))
+                continue
+
+            new_end = (datetime.combine(day, s.start_time)
+                       + timedelta(minutes=new_minutes)).time()
+            plan.to_shorten.append(ShortenedSlot(
+                slot_id=s.id,
+                old_start=s.start_time, old_end=s.end_time,
+                new_start=s.start_time, new_end=new_end,
+            ))
+            plan.occupied.append((s.start_time, new_end))
+
+            # Solo los SCHEDULED se notifican: DONE y NO_SHOW dejan
+            # is_booked=True pero avisarles es ruido, y los libres con historial
+            # no tienen a quién avisar.
+            ap = (
+                db.query(Appointment)
+                .options(joinedload(Appointment.student), joinedload(Appointment.program))
+                .filter_by(slot_id=s.id, status="SCHEDULED")
+                .first()
+            )
+            if ap:
+                plan.to_notify.append(AffectedAppointment(
+                    slot_id=s.id,
+                    appointment_id=ap.id,
+                    request_id=ap.request_id,
+                    student_id=ap.student_id,
+                    student_name=(ap.student.full_name if ap.student else ""),
+                    program_name=(ap.program.name if ap.program else ""),
+                    old_start=s.start_time, old_end=s.end_time,
+                    new_start=s.start_time, new_end=new_end,
+                ))
+
+        # --- Rellenar los huecos entre anclas --------------------------------
+        plan.occupied.sort()
+        plan.to_create.extend(
+            _fill_gaps(day, start_efectivo, end, new_minutes, plan.occupied)
+        )
 
         # --- Citas que quedarían fuera del scope nuevo -----------------------
         scope = set(program_ids)
@@ -370,6 +429,9 @@ class SlotService:
         from itcj2.apps.agendatec.models import TimeSlot, TimeSlotProgram
         from itcj2.apps.agendatec.schemas.slot_plan import SplitResult
 
+        # `plan.blocked` ya nunca es True: el split por bloques no rechaza
+        # rangos. Se conserva la guarda por si alguien reintroduce un motivo
+        # de bloqueo sin revisar este camino.
         if plan.blocked:
             raise ValueError("apply_split llamado con un plan bloqueado")
 
@@ -407,12 +469,13 @@ class SlotService:
                     "deleted": result.slots_deleted,
                 })
 
-        # 3) Regenerar la grilla saltando lo ocupado. plan.occupied viene del
-        #    plan, NO se recalcula.
-        created = SlotService.generate_range(
-            db, coord_id, day, plan.start_efectivo, plan.end,
-            plan.new_minutes, program_ids, skip_intervals=plan.occupied,
-        )
+        # 3) Materializar EXACTAMENTE los intervalos planeados.
+        #    NO se re-deriva la rejilla: con el relleno por huecos (canónica +
+        #    fallback local), una rejilla global desde start_efectivo produce
+        #    otros horarios y a veces otro conteo, así que /preview prometería
+        #    una cosa y el POST crearía otra. El planner es la única autoridad
+        #    sobre las fronteras; aquí solo se escriben.
+        created = SlotService.create_slots(db, coord_id, day, plan.to_create, program_ids)
         result.slots_created = len(created)
 
         # 4) Re-proyectar el scope de los reservados acortados, conservando la

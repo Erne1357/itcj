@@ -98,8 +98,13 @@ MAX_LIMIT = 500
 # SLOTS DE TIEMPO
 # =============================================================================
 
-# Duraciones válidas de slots en minutos
-VALID_SLOT_MINUTES: FrozenSet[int] = frozenset({5, 10, 15, 20, 30, 60})
+# Duraciones válidas de slots, en minutos. El coordinador puede elegir
+# CUALQUIER entero del rango: 7, 13 o 25 son válidos, no solo los redondos.
+# El tope inferior evita rejillas absurdas (un rango de 8 h a 1 min son 480
+# slots y 1440 filas de scope); el superior, citas de más de una hora.
+MIN_SLOT_MINUTES = 5
+MAX_SLOT_MINUTES = 60
+VALID_SLOT_MINUTES: FrozenSet[int] = frozenset(range(MIN_SLOT_MINUTES, MAX_SLOT_MINUTES + 1))
 
 # Duración por defecto de un slot en minutos
 DEFAULT_SLOT_MINUTES = 10

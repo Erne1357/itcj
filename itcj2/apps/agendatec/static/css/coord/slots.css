@@ -113,3 +113,46 @@
   min-height: 1.5rem;
 }
 
+
+/* ── Scope por carrera y huecos ─────────────────────────────────────────────
+   Con duraciones libres y rangos limitados a ciertas carreras, la tira del día
+   necesita dos señales que antes no existían: qué bloques están restringidos y
+   qué tramos quedaron sin horario. Ambas son deliberadamente discretas: el
+   contenido principal del chip sigue siendo la hora. */
+
+.at-slot-chip--scoped {
+  position: relative;
+}
+
+/* Contador de carreras. Los nombres no caben en 90px, así que el chip solo
+   indica CUÁNTAS son; el detalle vive en el title y en el mini-modal. */
+.at-slot-chip__scoped {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: .625rem;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 6px;
+  background: var(--bs-warning-bg-subtle, #fff3cd);
+  color: var(--bs-warning-text-emphasis, #664d03);
+  font-weight: 600;
+}
+
+.at-strip-gaps {
+  display: flex;
+  align-items: baseline;
+  gap: .35rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+/* En pantallas chicas el desglose se esconde: el total ya comunica lo esencial
+   y el title conserva el detalle completo. */
+.at-strip-gaps__detail {
+  opacity: .75;
+}
+
+@media (max-width: 575.98px) {
+  .at-strip-gaps__detail { display: none; }
+}

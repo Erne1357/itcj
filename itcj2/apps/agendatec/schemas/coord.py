@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 
@@ -15,7 +15,9 @@ class SetDayConfigBody(BaseModel):
     day: str
     start: str
     end: str
-    slot_minutes: int = 10
+    # Cota tambien aqui, no solo en el endpoint: sin ella un 0 o un negativo
+    # llega al generador de rejilla y produce un bucle infinito.
+    slot_minutes: int = Field(default=10, ge=5, le=60)
     # None o [] => todas las carreras del coordinador. El default preserva el
     # comportamiento anterior para quien no use el scope.
     programs: Optional[List[int]] = None

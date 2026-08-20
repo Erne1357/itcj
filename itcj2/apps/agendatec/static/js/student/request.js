@@ -858,10 +858,20 @@
       btn.dataset.slot = s.slot_id;
 
       const timeLabel = `${s.start_time} - ${s.end_time}`;
-      btn.innerHTML = `<span class="at-slot__label">${timeLabel}</span>`;
+      // La duración ya no es constante: cada rango del coordinador puede tener
+      // la suya, y dos coordinadores de la misma carrera pueden ofrecer citas
+      // de distinta duración el mismo día. El alumno debe saber cuánto dura la
+      // que elige antes de reservarla.
+      const mins = Number(s.duration_minutes) || 0;
+      btn.innerHTML =
+        `<span class="at-slot__label">${timeLabel}</span>` +
+        (mins ? `<span class="at-slot__dur">${mins} min</span>` : "");
 
       // aria-label descriptivo
-      btn.setAttribute("aria-label", `${timeLabel} — disponible`);
+      btn.setAttribute(
+        "aria-label",
+        mins ? `${timeLabel}, ${mins} minutos — disponible` : `${timeLabel} — disponible`
+      );
 
       btn.addEventListener("click", () => {
         const newId = Number(btn.dataset.slot);
