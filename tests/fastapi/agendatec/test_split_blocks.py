@@ -299,3 +299,108 @@ def test_adjacent_bookings_without_gap(db_session, coord_setup, make_grid,
     assert (time(9, 0), time(9, 5)) in ivs
     assert (time(9, 10), time(9, 15)) in ivs
     _assert_no_overlaps(db_session, ctx["coord"].id)
+
+
+# ===========================================================================
+# Datos que la UI necesita
+# ===========================================================================
+def test_student_endpoint_exposes_duration(client, coord_setup, make_grid,
+                                           make_student, temprano):
+    """El alumno debe saber cuánto dura la cita que elige."""
+    from tests.conftest import make_jwt
+
+    ctx = coord_setup(n_programs=1)
+    make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 13, ctx["program_ids"])
+    alum = make_student("20991100", first_name="X", last_name="UNO")
+    headers = {"Cookie": f"itcj_token={make_jwt(user_id=alum.id, role='student')}"}
+
+    resp = client.get(
+        f"/api/agendatec/v2/availability/program/{ctx['program_ids'][0]}/slots?day=2026-09-01",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["items"], "debe haber slots"
+    assert all(i["duration_minutes"] == 13 for i in body["items"])
+    assert body["durations"] == [13]
+
+
+def test_coord_strip_exposes_scope_duration_and_gaps(client, db_session, coord_setup,
+                                                     make_grid, temprano):
+    """La tira del coordinador necesita saber a quién ofrece cada bloque."""
+    ctx = coord_setup(n_programs=3)
+    # Rango limitado a una sola carrera, con duración que deja sobrante:
+    # 09:00-10:00 a 25 min -> 2 slots (09:00-09:25, 09:25-09:50) y un hueco
+    # de 10 min al final.
+    resp = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+        "day": "2026-09-01", "start": "09:00", "end": "10:00", "slot_minutes": 25,
+        "programs": [ctx["program_ids"][0]],
+    })
+    assert resp.status_code == 200, resp.text
+
+    vista = client.get("/api/agendatec/v2/coord/appointments?day=2026-09-01&include_empty=1",
+                       headers=ctx["headers"])
+    assert vista.status_code == 200, vista.text
+    body = vista.json()
+
+    slots = body["slots"]
+    assert all(s["duration_minutes"] == 25 for s in slots)
+    assert all(len(s["programs"]) == 1 for s in slots)
+    assert all(s["programs_are_all"] is False for s in slots), \
+        "el rango está limitado: no son todas sus carreras"
+
+    huecos = body["gaps"]
+    assert huecos, "el sobrante de 10 min debe reportarse como hueco"
+    assert huecos[0]["start"] == "09:50" and huecos[0]["minutes"] == 10
+
+
+def test_coord_strip_marks_full_scope(client, coord_setup, temprano):
+    """Sin limitar carreras, programs_are_all debe ser True."""
+    ctx = coord_setup(n_programs=3)
+    client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+        "day": "2026-09-01", "start": "09:00", "end": "10:00", "slot_minutes": 10,
+    })
+    vista = client.get("/api/agendatec/v2/coord/appointments?day=2026-09-01&include_empty=1",
+                       headers=ctx["headers"])
+    slots = vista.json()["slots"]
+    assert slots and all(s["programs_are_all"] is True for s in slots)
+    assert vista.json()["gaps"] == [], "una rejilla exacta no deja huecos"
+
+
+def test_a_later_split_does_not_wipe_earlier_notifications(client, db_session, coord_setup,
+                                                           make_grid, make_user, make_booking,
+                                                           temprano):
+    """Re-dividir OTRO rango no puede borrar los avisos ya enviados.
+
+    El E2E hacía la aserción en un test posterior y la notificación había
+    desaparecido para entonces; conviene fijar el invariante aquí, donde se
+    puede mirar la BD directamente.
+    """
+    from itcj2.core.models.notification import Notification
+
+    ctx = coord_setup(n_programs=1)
+    _, slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 10, ctx["program_ids"])
+    alum = make_user(first_name="Y", last_name="UNO", control_number="20991200")
+    make_booking(slots[0], alum, ctx["program_ids"][0], ctx["period"].id)
+
+    # Primer split: genera la notificación de reagenda.
+    r1 = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+        "day": "2026-09-01", "start": "09:00", "end": "10:00", "slot_minutes": 5,
+    })
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["appointments_notified"] == 1
+
+    def _cuenta():
+        return (db_session.query(Notification)
+                .filter_by(user_id=alum.id, type="APPOINTMENT_RESCHEDULED").count())
+
+    assert _cuenta() == 1, "el POST reporta 1 notificada: tiene que existir en la BD"
+
+    # Segundo split, en un rango DISTINTO y sin citas.
+    r2 = client.post("/api/agendatec/v2/coord/day-config", headers=ctx["headers"], json={
+        "day": "2026-09-01", "start": "11:00", "end": "12:00", "slot_minutes": 7,
+    })
+    assert r2.status_code == 200, r2.text
+
+    db_session.expire_all()
+    assert _cuenta() == 1, "el segundo split no puede borrar el aviso del primero"

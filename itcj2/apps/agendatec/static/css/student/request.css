@@ -1,0 +1,16 @@
+
+/* ── Duración del slot ──────────────────────────────────────────────────────
+   La duración dejó de ser constante: cada rango del coordinador puede tener la
+   suya. El chip la muestra bajo la hora para que el alumno sepa cuánto dura la
+   cita antes de reservarla. */
+
+.at-slot {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.at-slot__dur {
+  font-size: .6875rem;
+  line-height: 1;
+  opacity: .7;
+}

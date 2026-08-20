@@ -163,19 +163,98 @@ def coord_appointments(
     ap_by_slot = {slot.id: _row_to_item(ap, slot, prog, req, stu) for ap, slot, prog, req, stu in rows}
     # Remove appointment-specific keys; keep as-is for slot map
 
-    slots = [
-        {
+    slot_rows = ts_q.all()
+
+    # Scope por carrera de cada slot, en UNA query agrupada (no N+1). Con
+    # duraciones libres y rangos limitados a ciertas carreras, la tira del día
+    # es el único sitio donde el coordinador puede ver a quién ofrece cada
+    # bloque.
+    from itcj2.apps.agendatec.models import TimeSlotProgram
+
+    slot_ids = [s.id for s, _, _ in slot_rows]
+    scope_by_slot = {}
+    if slot_ids:
+        for sid, pid, pname in (
+            db.query(TimeSlotProgram.slot_id, Program.id, Program.name)
+            .join(Program, Program.id == TimeSlotProgram.program_id)
+            .filter(TimeSlotProgram.slot_id.in_(slot_ids))
+            .all()
+        ):
+            scope_by_slot.setdefault(sid, []).append({"id": pid, "name": pname})
+
+    total_programs = len(get_coord_program_ids(coord_id, db))
+
+    def _dur(s):
+        return ((s.end_time.hour * 60 + s.end_time.minute)
+                - (s.start_time.hour * 60 + s.start_time.minute))
+
+    slots = []
+    for s, c, u in slot_rows:
+        programas = sorted(scope_by_slot.get(s.id, []), key=lambda p: p["name"])
+        slots.append({
             "slot_id": s.id,
             "coordinator_id": s.coordinator_id,
             "coordinator_name": u.full_name if u else "Desconocido",
             "start": s.start_time.strftime("%H:%M"),
             "end": s.end_time.strftime("%H:%M"),
+            "duration_minutes": _dur(s),
+            "is_booked": s.is_booked,
+            "programs": programas,
+            # Sin esto la UI no puede distinguir "para todas" de "para las 3 que
+            # resultan ser todas las que coordina".
+            "programs_are_all": len(programas) >= total_programs > 0,
             "appointment": ap_by_slot.get(s.id),
-        }
-        for s, c, u in ts_q.all()
-    ]
+        })
 
-    return {"period": period_info, "day": str(d), "slots": slots}
+    # Huecos: tramos del día dentro de alguna ventana que quedaron SIN slot,
+    # normalmente por el sobrante de una re-división. El coordinador no tiene
+    # otra forma de enterarse de que ahí perdió capacidad.
+    gaps = _compute_gaps(db, coord_ids_for_slots, d, slot_rows)
+
+    return {"period": period_info, "day": str(d), "slots": slots, "gaps": gaps}
+
+
+def _compute_gaps(db, coord_ids, d, slot_rows):
+    """Tramos cubiertos por una ventana pero sin ningún slot encima."""
+    from itcj2.apps.agendatec.models import AvailabilityWindow
+
+    ventanas = (
+        db.query(AvailabilityWindow)
+        .filter(AvailabilityWindow.coordinator_id.in_(coord_ids),
+                AvailabilityWindow.day == d)
+        .order_by(AvailabilityWindow.start_time.asc())
+        .all()
+    )
+    if not ventanas:
+        return []
+
+    def m(t):
+        return t.hour * 60 + t.minute
+
+    ocupados = sorted((m(s.start_time), m(s.end_time)) for s, _, _ in slot_rows)
+    huecos = []
+    for w in ventanas:
+        cursor = m(w.start_time)
+        fin = m(w.end_time)
+        for ini, ter in ocupados:
+            if ter <= cursor or ini >= fin:
+                continue
+            if ini > cursor:
+                huecos.append((cursor, min(ini, fin)))
+            cursor = max(cursor, ter)
+            if cursor >= fin:
+                break
+        if cursor < fin:
+            huecos.append((cursor, fin))
+
+    return [
+        {
+            "start": f"{ini // 60:02d}:{ini % 60:02d}",
+            "end": f"{ter // 60:02d}:{ter % 60:02d}",
+            "minutes": ter - ini,
+        }
+        for ini, ter in huecos if ter > ini
+    ]
 
 
 # ==================== PATCH /appointments/<ap_id> ====================

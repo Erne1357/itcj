@@ -121,6 +121,10 @@ def list_slots_for_program_day(
         )
         coordinators_info = {c.id: u.full_name for c, u in coords}
 
+    def _dur(s):
+        return ((s.end_time.hour * 60 + s.end_time.minute)
+                - (s.start_time.hour * 60 + s.start_time.minute))
+
     items = [
         {
             "slot_id": s.id,
@@ -129,11 +133,18 @@ def list_slots_for_program_day(
             "day": str(s.day),
             "start_time": s.start_time.strftime("%H:%M"),
             "end_time": s.end_time.strftime("%H:%M"),
+            # Con duraciones libres por rango, dos coordinadores de la misma
+            # carrera pueden ofrecer citas de distinta duración el mismo día:
+            # el alumno tiene que saber cuánto dura la que elige.
+            "duration_minutes": _dur(s),
         }
         for s in slots
     ]
 
     response = {"day": str(d), "program_id": program_id, "items": items}
+    # Si el día ofrece una sola duración, la UI puede anunciarla una vez en vez
+    # de repetirla en cada chip.
+    response["durations"] = sorted({i["duration_minutes"] for i in items})
     if coordinators_info:
         response["coordinators"] = [
             {"id": cid, "name": name} for cid, name in coordinators_info.items()

@@ -53,11 +53,50 @@ test.describe('Coordinador — pantalla de horarios', () => {
     await c.close();
   });
 
-  test('ofrece la duración de 60 min', async ({ browser }) => {
+  test('permite una duración personalizada fuera del conjunto fijo', async ({ browser }) => {
     const c = await coordContext(browser);
     const page = await c.newPage();
     await page.goto('/agendatec/coord/slots');
-    await expect(page.locator('#cfgMinutes option', { hasText: '60' })).toHaveCount(1);
+
+    // El input custom nace oculto y solo aparece al elegir "Otra…".
+    await expect(page.locator('#cfgMinutesCustom')).toBeHidden();
+    await page.selectOption('#cfgMinutes', 'custom');
+    await expect(page.locator('#cfgMinutesCustom')).toBeVisible();
+
+    await page.selectOption('#cfgDay', ctx.day);
+    await page.fill('#cfgStart', '15:00');
+    await page.fill('#cfgEnd', '16:00');
+    await page.fill('#cfgMinutesCustom', '13');
+
+    const post = page.waitForResponse(
+      (r) => r.url().endsWith('/coord/day-config') && r.request().method() === 'POST'
+    );
+    await page.click('#btnSaveCfg');
+    const res = await post;
+    expect(res.status()).toBe(200);
+    // 60 min a 13 -> 4 slots, sobran 8 min sin slot.
+    expect((await res.json()).slots_created).toBe(4);
+
+    await c.close();
+  });
+
+  test('rechaza en cliente una duración fuera de 5-60', async ({ browser }) => {
+    const c = await coordContext(browser);
+    const page = await c.newPage();
+    await page.goto('/agendatec/coord/slots');
+
+    await page.selectOption('#cfgDay', ctx.day);
+    await page.selectOption('#cfgMinutes', 'custom');
+    await page.fill('#cfgMinutesCustom', '61');
+
+    let llamado = false;
+    page.on('request', (r) => {
+      if (r.url().includes('/coord/day-config') && r.method() === 'POST') llamado = true;
+    });
+    await page.click('#btnSaveCfg');
+    await page.waitForTimeout(500);
+    expect(llamado, 'no debe llegar al servidor').toBe(false);
+
     await c.close();
   });
 });
@@ -124,10 +163,55 @@ test.describe('Split con cita reservada', () => {
     const data = await post.json();
     expect(data.slots_shortened).toBe(1);
     expect(data.appointments_notified).toBe(1);
+    await c.close();
+
+    // La notificacion se comprueba AQUI, no en un test posterior: el contador
+    // de la respuesta se calcula antes de crearla, asi que un fallo silencioso
+    // en la creacion pasaria desapercibido si solo se mirara el numero.
+    const stu = await studentContext(browser);
+    const res = await stu.request.get('/api/core/v2/notifications?app=agendatec&limit=20');
+    expect(res.status()).toBe(200);
+    const items = ((await res.json()).data || {}).items || [];
+    const reagenda = items.find((n) => n.type === 'APPOINTMENT_RESCHEDULED');
+    expect(reagenda, 'debe existir la notificacion de reagenda').toBeTruthy();
+    // Sin action_url el click solo marcaba como leida, sin navegar.
+    expect(reagenda.action_url).toBe('/agendatec/student/requests');
+    await stu.close();
+  });
+});
+
+test.describe('Split desalineado', () => {
+  test('15 a 10 con una cita en 09:15 ya se aplica y respeta su hora', async ({ browser }) => {
+    const c = await coordContext(browser);
+    const page = await c.newPage();
+    await page.goto('/agendatec/coord/slots');
+
+    // Rango nuevo de 15 min con una cita en un offset que la regla vieja
+    // rechazaba por no caer en la rejilla de 10.
+    await coordSetRange(page, ctx.day, '13:00', '14:00', '15');
+
+    await page.selectOption('#cfgDay', ctx.day);
+    await page.fill('#cfgStart', '13:00');
+    await page.fill('#cfgEnd', '14:00');
+    await page.selectOption('#cfgMinutes', '10');
+
+    const post = page.waitForResponse(
+      (r) => r.url().endsWith('/coord/day-config') && r.request().method() === 'POST'
+    );
+    await page.click('#btnSaveCfg');
+    const res = await post;
+    expect(res.status(), 'ya no devuelve 409').toBe(200);
 
     await c.close();
   });
 });
+
+async function coordSetRange(page, day, start, end, minutes) {
+  const res = await page.request.post('/api/agendatec/v2/coord/day-config', {
+    data: { day, start, end, slot_minutes: Number(minutes) },
+  });
+  expect(res.status()).toBe(200);
+}
 
 test.describe('Scope por carrera — vista del alumno', () => {
   test('el alumno solo ve los horarios de las carreras del rango', async ({ browser }) => {
@@ -151,7 +235,9 @@ test.describe('Scope por carrera — vista del alumno', () => {
     );
     expect(dentro.status()).toBe(200);
     const dentroJson = await dentro.json();
-    const once = dentroJson.items.filter((i) => i.start_time >= '11:00');
+    // Acotado a la ventana 11:00-12:00: otros tests del archivo crean rangos a
+    // las 13:00 y 15:00, y un filtro por `>= 11:00` los arrastraria.
+    const once = dentroJson.items.filter((i) => i.start_time >= '11:00' && i.start_time < '12:00');
     expect(once.length).toBe(6);
 
     const fuera = await stu.request.get(
@@ -159,26 +245,9 @@ test.describe('Scope por carrera — vista del alumno', () => {
     );
     expect(fuera.status()).toBe(200);
     const fueraJson = await fuera.json();
-    expect(fueraJson.items.filter((i) => i.start_time >= '11:00').length).toBe(0);
-
-    await stu.close();
-  });
-});
-
-test.describe('Notificación al alumno', () => {
-  test('el alumno recibe la reagenda y el click lo lleva a sus solicitudes', async ({ browser }) => {
-    const stu = await studentContext(browser);
-
-    const res = await stu.request.get('/api/core/v2/notifications?app=agendatec&limit=20');
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    // La API core devuelve {success, data:{items, total, unread, has_more}}
-    const items = (body.data && body.data.items) || [];
-
-    const reagenda = items.find((n) => n.type === 'APPOINTMENT_RESCHEDULED');
-    expect(reagenda, 'debe existir la notificación de reagenda').toBeTruthy();
-    // Sin action_url el click solo marcaba como leída, sin navegar.
-    expect(reagenda.action_url).toBe('/agendatec/student/requests');
+    expect(
+      fueraJson.items.filter((i) => i.start_time >= '11:00' && i.start_time < '12:00').length
+    ).toBe(0);
 
     await stu.close();
   });

@@ -35,12 +35,32 @@
     }, 4000);
   }
 
+  // El select ofrece las duraciones frecuentes; "Otra..." revela un input para
+  // cualquier entero de 5 a 60. Antes solo se aceptaba el conjunto fijo.
+  const selMinutes = document.getElementById("cfgMinutes");
+  const inpMinutes = document.getElementById("cfgMinutesCustom");
+
+  if (selMinutes && inpMinutes) {
+    selMinutes.addEventListener("change", () => {
+      const custom = selMinutes.value === "custom";
+      inpMinutes.hidden = !custom;
+      if (custom) inpMinutes.focus();
+    });
+  }
+
+  function readMinutes() {
+    if (selMinutes && selMinutes.value === "custom" && inpMinutes) {
+      return parseInt(inpMinutes.value, 10);
+    }
+    return parseInt(selMinutes.value, 10);
+  }
+
   function readBody() {
     return {
       day:          document.getElementById("cfgDay").value,
       start:        document.getElementById("cfgStart").value,
       end:          document.getElementById("cfgEnd").value,
-      slot_minutes: parseInt(document.getElementById("cfgMinutes").value, 10),
+      slot_minutes: readMinutes(),
       programs:     Scope.getSelectedPrograms ? Scope.getSelectedPrograms() : null,
     };
   }
@@ -99,6 +119,12 @@
     if (cfgRes) cfgRes.innerHTML = "";
 
     const body = readBody();
+
+    if (!Number.isInteger(body.slot_minutes) || body.slot_minutes < 5 || body.slot_minutes > 60) {
+      showToast("La duración de la cita debe ser un número entero entre 5 y 60 minutos.", "warn");
+      btnSave.disabled = false;
+      return;
+    }
 
     try {
       // 1) Preview: sin efectos, dice a quién afecta el cambio.
