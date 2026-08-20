@@ -469,7 +469,14 @@ def toggle_user_status(
         # falla, la transacción entera debe fallar — desactivar una cuenta sin
         # revocar sus sesiones es peor que no desactivarla.
         from itcj2.core.services.session_service import bump_version
-        bump_version(u.id, db=db)
+        if bump_version(u.id, db=db) is None:
+            # bump_version nunca lanza (contrato de la Tarea 5: siempre int|None)
+            # asi que un fallo no-SQL dentro de su try interno no abortaria esta
+            # transaccion por si solo. Se revisa el retorno explicitamente: sin
+            # esto, un `None` dejaria pasar el commit con is_active=False y la
+            # epoca SIN bumpear -- la cuenta quedaria desactivada pero sus
+            # sesiones seguirian vivas, justo lo que la Adicion 3 prohibe.
+            raise HTTPException(500, detail="No se pudo revocar la sesion del usuario")
 
     db.commit()
 

@@ -106,3 +106,53 @@ def test_forget_cached_version_closes_the_bump_db_window(user, db_session, patch
 
     # El siguiente lector ya no debe ver la época vieja cacheada.
     assert ss.current_version(user.id) == 1
+
+
+def test_toggle_user_status_wiring_revokes_sessions_end_to_end(
+    user, db_session, patched_session_local, monkeypatch
+):
+    """Ejercita la funcion REAL `toggle_user_status`, no sus piezas sueltas.
+
+    Los dos tests anteriores (deactivation atomica, forget_cached_version)
+    prueban los primitivos de `session_service` en aislamiento: pasan igual
+    si el cableado en `users_admin.toggle_user_status` -- el
+    `bump_version(u.id, db=db)` antes del commit, o el `forget_cached_version`
+    despues -- se borrara por completo. Este test llama al endpoint de
+    verdad y arma el cache con la epoca vieja justo en la ventana entre el
+    DELETE de `bump_version(db=...)` y el `db.commit()` del endpoint -- el
+    mismo truco de `test_forget_cached_version_closes_the_bump_db_window`,
+    disparado esta vez dentro de la llamada real -- para que la asercion
+    sobre el cache tenga algo que atrapar.
+    """
+    from itcj2.core.api import users_admin
+    from itcj2.core.services import session_service as real_ss
+
+    assert real_ss.current_version(user.id) == 0
+
+    real_bump_version = real_ss.bump_version
+
+    def _bump_then_simulate_racing_reader(uid, db=None):
+        result = real_bump_version(uid, db=db)
+        # Simula un lector que cae en la ventana entre el DELETE que hace
+        # bump_version y el commit del caller (todavia no ocurrido aqui):
+        # repuebla el cache con la epoca vieja (0) leida de Postgres antes de
+        # que este commiteado. Escribir sobre una clave ausente es una subida
+        # legitima, asi que la guarda monotona no la rechaza.
+        r = real_ss._redis()
+        r.eval(real_ss._SET_IF_GREATER, 1, real_ss._KEY.format(uid=uid), 0, real_ss._TTL)
+        return result
+
+    monkeypatch.setattr(real_ss, "bump_version", _bump_then_simulate_racing_reader)
+
+    resp = users_admin.toggle_user_status(
+        user_id=user.id, current_user={"sub": "999999999"}, db=db_session,
+    )
+    assert resp["data"]["is_active"] is False
+
+    # Mitad 1: el bump ocurrio de verdad, dentro de la transaccion del endpoint.
+    db_session.expire(user)
+    assert db_session.get(User, user.id).session_epoch == 1
+
+    # Mitad 2: el cache ya no sirve la epoca vieja que el lector simulado dejo
+    # en la ventana -- forget_cached_version() la limpio DESPUES del commit.
+    assert real_ss.current_version(user.id) == 1
