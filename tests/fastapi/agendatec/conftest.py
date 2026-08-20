@@ -221,6 +221,15 @@ def make_period(db_session):
     def _make(days=(DEFAULT_DAY,), code="29991", admission_open=True):
         from itcj2.apps.agendatec.helpers import get_app_tz
 
+        # La BD de dev ya trae un periodo ACTIVE real. `get_active_period()`
+        # devolvería ese en vez del nuestro, y los endpoints rechazarían el día
+        # con `day_not_enabled`. Se desactivan dentro del savepoint, así que la
+        # BD queda intacta al terminar el test.
+        db_session.query(AcademicPeriod).filter(
+            AcademicPeriod.status == "ACTIVE"
+        ).update({"status": "INACTIVE"}, synchronize_session=False)
+        db_session.flush()
+
         p = AcademicPeriod(
             code=code,
             name=f"Periodo test {code}",
