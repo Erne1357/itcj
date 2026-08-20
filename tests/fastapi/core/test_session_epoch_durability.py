@@ -71,13 +71,18 @@ def test_cache_write_never_lowers_the_cached_epoch(user):
     """
     r = _redis_or_skip()
     key = ss._KEY.format(uid=user.id)
-    r.set(key, 5)
+    r.setex(key, 60, 5)                     # TTL corto y conocido
 
     ss._cache_epoch(r, user.id, 3)          # llega tarde y trae un valor viejo
     assert r.get(key) == "5"                # ...se descarta
+    # Y el rechazo NO refresca el TTL. Es lo que permite que una clave que quedara
+    # ALTA (p.ej. tras un restore de BD que baje la época) se auto-sane al expirar:
+    # si el rechazo extendiera la vida de la clave, se quedaría fija para siempre.
+    assert 0 < r.ttl(key) <= 60
 
     ss._cache_epoch(r, user.id, 7)          # valor más nuevo
     assert r.get(key) == "7"                # ...sí sube
+    assert 60 < r.ttl(key) <= ss._TTL       # ...y esa SÍ republica el TTL
 
 
 def test_cache_write_fills_an_absent_key(user):
@@ -148,3 +153,26 @@ def test_broken_query_is_none_not_zero(monkeypatch):
 
     monkeypatch.setattr("itcj2.database.SessionLocal", lambda: _DbBoom())
     assert ss._read_epoch_from_db(1234567) is None
+
+
+def test_failure_to_even_open_a_session_is_none_not_an_exception(monkeypatch):
+    """El contrato es `int | None`, nunca una excepción.
+
+    Si `SessionLocal()` mismo lanza (pool agotado, config rota) la excepción se
+    escaparía a `current_version` y el `except` del middleware la convertiría en
+    una no-revocación silenciosa. Por eso se construye DENTRO del try.
+    """
+    def _boom():
+        raise RuntimeError("no hay pool")
+
+    ghost = 1234567
+    try:
+        from itcj2.core.utils.redis_conn import get_redis
+        get_redis().delete(ss._KEY.format(uid=ghost))
+    except Exception:
+        pass
+
+    monkeypatch.setattr("itcj2.database.SessionLocal", _boom)
+    assert ss._read_epoch_from_db(ghost) is None
+    # Y el llamador tampoco ve la excepción: MISS en Redis -> BD rota -> None.
+    assert ss.current_version(ghost) is None

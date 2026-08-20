@@ -44,6 +44,17 @@ def uid():
         pass
 
 
+def test_new_key_is_outside_the_cache_prefix():
+    """R4: el dato de revocación NO puede vivir bajo el prefijo del caché.
+
+    Guarda estructural de una línea: si alguien devolviera `_KEY` a `authz:v1:`,
+    `invalidate_all()` volvería a barrerlo y el incidente se repetiría. Vivía en
+    test_session_key_migration.py, borrado en la Tarea 5 junto con la ventana de
+    transición; la aserción sigue vigente y su sitio natural es este módulo.
+    """
+    assert not ss._KEY.startswith("authz:v1:")
+
+
 def test_invalidate_all_preserves_session_version(uid):
     """R1: cambiar permisos de un rol NO puede desloguear a nadie.
 

@@ -88,23 +88,30 @@ def _read_epoch_from_db(user_id: int) -> int | None:
     from itcj2.core.models.user import User
     from itcj2.database import SessionLocal
 
-    db = SessionLocal()
+    # SessionLocal() va DENTRO del try: esta función debe ser total. Si construir
+    # la sesión lanzara (pool agotado, config rota), la excepción se escaparía a
+    # `current_version`, que promete `int | None`, y el `except` del middleware la
+    # convertiría en una no-revocación silenciosa.
+    db = None
     try:
+        db = SessionLocal()
         val = db.execute(select(User.session_epoch).where(User.id == user_id)).scalar_one_or_none()
         db.rollback()
         return int(val) if val is not None else 0
     except Exception as e:
         logger.warning("session_service: lectura de session_epoch falló (%s)", e)
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        if db is not None:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         return None
     finally:
-        try:
-            db.close()
-        except Exception:
-            pass
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 def current_version(user_id: int) -> int | None:
@@ -145,10 +152,12 @@ def bump_version(user_id: int, db=None) -> int | None:
     from sqlalchemy import text
 
     owns = db is None
-    if owns:
-        from itcj2.database import SessionLocal
-        db = SessionLocal()
     try:
+        if owns:
+            # Dentro del try por lo mismo que _read_epoch_from_db: el contrato es
+            # `int | None`, nunca una excepción.
+            from itcj2.database import SessionLocal
+            db = SessionLocal()
         val = db.execute(
             text("UPDATE core_users SET session_epoch = session_epoch + 1 "
                  "WHERE id = :uid RETURNING session_epoch"),
@@ -158,14 +167,14 @@ def bump_version(user_id: int, db=None) -> int | None:
             db.commit()
     except Exception as e:
         logger.warning("session_service: bump err (%s)", e)
-        if owns:
+        if owns and db is not None:
             try:
                 db.rollback()
             except Exception:
                 pass
         return None
     finally:
-        if owns:
+        if owns and db is not None:
             try:
                 db.close()
             except Exception:
