@@ -6,14 +6,18 @@ from itcj2.apps.agendatec.models.period_enabled_day import PeriodEnabledDay
 from itcj2.apps.agendatec.models.request import Request
 from itcj2.apps.agendatec.models.survey_dispatches import SurveyDispatch
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
+from itcj2.apps.agendatec.models.time_slot_program import TimeSlotProgram
+from itcj2.apps.agendatec.models.window_program import AvailabilityWindowProgram
 
 __all__ = [
     "AgendaTecPeriodConfig",
     "Appointment",
     "AuditLog",
     "AvailabilityWindow",
+    "AvailabilityWindowProgram",
     "PeriodEnabledDay",
     "Request",
     "SurveyDispatch",
     "TimeSlot",
+    "TimeSlotProgram",
 ]
