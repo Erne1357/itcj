@@ -25,6 +25,14 @@ def _flush_authz_cache():
     compartido — es el segundo vector del incidente del 2026-08-20. Los tests que
     necesiten una versión de sesión limpia deben borrar SU uid, no un glob.
 
+    El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
+    especial: es GLOBAL y los tests crean departamentos dentro de una transacción
+    que se revierte, así que una entrada cacheada sobrevive a las filas que la
+    originaron. El `scan_iter` por kinds (roles/perms/has) no lo alcanza, por lo
+    que `invalidate_dept_map()` es ahora la ÚNICA forma de limpiarlo. Esto fue
+    origen de fallos intermitentes en los tests de scope. Se invalida tanto antes
+    como después de cada test.
+
     Best-effort: si Redis no está disponible, no rompe el test (fail-open).
     """
     try:
@@ -56,10 +64,8 @@ def _clear_authz_cache():
     si un test previo dejó una entrada (kind, app, user), el patch se saltea por un
     HIT stale y el test falla de forma no-determinista.
 
-    El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
-    aparte: es GLOBAL y los tests crean departamentos dentro de una transacción que
-    se revierte, así que una entrada cacheada sobrevive a las filas que la
-    originaron. Se invalida explícitamente y también DESPUÉS del test.
+    Ver _flush_authz_cache() para los detalles sobre por qué el mapa de
+    departamentos requiere invalidación explícita y doble.
     """
     _flush_authz_cache()
     yield
