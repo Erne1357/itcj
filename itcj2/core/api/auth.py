@@ -45,13 +45,19 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbSessio
     rate_limit.reset_login_failures(client_ip, raw_id)
 
     from itcj2.core.services.session_service import current_version
+    _sv = current_version(user["id"])
+    if _sv is None:
+        # Redis inalcanzable al emitir: se acuña 0. Si la versión real era mayor, el
+        # token morirá cuando Redis vuelva y el usuario volverá a entrar — es la
+        # dirección segura del error.
+        _sv = 0
     token = _encode_jwt(
         {
             "sub": str(user["id"]),
             "role": user["role"],
             "cn": user.get("control_number"),
             "name": user["full_name"],
-            "sv": current_version(user["id"]),
+            "sv": _sv,
         },
         hours=_settings.JWT_EXPIRES_HOURS,
     )

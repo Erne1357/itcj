@@ -63,7 +63,8 @@ class JWTMiddleware(BaseHTTPMiddleware):
         if data and "sv" in data:
             try:
                 from itcj2.core.services.session_service import current_version
-                if int(data.get("sv", 0)) != current_version(int(data["sub"])):
+                _cur = current_version(int(data["sub"]))
+                if _cur is not None and int(data.get("sv", 0)) != _cur:
                     data = None
             except Exception:
                 pass
@@ -113,13 +114,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 return response
 
             from itcj2.core.services.session_service import current_version
+            _cur = current_version(int(data["sub"]))
+            if _cur is None:
+                # Redis inalcanzable: rotar la cookie con un sv inventado revocaría al
+                # usuario en cuanto Redis vuelva. Mejor no rotar; el token sigue vivo.
+                return response
             new_token = _encode_jwt(
                 {
                     "sub": data["sub"],
                     "role": _global_role,
                     "cn": data.get("cn"),
                     "name": data.get("name"),
-                    "sv": current_version(int(data["sub"])),
+                    "sv": _cur,
                 },
                 hours=_settings.JWT_EXPIRES_HOURS,
             )

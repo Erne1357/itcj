@@ -9,8 +9,9 @@ los tokens del usuario, sin esperar a que expiren. Clave: ``session:v1:ver:{uid}
 (antes ``authz:v1:sessionver:{uid}``, que compartía prefijo con el caché de authz y
 era borrada por su invalidación masiva).
 
-Fail-open: si Redis no está disponible, ``current_version`` devuelve 0 y el middleware
-sólo revoca ante un MISMATCH real; nunca bloquea por caída de Redis.
+Modo de fallo: ``current_version`` devuelve ``None`` cuando no puede consultar el
+almacén. Los consumidores (middleware, socket_auth) tratan ``None`` como "sin
+información" y NO revocan — fail-open real. Solo un MISMATCH numérico revoca.
 """
 from __future__ import annotations
 
@@ -38,11 +39,20 @@ def _redis():
         return None
 
 
-def current_version(user_id: int) -> int:
-    """Versión de sesión vigente del usuario (0 si nunca se bumpeó / Redis caído)."""
+def current_version(user_id: int) -> int | None:
+    """Versión de sesión vigente del usuario.
+
+    - ``0``    → el usuario nunca fue bumpeado (nunca hizo logout ni fue desactivado).
+    - ``N>0``  → versión vigente.
+    - ``None`` → NO se pudo determinar (Redis inalcanzable). El llamador debe tratarlo
+      como "sin información" y **no revocar**.
+
+    Antes ambos casos de fallo colapsaban a 0, así que una caída de Redis rechazaba
+    todo token con ``sv >= 1``: un logout global disfrazado de fail-open.
+    """
     r = _redis()
     if r is None:
-        return 0
+        return None
     try:
         raw = r.get(_KEY.format(uid=user_id))
         if raw is not None:
@@ -58,7 +68,7 @@ def current_version(user_id: int) -> int:
         return int(legacy)
     except Exception as e:
         logger.warning("session_service: current_version err (%s)", e)
-        return 0
+        return None
 
 
 def bump_version(user_id: int) -> int:
