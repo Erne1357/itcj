@@ -81,6 +81,57 @@ async def broadcast_request_status_changed(coord_id: int, payload: dict):
         logger.warning("Error broadcasting request_status_changed to social rooms")
 
 
+# ==================== ACL Helpers ====================
+# Los rooms de /requests reparten request_id, student_id, program_id y status de
+# CADA solicitud del coordinador. Unirse tiene que exigir lo mismo que la API
+# equivalente: api/coord/*.py deriva el coord_id de la sesión, nunca del cliente,
+# y api/social.py exige agendatec.social.api.read.appointments.
+#
+# Sin esto, cualquier usuario autenticado podía emitir join_drops {coord_id: N}
+# iterando N y ver en vivo el flujo completo de solicitudes del instituto.
+#
+# Corren en thread pool (asyncio.to_thread): abren su propia sesión sync, hacen
+# una query por índice, y solo una vez por carga de página.
+
+def _is_that_coordinator_sync(user: dict | None, coord_id: int) -> bool:
+    """Solo el coordinador dueño del room (o un admin global) puede unirse."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    from itcj2.apps.agendatec.helpers import get_coordinator_id_for_user
+    db = SessionLocal()
+    try:
+        return get_coordinator_id_for_user(int(user["sub"]), db) == coord_id
+    except Exception:
+        logger.exception("Fallo al resolver el coordinador para el ACL de /requests")
+        return False
+    finally:
+        db.close()
+
+
+def _can_read_social_sync(user: dict | None) -> bool:
+    """Los rooms social:ap:* son de servicio social, no de alumnos."""
+    if not user:
+        return False
+    if str(user.get("role")) == "admin":
+        return True
+    from itcj2.database import SessionLocal
+    from itcj2.core.services.authz_cache import cached_has_assignment, cached_perms
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        if not cached_has_assignment(db, uid, "agendatec"):
+            return False
+        return "agendatec.social.api.read.appointments" in cached_perms(db, uid, "agendatec")
+    except Exception:
+        logger.exception("Fallo al resolver permisos para el ACL social de /requests")
+        return False
+    finally:
+        db.close()
+
+
 # ==================== Event Registration ====================
 
 def register_request_namespace(sio_server):
@@ -116,6 +167,10 @@ def register_request_namespace(sio_server):
         if coord_id <= 0 or not day:
             await sio_server.emit("error", {"error": "invalid_join_ap_day"}, to=sid, namespace=NAMESPACE)
             return
+        sess = await sio_server.get_session(sid, namespace=NAMESPACE)
+        if not await asyncio.to_thread(_is_that_coordinator_sync, (sess or {}).get("user"), coord_id):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
+            return
         await sio_server.enter_room(sid, _room_ap_day(coord_id, day), namespace=NAMESPACE)
         await sio_server.emit("joined_ap_day", {"coord_id": coord_id, "day": day}, to=sid, namespace=NAMESPACE)
 
@@ -145,6 +200,10 @@ def register_request_namespace(sio_server):
         if coord_id <= 0:
             await sio_server.emit("error", {"error": "invalid_join_drops"}, to=sid, namespace=NAMESPACE)
             return
+        sess = await sio_server.get_session(sid, namespace=NAMESPACE)
+        if not await asyncio.to_thread(_is_that_coordinator_sync, (sess or {}).get("user"), coord_id):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
+            return
         await sio_server.enter_room(sid, _room_drops(coord_id), namespace=NAMESPACE)
         await sio_server.emit("joined_drops", {"coord_id": coord_id}, to=sid, namespace=NAMESPACE)
 
@@ -156,6 +215,10 @@ def register_request_namespace(sio_server):
         program_id = (data or {}).get("program_id")
         if not day:
             await sio_server.emit("error", {"error": "invalid_day"}, to=sid, namespace=NAMESPACE)
+            return
+        sess = await sio_server.get_session(sid, namespace=NAMESPACE)
+        if not await asyncio.to_thread(_can_read_social_sync, (sess or {}).get("user")):
+            await sio_server.emit("error", {"error": "forbidden"}, to=sid, namespace=NAMESPACE)
             return
         if program_id:
             try:

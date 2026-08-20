@@ -18,6 +18,7 @@ from typing import Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from itcj2.apps.agendatec.config.constants import STUDENT_REQUESTS_URL
 from itcj2.apps.agendatec.models.appointment import Appointment
 from itcj2.apps.agendatec.models.request import Request
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
@@ -150,15 +151,25 @@ class RequestService:
                 extra_data={"enabled_days": [d.isoformat() for d in sorted(enabled_days)]},
             )
 
-        now = datetime.now()
-        slot_datetime = datetime.combine(slot.day, slot.start_time)
-        if now > slot_datetime:
+        # Aware, en la zona de la app: el proceso corre en UTC dentro del
+        # contenedor, así que un datetime.now() naive desplazaba este guard
+        # 6 o 7 horas según el horario de verano.
+        from itcj2.apps.agendatec.helpers import app_dt, now_app
+        from itcj2.apps.agendatec.models import TimeSlotProgram
+
+        if now_app() > app_dt(slot.day, slot.start_time):
             return ValidationResult(
                 is_valid=False,
                 error="slot_time_passed",
                 message="El horario ya pasó",
             )
 
+        # Se validan AMBAS cosas, no una en lugar de la otra:
+        #  - ProgramCoordinator: el coordinador sigue asignado a esa carrera.
+        #  - TimeSlotProgram: el rango horario incluye esa carrera en su scope.
+        # Solo la segunda dejaría reservable a un coordinador ya desasignado a
+        # través de filas obsoletas de la proyección; solo la primera haría que
+        # el scope fuera cosmético (un POST armado a mano reservaría igual).
         link = (
             db.query(ProgramCoordinator)
             .filter(
@@ -167,11 +178,16 @@ class RequestService:
             )
             .first()
         )
-        if not link:
+        in_scope = (
+            db.query(TimeSlotProgram)
+            .filter_by(slot_id=slot.id, program_id=program_id)
+            .first()
+        )
+        if not link or not in_scope:
             return ValidationResult(
                 is_valid=False,
                 error="slot_not_for_program",
-                message="El coordinador no está asignado a tu programa",
+                message="Ese horario no está disponible para tu carrera",
             )
 
         return ValidationResult(is_valid=True, extra_data={"slot": slot})
@@ -424,6 +440,11 @@ class RequestService:
                 slot = db.get(TimeSlot, appointment.slot_id)
                 if slot and slot.is_booked:
                     slot.is_booked = False
+                    # Al liberarse, el slot vuelve a la query del alumno. Si conservaba
+                    # una carrera fuera de scope por grandfathering, reaparecería
+                    # ofreciendola: hay que devolverlo al scope de su ventana.
+                    from itcj2.apps.agendatec.services.slot_service import SlotService
+                    SlotService.reconcile_slot_programs(db, slot)
                 appointment.status = "CANCELED"
 
         request.status = "CANCELED"
@@ -528,7 +549,7 @@ class RequestService:
                 type="DROP_CREATED",
                 title="Solicitud de baja creada",
                 body="Tu solicitud de baja fue registrada.",
-                data={"request_id": request.id},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": request.id},
                 source_request_id=request.id,
                 program_id=request.program_id,
             )
@@ -594,7 +615,12 @@ class RequestService:
                 type="APPOINTMENT_CREATED",
                 title="Cita agendada",
                 body=f"{slot_day} {slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')}",
-                data={"request_id": request.id, "appointment_id": appointment.id, "day": slot_day},
+                data={
+                    "url": STUDENT_REQUESTS_URL,
+                    "request_id": request.id,
+                    "appointment_id": appointment.id,
+                    "day": slot_day,
+                },
                 source_request_id=request.id,
                 source_appointment_id=appointment.id,
                 program_id=appointment.program_id,
@@ -607,16 +633,14 @@ class RequestService:
     def _notify_slot_released(self, slot: TimeSlot, appointment: Appointment) -> None:
         """Emite evento de slot liberado."""
         try:
-            from itcj2.sockets.server import sio
+            from itcj2.sockets.slots import broadcast_slot_released
             slot_day = str(slot.day)
-            room = f"day:{slot_day}"
-            payload = {
-                "slot_id": appointment.slot_id,
-                "day": slot_day,
-                "start_time": slot.start_time.strftime("%H:%M"),
-                "end_time": slot.end_time.strftime("%H:%M"),
-            }
-            _async_broadcast(sio.emit("slot_released", payload, to=room, namespace="/slots"))
+            _async_broadcast(broadcast_slot_released(
+                slot_day,
+                appointment.slot_id,
+                slot.start_time.strftime("%H:%M"),
+                slot.end_time.strftime("%H:%M"),
+            ))
             redis_cli = get_redis()
             redis_cli.delete(f"slot:{appointment.slot_id}:hold")
         except Exception:
@@ -668,7 +692,7 @@ class RequestService:
                 type="APPOINTMENT_CANCELED" if request.type == "APPOINTMENT" else "REQUEST_STATUS_CHANGED",
                 title="Solicitud cancelada",
                 body="Has cancelado tu solicitud.",
-                data={"request_id": request.id},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": request.id},
                 source_request_id=request.id,
                 program_id=request.program_id,
             )

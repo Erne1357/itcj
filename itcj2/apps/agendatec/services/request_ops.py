@@ -20,6 +20,7 @@ from itcj2.core.services.notification_service import NotificationService
 from itcj2.sockets.notifications import push_notification
 from itcj2.sockets.requests import broadcast_request_status_changed
 from itcj2.utils import async_broadcast as _async_broadcast
+from itcj2.apps.agendatec.config.constants import STUDENT_REQUESTS_URL
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,10 @@ def admin_change_request_status(
         db.query(Request)
         .options(joinedload(Request.appointment))
         .filter(Request.id == req_id)
-        .with_for_update()
+        # of=Request emite "FOR UPDATE OF agendatec_requests". Sin él, PostgreSQL
+        # rechaza el FOR UPDATE porque el joinedload produce un OUTER JOIN y no se
+        # puede bloquear su lado nullable -> ProgrammingError -> 500 en TODA llamada.
+        .with_for_update(of=Request)
         .first()
     )
     if not r:
@@ -85,6 +89,11 @@ def admin_change_request_status(
             slot = db.get(TimeSlot, ap.slot_id)
             if slot and slot.is_booked:
                 slot.is_booked = False
+                # Al liberarse, el slot vuelve a la query del alumno. Si conservaba
+                # una carrera fuera de scope por grandfathering, reaparecería
+                # ofreciendola: hay que devolverlo al scope de su ventana.
+                from itcj2.apps.agendatec.services.slot_service import SlotService
+                SlotService.reconcile_slot_programs(db, slot)
                 slot_day_str = str(slot.day)
 
     r.status = new_status
@@ -137,7 +146,7 @@ def admin_change_request_status(
                     f"Solicitud : {_TYPE_LABEL.get(r.type, '')}"
                     + (f"\nComentarios : {r.coordinator_comment}" if r.coordinator_comment else "")
                 ),
-                data={"request_id": r.id, "status": new_status},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": r.id, "status": new_status},
                 source_request_id=r.id,
                 program_id=r.program_id,
             )

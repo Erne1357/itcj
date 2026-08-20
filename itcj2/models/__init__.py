@@ -26,7 +26,8 @@ from itcj2.apps.helpdesk.models import (  # noqa: F401
 # AgendaTec
 from itcj2.apps.agendatec.models import (  # noqa: F401
     AgendaTecPeriodConfig, Appointment, AuditLog, AvailabilityWindow,
-    PeriodEnabledDay, Request, SurveyDispatch, TimeSlot,
+    AvailabilityWindowProgram, PeriodEnabledDay, Request, SurveyDispatch,
+    TimeSlot, TimeSlotProgram,
 )
 
 # VisteTec

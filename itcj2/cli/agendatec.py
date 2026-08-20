@@ -620,6 +620,49 @@ def load_help_command():
             raise
 
 
+@click.command("load-split-scope-2026-08")
+@click.option("--dry-run", is_flag=True, help="Lista los scripts sin ejecutarlos.")
+def load_split_scope_command(dry_run):
+    """Carga el DML del feature split + scope por carrera (agosto 2026).
+
+    Corre SOLO database/DML/agendatec/split_scope_2026-08/, sin re-ejecutar
+    ningún DML ya aplicado en producción.
+
+    Idempotente: todo el SQL usa ON CONFLICT DO NOTHING.
+    """
+    from itcj2.database import SessionLocal
+
+    scripts_dir = PROJECT_ROOT / "database" / "DML" / "agendatec" / "split_scope_2026-08"
+
+    if not scripts_dir.exists():
+        click.echo(f"❌ No existe {scripts_dir}")
+        click.echo("   database/ está gitignored: súbelo al servidor por scp.")
+        raise SystemExit(1)
+
+    sql_files = sorted(scripts_dir.glob("*.sql"))
+    if not sql_files:
+        click.echo(f"ℹ️  No hay scripts SQL en {scripts_dir}")
+        return
+
+    if dry_run:
+        click.echo(f"🔍 {len(sql_files)} script(s) en {scripts_dir.name}:")
+        for f in sql_files:
+            click.echo(f"   📄 {f.name}")
+        click.echo("\n(dry-run: no se ejecutó nada)")
+        return
+
+    click.echo("🔐 Cargando DML de split + scope...")
+    with SessionLocal() as db:
+        try:
+            executed = _execute_sql_scripts(db, str(scripts_dir))
+            db.commit()
+            click.echo(f"\n✅ {executed} script(s) ejecutado(s) correctamente")
+        except Exception as e:
+            db.rollback()
+            click.echo(f"\n❌ Error: {str(e)}")
+            raise
+
+
 @click.group("agendatec")
 def agendatec_cli():
     """Comandos CLI del módulo AgendaTec."""
@@ -631,3 +674,4 @@ agendatec_cli.add_command(list_periods_command)
 agendatec_cli.add_command(import_students_command)
 agendatec_cli.add_command(sync_students_agendatec_command)
 agendatec_cli.add_command(load_help_command)
+agendatec_cli.add_command(load_split_scope_command)

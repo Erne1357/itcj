@@ -12,7 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from itcj2.dependencies import DbSession, require_perms
-from itcj2.apps.agendatec.helpers import parse_range_from_params
+from itcj2.apps.agendatec.helpers import app_dt, now_app, parse_range_from_params
+from itcj2.apps.agendatec.models.time_slot_program import TimeSlotProgram
 from itcj2.apps.agendatec.schemas.admin import ChangeRequestStatusBody, AdminCreateRequestBody
 from itcj2.apps.agendatec.models.appointment import Appointment
 from itcj2.apps.agendatec.models.request import Request as Req
@@ -22,7 +23,9 @@ from itcj2.core.models.program import Program
 from itcj2.core.models.program_coordinator import ProgramCoordinator
 from itcj2.core.models.user import User
 from itcj2.core.services import period_service
-from itcj2.core.utils.notify import create_notification
+from itcj2.core.services.notification_service import NotificationService
+from itcj2.apps.agendatec.config.constants import STUDENT_REQUESTS_URL
+from itcj2.utils import async_broadcast as _async_broadcast
 
 router = APIRouter(tags=["agendatec-admin-requests"])
 logger = logging.getLogger(__name__)
@@ -279,30 +282,37 @@ def admin_create_request(
                 .filter_by(program_id=body.program_id)
                 .all()
             ]
-            from itcj2.core.sockets.requests import broadcast_drop_created
+            from itcj2.sockets.requests import broadcast_drop_created
             for cid in coord_ids:
-                broadcast_drop_created(None, cid, {
+                # Firma real: (coord_id, payload). El `None` extra era de una
+                # versión anterior de 3 argumentos.
+                _async_broadcast(broadcast_drop_created(cid, {
                     "request_id": r.id,
                     "student_id": body.student_id,
                     "program_id": body.program_id,
                     "status": r.status,
-                })
+                }))
         except Exception:
             logger.exception("Failed to broadcast drop_created")
 
         try:
-            n = create_notification(
+            n = NotificationService.create(
+                db=db,
                 user_id=body.student_id,
+                app_name="agendatec",
                 type="DROP_CREATED",
                 title="Solicitud de baja creada",
                 body="Tu solicitud de baja fue registrada por un administrador.",
-                data={"request_id": r.id},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": r.id},
                 source_request_id=r.id,
                 program_id=body.program_id,
             )
             db.commit()
-            from itcj2.core.sockets.notifications import push_notification
-            push_notification(None, body.student_id, n.to_dict())
+            # Este endpoint es `def` (sync), así que el broadcast interno del
+            # service captura RuntimeError y no hace nada: hay que empujar el
+            # push a mano por el loop principal.
+            from itcj2.sockets.notifications import push_notification
+            _async_broadcast(push_notification(body.student_id, n.to_dict()))
         except Exception:
             logger.exception("Failed to create/push DROP notification")
 
@@ -320,9 +330,14 @@ def admin_create_request(
     if slot.day not in enabled_days:
         raise HTTPException(status_code=400, detail="day_not_enabled")
 
-    if datetime.now() > datetime.combine(slot.day, slot.start_time):
+    # Aware: el proceso corre en UTC dentro del contenedor y este guard
+    # comparaba contra horas de slot locales.
+    if now_app() > app_dt(slot.day, slot.start_time):
         raise HTTPException(status_code=400, detail="slot_time_passed")
 
+    # Mismo criterio que el camino del alumno: se validan AMBAS cosas. Sin el
+    # check de scope, el admin vería una lista scopeada pero podría reservar
+    # cualquier slot armando el POST a mano.
     link = (
         db.query(ProgramCoordinator)
         .filter(
@@ -331,7 +346,12 @@ def admin_create_request(
         )
         .first()
     )
-    if not link:
+    in_scope = (
+        db.query(TimeSlotProgram)
+        .filter_by(slot_id=slot.id, program_id=body.program_id)
+        .first()
+    )
+    if not link or not in_scope:
         raise HTTPException(status_code=400, detail="slot_not_for_program")
 
     try:
@@ -367,9 +387,9 @@ def admin_create_request(
         db.commit()
 
         try:
-            from itcj2.core.sockets.requests import broadcast_appointment_created
+            from itcj2.sockets.requests import broadcast_appointment_created
             day_str = str(slot.day)
-            broadcast_appointment_created(None, ap.coordinator_id, day_str, {
+            _async_broadcast(broadcast_appointment_created(ap.coordinator_id, day_str, {
                 "request_id": r.id,
                 "student_id": body.student_id,
                 "program_id": body.program_id,
@@ -377,25 +397,31 @@ def admin_create_request(
                 "slot_start": slot.start_time.strftime("%H:%M"),
                 "slot_end": slot.end_time.strftime("%H:%M"),
                 "status": r.status,
-            })
+            }))
         except Exception:
             logger.exception("Failed to broadcast appointment_created")
 
         try:
             slot_day = str(slot.day)
-            n = create_notification(
+            n = NotificationService.create(
+                db=db,
                 user_id=body.student_id,
+                app_name="agendatec",
                 type="APPOINTMENT_CREATED",
                 title="Cita agendada",
                 body=f"Tu cita fue agendada: {slot_day} {slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')}",
-                data={"request_id": r.id, "appointment_id": ap.id, "day": slot_day},
+                data={
+                    "url": STUDENT_REQUESTS_URL,
+                    "request_id": r.id, "appointment_id": ap.id, "day": slot_day,
+                },
                 source_request_id=r.id,
                 source_appointment_id=ap.id,
                 program_id=body.program_id,
             )
             db.commit()
-            from itcj2.core.sockets.notifications import push_notification
-            push_notification(None, body.student_id, n.to_dict())
+            # Endpoint sync: el broadcast interno del service no encuentra loop.
+            from itcj2.sockets.notifications import push_notification
+            _async_broadcast(push_notification(body.student_id, n.to_dict()))
         except Exception:
             logger.exception("Failed to create/push APPOINTMENT notification")
 

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home). Sin
     # este bump el navegador serviría los assets viejos desde caché y los
     # cambios no se verían hasta un refresh forzado.
-    STATIC_VERSION: str = "1.0.1111500"
+    STATIC_VERSION: str = "1.0.1111502"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

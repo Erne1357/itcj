@@ -43,12 +43,26 @@
               <option>15</option>
               <option>20</option>
               <option>30</option>
+              <option>60</option>
             </select>
           </div>
           <div class="col-6 col-sm-2 d-grid">
             <button class="btn btn-primary btn-sm" id="btnSaveCfg" type="submit">
               <i class="bi bi-check-lg" aria-hidden="true"></i><span class="d-none d-md-inline"> Guardar</span>
             </button>
+          </div>
+
+          <!-- Scope por carrera. Oculto si el coordinador solo tiene una. -->
+          <div class="col-12" id="cfgProgramsWrap" hidden>
+            <label class="form-label small mb-1" for="cfgPrograms">
+              Carreras que atiendes en este rango
+            </label>
+            <select class="form-select form-select-sm" id="cfgPrograms" multiple size="3"
+                    aria-describedby="cfgProgramsHelp"></select>
+            <div class="form-text small" id="cfgProgramsHelp">
+              Todas seleccionadas por omisión. Limita el rango si quieres atender
+              solo a ciertas carreras en ese horario.
+            </div>
           </div>
         </form>
 
@@ -189,6 +203,24 @@
   </div>
 </div>
 
+<!-- Confirmación del split: enumera a los alumnos afectados antes de aplicar -->
+<div class="modal fade" id="modalSplitConfirm" tabindex="-1"
+     aria-labelledby="modalSplitConfirmLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalSplitConfirmLabel">Confirmar cambio de horario</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modalSplitConfirmBody" aria-live="polite"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnConfirmSplit">Aplicar cambio</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Popover / mini-modal de detalle de slot -->
 <div class="modal fade" id="slotDetailModal" tabindex="-1"
      aria-labelledby="slotDetailModalLabel" aria-hidden="true">
@@ -212,6 +244,8 @@
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_init.js') }}?v={{ sv('agendatec', 'js/coord/slots_init.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/sockets/slots_client.js') }}?v={{ sv('agendatec', 'js/sockets/slots_client.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_view.js') }}?v={{ sv('agendatec', 'js/coord/slots_view.js') }}"></script>
+<!-- slots_scope.js ANTES de slots.js: expone window.AgendaTecSlotScope, que slots.js consume -->
+<script src="{{ url_for('static', filename='agendatec/js/coord/slots_scope.js') }}?v={{ sv('agendatec', 'js/coord/slots_scope.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots.js') }}?v={{ sv('agendatec', 'js/coord/slots.js') }}"></script>
 <script src="{{ url_for('static', filename='agendatec/js/coord/slots_delete.js') }}?v={{ sv('agendatec', 'js/coord/slots_delete.js') }}"></script>
 {% endblock %}

@@ -217,6 +217,25 @@ def get_app_tz() -> ZoneInfo:
     return ZoneInfo("America/Ciudad_Juarez")
 
 
+def now_app() -> datetime:
+    """Ahora, aware, en la zona de la app.
+
+    Usar SIEMPRE esto en vez de `datetime.now()`. El proceso corre en UTC dentro
+    del contenedor, así que comparar un naive contra horas de slot locales
+    desplaza los guards 6 o 7 horas según el horario de verano.
+    """
+    return datetime.now(get_app_tz())
+
+
+def app_dt(d: date, t: time) -> datetime:
+    """Combina fecha y hora locales en un datetime aware de la zona de la app.
+
+    Complemento de `now_app()`: comparar `now_app()` contra un
+    `datetime.combine()` naive lanza TypeError.
+    """
+    return datetime.combine(d, t).replace(tzinfo=get_app_tz())
+
+
 def parse_date_str(s: str) -> Optional[date]:
     """Parsea string YYYY-MM-DD a date, o None si inválido."""
     try:

@@ -16,7 +16,8 @@ from itcj2.apps.agendatec.models.request import Request
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
 from itcj2.core.models.user import User
 from itcj2.core.services import period_service
-from itcj2.core.utils.notify import create_notification
+from itcj2.core.services.notification_service import NotificationService
+from itcj2.apps.agendatec.config.constants import STUDENT_REQUESTS_URL
 
 router = APIRouter(tags=["agendatec-coord-drops"])
 logger = logging.getLogger(__name__)
@@ -162,6 +163,11 @@ async def update_request_status(
                 slot = db.get(TimeSlot, ap.slot_id)
                 if slot and slot.is_booked:
                     slot.is_booked = False
+                    # Al liberarse, el slot vuelve a la query del alumno. Si conservaba
+                    # una carrera fuera de scope por grandfathering, reaparecería
+                    # ofreciendola: hay que devolverlo al scope de su ventana.
+                    from itcj2.apps.agendatec.services.slot_service import SlotService
+                    SlotService.reconcile_slot_programs(db, slot)
 
     db.commit()
 
@@ -196,19 +202,22 @@ async def update_request_status(
                 "CANCELED": "Tu solicitud fue cancelada",
             }
             type_map = {"APPOINTMENT": "CITA", "DROP": "BAJA"}
-            n = create_notification(
+            NotificationService.create(
+                db=db,
                 user_id=stu_id,
+                app_name="agendatec",
                 type="REQUEST_STATUS_CHANGED",
                 title=title_map.get(new_status, "Estado de solicitud actualizado"),
                 body="Solicitud : " + type_map.get(r.type, "") +
                      (("\nComentarios : " + r.coordinator_comment) if r.coordinator_comment else " "),
-                data={"request_id": r.id, "status": new_status},
+                data={"url": STUDENT_REQUESTS_URL, "request_id": r.id, "status": new_status},
                 source_request_id=r.id,
                 program_id=r.program_id,
             )
             db.commit()
-            from itcj2.sockets.notifications import push_notification
-            await push_notification(stu_id, n.to_dict())
+            # NO llamar push_notification aquí: este endpoint es `async def`, así
+            # que NotificationService.broadcast_websocket sí encuentra event loop
+            # y ya agendó el push. Hacerlo otra vez duplicaría el toast.
     except Exception:
         logger.exception("Failed to create/push status-change notification")
 

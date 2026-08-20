@@ -24,6 +24,33 @@ logger = logging.getLogger(__name__)
 DashPerm = require_perms("agendatec", ["agendatec.coord_dashboard.api.read"])
 
 
+# ==================== GET /programs ====================
+
+@router.get("/programs")
+def get_my_programs(user: dict = DashPerm, db: DbSession = None):
+    """Carreras que coordina el usuario actual.
+
+    Alimenta el multi-select de scope de la pantalla de horarios: sin esto el
+    coordinador no tendría de dónde elegir a qué carreras limitar un rango.
+    """
+    from itcj2.apps.agendatec.helpers import get_coord_program_ids
+    from itcj2.core.models.program import Program
+
+    coord_id = require_coordinator(int(user["sub"]), db)
+    prog_ids = get_coord_program_ids(coord_id, db)
+    if not prog_ids:
+        return {"success": True, "data": [], "total": 0}
+
+    programs = (
+        db.query(Program)
+        .filter(Program.id.in_(list(prog_ids)))
+        .order_by(Program.name.asc())
+        .all()
+    )
+    data = [{"id": p.id, "name": p.name} for p in programs]
+    return {"success": True, "data": data, "total": len(data)}
+
+
 # ==================== GET /shared-coordinators ====================
 
 @router.get("/shared-coordinators")

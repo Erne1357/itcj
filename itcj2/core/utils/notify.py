@@ -27,6 +27,14 @@ def create_notification(
         DeprecationWarning,
         stacklevel=2,
     )
+    # Olvidar db= hacía que NotificationService.create ejecutara db.add() sobre
+    # None; el AttributeError quedaba tragado por el try/except del call site y
+    # el endpoint devolvía 200 sin haber creado nada. Fallar aquí, ruidosamente.
+    if db is None:
+        raise ValueError(
+            "create_notification() requiere una sesión explícita: pásale db=db."
+        )
+
     from itcj2.core.services.notification_service import NotificationService
 
     return NotificationService.create(

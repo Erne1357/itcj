@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 
 class UpdateAppointmentBody(BaseModel):
@@ -16,6 +16,13 @@ class SetDayConfigBody(BaseModel):
     start: str
     end: str
     slot_minutes: int = 10
+    # None o [] => todas las carreras del coordinador. El default preserva el
+    # comportamiento anterior para quien no use el scope.
+    programs: Optional[List[int]] = None
+
+
+class PreviewDayConfigBody(SetDayConfigBody):
+    """Mismo cuerpo que SetDayConfigBody; endpoint distinto, sin efectos."""
 
 
 class DeleteDayRangeBody(BaseModel):
