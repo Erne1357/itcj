@@ -60,7 +60,10 @@ def admin_change_request_status(
         db.query(Request)
         .options(joinedload(Request.appointment))
         .filter(Request.id == req_id)
-        .with_for_update()
+        # of=Request emite "FOR UPDATE OF agendatec_requests". Sin él, PostgreSQL
+        # rechaza el FOR UPDATE porque el joinedload produce un OUTER JOIN y no se
+        # puede bloquear su lado nullable -> ProgrammingError -> 500 en TODA llamada.
+        .with_for_update(of=Request)
         .first()
     )
     if not r:
