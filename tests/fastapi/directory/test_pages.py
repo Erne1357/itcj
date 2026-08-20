@@ -13,13 +13,34 @@ def _override_db(app_client):
 
 
 def test_directory_routes_registered(app_client):
-    # FastAPI uses _IncludedRouter (no .path attr); check via OpenAPI schema instead.
-    resp = app_client.get("/api/openapi.json")
-    paths = set(resp.json().get("paths", {}).keys())
-    assert "/directory/" in paths
-    assert "/directory/list" in paths
-    assert "/directory/entries" in paths
-    assert "/directory/positions/{position_id}/extension" in paths
+    """Las 4 rutas del directorio existen y aceptan su método.
+
+    NO se consulta /api/openapi.json: create_app() solo monta openapi/docs/redoc
+    cuando FLASK_ENV != "production" (itcj2/main.py, endurecimiento de 7b5606c).
+    CI no define FLASK_ENV, así que gana el default de config.py ("production"),
+    el endpoint da 404 y `paths` quedaba vacío. En local pasaba solo porque .env
+    trae FLASK_ENV=development.
+
+    Tampoco se leen los internos del router (app.routes/.path): `fastapi` está
+    sin pin (>=0.115.0), así que CI instala la última y la forma interna puede
+    cambiar entre versiones. Se prueba el contrato público: una ruta registrada
+    no responde 404, y con el método correcto tampoco 405. Anónimo -> 302 al
+    login, que ya es prueba de que la ruta resolvió.
+    """
+    _override_db(app_client)
+    try:
+        for method, path in (
+            ("get", "/directory/"),
+            ("get", "/directory/list"),
+            ("post", "/directory/entries"),
+            ("patch", "/directory/positions/1/extension"),
+        ):
+            resp = getattr(app_client, method)(path, follow_redirects=False)
+            assert resp.status_code not in (404, 405), (
+                f"{method.upper()} {path} -> {resp.status_code} (ruta no registrada)"
+            )
+    finally:
+        app_client.app.dependency_overrides.pop(get_db, None)
 
 
 def test_index_redirects_anonymous(app_client):
