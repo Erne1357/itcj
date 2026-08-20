@@ -24,6 +24,11 @@ def _tok(uid, sv):
 
 
 def test_current_version_returns_none_when_redis_errors():
+    """Ni Redis ni Postgres pueden responder: sin informacion, no se revoca.
+
+    Redis lanza, y el uid no existe en `core_users`, asi que la fuente de verdad
+    tampoco tiene un numero que devolver -> None (nunca 0).
+    """
     class _Boom:
         def get(self, *a, **k):
             raise ConnectionError("redis caido")
@@ -32,14 +37,22 @@ def test_current_version_returns_none_when_redis_errors():
         assert ss.current_version(1234567) is None
 
 
-def test_current_version_returns_zero_when_key_absent():
-    """Ausencia de clave sigue siendo 0: el usuario nunca fue bumpeado."""
+def test_current_version_falls_back_to_postgres_when_redis_is_empty(db_session, patched_session_local):
+    """MISS en Redis no es "versión 0": es "lee la fuente de verdad"."""
+    from itcj2.core.models.user import User
+
+    u = User(first_name="Fallback", last_name="Test", is_active=True)
+    db_session.add(u)
+    db_session.flush()
+    ss.bump_version(u.id, db=db_session)
+    db_session.flush()
+
     class _Empty:
         def get(self, *a, **k):
             return None
 
     with patch.object(ss, "_redis", return_value=_Empty()):
-        assert ss.current_version(1234568) == 0
+        assert ss.current_version(u.id) == 1
 
 
 def test_token_survives_redis_outage(app_client):

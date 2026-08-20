@@ -28,6 +28,12 @@ class User(Base):
     email = Column(Text)
     is_active = Column(Boolean, nullable=False, server_default=text("TRUE"))
     must_change_password = Column(Boolean, nullable=False, server_default=text("FALSE"))
+
+    # Época de sesión: fuente de verdad de la revocación de tokens. El JWT lleva
+    # el claim `sv` con el valor vigente al emitirse; si no coincide, el token está
+    # revocado. Vive en Postgres (no solo en Redis) para que un restart o un
+    # eviction del caché no reviva sesiones cerradas ni desloguee a nadie.
+    session_epoch = Column(Integer, nullable=False, server_default=text("0"))
     last_login = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

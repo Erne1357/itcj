@@ -1,8 +1,12 @@
 """Regresión: el caché de authz y la revocación de sesión NO comparten keyspace.
 
-Bug (2026-08-20): `invalidate_all()` barría el glob `authz:v1:*`, que incluye
-`authz:v1:sessionver:{uid}`, y deslogueaba a TODOS los usuarios al cambiar UN
-permiso de UN rol. Ver docs/superpowers/specs/2026-08-20-authz-cache-keyspace-collision.md
+Bug (2026-08-20): `invalidate_all()` barría el glob `authz:v1:*`, que incluía
+`authz:v1:sessionver:{uid}` — la clave de sesión de entonces — y deslogueaba a
+TODOS los usuarios al cambiar UN permiso de UN rol. Hoy la época de sesión
+canónica es `session:v1:ver:{uid}`, fuera de ese prefijo, y su fuente de verdad
+es `core_users.session_epoch`; el glob sigue prohibido igual, porque cualquier
+vecino futuro bajo `authz:v1:` sería igual de vulnerable.
+Ver docs/superpowers/specs/2026-08-20-authz-cache-keyspace-collision.md
 
 Estos tests exigen Redis vivo: sin Redis los wrappers son fail-open y no hay
 keyspace que aislar, así que se skipean.

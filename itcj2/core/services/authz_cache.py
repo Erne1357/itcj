@@ -199,11 +199,14 @@ def invalidate_all() -> None:
     RolePermission (perms de un rol), PositionAppRole / PositionAppPerm
     (config de un puesto), activar/desactivar un puesto.
 
-    NUNCA usar el glob ``authz:v1:*``: bajo ese prefijo vive también
-    ``authz:v1:sessionver:{uid}`` (session_service), que NO es caché sino la
-    versión de sesión del usuario. Barrerla pone ``current_version`` en 0 para
-    todos, desloguea a cuantos tengan ``sv >= 1`` y resucita tokens ya
-    revocados — el incidente del 2026-08-20. Enumerar los kinds, jamás comodín.
+    NUNCA usar el glob ``authz:v1:*``. La época de sesión canónica es hoy
+    ``session:v1:ver:{uid}`` (session_service, respaldada por
+    ``core_users.session_epoch``) y vive FUERA de este prefijo; pero en el
+    incidente del 2026-08-20 vivía en ``authz:v1:sessionver:{uid}`` y el comodín
+    la barría: ``current_version`` caía a 0 para todos, deslogueaba a cuantos
+    tuvieran ``sv >= 1`` y resucitaba tokens ya revocados. La regla sigue vigente
+    porque cualquier vecino futuro bajo este prefijo sería igual de vulnerable:
+    enumerar los kinds, jamás comodín.
     """
     r = _redis()
     if r is None:

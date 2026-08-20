@@ -20,10 +20,12 @@ import itcj2.models  # noqa: F401
 def _flush_authz_cache():
     """Vacía SOLO el caché de authz (y rate-limit y estilos de app).
 
-    NO toca `authz:v1:sessionver:*` ni ningún namespace de sesión: barrer eso
+    NO toca `session:v1:ver:*` — la época de sesión canónica, caché de
+    `core_users.session_epoch` — ni el `authz:v1:sessionver:*` histórico del
+    incidente del 2026-08-20, ni ningún otro namespace de sesión: barrer eso
     desloguearía a los usuarios reales si la suite corre contra un Redis
-    compartido — es el segundo vector del incidente del 2026-08-20. Los tests que
-    necesiten una versión de sesión limpia deben borrar SU uid, no un glob.
+    compartido — es el segundo vector de ese incidente. Los tests que necesiten
+    una época de sesión limpia deben borrar SU uid, no un glob.
 
     El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
     especial: es GLOBAL y los tests crean departamentos dentro de una transacción
