@@ -17,46 +17,53 @@ from sqlalchemy.orm import sessionmaker
 import itcj2.models  # noqa: F401
 
 
+def _flush_authz_cache():
+    """Vacía SOLO el caché de authz (y rate-limit y estilos de app).
+
+    NO toca `authz:v1:sessionver:*` ni ningún namespace de sesión: barrer eso
+    desloguearía a los usuarios reales si la suite corre contra un Redis
+    compartido — es el segundo vector del incidente del 2026-08-20. Los tests que
+    necesiten una versión de sesión limpia deben borrar SU uid, no un glob.
+
+    Best-effort: si Redis no está disponible, no rompe el test (fail-open).
+    """
+    try:
+        from itcj2.core.services.authz_cache import invalidate_dept_map
+        invalidate_dept_map()
+    except Exception:
+        pass
+    try:
+        from itcj2.core.utils.redis_conn import get_redis
+        r = get_redis()
+        if r is not None:
+            keys = []
+            for kind in ("roles", "perms", "has"):
+                keys += list(r.scan_iter(match=f"authz:v1:{kind}:*", count=1000))
+            keys += list(r.scan_iter(match="rl:*", count=1000))
+            keys += list(r.scan_iter(match="appstyle:*", count=100))
+            if keys:
+                r.delete(*keys)
+    except Exception:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _clear_authz_cache():
-    """Limpia el caché de authz en Redis ANTES de cada test.
+    """Limpia el caché de authz en Redis ANTES y DESPUÉS de cada test.
 
     Muchos tests parchean get_user_permissions_for_app / user_roles_in_app /
     has_any_assignment esperando que se llamen. Pero cached_* leen Redis primero;
     si un test previo dejó una entrada (kind, app, user), el patch se saltea por un
-    HIT stale y el test falla de forma no-determinista. Vaciar authz:v1:* antes de
-    cada test hace que cada uno vea un MISS y ejecute la función parcheada.
+    HIT stale y el test falla de forma no-determinista.
 
     El mapa de descendientes de departamentos (`authz:v1:deptmap`) merece mención
     aparte: es GLOBAL y los tests crean departamentos dentro de una transacción que
     se revierte, así que una entrada cacheada sobrevive a las filas que la
-    originaron. Se invalida explícitamente (no solo por el `scan_iter`, que es
-    best-effort) y también DESPUÉS del test, para no dejarle un mapa fantasma al
-    siguiente — era el origen de fallos intermitentes en los tests de scope.
-
-    Best-effort: si Redis no está disponible, no rompe el test (fail-open).
+    originaron. Se invalida explícitamente y también DESPUÉS del test.
     """
-    def _flush():
-        try:
-            from itcj2.core.services.authz_cache import invalidate_dept_map
-            invalidate_dept_map()
-        except Exception:
-            pass
-        try:
-            from itcj2.core.utils.redis_conn import get_redis
-            r = get_redis()
-            if r is not None:
-                keys = list(r.scan_iter(match="authz:v1:*", count=1000))
-                keys += list(r.scan_iter(match="rl:*", count=1000))
-                keys += list(r.scan_iter(match="appstyle:*", count=100))
-                if keys:
-                    r.delete(*keys)
-        except Exception:
-            pass
-
-    _flush()
+    _flush_authz_cache()
     yield
-    _flush()
+    _flush_authz_cache()
 
 
 _DIRECT_PG_URL = "postgresql+psycopg2://postgres:password@postgres:5432/itcj"

@@ -82,3 +82,18 @@ def test_invalidate_user_preserves_session_version(uid):
     ac.invalidate_user(uid)
 
     assert r.get(ss._KEY.format(uid=uid)) == "7"
+
+
+def test_suite_fixture_does_not_wipe_session_versions(uid):
+    """R3: correr la suite contra un Redis compartido no debe desloguear a nadie.
+
+    Ejercita el mismo `_flush()` que el fixture autouse de tests/fastapi/conftest.py
+    corre antes y después de CADA test.
+    """
+    r = _redis_or_skip()
+    r.set(ss._KEY.format(uid=uid), 7)
+
+    from tests.fastapi.conftest import _flush_authz_cache
+    _flush_authz_cache()
+
+    assert r.get(ss._KEY.format(uid=uid)) == "7"

@@ -6,9 +6,10 @@ porque todos autentican vía current_user_from_environ. Las 3 ramas:
   2. sv AUSENTE -> pasa aunque haya versión bumpeada (compat; los tokens de
      e2e/global-setup no traen sv)
   3. Redis/servicio caído -> fail-open (pasa)
-Usa el Redis real del stack para bump_version (el fixture autouse del conftest
-limpia authz:v1:* — incluye sessionver — antes de cada test).
-"""
+Usa el Redis real del stack para bump_version. El fixture autouse del conftest
+limpia el CACHÉ de authz (roles/perms/has) pero NO las versiones de sesión: barrerlas
+desloguearía usuarios reales si la suite corre contra un Redis compartido. Este módulo
+limpia sus propios uids al terminar."""
 from unittest.mock import patch
 
 from itcj2.core.services import session_service as ss
