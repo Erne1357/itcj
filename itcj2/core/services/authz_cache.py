@@ -192,6 +192,41 @@ def invalidate_user(user_id: int) -> None:
         logger.warning("authz_cache: invalidate_user(%s) err (%s)", user_id, e)
 
 
+def _delete_matching(r, patterns: list[str], extra: list[str] | None = None) -> None:
+    """Borra por lotes las claves que matcheen los patrones dados.
+
+    UNLINK en vez de DELETE: libera la memoria en un hilo aparte y no bloquea el
+    hilo único de Redis, que aquí es compartido con Socket.IO, Celery, el
+    rate-limit de login y los holds de AgendaTec. Se borra en chunks para no
+    materializar todo el keyspace en memoria del proceso.
+    """
+    batch = list(extra or [])
+    for pattern in patterns:
+        for key in r.scan_iter(match=pattern, count=1000):
+            batch.append(key)
+            if len(batch) >= 500:
+                r.unlink(*batch)
+                batch = []
+    if batch:
+        r.unlink(*batch)
+
+
+def invalidate_app(app_key: str) -> None:
+    """Borra el caché de authz de UNA app, para todos sus usuarios.
+
+    Para cambios role-wide acotables a una app: agregar/quitar/reemplazar los
+    permisos de un rol dentro de esa app. Evita tirar el caché de las otras cinco
+    apps, que no se han enterado del cambio.
+    """
+    r = _redis()
+    if r is None:
+        return
+    try:
+        _delete_matching(r, [f"{_PREFIX}:{k}:{app_key}:*" for k in _KINDS])
+    except Exception as e:
+        logger.warning("authz_cache: invalidate_app(%s) err (%s)", app_key, e)
+
+
 def invalidate_all() -> None:
     """Borra TODO el caché de authz — y SOLO el caché.
 
@@ -212,10 +247,6 @@ def invalidate_all() -> None:
     if r is None:
         return
     try:
-        keys = []
-        for kind in _KINDS:
-            keys += list(r.scan_iter(match=f"{_PREFIX}:{kind}:*", count=1000))
-        keys.append(_DEPTMAP_KEY)
-        r.delete(*keys)
+        _delete_matching(r, [f"{_PREFIX}:{k}:*" for k in _KINDS], extra=[_DEPTMAP_KEY])
     except Exception as e:
         logger.warning("authz_cache: invalidate_all err (%s)", e)

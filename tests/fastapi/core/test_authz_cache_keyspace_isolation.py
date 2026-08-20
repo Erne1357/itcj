@@ -112,3 +112,26 @@ def test_suite_fixture_does_not_wipe_session_versions(uid):
     _flush_authz_cache()
 
     assert r.get(ss._KEY.format(uid=uid)) == "7"
+
+
+def test_invalidate_app_only_touches_that_app(uid):
+    """R9: cambiar permisos de un rol de helpdesk no debe tirar el caché de maint."""
+    r = _redis_or_skip()
+    r.setex(ac._key("perms", "helpdesk", uid), 300, '["helpdesk.x"]')
+    r.setex(ac._key("perms", "maint", uid), 300, '["maint.y"]')
+    r.setex(ac._DEPTMAP_KEY, 300, '{"1": [1]}')
+
+    ac.invalidate_app("helpdesk")
+
+    assert r.get(ac._key("perms", "helpdesk", uid)) is None
+    assert r.get(ac._key("perms", "maint", uid)) is not None
+    assert r.get(ac._DEPTMAP_KEY) is not None
+
+
+def test_invalidate_app_preserves_session_version(uid):
+    r = _redis_or_skip()
+    r.set(ss._KEY.format(uid=uid), 7)
+
+    ac.invalidate_app("helpdesk")
+
+    assert r.get(ss._KEY.format(uid=uid)) == "7"
