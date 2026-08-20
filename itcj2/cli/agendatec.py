@@ -27,6 +27,14 @@ def _execute_sql_scripts(db, scripts_dir: str) -> int:
     olvida. El costo de invalidar de más en un comando que solo corre en
     deploy (un refill de caché) es aceptable frente al de dejar un permiso
     revocado autorizando hasta AUTHZ_CACHE_TTL (300s).
+
+    Este `db` es del CALLER y no se commitea aquí, así que esta invalidación
+    corre ANTES de ese commit. Cada llamador debe invalidar OTRA VEZ después
+    de su propio `db.commit()` (ver el comentario en `load_help_command`) —
+    sin eso, un lector que caiga en la ventana pre-commit repuebla el caché
+    con el estado viejo aún no commiteado y esa entrada sobrevive el TTL
+    completo, el mismo patrón que `bump_version`/`forget_cached_version`
+    (Tareas 5/6) tuvieron que cerrar para la época de sesión.
     """
     scripts_path = Path(scripts_dir)
     if not scripts_path.exists():
@@ -157,6 +165,11 @@ def seed_periods_command():
             click.echo(f"   ✓ Período creado (ID: {period2.id}) — ACTIVO")
 
             db.commit()
+            # Segunda invalidación, ya con el commit hecho: ver el comentario en
+            # load_help_command para el porqué (no es redundante con la de
+            # _execute_sql_scripts).
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
 
             click.echo("\n✅ Períodos académicos creados exitosamente")
 
@@ -669,6 +682,17 @@ def load_help_command():
         try:
             executed = _execute_sql_scripts(db, str(scripts_dir))
             db.commit()
+            # `_execute_sql_scripts` ya invalidó una vez, pero ANTES de este
+            # commit (recibe un `db` que no le pertenece y no lo commitea). Un
+            # lector que caiga justo en esa ventana repuebla el caché leyendo
+            # Postgres todavía sin el DML aplicado, y esa entrada le sobrevive
+            # el TTL completo (300s) — Race A6 una vez más, ahora en el caché
+            # de authz en vez de en la época de sesión. Esta segunda llamada,
+            # YA con el commit hecho, cierra esa ventana. NO es redundante con
+            # la de _execute_sql_scripts: quitar cualquiera de las dos reabre
+            # una ventana distinta.
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
             click.echo(f"\n✅ {executed} script(s) ejecutado(s) correctamente")
         except Exception as e:
             db.rollback()
@@ -712,6 +736,10 @@ def load_split_scope_command(dry_run):
         try:
             executed = _execute_sql_scripts(db, str(scripts_dir))
             db.commit()
+            # Segunda invalidación post-commit: ver el comentario en
+            # load_help_command para el porqué (no es redundante).
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
             click.echo(f"\n✅ {executed} script(s) ejecutado(s) correctamente")
         except Exception as e:
             db.rollback()
