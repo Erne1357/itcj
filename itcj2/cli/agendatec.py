@@ -457,6 +457,11 @@ def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bo
         ).first()
         if not existing_role:
             db.add(UserAppRole(user_id=user_id, app_id=app_id, role_id=role_id))
+            # El caché es read-through: si el alumno ya golpeó un guard de agendatec
+            # antes (periodo anterior), su entrada `has` dice False y le daría 403
+            # hasta que expire el TTL.
+            from itcj2.core.services.authz_cache import invalidate_user_app
+            invalidate_user_app(user_id, "agendatec")
 
     return status, user_id
 
@@ -567,6 +572,8 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
                     )
                     .all()
                 )
+                revoked_ids = []
+                failed_revocations = 0
                 for student in students:
                     in_csv = (
                         (student.control_number and student.control_number in processed_control_numbers)
@@ -574,12 +581,41 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
                     )
                     if not in_csv:
                         if not dry_run:
+                            # bump_version(db=db) es atómico con is_active=False (misma
+                            # transacción): sin esto, desactivar sin revocar deja la
+                            # sesión del alumno viva hasta 12h. Es un import batch de
+                            # muchos alumnos, no una acción admin de uno solo, así que
+                            # un fallo de revocación NO aborta todo el batch (a
+                            # diferencia de users_admin.toggle_user_status) — pero
+                            # tampoco se desactiva en silencio sin haber revocado:
+                            # ese es justo el modo de falla que este plan busca
+                            # eliminar. Se omite ese alumno (sigue activo) y se
+                            # reporta al final.
+                            from itcj2.core.services.session_service import bump_version
+                            if bump_version(student.id, db=db) is None:
+                                failed_revocations += 1
+                                click.echo(
+                                    f"   ⚠️  No se pudo revocar la sesión de {student.id}; "
+                                    "se deja activo (no se desactiva sin revocar)."
+                                )
+                                continue
                             student.is_active = False
                             db.add(student)
+                            revoked_ids.append(student.id)
                         deactivated += 1
                 if not dry_run and deactivated > 0:
                     db.commit()
+                    # bump_version(db=db) ya borró la caché de cada época antes de
+                    # este commit; ese borrado puede perder la carrera contra un
+                    # lector que repueble con la época vieja aún no commiteada
+                    # (Carrera A6, Tarea 5/6). Este segundo borrado, YA con el
+                    # commit hecho, cierra esa ventana.
+                    from itcj2.core.services.session_service import forget_cached_version
+                    for uid in revoked_ids:
+                        forget_cached_version(uid)
                 click.echo(f"   🚫 Desactivados: {deactivated}")
+                if failed_revocations:
+                    click.echo(f"   ⚠️  Omitidos por fallo de revocación (siguen activos): {failed_revocations}")
 
             click.echo(f"\n✅ Sincronización completada — {row_idx} filas procesadas")
 

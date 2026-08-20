@@ -357,7 +357,12 @@ def check_database_command():
 
 @click.command("execute-sql")
 @click.argument("sql_file")
-def execute_single_sql_command(sql_file):
+@click.option(
+    "--invalidate-authz/--no-invalidate-authz",
+    default=True,
+    help="Invalida el caché de authz al terminar (necesario si el SQL toca permisos/roles).",
+)
+def execute_single_sql_command(sql_file, invalidate_authz):
     """Ejecuta un archivo SQL específico."""
     click.echo(f"🔄 Ejecutando archivo: {sql_file}")
 
@@ -371,6 +376,17 @@ def execute_single_sql_command(sql_file):
     except Exception as e:
         click.echo(f"❌ Error ejecutando {sql_file}: {str(e)}")
         raise
+
+    if invalidate_authz:
+        # El caché de authz tiene TTL de 5 min: sin esto, un DML que revoca un
+        # permiso deja una ventana de autorización obsoleta tras el despliegue.
+        try:
+            from itcj2.core.services.authz_cache import invalidate_all
+            invalidate_all()
+            click.echo("🧹 Caché de authz invalidado.")
+        except Exception as e:
+            click.echo(f"⚠️  No se pudo invalidar el caché de authz ({e}). "
+                       "Aplicará en ≤5 min por TTL.")
 
 
 @click.command("init-themes")
