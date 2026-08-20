@@ -453,15 +453,35 @@ def toggle_user_status(
         raise HTTPException(400, detail="No puedes desactivar tu propia cuenta")
 
     u.is_active = not u.is_active
+
+    if not u.is_active:
+        # Revocar sesiones del usuario desactivado, en la MISMA transacción que el
+        # cambio de is_active: si se bumpeaba después del commit, el refresh del
+        # middleware podía colarse en el hueco y emitir un token válido y
+        # sincronizado. Debe ser `bump_version(u.id, db=db)` (NO la forma sin
+        # `db`): esa forma abre una SEGUNDA conexión y hace su propio UPDATE sobre
+        # la misma fila de core_users, así que llamarla antes de que ESTA
+        # transacción commitee se bloquearía en el lock de escritura de la fila —
+        # un auto-deadlock. Con `db=db` corre en la transacción actual, sin
+        # segunda conexión.
+        #
+        # El try/except que envolvía este bump se quitó a propósito: si el UPDATE
+        # falla, la transacción entera debe fallar — desactivar una cuenta sin
+        # revocar sus sesiones es peor que no desactivarla.
+        from itcj2.core.services.session_service import bump_version
+        bump_version(u.id, db=db)
+
     db.commit()
 
     if not u.is_active:
-        # Revocar sesiones del usuario desactivado (invalida sus tokens al instante).
-        try:
-            from itcj2.core.services.session_service import bump_version
-            bump_version(u.id)
-        except Exception:
-            pass
+        # bump_version(db=db) borró la clave de Redis ANTES de este commit (el
+        # caller aún no había commiteado). Un lector que cayera en esa ventana
+        # pudo repoblar el caché con la época vieja leída de Postgres todavía sin
+        # commitear, y como escribir sobre una clave ausente es una subida
+        # legítima, la guarda monótona no lo habría rechazado. Este segundo
+        # borrado, YA con el commit hecho, cierra esa ventana.
+        from itcj2.core.services.session_service import forget_cached_version
+        forget_cached_version(u.id)
 
     action = "activada" if u.is_active else "desactivada"
     logger.info(f"Cuenta de usuario {user_id} {action} por {int(current_user['sub'])}")

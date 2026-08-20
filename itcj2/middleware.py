@@ -70,6 +70,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 pass
 
         request.state.current_user = data
+        request.state.suppress_refresh = False
 
         # Detectar si el token necesita refresh
         needs_refresh = False
@@ -81,7 +82,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
         response: Response = await call_next(request)
 
         # Refrescar cookie si es necesario (misma lógica que Flask)
-        if needs_refresh and data:
+        if needs_refresh and data and not getattr(request.state, "suppress_refresh", False):
             from itcj2.core.models.user import User
             from itcj2.database import SessionLocal
 

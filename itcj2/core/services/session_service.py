@@ -142,6 +142,25 @@ def current_version(user_id: int) -> int | None:
     return epoch
 
 
+def forget_cached_version(user_id: int) -> None:
+    """Borra la copia en caché de la época de sesión. Best-effort.
+
+    Se llama DESPUÉS de que el caller commitea un ``bump_version(db=...)``: entre
+    el borrado que hace bump_version y ese commit, un lector puede rellenar el
+    caché con la época vieja leída de Postgres, y como escribir sobre una clave
+    ausente es una subida legítima, la guarda monótona no puede rechazarla. Este
+    segundo borrado cierra esa ventana — el siguiente lector relee Postgres ya
+    commiteado.
+    """
+    r = _redis()
+    if r is None:
+        return
+    try:
+        r.delete(_KEY.format(uid=user_id))
+    except Exception as e:
+        logger.warning("session_service: no se pudo borrar la caché de la época (%s)", e)
+
+
 def bump_version(user_id: int, db=None) -> int | None:
     """Incrementa la época → revoca todos los tokens actuales del usuario.
 

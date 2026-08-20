@@ -95,9 +95,12 @@ def me(user: CurrentUser):
 
 
 @router.post("/logout", status_code=204)
-def logout(user: CurrentUser, response: Response):
+def logout(user: CurrentUser, request: Request, response: Response):
     """Cierra la sesión: elimina la cookie y revoca todos los tokens del usuario."""
     from itcj2.core.services.session_service import bump_version
+    # El middleware podría estar en la ventana de refresh y re-emitir la cookie con
+    # el `sv` recién bumpeado, dejando el logout sin efecto.
+    request.state.suppress_refresh = True
     try:
         bump_version(int(user["sub"]))
     except Exception:
