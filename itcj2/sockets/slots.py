@@ -33,6 +33,34 @@ def _sid_hold_key(sid: str) -> str:
     return f"sid:{sid}:hold"
 
 
+# ==================== Broadcasts ====================
+# Emisores del namespace, para que quien necesite avisar al día no tenga que
+# importar `sio` ni recordar el nombre de la room. Envolver con
+# `itcj2.utils.async_broadcast` al llamarlas desde código sync.
+
+
+async def broadcast_slots_window_changed(day: str) -> None:
+    """La grilla del día cambió: los clientes deben recargarla entera."""
+    await sio.emit("slots_window_changed", {"day": day},
+                   to=_room_for_day(day), namespace=NAMESPACE)
+
+
+async def broadcast_slot_released(day: str, slot_id: int,
+                                  start: str | None = None, end: str | None = None) -> None:
+    """Un slot volvió a estar libre.
+
+    El payload replica el que ya consume `student/request.js`: `start_time` y
+    `end_time` son opcionales porque el release por hold (que no conoce las
+    horas) los omite, igual que hoy.
+    """
+    payload = {"slot_id": slot_id, "day": day}
+    if start is not None:
+        payload["start_time"] = start
+    if end is not None:
+        payload["end_time"] = end
+    await sio.emit("slot_released", payload, to=_room_for_day(day), namespace=NAMESPACE)
+
+
 # ==================== Sync DB/Redis Helpers (para thread pool) ====================
 
 def _get_slot_day(slot_id: int):

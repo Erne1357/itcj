@@ -607,16 +607,14 @@ class RequestService:
     def _notify_slot_released(self, slot: TimeSlot, appointment: Appointment) -> None:
         """Emite evento de slot liberado."""
         try:
-            from itcj2.sockets.server import sio
+            from itcj2.sockets.slots import broadcast_slot_released
             slot_day = str(slot.day)
-            room = f"day:{slot_day}"
-            payload = {
-                "slot_id": appointment.slot_id,
-                "day": slot_day,
-                "start_time": slot.start_time.strftime("%H:%M"),
-                "end_time": slot.end_time.strftime("%H:%M"),
-            }
-            _async_broadcast(sio.emit("slot_released", payload, to=room, namespace="/slots"))
+            _async_broadcast(broadcast_slot_released(
+                slot_day,
+                appointment.slot_id,
+                slot.start_time.strftime("%H:%M"),
+                slot.end_time.strftime("%H:%M"),
+            ))
             redis_cli = get_redis()
             redis_cli.delete(f"slot:{appointment.slot_id}:hold")
         except Exception:

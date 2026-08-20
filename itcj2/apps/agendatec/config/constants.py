@@ -104,6 +104,10 @@ VALID_SLOT_MINUTES: FrozenSet[int] = frozenset({5, 10, 15, 20, 30, 60})
 # Duración por defecto de un slot en minutos
 DEFAULT_SLOT_MINUTES = 10
 
+# Margen sobre "ahora" al re-dividir un rango del día en curso. Evita que la
+# grilla nueva arranque en un instante que ya pasó mientras corría la request.
+SPLIT_GRACE_MINUTES = 2
+
 # =============================================================================
 # REDIS - HOLDS DE SLOTS
 # =============================================================================
@@ -124,6 +128,14 @@ NOTIFICATION_TYPE_APPOINTMENT_CREATED = "APPOINTMENT_CREATED"
 NOTIFICATION_TYPE_APPOINTMENT_CANCELED = "APPOINTMENT_CANCELED"
 NOTIFICATION_TYPE_DROP_CREATED = "DROP_CREATED"
 NOTIFICATION_TYPE_REQUEST_STATUS_CHANGED = "REQUEST_STATUS_CHANGED"
+
+NOTIFICATION_TYPE_APPOINTMENT_RESCHEDULED = "APPOINTMENT_RESCHEDULED"
+
+# Destino del click de toda notificación de agendatec dirigida a un alumno.
+# El click navega a data["url"], que Notification.to_dict() expone como
+# action_url (core/models/notification.py:78). Sin esta clave, action_url es
+# null y las 4 superficies de UI solo marcan como leída sin navegar.
+STUDENT_REQUESTS_URL = "/agendatec/student/requests"
 
 # Límites de notificaciones
 NOTIFICATIONS_DEFAULT_LIMIT = 20
