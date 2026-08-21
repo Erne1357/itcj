@@ -794,6 +794,12 @@ def backfill_session_epoch_command(dry_run: bool):
     re-ejecutable — el runbook manda correrlo otra vez después del rolling
     restart, porque mientras conviven workers viejos y nuevos un logout servido
     por uno viejo bumpea la clave de Redis y el worker nuevo no lo ve.
+
+    Tras commitear, invalida `session:v1:ver:{uid}` (Redis) para cada fila que
+    el UPDATE tocó de verdad. Sin esto, la re-corrida tras el rolling restart
+    sube Postgres pero un worker nuevo que ya cacheó la época vieja con TTL de
+    1h la sigue sirviendo desde caché — el recovery que promete el runbook se
+    demora hasta 1h en vez de ser inmediato.
     """
     from sqlalchemy import text as _text
 
@@ -809,6 +815,10 @@ def backfill_session_epoch_command(dry_run: bool):
         raise SystemExit(1)
 
     updated = unchanged = missing = unreadable = non_positive = 0
+    # uids realmente escritos por el UPDATE (rowcount > 0), NUNCA en dry-run.
+    # Se invalida su caché de Redis después del commit — ver comentario junto
+    # al `forget_cached_version` más abajo para el porqué del orden.
+    updated_uids: set[int] = set()
     db = _get_session()
     try:
         for prefix in _SESSION_EPOCH_PREFIXES:
@@ -856,6 +866,7 @@ def backfill_session_epoch_command(dry_run: bool):
                 )
                 if res.rowcount:
                     updated += 1
+                    updated_uids.add(uid)
                 else:
                     # rowcount 0 son dos casos distintos y el reporte los separa:
                     # la fila no existe, o su época ya iba por delante.
@@ -883,6 +894,18 @@ def backfill_session_epoch_command(dry_run: bool):
             db.close()
         except Exception:
             pass
+
+    # Invalidar la caché de Redis DESPUÉS del commit, nunca dentro del loop:
+    # borrar la clave antes de commitear abre la misma carrera que esta rama ya
+    # cerró tres veces (Tarea 5/6, agendatec sync-students) — un lector la
+    # repuebla desde Postgres con el valor viejo aún no commiteado, y como
+    # escribir sobre una clave ausente es una subida legítima, la guarda
+    # monótona no puede rechazarla. Solo uids con rowcount > 0 (updated_uids
+    # está vacío en dry-run: nunca llega a ese branch).
+    if updated_uids:
+        from itcj2.core.services.session_service import forget_cached_version
+        for uid in updated_uids:
+            forget_cached_version(uid)
 
     # Las etiquetas son IDÉNTICAS en dry-run y en la corrida real, a propósito:
     # el operador compara los dos reportes línea a línea, y el banner de arriba

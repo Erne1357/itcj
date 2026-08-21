@@ -44,6 +44,7 @@ class _FakeRedis:
 
     def __init__(self, data: dict):
         self._data = {str(k): str(v) for k, v in data.items()}
+        self.deleted: list[str] = []
 
     def scan_iter(self, match=None, count=None):
         for key in list(self._data):
@@ -52,6 +53,10 @@ class _FakeRedis:
 
     def get(self, key):
         return self._data.get(key)
+
+    def delete(self, key):
+        self.deleted.append(key)
+        self._data.pop(key, None)
 
 
 @pytest.fixture()
@@ -63,6 +68,30 @@ def run_backfill(monkeypatch):
             "itcj2.core.utils.redis_conn.get_redis", lambda: _FakeRedis(data)
         )
         return CliRunner().invoke(backfill_session_epoch_command, list(args))
+
+    return _run
+
+
+@pytest.fixture()
+def run_backfill_tracking_redis(monkeypatch):
+    """Como `run_backfill`, pero expone la MISMA instancia de `_FakeRedis` que ve
+    el comando durante toda la corrida.
+
+    `run_backfill` liga `get_redis` a una lambda que construye un `_FakeRedis`
+    NUEVO cada vez que se llama — invisible desde el test, pero suficiente
+    mientras el comando solo llamaba `get_redis()` una vez (para escanear). La
+    invalidación post-commit añade una SEGUNDA fuente de llamadas a
+    `get_redis()` (una por `forget_cached_version`), y con la lambda original
+    cada una vería un `_FakeRedis` distinto, recién copiado de `data` — no se
+    podría observar qué se borró. Esta fixture fija una única instancia para
+    toda la corrida del comando.
+    """
+
+    def _run(data: dict, args=()):
+        fake = _FakeRedis(data)
+        monkeypatch.setattr("itcj2.core.utils.redis_conn.get_redis", lambda: fake)
+        result = CliRunner().invoke(backfill_session_epoch_command, list(args))
+        return result, fake
 
     return _run
 
@@ -234,3 +263,92 @@ def test_empty_keyspace_is_reported_not_crashed(db_session, patched_session_loca
     assert result.exit_code == 0, result.output
     assert "escaneadas en authz:v1:sessionver:*: 0" in result.output
     assert "escaneadas en session:v1:ver:*: 0" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Invalidación del caché de Redis tras el backfill (residual del re-review)
+#
+# El re-run que el runbook manda después del rolling restart ya no encuentra
+# Redis vacío: workers nuevos poblaron `session:v1:ver:{uid}` desde Postgres
+# con TTL de 1h (`session_service._TTL`). Si el backfill sube `session_epoch`
+# en Postgres sin tocar esa clave, `current_version` sigue sirviendo la época
+# vieja desde caché hasta que expira — el recovery que promete el runbook se
+# demora hasta 1h en vez de ser inmediato. Ver session_service.py:130-136.
+# ---------------------------------------------------------------------------
+def test_invalidates_the_cache_for_a_row_it_actually_updated(
+    user, db_session, patched_session_local, run_backfill_tracking_redis
+):
+    """La clave `session:v1:ver:{uid}` es a la vez posible fuente del backfill
+    (segundo prefijo escaneado) Y el caché real que lee `current_version`. Se
+    siembra con un valor viejo (simulando lo que un worker ya cacheó) para
+    comprobar que el backfill la borra tras subir Postgres."""
+    cache_key = CURRENT.format(uid=user.id)
+    result, fake = run_backfill_tracking_redis({
+        LEGACY.format(uid=user.id): 7,
+        cache_key: 2,  # caché viva, época vieja
+    })
+
+    assert result.exit_code == 0, result.output
+    assert _epoch(db_session, user.id) == 7
+    assert cache_key in fake.deleted
+
+
+def test_does_not_invalidate_a_row_it_did_not_update(
+    user, db_session, patched_session_local, run_backfill_tracking_redis
+):
+    """Si el UPDATE no tocó la fila (epoch en Postgres ya iba por delante), no
+    hay motivo para forzar una relectura — nada cambió."""
+    _set_epoch(db_session, user.id, 9)
+    cache_key = CURRENT.format(uid=user.id)
+
+    result, fake = run_backfill_tracking_redis({LEGACY.format(uid=user.id): 3})
+
+    assert result.exit_code == 0, result.output
+    assert "filas actualizadas: 0" in result.output
+    assert cache_key not in fake.deleted
+    assert fake.deleted == []
+
+
+def test_dry_run_does_not_invalidate_anything(
+    user, db_session, patched_session_local, run_backfill_tracking_redis
+):
+    """`--dry-run` no escribe en Postgres; tampoco debe borrar caché de Redis."""
+    result, fake = run_backfill_tracking_redis(
+        {LEGACY.format(uid=user.id): 7}, args=["--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "filas actualizadas: 1" in result.output
+    assert fake.deleted == []
+
+
+def test_invalidates_after_commit_not_before(
+    user, db_session, patched_session_local, run_backfill, monkeypatch
+):
+    """Orden exigido por el residual: invalidar ANTES del commit reabre la
+    carrera que esta rama ya cerró tres veces — un lector repuebla el caché
+    con la época vieja aún no commiteada, y como escribir sobre una clave
+    ausente es una subida legítima, la guarda monótona no puede rechazarla.
+    Este test fija el orden observable: primero `commit()`, después
+    `forget_cached_version`."""
+    calls: list[str] = []
+
+    real_commit = db_session.commit
+
+    def _commit_then_record():
+        real_commit()
+        calls.append("commit")
+
+    def _record_invalidate(uid):
+        calls.append("invalidate")
+
+    monkeypatch.setattr(db_session, "commit", _commit_then_record)
+    monkeypatch.setattr(
+        "itcj2.core.services.session_service.forget_cached_version",
+        _record_invalidate,
+    )
+
+    result = run_backfill({LEGACY.format(uid=user.id): 7})
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["commit", "invalidate"]
