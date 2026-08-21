@@ -432,7 +432,43 @@ def _parse_student_row_v2(row: dict) -> Tuple[dict, list]:
     return payload, warnings
 
 
-def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bool = False) -> Tuple[str, Optional[int]]:
+def _flush_grant_invalidations(granted_ids: list) -> None:
+    """Reinvalida el caché de authz de los alumnos cuyo rol ACABA de commitearse.
+
+    `_upsert_student_v2` ya invalida junto al `db.add(UserAppRole(...))`, pero
+    ese add no se commitea hasta `commit_every` filas después (500 por defecto)
+    o al final del CSV. Un lector que golpee un guard de agendatec en esa
+    ventana repuebla el caché leyendo Postgres —que TODAVÍA no tiene el rol— y
+    esa entrada `has: False` le sobrevive el TTL completo (300s) PASADO el
+    commit. Misma Carrera A6 que cierran con una segunda invalidación
+    post-commit los otros cuatro call sites de este fix; aquí la dirección es
+    stale-DENY (403 al alumno recién importado, no acceso indebido), pero el
+    invariante es el mismo y dejarlo a medias es lo que se copia después.
+
+    Vacía la lista: hay que llamarla tras CADA commit parcial, no solo al final.
+    """
+    if not granted_ids:
+        return
+    from itcj2.core.services.authz_cache import invalidate_user_app
+    for uid in granted_ids:
+        invalidate_user_app(uid, "agendatec")
+    granted_ids.clear()
+
+
+def _upsert_student_v2(
+    db,
+    payload: dict,
+    app_id: int,
+    role_id: int,
+    dry_run: bool = False,
+    granted_ids: Optional[list] = None,
+) -> Tuple[str, Optional[int]]:
+    """Crea/actualiza un alumno y le asegura el rol `student` de agendatec.
+
+    `granted_ids`: lista de salida. Se le anexa el id de cada alumno al que se
+    le CREÓ el UserAppRole, para que el caller pueda reinvalidar su caché
+    después del commit (ver `_flush_grant_invalidations`).
+    """
     from itcj2.core.models import User, UserAppRole
 
     username = payload.get("username")
@@ -495,6 +531,11 @@ def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bo
             # hasta que expire el TTL.
             from itcj2.core.services.authz_cache import invalidate_user_app
             invalidate_user_app(user_id, "agendatec")
+            # Pero esta invalidación es PRE-commit y por tanto insuficiente por
+            # sí sola: el caller debe reinvalidar tras el commit que incluya
+            # este add. Ver `_flush_grant_invalidations`.
+            if granted_ids is not None:
+                granted_ids.append(user_id)
 
     return status, user_id
 
@@ -537,6 +578,10 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
     processed_control_numbers: set = set()
     processed_usernames: set = set()
     deactivated = 0
+    # Alumnos con rol recién concedido y todavía sin commitear. Se vacía tras
+    # CADA commit (parcial y final), no solo al terminar: con lotes de 500 el
+    # "solo al final" deja la ventana de caché stale abierta casi todo el import.
+    pending_grants: list = []
 
     with SessionLocal() as db:
         app_id, role_id = _get_or_create_student_role(db)
@@ -574,7 +619,10 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
                     if payload.get("username"):
                         processed_usernames.add(payload["username"])
 
-                    status, _ = _upsert_student_v2(db, payload, app_id, role_id, dry_run=dry_run)
+                    status, _ = _upsert_student_v2(
+                        db, payload, app_id, role_id, dry_run=dry_run,
+                        granted_ids=pending_grants,
+                    )
                     if status == "created":
                         created += 1
                         to_commit += 1
@@ -587,9 +635,11 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
                     if not dry_run and to_commit >= commit_every:
                         db.commit()
                         to_commit = 0
+                        _flush_grant_invalidations(pending_grants)
 
                 if not dry_run and to_commit > 0:
                     db.commit()
+                _flush_grant_invalidations(pending_grants)
 
             click.echo(f"   ✅ Creados: {created} | Actualizados: {updated} | Omitidos: {skipped}")
 

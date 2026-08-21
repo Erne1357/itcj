@@ -197,3 +197,62 @@ def test_sync_students_deactivation_skips_student_when_revoke_fails(tmp_path):
     mock_forget.assert_not_called()
     assert "Omitidos por fallo de revocación" in result.output
     assert "Desactivados: 0" in result.output
+
+
+def test_sync_students_reinvalidates_after_each_commit(
+    tmp_path, db_session, agendatec_app, make_user, monkeypatch
+):
+    """FASE 1: la invalidación del rol nuevo también tiene que ir DESPUÉS del commit.
+
+    `_upsert_student_v2` invalida junto al `db.add(UserAppRole(...))`, pero ese
+    add no se commitea hasta `commit_every` filas más tarde (500 por defecto) o
+    al final del CSV. Un lector que golpee un guard de agendatec en esa ventana
+    repuebla el caché leyendo Postgres —que TODAVÍA no tiene el rol— y su
+    entrada `has: False` sobrevive el TTL completo (300s) PASADO el commit: el
+    alumno recién importado come 403 durante cinco minutos.
+
+    Es la misma Carrera A6 que los otros cuatro call sites de esta rama cierran
+    con una segunda invalidación post-commit; la dirección aquí es stale-DENY,
+    no un hueco de seguridad, pero el invariante es el mismo.
+
+    `--commit-every 1` fuerza dos commits parciales: lo que se prueba es que
+    cada alumno se reinvalida tras el commit QUE LO INCLUYE, no solo al final —
+    con 500 alumnos por lote, "solo al final" sería una ventana enorme.
+    """
+    a = make_user(first_name="Ana", last_name="Lopez", control_number="20219001", role_name="student")
+    b = make_user(first_name="Beto", last_name="Ruiz", control_number="20219002", role_name="student")
+
+    csv_path = tmp_path / "students.csv"
+    _write_csv(csv_path, [
+        {"no_de_control": "20219001", "apellido_paterno": "Lopez",
+         "apellido_materno": "Garcia", "nombre_alumno": "Ana", "nip": "1234"},
+        {"no_de_control": "20219002", "apellido_paterno": "Ruiz",
+         "apellido_materno": "Diaz", "nombre_alumno": "Beto", "nip": "5678"},
+    ])
+
+    spy_commit = MagicMock(side_effect=db_session.commit)
+    monkeypatch.setattr(db_session, "commit", spy_commit)
+
+    with patch("itcj2.core.services.authz_cache.invalidate_user_app") as mock_inv, \
+         patch("itcj2.database.SessionLocal", return_value=_SyncSessionLocalCtx(db_session)):
+        manager = MagicMock()
+        manager.attach_mock(mock_inv, "invalidate_user_app")
+        manager.attach_mock(spy_commit, "commit")
+
+        result = CliRunner().invoke(
+            sync_students_agendatec_command,
+            ["--csv-path", str(csv_path), "--no-deactivate-missing", "--commit-every", "1"],
+        )
+
+    assert result.exit_code == 0, result.output
+
+    # (nombre, uid) de cada llamada, en orden.
+    seq = [(c[0], c[1][0] if c[1] else None) for c in manager.mock_calls]
+    assert seq == [
+        ("invalidate_user_app", a.id),   # pre-commit: cierra el caché stale de antes
+        ("commit", None),
+        ("invalidate_user_app", a.id),   # post-commit: cierra la Carrera A6
+        ("invalidate_user_app", b.id),
+        ("commit", None),
+        ("invalidate_user_app", b.id),
+    ], seq
