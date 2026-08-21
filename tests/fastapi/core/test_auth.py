@@ -1,6 +1,7 @@
 """
 Tests para /api/core/v2/auth (login, me, logout).
 """
+import logging
 from unittest.mock import patch
 
 import jwt
@@ -197,3 +198,38 @@ class TestLogout:
         resp = app_client.post("/api/core/v2/auth/logout")
 
         assert resp.status_code == 401
+
+    def test_logout_logs_when_revocation_fails(self, app_client, auth_headers, caplog):
+        """Un logout que no pudo revocar no puede quedarse MUDO.
+
+        Logout es el único sitio de revocación que sigue adelante cuando el bump
+        falla, y con razón: devolver 500 a quien pidió salir es peor UX que
+        dejarlo salir. Pero el token sigue VIVO hasta que expire (12h), así que
+        el fallo tiene que quedar en los logs — antes era `except: pass` con el
+        retorno sin mirar y no dejaba rastro de ningún tipo.
+
+        El endurecimiento equivalente de los otros dos sitios sí aborta:
+        `toggle_user_status` lanza 500 y el batch de agendatec omite al alumno.
+        """
+        with patch(
+            "itcj2.core.services.session_service.bump_version", return_value=None
+        ), caplog.at_level(logging.ERROR, logger="itcj2.core.api.auth"):
+            resp = app_client.post("/api/core/v2/auth/logout", headers=auth_headers)
+
+        assert resp.status_code == 204
+        assert any(
+            "no se pudo revocar" in rec.getMessage().lower() for rec in caplog.records
+        ), caplog.text
+
+    def test_logout_logs_when_revocation_raises(self, app_client, auth_headers, caplog):
+        """Igual que el anterior, pero con `bump_version` lanzando."""
+        with patch(
+            "itcj2.core.services.session_service.bump_version",
+            side_effect=RuntimeError("bd caida"),
+        ), caplog.at_level(logging.ERROR, logger="itcj2.core.api.auth"):
+            resp = app_client.post("/api/core/v2/auth/logout", headers=auth_headers)
+
+        assert resp.status_code == 204
+        assert any(
+            "bump_version lanzo" in rec.getMessage().lower() for rec in caplog.records
+        ), caplog.text
