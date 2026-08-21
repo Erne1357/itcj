@@ -59,6 +59,15 @@
   --at-border-subtle:     #eef0f2;
   --at-border-strong:     #ced4da;
 
+  /* ---- Color: Skeleton (placeholder de carga) -------------------------- */
+  /* Tokens PROPIOS a proposito, no --at-surface-active/-hover: esos valen
+     #f0f2f4 y #f5f6f8, que se diferencian en 5/255. El shimmer corria, pero
+     era imperceptible, y sobre la tarjeta blanca el placeholder se leia como
+     palitos blancos congelados en vez de como algo cargando. Estos dos SI
+     contrastan entre si (~16/255) y contra --at-surface. */
+  --at-skeleton-base:     #e2e6ea;
+  --at-skeleton-sheen:    #f4f6f8;
+
   /* ---- Color: Slot states (dominio AgendaTec) -------------------------- */
   --at-slot-available-bg:     #ffffff;
   --at-slot-available-border: #dee2e6;

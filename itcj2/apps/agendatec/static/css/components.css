@@ -254,9 +254,9 @@
   display: block;
   background: linear-gradient(
     90deg,
-    var(--at-surface-active) 0%,
-    var(--at-surface-hover) 50%,
-    var(--at-surface-active) 100%
+    var(--at-skeleton-base) 0%,
+    var(--at-skeleton-sheen) 50%,
+    var(--at-skeleton-base) 100%
   );
   background-size: 200% 100%;
   animation: at-skeleton-shimmer 1.2s linear infinite;
@@ -269,6 +269,20 @@
 .at-skeleton--circle  { width: 2.5rem; height: 2.5rem; border-radius: 50%; }
 .at-skeleton--button  { height: 2.25rem; width: 6rem; border-radius: var(--at-radius-md); }
 .at-skeleton--row     { height: 2.5rem; margin-bottom: var(--at-space-2); }
+
+/* Placeholder con la silueta del chip de horario (.at-slot). El grid de slots
+   es `d-flex flex-wrap gap-2`, asi que un placeholder de tarjeta metido ahi se
+   convierte en un flex item que encoge a su contenido: las lineas de dentro,
+   con width en %, quedaban como palitos finos. Este comparte alto y ancho con
+   el chip real para que al llegar los datos no salte el layout. */
+.at-skeleton--slot    { min-width: 7rem; height: 3rem; }
+
+/* El movimiento es informacion ("esto esta cargando"), pero no debe imponerse a
+   quien pidio menos movimiento: sin animacion queda el tono base, que ya se
+   distingue del fondo por si solo. */
+@media (prefers-reduced-motion: reduce) {
+  .at-skeleton { animation: none; }
+}
 
 @keyframes at-skeleton-shimmer {
   0%   { background-position: 200% 0; }
@@ -309,8 +323,12 @@
    ============================================================================= */
 .at-slot {
   display: inline-flex;
+  /* Columna, no fila: el chip lleva dos lineas (hora y duracion). En fila los
+     dos <span> quedaban pegados y se leia "09:00 - 09:2020 min". */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   min-width: 90px;
   padding: var(--at-space-2) var(--at-space-3);
   border: 1px solid var(--at-slot-available-border);
@@ -396,9 +414,43 @@
 }
 
 /* Countdown badge inside selected slot. */
+.at-slot__label {
+  line-height: 1.2;
+}
+
+/* Duracion de la cita. Dejo de ser constante: cada rango del coordinador puede
+   tener la suya, y dos coordinadores de la misma carrera pueden ofrecer citas
+   de distinta duracion el mismo dia, asi que el alumno tiene que poder leerla
+   de un vistazo y no confundirla con la hora. De ahi el color primario y el
+   cuerpo menor: es un dato distinto, no la continuacion de la hora.
+   (Estas reglas vivian en css/student/request.css, que ningun template
+   enlazaba nunca — por eso el chip se veia roto en produccion.) */
+.at-slot__dur {
+  font-size: var(--at-text-xs);
+  line-height: 1;
+  font-weight: var(--at-font-weight-semibold);
+  color: var(--at-primary);
+}
+
+/* Sobre los fondos de color de los estados no-disponible (ambar de "reservado
+   por otro", azul de "reservado por mi", verde de "atendido") el azul primario
+   deja de contrastar o choca. Ahi la duracion hereda el color del propio
+   estado, que ya esta elegido para ser legible sobre su fondo. */
+.at-slot--reserved  .at-slot__dur,
+.at-slot--held-self .at-slot__dur,
+.at-slot--taken     .at-slot__dur,
+.at-slot--no-show   .at-slot__dur,
+.at-slot--disabled  .at-slot__dur,
+.at-slot:disabled   .at-slot__dur {
+  color: currentColor;
+  opacity: 0.75;
+}
+
 .at-slot__countdown {
   display: inline-block;
-  margin-left: var(--at-space-1);
+  /* En columna el margen lateral descentraba el badge; la separacion la da el
+     `gap` del chip. */
+  margin-left: 0;
   font-variant-numeric: tabular-nums;
   font-size: var(--at-text-xs);
   opacity: 0.85;
