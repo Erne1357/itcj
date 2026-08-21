@@ -221,9 +221,17 @@ def test_slots_endpoint_mirrors_the_gate(
 
 
 def test_booking_the_wrong_day_is_rejected_server_side(
-    client, ead_ctx, make_grid, make_student, frozen_now
+    client, ead_ctx, make_grid, make_student, frozen_now, patched_session_local
 ):
-    """Un POST armado a mano contra el día prohibido topa con la misma regla."""
+    """Un POST armado a mano contra el día prohibido topa con la misma regla.
+
+    `patched_session_local` es obligatorio aquí y no en los tests de listado:
+    `require_admission_open` (helpers.py:326) abre su PROPIA `SessionLocal()` y
+    por tanto no ve el periodo que `make_period` creó dentro del savepoint. Sin
+    el parche, el resultado depende de qué tenga la BD por debajo — en la de dev
+    hay un periodo ACTIVE real y el test pasaba por accidente; en la BD limpia
+    del CI no hay ninguno y devuelve 503 no_active_period.
+    """
     ctx = ead_ctx()
     _, ead_slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 10,
                              [ctx["normal"].id, ctx["ead"].id], day=EAD_DAY)
@@ -246,9 +254,12 @@ def test_booking_the_wrong_day_is_rejected_server_side(
 
 
 def test_booking_the_right_day_still_works(
-    client, ead_ctx, make_grid, make_student, frozen_now
+    client, ead_ctx, make_grid, make_student, frozen_now, patched_session_local
 ):
-    """El candado no puede bloquear al que sí tiene derecho a ese día."""
+    """El candado no puede bloquear al que sí tiene derecho a ese día.
+
+    Ver la nota sobre `patched_session_local` en el test anterior.
+    """
     ctx = ead_ctx()
     _, ead_slots = make_grid(ctx["coord"].id, time(9, 0), time(10, 0), 10,
                              [ctx["normal"].id, ctx["ead"].id], day=EAD_DAY)

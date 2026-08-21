@@ -25,8 +25,8 @@ mano contra `/requests` topa con la misma regla que el botón que se ocultó.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
-from typing import Iterable, Optional
 
 # Días que pertenecen EN EXCLUSIVA a las carreras EAD. Vacío ⇒ candado inerte
 # (todo lo de abajo se vuelve la identidad) y el sistema queda solo con el
@@ -41,7 +41,7 @@ _EAD_ONLY_DAYS: frozenset[date] = frozenset({
 _EAD_TOKEN = "EAD"
 
 
-def is_ead_program(program_name: Optional[str]) -> bool:
+def is_ead_program(program_name: str | None) -> bool:
     """¿El nombre de la carrera la marca como modalidad EAD?
 
     Un nombre ausente o vacío cuenta como NO-EAD: es la dirección conservadora
@@ -53,7 +53,7 @@ def is_ead_program(program_name: Optional[str]) -> bool:
     return bool(tokens) and tokens[-1].upper() == _EAD_TOKEN
 
 
-def day_allowed_for_program(day: date, program_name: Optional[str]) -> bool:
+def day_allowed_for_program(day: date, program_name: str | None) -> bool:
     """¿Puede esta carrera usar este día?
 
     Fuera de `_EAD_ONLY_DAYS` no opina: devuelve True y deja que decidan el
@@ -64,6 +64,6 @@ def day_allowed_for_program(day: date, program_name: Optional[str]) -> bool:
     return not is_ead_program(program_name)
 
 
-def filter_days_for_program(days: Iterable[date], program_name: Optional[str]) -> list[date]:
+def filter_days_for_program(days: Iterable[date], program_name: str | None) -> list[date]:
     """Aplica `day_allowed_for_program` a un iterable de días. Devuelve ordenado."""
     return sorted(d for d in days if day_allowed_for_program(d, program_name))
