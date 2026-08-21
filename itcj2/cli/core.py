@@ -29,8 +29,29 @@ def _get_session():
     return SessionLocal()
 
 
-def execute_sql_file(file_path):
-    """Ejecuta un archivo SQL específico."""
+def execute_sql_file(file_path, invalidate_authz: bool = True):
+    """Ejecuta un archivo SQL específico.
+
+    CHOKEPOINT de toda la carga de DML del proyecto: `core init-db`,
+    `core init-tasks`, `core init-config-2026-07`, `directory init-directory`,
+    `helpdesk._run_sql_files`, `maint._run_sql_files` / `_seed_config_files`,
+    `titulatec`, `warehouse`… todos terminan aquí, y esta función abre su propia
+    conexión y COMMITEA por dentro.
+
+    Por eso `invalidate_authz` vive aquí y no en cada comando: el requisito
+    "cargar permisos por DML invalida el caché de authz" tenía ~14 puertas y solo
+    4 cerradas, y cada comando nuevo nacía abierto. Además este es el único punto
+    que está DESPUÉS del commit — invalidar antes deja que un lector repueble el
+    caché con los permisos viejos, y esa entrada le sobrevive el TTL completo
+    (300s).
+
+    Pasar `invalidate_authz=False` solo para SQL que con certeza no toca
+    permisos, roles ni puestos (catálogos, imports masivos de datos).
+
+    Devuelve `True` si el caché quedó efectivamente invalidado. Casi todos los
+    callers lo ignoran; existe para que `core execute-sql` no anuncie una
+    invalidación que en realidad falló.
+    """
     engine = _get_engine()
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -65,6 +86,23 @@ def execute_sql_file(file_path):
 
     except Exception as e:
         raise Exception(f"Error ejecutando {file_path}: {str(e)}")
+
+    if not invalidate_authz:
+        return False
+
+    # Best-effort y DESPUÉS del commit: el SQL ya está aplicado, así que un
+    # Redis caído no puede tumbar la carga. Sin invalidar, un DML que revoca
+    # un permiso deja hasta 300s de autorización obsoleta tras el despliegue.
+    try:
+        from itcj2.core.services.authz_cache import invalidate_all
+        invalidate_all()
+        return True
+    except Exception as e:  # pragma: no cover - depende de Redis
+        click.echo(
+            f"⚠️  No se pudo invalidar el caché de authz ({e}). "
+            "Aplicará en ≤5 min por TTL."
+        )
+        return False
 
 
 @click.command("init-db")
@@ -371,22 +409,19 @@ def execute_single_sql_command(sql_file, invalidate_authz):
     try:
         if not file_path.exists():
             raise FileNotFoundError(f"Archivo no encontrado: {file_path}")
-        execute_sql_file(str(file_path))
+        # El flag se DELEGA, no se resuelve aquí: `execute_sql_file` invalida por
+        # su cuenta (es el chokepoint de toda la carga de DML), así que hacerlo
+        # en este cuerpo dejaría el `--no-invalidate-authz` silenciosamente
+        # derrotado — el usuario pide no invalidar y se invalida igual.
+        invalidated = execute_sql_file(str(file_path), invalidate_authz=invalidate_authz)
         click.echo(f"✅ Archivo ejecutado exitosamente: {sql_file}")
+        # Solo se anuncia si de verdad ocurrió: si Redis falló, `execute_sql_file`
+        # ya imprimió el ⚠️ y anunciar aquí "invalidado" lo contradiría.
+        if invalidated:
+            click.echo("🧹 Caché de authz invalidado.")
     except Exception as e:
         click.echo(f"❌ Error ejecutando {sql_file}: {str(e)}")
         raise
-
-    if invalidate_authz:
-        # El caché de authz tiene TTL de 5 min: sin esto, un DML que revoca un
-        # permiso deja una ventana de autorización obsoleta tras el despliegue.
-        try:
-            from itcj2.core.services.authz_cache import invalidate_all
-            invalidate_all()
-            click.echo("🧹 Caché de authz invalidado.")
-        except Exception as e:
-            click.echo(f"⚠️  No se pudo invalidar el caché de authz ({e}). "
-                       "Aplicará en ≤5 min por TTL.")
 
 
 @click.command("init-themes")
