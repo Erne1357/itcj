@@ -52,6 +52,23 @@
   }
 
   /**
+   * Placeholders con la silueta de los chips de horario (.at-slot).
+   *
+   * `cards()` NO sirve para el grid de slots: ese contenedor es
+   * `d-flex flex-wrap gap-2`, asi que cada `.at-card` se vuelve un flex item
+   * que encoge a su contenido y las lineas internas (width en %) quedan como
+   * palitos finos. Estos comparten alto y ancho con el chip real, de modo que
+   * al llegar los datos el layout no salta.
+   *
+   * `aria-hidden`: son decorativos. Quien anuncia el estado es el
+   * `aria-busy` del contenedor, no cada bloque.
+   */
+  function slots(n = 6) {
+    const block = `<span class="at-skeleton at-skeleton--slot" aria-hidden="true"></span>`;
+    return Array.from({ length: n }, () => block).join("");
+  }
+
+  /**
    * Línea simple (un placeholder).
    */
   function line(width = "100%") {
@@ -59,5 +76,5 @@
   }
 
   window.AgendaTec = window.AgendaTec || {};
-  window.AgendaTec.Skeleton = { tableRows, cards, kpis, line };
+  window.AgendaTec.Skeleton = { tableRows, cards, kpis, line, slots };
 })();

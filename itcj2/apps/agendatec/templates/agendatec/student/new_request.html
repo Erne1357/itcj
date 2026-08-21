@@ -196,7 +196,10 @@
                             role="tablist" aria-label="Filtro por hora"></ul>
 
                         <!-- Contenedor de slots -->
-                        <div id="slotGrid" class="d-flex flex-wrap gap-2" role="group"
+                        {# Rejilla, no `d-flex flex-wrap`: con flex cada chip se
+                           dimensionaba por su texto y las columnas no cuadraban entre
+                           filas. Ver .at-slot-grid en components.css. #}
+                        <div id="slotGrid" class="at-slot-grid" role="group"
                              aria-label="Slots disponibles"></div>
                     </div>
                 </div>

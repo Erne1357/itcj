@@ -254,9 +254,9 @@
   display: block;
   background: linear-gradient(
     90deg,
-    var(--at-surface-active) 0%,
-    var(--at-surface-hover) 50%,
-    var(--at-surface-active) 100%
+    var(--at-skeleton-base) 0%,
+    var(--at-skeleton-sheen) 50%,
+    var(--at-skeleton-base) 100%
   );
   background-size: 200% 100%;
   animation: at-skeleton-shimmer 1.2s linear infinite;
@@ -269,6 +269,20 @@
 .at-skeleton--circle  { width: 2.5rem; height: 2.5rem; border-radius: 50%; }
 .at-skeleton--button  { height: 2.25rem; width: 6rem; border-radius: var(--at-radius-md); }
 .at-skeleton--row     { height: 2.5rem; margin-bottom: var(--at-space-2); }
+
+/* Placeholder con la silueta del chip de horario (.at-slot). El grid de slots
+   es `d-flex flex-wrap gap-2`, asi que un placeholder de tarjeta metido ahi se
+   convierte en un flex item que encoge a su contenido: las lineas de dentro,
+   con width en %, quedaban como palitos finos. Este comparte alto y ancho con
+   el chip real para que al llegar los datos no salte el layout. */
+.at-skeleton--slot    { height: 3rem; }
+
+/* El movimiento es informacion ("esto esta cargando"), pero no debe imponerse a
+   quien pidio menos movimiento: sin animacion queda el tono base, que ya se
+   distingue del fondo por si solo. */
+@media (prefers-reduced-motion: reduce) {
+  .at-skeleton { animation: none; }
+}
 
 @keyframes at-skeleton-shimmer {
   0%   { background-position: 200% 0; }
@@ -307,11 +321,44 @@
 /* =============================================================================
    Slot chip / button (estados unificados)
    ============================================================================= */
+/* Rejilla de chips. Con `d-flex flex-wrap` cada chip se dimensionaba por su
+   propio texto, asi que las columnas no cuadraban de una fila a otra. En grid
+   todas las pistas miden lo mismo y se alinean solas; `auto-fill` mantiene el
+   comportamiento responsivo que daba el wrap. */
+.at-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--at-space-2);
+}
+
+/* El empty state y los mensajes no son un chip: ocupan la fila entera en vez
+   de encogerse dentro de una pista. */
+.at-slot-grid > .at-empty,
+.at-slot-grid > p {
+  grid-column: 1 / -1;
+}
+
 .at-slot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 90px;
+  /* Grid con dos filas FIJAS —hora arriba, duracion y countdown abajo— en vez
+     de una columna flex que crecia al aparecer el countdown. Antes, seleccionar
+     un slot metia un tercer <span> y el chip se estiraba, empujando toda la
+     fila: el layout "saltaba" al elegir. Ahora la segunda fila existe siempre y
+     el countdown solo ocupa su celda, ya reservada. */
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  row-gap: 2px;
+  /* Ancla del countdown, que va posicionado (ver .at-slot__countdown). */
+  position: relative;
+  /* Alto fijo: ningun estado del chip puede cambiarlo. */
+  min-height: 3rem;
+  width: 100%;
+  min-width: 0;
+  /* Cifras de ancho fijo. Sin esto "09:00 - 09:05" y "09:15 - 09:30" miden
+     distinto —los digitos son proporcionales— y los chips quedaban descuadrados
+     aun midiendo lo mismo la caja. */
+  font-variant-numeric: tabular-nums;
   padding: var(--at-space-2) var(--at-space-3);
   border: 1px solid var(--at-slot-available-border);
   background: var(--at-slot-available-bg);
@@ -368,10 +415,22 @@
   cursor: default;
 }
 
+/* Asentamiento, no rebote. Antes sobrepasaba a scale(1.08): en un chip de
+   ~156px son ~12px de crecimiento visible, y el chip seleccionado parecia
+   saltar sobre sus vecinos. Ahora solo llega desde 0.97 y para. */
 @keyframes at-slot-pop {
-  0%   { transform: scale(0.95); }
-  55%  { transform: scale(1.08); }
+  0%   { transform: scale(0.97); }
   100% { transform: scale(1);    }
+}
+
+/* El chip seleccionado se distingue por color, borde y el anillo de
+   at-slot-pulse; el movimiento es un extra que quien pidio menos animacion no
+   necesita. */
+@media (prefers-reduced-motion: reduce) {
+  .at-slot.at-slot--held-self,
+  .at-slot.at-slot--held-self:disabled {
+    animation: none;
+  }
 }
 
 .at-slot.at-slot--taken,
@@ -396,11 +455,50 @@
 }
 
 /* Countdown badge inside selected slot. */
+.at-slot__label {
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Duracion de la cita. Dejo de ser constante: cada rango del coordinador puede
+   tener la suya, y dos coordinadores de la misma carrera pueden ofrecer citas
+   de distinta duracion el mismo dia, asi que el alumno tiene que poder leerla
+   de un vistazo y no confundirla con la hora. De ahi el color primario y el
+   cuerpo menor: es un dato distinto, no la continuacion de la hora.
+   (Estas reglas vivian en css/student/request.css, que ningun template
+   enlazaba nunca — por eso el chip se veia roto en produccion.) */
+.at-slot__dur {
+  font-size: var(--at-text-xs);
+  line-height: 1;
+  font-weight: var(--at-font-weight-semibold);
+  color: var(--at-primary);
+}
+
+/* Sobre los fondos de color de los estados no-disponible (ambar de "reservado
+   por otro", azul de "reservado por mi", verde de "atendido") el azul primario
+   deja de contrastar o choca. Ahi la duracion hereda el color del propio
+   estado, que ya esta elegido para ser legible sobre su fondo. */
+.at-slot--reserved  .at-slot__dur,
+.at-slot--held-self .at-slot__dur,
+.at-slot--taken     .at-slot__dur,
+.at-slot--no-show   .at-slot__dur,
+.at-slot--disabled  .at-slot__dur,
+.at-slot:disabled   .at-slot__dur {
+  color: currentColor;
+  opacity: 0.75;
+}
+
 .at-slot__countdown {
-  display: inline-block;
-  margin-left: var(--at-space-1);
+  /* FUERA del flujo a proposito. Como hijo normal empujaba a sus hermanos: en
+     columna añadia una tercera fila y estiraba el chip, y como celda de grid
+     recorria la duracion ~9px al aparecer. Absoluto en la esquina, el chip no
+     se mueve ni un pixel al seleccionarlo. */
+  position: absolute;
+  right: var(--at-space-2);
+  bottom: var(--at-space-2);
   font-variant-numeric: tabular-nums;
   font-size: var(--at-text-xs);
+  line-height: 1;
   opacity: 0.85;
 }
 

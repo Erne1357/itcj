@@ -1,7 +1,7 @@
 /**
  * AgendaTec — Student / request.js
  * Wizard de nueva solicitud: tipo → carrera → detalles → horario.
- * Usa .at-slot, .at-stepper, Skeleton.cards(), at-empty, ARIA, hold countdown.
+ * Usa .at-slot, .at-stepper, Skeleton.slots(), at-empty, ARIA, hold countdown.
  */
 
 (() => {
@@ -621,7 +621,7 @@
         registerSocketEvents();
 
         // Mostrar skeleton mientras espera el join (500ms)
-        slotGrid.innerHTML = Skeleton.cards(2);
+        showSlotsSkeleton();
         slotsWrap.hidden = false;
 
         setTimeout(() => loadSlots(), 500);
@@ -785,6 +785,7 @@
     state.day    = null;
     state.slot_id = null;
     slotsWrap.hidden = true;
+    slotGrid.removeAttribute("aria-busy");
     slotGrid.innerHTML = "";
 
     // Resetear aria-pressed de día
@@ -799,7 +800,7 @@
   let _firstSlotsLoad = true;
   async function loadSlots() {
     if (!state.program_id || !state.day) return;
-    slotGrid.innerHTML = Skeleton.cards(2);
+    showSlotsSkeleton();
 
     // 1.2 anti-herd: jitter SOLO en la primera carga. Al abrir las citas,
     // miles de alumnos cargan la página en el mismo segundo; esparcir el primer
@@ -821,6 +822,7 @@
     } catch (error) {
       console.error(error);
       showToast("No se pudieron cargar los horarios.", "error");
+      slotGrid.removeAttribute("aria-busy");
       slotGrid.innerHTML = renderEmptySlots();
     }
   }
@@ -846,6 +848,7 @@
     updateSubmitDisabled();
 
     const hourTabs = document.getElementById("hourTabs");
+    slotGrid.removeAttribute("aria-busy");
     slotGrid.innerHTML = "";
     hourTabs.innerHTML = "";
     btnById.clear();
@@ -933,7 +936,24 @@
     }
   }
 
+  /** Placeholder de carga del grid de horarios.
+   *
+   * `Skeleton.cards()` era lo que habia aqui y no encaja: el grid es
+   * `d-flex flex-wrap gap-2`, asi que cada tarjeta se volvia un flex item
+   * encogido a su contenido y sus lineas internas se veian como palitos.
+   * `Skeleton.slots()` usa la silueta del chip real.
+   *
+   * `aria-busy` va en el contenedor porque los placeholders son
+   * `aria-hidden`: sin el, un lector de pantalla anunciaria el grupo "Slots
+   * disponibles" como vacio mientras carga.
+   */
+  function showSlotsSkeleton(n = 6) {
+    slotGrid.setAttribute("aria-busy", "true");
+    slotGrid.innerHTML = Skeleton.slots(n);
+  }
+
   function renderHourSlots(slots) {
+    slotGrid.removeAttribute("aria-busy");
     slotGrid.innerHTML = "";
     btnById.clear();
 
