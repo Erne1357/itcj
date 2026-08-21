@@ -135,14 +135,54 @@ class TestLogin:
 # GET /api/core/v2/auth/me
 # ───────────────────────────────────────────────────────────────────
 class TestMe:
-    def test_me_authenticated(self, app_client, auth_headers):
-        """GET /me con JWT válido retorna datos del usuario."""
-        resp = app_client.get("/api/core/v2/auth/me", headers=auth_headers)
+    def test_me_authenticated(self, app_client):
+        """GET /me con JWT válido (CON claim `sv`) retorna datos del usuario.
+
+        El token se acuña con `make_jwt(sv=...)` a propósito. Sin el claim, el
+        middleware se salta ENTERA la comparación de revocación (rama de
+        compatibilidad con tokens anteriores a que existiera `sv`), así que el
+        grueso de la suite —que usa `auth_headers`, sin `sv`— recorre un camino
+        que producción nunca toma: el login siempre acuña el claim
+        (`itcj2/core/api/auth.py`). Con `sv` presente, el middleware llama a
+        `current_version` y compara, que es la rama real.
+
+        `current_version` va parcheada porque el usuario 200 de este harness es
+        un mock sin fila en `core_users`: sin parche el veredicto dependería del
+        `session_epoch` que hubiera en la BD compartida de dev y el test sería
+        no-determinista.
+        """
+        token = make_jwt(user_id=200, role="admin", name="MARTINEZ PEREZ MARIA", sv=4)
+
+        with patch(
+            "itcj2.core.services.session_service.current_version", return_value=4
+        ):
+            resp = app_client.get(
+                "/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={token}"}
+            )
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["user"]["id"] == 200
         assert data["user"]["full_name"] == "MARTINEZ PEREZ MARIA"
+
+    def test_me_revoked_by_session_epoch(self, app_client):
+        """La contrapartida que le da sentido al `sv` del test anterior.
+
+        Mismo token, misma ruta; lo único que cambia es que la época vigente
+        avanzó (logout, desactivación, cambio de rol). Si el middleware ignorara
+        el claim —la rama de compatibilidad—, esto devolvería 200 y una sesión ya
+        revocada seguiría dentro.
+        """
+        token = make_jwt(user_id=200, role="admin", name="MARTINEZ PEREZ MARIA", sv=4)
+
+        with patch(
+            "itcj2.core.services.session_service.current_version", return_value=5
+        ):
+            resp = app_client.get(
+                "/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={token}"}
+            )
+
+        assert resp.status_code == 401
 
     def test_me_student(self, app_client, student_headers):
         """GET /me con JWT de estudiante retorna control_number."""

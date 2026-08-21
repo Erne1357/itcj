@@ -43,12 +43,17 @@ def _flush_authz_cache():
     except Exception:
         pass
     try:
+        from itcj2.core.services.authz_cache import _KINDS, _PREFIX
         from itcj2.core.utils.redis_conn import get_redis
         r = get_redis()
         if r is not None:
             keys = []
-            for kind in ("roles", "perms", "has"):
-                keys += list(r.scan_iter(match=f"authz:v1:{kind}:*", count=1000))
+            # `_KINDS` se importa en vez de copiarse: una segunda copia de la
+            # tupla haría que un kind nuevo quedara sin limpiar aquí en silencio,
+            # y volvería el HIT stale no-determinista que este fixture existe
+            # para evitar (ver docstring).
+            for kind in _KINDS:
+                keys += list(r.scan_iter(match=f"{_PREFIX}:{kind}:*", count=1000))
             keys += list(r.scan_iter(match="rl:*", count=1000))
             keys += list(r.scan_iter(match="appstyle:*", count=100))
             if keys:
