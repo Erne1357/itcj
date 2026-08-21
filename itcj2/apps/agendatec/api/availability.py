@@ -10,6 +10,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from itcj2.dependencies import DbSession, require_perms, require_roles
 from itcj2.apps.agendatec.helpers import now_app, parse_date_str, TEMP_TEST_GATE_check_student  # TEMP_TEST_GATE
+from itcj2.apps.agendatec.config.ead_day_gate import (  # TODO(retirar tras 20263)
+    day_allowed_for_program,
+    filter_days_for_program,
+)
 
 from itcj2.apps.agendatec.models.availability_window import AvailabilityWindow
 from itcj2.apps.agendatec.models.time_slot import TimeSlot
@@ -77,6 +81,13 @@ def list_slots_for_program_day(
     prog = db.get(Program, program_id)
     if not prog:
         raise HTTPException(status_code=404, detail="program_not_found")
+
+    # TODO(retirar tras 20263): el sábado 29-ago es exclusivo de EAD y los días
+    # entre semana son exclusivos del resto. Se aplica también AQUÍ, no solo en
+    # la lista de días, para que ocultar el botón y no poder reservar sean la
+    # misma regla: un GET a mano contra un día prohibido devuelve vacío igual.
+    if not day_allowed_for_program(d, prog.name):
+        return {"day": str(d), "program_id": program_id, "items": [], "durations": []}
 
     coor_ids = [
         pc.coordinator_id
@@ -151,6 +162,88 @@ def list_slots_for_program_day(
         ]
     return response
 
+
+# ==================== GET /program/<program_id>/days ====================
+
+@router.get("/program/{program_id}/days")
+def list_days_for_program(
+    program_id: int,
+    user: dict = require_roles("agendatec", ["student"]),
+    db: DbSession = None,
+):
+    """Días del período activo en los que ESTA carrera puede agendar.
+
+    Antes el alumno veía los días habilitados del período tal cual, sin mirar
+    su carrera: se le ofrecían como "posibles" días en los que su coordinador
+    no había configurado nada, y solo al abrirlos descubría que estaban vacíos.
+
+    Un día entra aquí si y solo si `GET /program/{id}/slots?day=` devolvería al
+    menos un chip para esa misma carrera. El predicado se mantiene idéntico al
+    de ese endpoint —scope por carrera, coordinador aún asignado, `is_booked =
+    False` y hora futura— a propósito: si los dos se separan vuelve el síntoma
+    que esto arregla, pero al revés (un día visible que al abrirlo sale vacío).
+
+    Diferencia deliberada: aquí se descartan además los días ya PASADOS. El
+    endpoint de slots no los filtra (solo recorta las horas de hoy), pero
+    ofrecer un día que ya pasó no tiene sentido y `validate_slot_for_appointment`
+    lo rechazaría con `slot_time_passed` al final del wizard.
+    """
+    TEMP_TEST_GATE_check_student(user, db)  # TEMP_TEST_GATE
+
+    prog = db.get(Program, program_id)
+    if not prog:
+        raise HTTPException(status_code=404, detail="program_not_found")
+
+    enabled = sorted(_get_enabled_days_for_active_period(db))
+    # TODO(retirar tras 20263): candado de modalidad. Se aplica ANTES de tocar
+    # la BD — un día prohibido para esta carrera no se consulta siquiera.
+    candidates = filter_days_for_program(enabled, prog.name)
+
+    payload = {
+        "program_id": program_id,
+        "days": [],
+        # El período completo viaja también para que la UI pueda distinguir
+        # "no hay días en el período" de "hay días, pero ninguno es tuyo".
+        "enabled_days": [str(d) for d in enabled],
+    }
+    if not candidates:
+        return payload
+
+    coor_ids = [
+        pc.coordinator_id
+        for pc in db.query(ProgramCoordinator)
+        .filter(ProgramCoordinator.program_id == program_id)
+        .all()
+    ]
+    if not coor_ids:
+        return payload
+
+    from sqlalchemy import and_, or_
+
+    from itcj2.apps.agendatec.models import TimeSlotProgram
+
+    now_local = now_app()
+    today = now_local.date()
+
+    rows = (
+        db.query(TimeSlot.day)
+        .join(TimeSlotProgram, TimeSlotProgram.slot_id == TimeSlot.id)
+        .filter(
+            TimeSlotProgram.program_id == program_id,
+            TimeSlot.coordinator_id.in_(coor_ids),
+            TimeSlot.day.in_(candidates),
+            TimeSlot.is_booked == False,
+            or_(
+                TimeSlot.day > today,
+                and_(TimeSlot.day == today, TimeSlot.start_time > now_local.time()),
+            ),
+        )
+        .distinct()
+        .all()
+    )
+
+    payload["days"] = [str(d) for d in sorted(r[0] for r in rows)]
+    return payload
 
 # ==================== Endpoints retirados ====================
 # POST /windows y POST /generate-slots quedaron retirados (410).
