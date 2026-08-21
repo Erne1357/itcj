@@ -14,6 +14,14 @@ un barrido accidental) no resucita sesiones cerradas ni desloguea a nadie — el
 valor se repuebla desde la BD. Antes el entero vivía SOLO en Redis (sin AOF,
 compartido con Celery/Socket.IO/holds de AgendaTec).
 
+Coste: cuando el caché de Redis falla (MISS), ``current_version`` hace una
+consulta SÍNCRONA a Postgres desde dentro del ``dispatch`` async de
+``JWTMiddleware`` — bloquea el event loop mientras dura. En régimen permanente
+es ~1 consulta por usuario por hora (``_TTL``) y da igual; pero con el caché
+FRÍO —justo después de un despliegue o de un restart de Redis— es una consulta
+bloqueante por request y por usuario hasta que el caché se calienta. Tenerlo
+presente antes de bajar ``_TTL`` o de añadir consultas a esta ruta.
+
 Modo de fallo: ``current_version`` devuelve ``None`` SOLO cuando no puede
 consultar ningún almacén (Redis y Postgres caídos). Los consumidores (middleware,
 socket_auth) tratan ``None`` como "sin información" y NO revocan — fail-open real.
