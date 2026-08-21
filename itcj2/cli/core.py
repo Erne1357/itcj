@@ -754,6 +754,153 @@ def mundial_refresh_command(hard: bool):
     click.echo("\n🎉 Cache refrescado.")
 
 
+# Prefijos de la época de sesión, en el orden en que se escanean.
+#
+# `authz:v1:sessionver:` es el HISTÓRICO y el único que producción tiene hoy:
+# vivía dentro del prefijo del caché de authz, y ese solapamiento es el incidente
+# del 2026-08-20. `session:v1:ver:` es el namespace propio al que se movió, que
+# solo existió en un commit intermedio de la rama — si nadie lo desplegó, en prod
+# está vacío. Se escanean los DOS para que el backfill sea correcto en cualquier
+# caso.
+#
+# OJO: son prefijos CONCRETOS. Jamás escanear `authz:v1:*` aquí ni en ningún
+# sitio: bajo ese comodín conviven caché y dato de sesión.
+_SESSION_EPOCH_PREFIXES = (
+    "authz:v1:sessionver:",
+    "session:v1:ver:",
+)
+
+
+@click.command("backfill-session-epoch")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Solo reporta lo que haría; no escribe en core_users.")
+def backfill_session_epoch_command(dry_run: bool):
+    """Copia a Postgres las épocas de sesión que todavía viven en Redis.
+
+    CORRER UNA VEZ, entre `alembic upgrade head` y el rollout del código nuevo.
+
+    La migración `s1e2s3s4v001` siembra `core_users.session_epoch = 0` para todos.
+    Pero producción tiene claves `authz:v1:sessionver:{uid}` y JWTs vivos con
+    `sv = N` acuñado desde ellas, así que sin este paso el cutover reproduce el
+    incidente del 2026-08-20 entero:
+
+      - todo token con `sv >= 1` falla `sv != 0` y queda DESLOGUEADO, y
+      - todo token YA REVOCADO que quedó en `sv == 0` y sigue dentro de sus 12h
+        vuelve a cuadrar `0 == 0` y AUTENTICA otra vez — cuentas desactivadas
+        incluidas.
+
+    El UPDATE es monótono (`WHERE session_epoch < :v`): nunca baja una época y
+    por tanto nunca resucita una sesión revocada. Eso lo hace idempotente y
+    re-ejecutable — el runbook manda correrlo otra vez después del rolling
+    restart, porque mientras conviven workers viejos y nuevos un logout servido
+    por uno viejo bumpea la clave de Redis y el worker nuevo no lo ve.
+    """
+    from sqlalchemy import text as _text
+
+    from itcj2.core.utils.redis_conn import get_redis
+
+    click.echo("🔎 Backfill de época de sesión (Redis → Postgres)")
+    if dry_run:
+        click.echo("⚠️  Modo DRY-RUN: no se escribirá nada.")
+
+    r = get_redis()
+    if r is None:
+        click.echo("❌ Redis no disponible: no hay de dónde leer las épocas.")
+        raise SystemExit(1)
+
+    updated = unchanged = missing = unreadable = non_positive = 0
+    db = _get_session()
+    try:
+        for prefix in _SESSION_EPOCH_PREFIXES:
+            scanned = 0
+            for key in r.scan_iter(match=f"{prefix}*", count=1000):
+                scanned += 1
+                raw_uid = key[len(prefix):]
+                raw_val = r.get(key)
+                # Un dato roto (uid o valor no numérico, clave borrada entre el
+                # scan y el get) se cuenta y se salta: no puede llevarse por
+                # delante el resto del lote.
+                try:
+                    uid = int(raw_uid)
+                    val = int(raw_val)
+                except (TypeError, ValueError):
+                    unreadable += 1
+                    click.echo(f"   ⚠️  Ilegible, se omite: {key} = {raw_val!r}")
+                    continue
+
+                if val <= 0:
+                    # 0 ya es el default de la migración y un negativo no es una
+                    # época: ninguno aporta información.
+                    non_positive += 1
+                    continue
+
+                if dry_run:
+                    row = db.execute(
+                        _text("SELECT session_epoch FROM core_users WHERE id = :u"),
+                        {"u": uid},
+                    ).fetchone()
+                    if row is None:
+                        missing += 1
+                    elif int(row[0]) < val:
+                        updated += 1
+                    else:
+                        unchanged += 1
+                    continue
+
+                res = db.execute(
+                    _text(
+                        "UPDATE core_users SET session_epoch = :v "
+                        "WHERE id = :u AND session_epoch < :v"
+                    ),
+                    {"v": val, "u": uid},
+                )
+                if res.rowcount:
+                    updated += 1
+                else:
+                    # rowcount 0 son dos casos distintos y el reporte los separa:
+                    # la fila no existe, o su época ya iba por delante.
+                    exists = db.execute(
+                        _text("SELECT 1 FROM core_users WHERE id = :u"), {"u": uid}
+                    ).fetchone()
+                    if exists is None:
+                        missing += 1
+                    else:
+                        unchanged += 1
+
+            click.echo(f"   📥 claves escaneadas en {prefix}*: {scanned}")
+
+        if not dry_run:
+            db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        click.echo(f"💥 Error durante el backfill: {e}")
+        raise
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    # Las etiquetas son IDÉNTICAS en dry-run y en la corrida real, a propósito:
+    # el operador compara los dos reportes línea a línea, y el banner de arriba
+    # más el sufijo `(simulado)` dejan claro cuál es cuál.
+    sim = " (simulado)" if dry_run else ""
+    click.echo(f"   ✅ filas actualizadas: {updated}{sim}")
+    click.echo(f"   ⏭️  sin cambio (epoch ya >= valor): {unchanged}")
+    click.echo(f"   🚫 sin fila en core_users: {missing}")
+    click.echo(f"   ⚠️  valores ilegibles: {unreadable}")
+    click.echo(f"   ⏭️  valores <= 0 omitidos: {non_positive}")
+    if dry_run:
+        click.echo("")
+        click.echo("🎉 Dry-run completado (no se escribió nada).")
+    else:
+        click.echo("")
+        click.echo("🎉 Backfill completado.")
+
+
 @click.group("core")
 def core_cli():
     """Comandos CLI del módulo core."""
@@ -764,6 +911,7 @@ core_cli.add_command(seed_reference_data_command)
 core_cli.add_command(reset_database_command)
 core_cli.add_command(check_database_command)
 core_cli.add_command(execute_single_sql_command)
+core_cli.add_command(backfill_session_epoch_command)
 core_cli.add_command(init_themes_command)
 core_cli.add_command(init_tasks_command)
 core_cli.add_command(init_config_2026_07_command)
