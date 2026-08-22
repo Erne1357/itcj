@@ -370,25 +370,33 @@ def _parse_student_row_v2(row: dict) -> Tuple[dict, list]:
 
     if not nombre_alumno:
         warnings.append("Nombre vacío")
-    if not apellido_paterno:
-        warnings.append("Apellido paterno vacío")
     if not nip:
         warnings.append("NIP vacío")
 
-    username = control_number = None
-    if no_de_control:
-        first = no_de_control[0]
-        if first.isalpha():
-            username = no_de_control.upper()
+    # Alumnos de un solo apellido llegan con el paterno vacío. Se recorre el materno a
+    # ``last_name`` para que el nombre completo quede "Parra Diego Andrés" y no
+    # "SIN APELLIDO Parra Diego Andrés".
+    if not apellido_paterno:
+        if apellido_materno:
+            apellido_paterno, apellido_materno = apellido_materno, ""
+            warnings.append("Apellido paterno vacío (se usa el materno)")
         else:
-            control_number = no_de_control.upper()
-            if len(control_number) != 8:
-                warnings.append(f"control_number '{control_number}' longitud != 8")
+            warnings.append("Apellido paterno vacío")
+
+    # El no. de control institucional es SIEMPRE el identificador del alumno y va en
+    # ``control_number``, incluidos los alfanuméricos de reingreso/posgrado
+    # (B*/C*/D*/M*). Es el campo por el que se autentica el alumno y el que ya usan
+    # las filas existentes en BD; ``username`` queda reservado para cuentas de staff.
+    control_number = no_de_control.upper() if no_de_control else None
+    if control_number and len(control_number) not in (8, 9):
+        warnings.append(
+            f"control_number '{control_number}' longitud inesperada ({len(control_number)})"
+        )
 
     from itcj2.core.utils.security import hash_nip
 
     payload = {
-        "username": username,
+        "username": None,
         "control_number": control_number,
         "password_hash": hash_nip(nip) if nip else None,
         "first_name": nombre_alumno.title() if nombre_alumno else "SIN NOMBRE",
@@ -417,11 +425,16 @@ def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bo
     if existing:
         user_id = existing.id
         changed = False
-        for field in ("first_name", "last_name", "middle_name", "password_hash"):
+        for field in ("first_name", "last_name", "password_hash"):
             val = payload.get(field)
             if val is not None and getattr(existing, field, None) != val:
                 setattr(existing, field, val)
                 changed = True
+        # middle_name sí se limpia cuando el CSV no trae apellido materno: el padrón
+        # es la fuente de verdad y si no, un materno viejo quedaría pegado al nombre.
+        if existing.middle_name != payload.get("middle_name"):
+            existing.middle_name = payload.get("middle_name")
+            changed = True
         if not existing.is_active:
             existing.is_active = True
             changed = True
@@ -437,6 +450,10 @@ def _upsert_student_v2(db, payload: dict, app_id: int, role_id: int, dry_run: bo
                 db.add(existing)
     else:
         user = User(
+            # role_id es el rol global de la cuenta; sin él la fila queda con NULL y
+            # difiere del resto del padrón. La autorización real vive en
+            # core_user_app_roles, pero se mantiene consistente.
+            role_id=role_id,
             username=payload.get("username"),
             control_number=payload.get("control_number"),
             password_hash=payload.get("password_hash"),
@@ -475,29 +492,80 @@ def _get_or_create_student_role(db) -> Tuple[Optional[int], Optional[int]]:
     return app.id, role.id
 
 
+#: CSVs del semestre en curso. Se procesan TODOS en la misma corrida para que la
+#: fase de desactivación evalúe contra la unión (activos + aspirantes) y no dé de
+#: baja a los alumnos del primer archivo al cargar el segundo.
+DEFAULT_STUDENT_CSVS = (
+    "database/CSV/Alumnos_Activos_20263.csv",
+    "database/CSV/Alumnos_Aspirantes_20263.csv",
+)
+
+REQUIRED_STUDENT_CSV_HEADERS = {
+    "no_de_control",
+    "apellido_paterno",
+    "apellido_materno",
+    "nombre_alumno",
+    "nip",
+}
+
+
 @click.command("sync-students-agendatec")
-@click.option("--csv-path", default="database/CSV/Alumnos Activos 2026.csv")
+@click.option(
+    "--csv-path",
+    "csv_paths",
+    multiple=True,
+    default=DEFAULT_STUDENT_CSVS,
+    show_default=True,
+    help=(
+        "CSV de alumnos. Repite la opción para procesar varios archivos en la MISMA "
+        "corrida: la desactivación se evalúa contra la unión de todos ellos."
+    ),
+)
 @click.option("--dry-run", is_flag=True)
 @click.option("--commit-every", type=int, default=500)
 @click.option("--deactivate-missing/--no-deactivate-missing", default=True)
-def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_missing):
-    """Sincroniza estudiantes desde CSV y asigna rol 'student' para AgendaTec."""
+def sync_students_agendatec_command(csv_paths, dry_run, commit_every, deactivate_missing):
+    """Sincroniza estudiantes desde uno o varios CSV y asigna rol 'student' para AgendaTec."""
     from itcj2.core.models import User, UserAppRole
     from itcj2.database import SessionLocal
 
-    full_path = Path(csv_path) if Path(csv_path).is_absolute() else PROJECT_ROOT / csv_path
+    full_paths = [
+        Path(p) if Path(p).is_absolute() else PROJECT_ROOT / p
+        for p in csv_paths
+    ]
+
     click.echo("=" * 60)
     click.echo("🎓 SINCRONIZACIÓN DE ESTUDIANTES — AGENDATEC")
     click.echo("=" * 60)
-    click.echo(f"📁 Archivo: {full_path}")
+    for p in full_paths:
+        click.echo(f"📁 Archivo: {p}")
     if dry_run:
         click.echo("⚠️  Modo DRY-RUN")
+
+    # Validación previa de TODOS los archivos (existencia + encabezados) antes de
+    # tocar la BD: una sincronización a medias dejaría la fase de desactivación
+    # evaluando contra un padrón incompleto y daría de baja a quien no toca.
+    problemas = []
+    for p in full_paths:
+        if not p.is_file():
+            problemas.append(f"{p}: no encontrado")
+            continue
+        with open(p, "r", encoding="utf-8-sig", newline="") as f:
+            cabeceras = set(csv.DictReader(f, delimiter=",").fieldnames or [])
+        faltan = REQUIRED_STUDENT_CSV_HEADERS - cabeceras
+        if faltan:
+            problemas.append(f"{p.name}: faltan encabezados {', '.join(sorted(faltan))}")
+    if problemas:
+        for msg in problemas:
+            click.echo(f"❌ {msg}")
+        raise SystemExit(1)
 
     created = updated = skipped = warnings_total = 0
     row_idx = 0
     to_commit = 0
     processed_control_numbers: set = set()
     processed_usernames: set = set()
+    duplicados = 0
     deactivated = 0
 
     with SessionLocal() as db:
@@ -510,50 +578,71 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
 
         try:
             click.echo("📥 FASE 1: Importando estudiantes del CSV...")
-            with open(full_path, "r", encoding="utf-8-sig", newline="") as f:
-                reader = csv.DictReader(f, delimiter=",")
-                required = {"no_de_control", "apellido_paterno", "apellido_materno", "nombre_alumno", "nip"}
-                missing = required - set(reader.fieldnames or [])
-                if missing:
-                    click.echo(f"❌ Faltan encabezados: {', '.join(sorted(missing))}")
-                    return
+            for full_path in full_paths:
+                f_rows = f_created = f_updated = f_skipped = 0
+                with open(full_path, "r", encoding="utf-8-sig", newline="") as f:
+                    reader = csv.DictReader(f, delimiter=",")
 
-                for row in reader:
-                    row_idx += 1
-                    payload, warns = _parse_student_row_v2(row)
-                    if warns:
-                        warnings_total += len(warns)
+                    for row in reader:
+                        row_idx += 1
+                        f_rows += 1
+                        payload, warns = _parse_student_row_v2(row)
+                        if warns:
+                            warnings_total += len(warns)
 
-                    if not payload.get("username") and not payload.get("control_number"):
-                        skipped += 1
-                        continue
-                    if not payload.get("password_hash"):
-                        skipped += 1
-                        continue
+                        if not payload.get("username") and not payload.get("control_number"):
+                            skipped += 1
+                            f_skipped += 1
+                            continue
+                        if not payload.get("password_hash"):
+                            skipped += 1
+                            f_skipped += 1
+                            continue
 
-                    if payload.get("control_number"):
-                        processed_control_numbers.add(payload["control_number"])
-                    if payload.get("username"):
-                        processed_usernames.add(payload["username"])
+                        # Un mismo alumno repetido entre archivos se procesa una sola vez.
+                        clave = payload.get("control_number") or payload.get("username")
+                        if clave in processed_control_numbers or clave in processed_usernames:
+                            duplicados += 1
+                            skipped += 1
+                            f_skipped += 1
+                            continue
 
-                    status, _ = _upsert_student_v2(db, payload, app_id, role_id, dry_run=dry_run)
-                    if status == "created":
-                        created += 1
-                        to_commit += 1
-                    elif status == "updated":
-                        updated += 1
-                        to_commit += 1
-                    else:
-                        skipped += 1
+                        if payload.get("control_number"):
+                            processed_control_numbers.add(payload["control_number"])
+                        if payload.get("username"):
+                            processed_usernames.add(payload["username"])
 
-                    if not dry_run and to_commit >= commit_every:
+                        status, _ = _upsert_student_v2(db, payload, app_id, role_id, dry_run=dry_run)
+                        if status == "created":
+                            created += 1
+                            f_created += 1
+                            to_commit += 1
+                        elif status == "updated":
+                            updated += 1
+                            f_updated += 1
+                            to_commit += 1
+                        else:
+                            skipped += 1
+                            f_skipped += 1
+
+                        if not dry_run and to_commit >= commit_every:
+                            db.commit()
+                            to_commit = 0
+
+                    if not dry_run and to_commit > 0:
                         db.commit()
                         to_commit = 0
 
-                if not dry_run and to_commit > 0:
-                    db.commit()
+                click.echo(
+                    f"   • {full_path.name}: {f_rows} filas — "
+                    f"creados {f_created} | actualizados {f_updated} | omitidos {f_skipped}"
+                )
 
             click.echo(f"   ✅ Creados: {created} | Actualizados: {updated} | Omitidos: {skipped}")
+            if duplicados:
+                click.echo(f"   ♻️  Repetidos entre archivos (ignorados): {duplicados}")
+            if warnings_total:
+                click.echo(f"   ⚠️  Advertencias de parseo: {warnings_total}")
 
             if deactivate_missing:
                 click.echo("\n🔍 FASE 2: Buscando estudiantes a desactivar...")
@@ -567,24 +656,45 @@ def sync_students_agendatec_command(csv_path, dry_run, commit_every, deactivate_
                     )
                     .all()
                 )
+                # Ids con algún rol distinto de agendatec/student: la baja apaga la
+                # cuenta completa, así que esos pierden también su acceso de staff.
+                # Se listan explícitamente para que quede constancia en la corrida.
+                ids_con_otros_roles = {
+                    uid
+                    for (uid,) in db.query(UserAppRole.user_id)
+                    .filter(
+                        ~((UserAppRole.app_id == app_id) & (UserAppRole.role_id == role_id))
+                    )
+                    .distinct()
+                }
+                con_otros_roles = []
                 for student in students:
                     in_csv = (
                         (student.control_number and student.control_number in processed_control_numbers)
                         or (student.username and student.username in processed_usernames)
                     )
-                    if not in_csv:
-                        if not dry_run:
-                            student.is_active = False
-                            db.add(student)
-                        deactivated += 1
+                    if in_csv:
+                        continue
+                    if student.id in ids_con_otros_roles:
+                        con_otros_roles.append(student.control_number or student.username)
+                    if not dry_run:
+                        student.is_active = False
+                        db.add(student)
+                    deactivated += 1
                 if not dry_run and deactivated > 0:
                     db.commit()
                 click.echo(f"   🚫 Desactivados: {deactivated}")
+                if con_otros_roles:
+                    click.echo(
+                        f"   ⚠️  {len(con_otros_roles)} de ellos tenían roles adicionales "
+                        f"(pierden también ese acceso): {', '.join(con_otros_roles)}"
+                    )
 
             click.echo(f"\n✅ Sincronización completada — {row_idx} filas procesadas")
 
-        except FileNotFoundError:
-            click.echo(f"❌ Archivo no encontrado: {full_path}")
+        except SystemExit:
+            db.rollback()
+            raise
         except Exception as e:
             db.rollback()
             click.echo(f"❌ Error: {str(e)}")
