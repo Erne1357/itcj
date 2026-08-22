@@ -35,8 +35,15 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbSessio
     if not rate_limit.check_login_allowed(client_ip, raw_id):
         raise HTTPException(429, detail="too_many_attempts")
 
-    is_student = raw_id.isdigit() and len(raw_id) == 8
-    user = authenticate(db, raw_id, nip) if is_student else authenticate_by_username(db, raw_id, nip)
+    # El no. de control es de 8 dígitos (licenciatura) o alfanumérico de 9
+    # (B*/C*/D*/M* = reingreso, doctorado, maestría). Ambos casos autentican por
+    # control_number; cualquier otro identificador es de staff y va por username.
+    if raw_id.isdigit() and len(raw_id) == 8:
+        user = authenticate(db, raw_id, nip)
+    elif len(raw_id) == 9 and raw_id[0].isalpha() and raw_id[1:].isdigit():
+        user = authenticate(db, raw_id.upper(), nip)
+    else:
+        user = authenticate_by_username(db, raw_id, nip)
 
     if not user:
         rate_limit.note_login_failure(client_ip, raw_id)
