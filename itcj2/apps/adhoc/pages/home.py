@@ -1,14 +1,21 @@
-"""Raíz de Adhoc (Calidad): redirección al dashboard + placeholder de migración."""
+"""Raíz de Adhoc (Calidad): ``/adhoc`` y ``/adhoc/`` → ``/adhoc/dashboard``.
+
+El dashboard real ("Tareas") vive en `pages/dashboard.py`; aquí solo queda la
+redirección de la raíz, que es la URL registrada en ``core_apps.mobile_url``.
+
+Gate: plan §4 pide **login** para la raíz. Se usa ``require_page_login`` y no
+``require_page_app`` a propósito — el gate de app/permiso lo pone el destino
+(`/adhoc/dashboard`, con ``adhoc.dashboard.page.view``), y duplicarlo aquí solo
+cambiaría el 302-a-login por un 403 renderizado antes de que el usuario llegue a
+ver la app. Sí hace falta el login: sin él un anónimo recibiría un 302 a
+`/adhoc/dashboard` en vez de al login.
+"""
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
-from sqlalchemy.orm import Session
 
-from itcj2.database import get_db
 from itcj2.dependencies import require_page_login
-from itcj2.apps.adhoc.pages.nav import nav_for_user
-from itcj2.apps.adhoc.pages.render import render_adhoc
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +24,7 @@ router = APIRouter()
 _DASHBOARD_URL = "/adhoc/dashboard"
 
 
-# ── Raíz: /adhoc y /adhoc/ → /adhoc/dashboard ────────────────────────────────
-async def root_no_slash() -> RedirectResponse:
+async def root_no_slash(user: dict = Depends(require_page_login)) -> RedirectResponse:
     """GET /adhoc (sin barra final).
 
     Se monta a mano desde ``pages/router.py`` con ``add_api_route("")`` en lugar
@@ -31,24 +37,6 @@ async def root_no_slash() -> RedirectResponse:
 
 
 @router.get("/")
-async def root() -> RedirectResponse:
+async def root(user: dict = Depends(require_page_login)) -> RedirectResponse:
     """GET /adhoc/ (con barra final)."""
     return RedirectResponse(_DASHBOARD_URL, status_code=302)
-
-
-# TODO(F5): esta vista es TEMPORAL. El dashboard real ("Tareas") se implementa en
-# F5 con `Depends(require_page_app("adhoc", perms=["adhoc.dashboard.page.view"]))`
-# y su propio template. Aquí solo se usa require_page_login porque en F0 ni la
-# fila de core_apps ni los permisos adhoc.* existen todavía: cualquier gate por
-# app o por permiso daría 403 a todo el mundo.
-@router.get("/dashboard")
-async def dashboard_placeholder(
-    request: Request,
-    user: dict = Depends(require_page_login),
-    db: Session = Depends(get_db),
-):
-    return render_adhoc(
-        request,
-        "adhoc/home_placeholder.html",
-        {"nav": nav_for_user(db, user)},
-    )
