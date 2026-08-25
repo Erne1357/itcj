@@ -1,0 +1,23 @@
+{% extends 'adhoc/emails/email_base.html' %}
+{% import 'adhoc/emails/_mail_macros.html' as m %}
+
+{% block subject %}Nueva tarea asignada — {{ app_name }}{% endblock %}
+
+{% block content %}
+{{ m.title('Nueva tarea asignada') }}
+{{ m.lead('Se te asignó una nueva tarea. Revisa el detalle y dale seguimiento.') }}
+
+{% call m.card() %}
+  {{ m.field('Descripción', task.description) }}
+  {{ m.field('Estatus', m.status(task.status or 'Pendiente')) }}
+  {{ m.field('Prioridad', task.priority) }}
+  {{ m.field('Fecha de inicio', task.start_date.strftime('%d/%m/%Y') if task.start_date else None) }}
+  {{ m.field('Fecha compromiso', task.due_date.strftime('%d/%m/%Y') if task.due_date else None) }}
+  {% if task.document %}{{ m.field('Documento', task.document.title) }}{% endif %}
+  {% if task.incident %}{{ m.field('Incidencia', task.incident.title) }}{% endif %}
+  {% if task.program %}{{ m.field('Programa', task.program.title) }}{% endif %}
+{% endcall %}
+
+{{ m.cta(action_url, 'Ver tarea') }}
+{{ m.muted('Ingresa al sistema para revisar el detalle y darle seguimiento.') }}
+{% endblock %}

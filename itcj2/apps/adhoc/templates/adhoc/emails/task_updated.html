@@ -1,0 +1,29 @@
+{#
+  El legacy empezaba este archivo con una "p" suelta ANTES del {% extends %}:
+  Jinja emite el texto previo a la herencia, así que el correo salía con una "p"
+  huérfana antes del <!DOCTYPE>. Corregido aquí.
+#}
+{% extends 'adhoc/emails/email_base.html' %}
+{% import 'adhoc/emails/_mail_macros.html' as m %}
+
+{% block subject %}{{ action_label or 'Actualización de tarea' }} — {{ app_name }}{% endblock %}
+
+{% block content %}
+{{ m.title(action_label or 'Actualización de tarea') }}
+{{ m.lead('Hubo un cambio en una tarea en la que participas.') }}
+
+{% call m.card() %}
+  {{ m.field('Descripción', task.description) }}
+  {{ m.field('Estatus actual', m.status(task.status)) }}
+  {{ m.field('Prioridad', task.priority) }}
+  {{ m.field('Fecha de inicio', task.start_date.strftime('%d/%m/%Y') if task.start_date else None) }}
+  {{ m.field('Fecha compromiso', task.due_date.strftime('%d/%m/%Y') if task.due_date else None) }}
+  {% if actor %}{{ m.field('Realizado por', actor) }}{% endif %}
+  {% if task.document %}{{ m.field('Documento relacionado', task.document.title) }}{% endif %}
+  {% if task.incident %}{{ m.field('Incidencia', task.incident.title) }}{% endif %}
+  {% if task.program %}{{ m.field('Programa', task.program.title) }}{% endif %}
+{% endcall %}
+
+{{ m.cta(action_url, 'Ver tarea') }}
+{{ m.muted('Revisa la tarea en el sistema para ver comentarios, archivos o el siguiente paso.') }}
+{% endblock %}

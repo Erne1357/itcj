@@ -1,0 +1,20 @@
+{% extends 'adhoc/emails/email_base.html' %}
+{% import 'adhoc/emails/_mail_macros.html' as m %}
+
+{% block subject %}Documento aprobado — {{ app_name }}{% endblock %}
+
+{% block content %}
+{{ m.title('Documento aprobado') }}
+{{ m.lead('Tu documento completó todos los pasos del flujo de aprobación.') }}
+
+{% call m.card() %}
+  {{ m.field('Documento', document.title) }}
+  {{ m.field('Código', document.code) }}
+  {{ m.field('Versión', document.version) }}
+  {{ m.field('Estado', m.status(document.status or 'Aprobado')) }}
+  {{ m.field('Fecha de aprobación', document.approval_date.strftime('%d/%m/%Y') if document.approval_date else None) }}
+{% endcall %}
+
+{{ m.cta(action_url, 'Ver documento') }}
+{{ m.muted('Puedes ingresar al sistema para consultar el estado final del documento.') }}
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends 'adhoc/emails/email_base.html' %}
+{% import 'adhoc/emails/_mail_macros.html' as m %}
+
+{% block subject %}Documento rechazado — {{ app_name }}{% endblock %}
+
+{% block content %}
+{{ m.title('Documento rechazado') }}
+{{ m.lead('Tu documento fue rechazado durante el flujo de aprobación. Se generó una tarea de corrección a tu nombre.') }}
+
+{% call m.card() %}
+  {{ m.field('Documento', document.title) }}
+  {{ m.field('Código', document.code) }}
+  {{ m.field('Versión', document.version) }}
+  {{ m.field('Estado', m.status(document.status or 'Rechazado')) }}
+  {% if reason %}{{ m.field('Motivo / referencia', reason) }}{% endif %}
+{% endcall %}
+
+{{ m.cta(action_url, 'Corregir documento') }}
+{{ m.muted('Revisa los comentarios de la tarea o del flujo para corregir el documento y volver a enviarlo.') }}
+{% endblock %}

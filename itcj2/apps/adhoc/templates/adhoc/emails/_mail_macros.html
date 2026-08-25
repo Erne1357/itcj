@@ -1,0 +1,64 @@
+{#
+  Macros de correo de Calidad.
+
+  El CSS va INLINE a propósito: es la única carpeta de templates de adhoc donde
+  está permitido (plan §12.6). Los clientes de correo (Outlook, Gmail web)
+  ignoran o recortan las hojas <style>, así que los estilos que importan viajan
+  como atributos style= en cada elemento.
+
+  Uso en un template hijo:
+
+      {% import 'adhoc/emails/_mail_macros.html' as m %}
+      {{ m.title('Documento aprobado') }}
+      {% call m.card() %}
+        {{ m.field('Documento', document.title) }}
+      {% endcall %}
+      {{ m.cta(action_url, 'Abrir en Calidad') }}
+      {{ m.muted('Texto de cierre.') }}
+#}
+
+{% macro title(text) -%}
+<h1 style="margin:0 0 18px;color:#4834d4;font-size:21px;font-weight:700;line-height:1.3;">{{ text }}</h1>
+{%- endmacro %}
+
+{% macro lead(text) -%}
+<p style="margin:0 0 18px;color:#2d3436;font-size:15px;line-height:1.6;">{{ text }}</p>
+{%- endmacro %}
+
+{% macro card() -%}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+       style="border:1px solid #dfe6e9;border-radius:10px;background-color:#fafbfc;margin:0 0 24px;">
+  <tr>
+    <td style="padding:16px 18px;">{{ caller() }}</td>
+  </tr>
+</table>
+{%- endmacro %}
+
+{% macro field(label, value) -%}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 6px;">
+  <tr>
+    <td width="140" valign="top"
+        style="padding:3px 0;color:#636e72;font-size:12px;text-transform:uppercase;letter-spacing:.6px;">{{ label }}</td>
+    <td valign="top" style="padding:3px 0;color:#2d3436;font-size:14px;line-height:1.5;">{{ value if value not in (None, '') else '—' }}</td>
+  </tr>
+</table>
+{%- endmacro %}
+
+{% macro status(value) -%}
+<span style="display:inline-block;padding:4px 12px;border-radius:999px;background-color:#eeeafd;color:#4834d4;font-size:12px;font-weight:700;">{{ value if value else '—' }}</span>
+{%- endmacro %}
+
+{% macro cta(url, label) -%}
+<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:4px 0 8px;">
+  <tr>
+    <td align="center">
+      <a href="{{ url }}"
+         style="display:inline-block;background-color:#4834d4;color:#ffffff;text-decoration:none;padding:12px 32px;border-radius:6px;font-size:14px;font-weight:700;letter-spacing:.3px;">{{ label }}</a>
+    </td>
+  </tr>
+</table>
+{%- endmacro %}
+
+{% macro muted(text) -%}
+<p style="margin:16px 0 0;color:#636e72;font-size:13px;line-height:1.6;">{{ text }}</p>
+{%- endmacro %}
