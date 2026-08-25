@@ -218,7 +218,7 @@ class DashboardNotificationWidget {
      * Actualiza badges en iconos de aplicaciones del escritorio
      */
     updateAppBadges() {
-        const apps = ['agendatec', 'helpdesk', 'vistetec'];
+        const apps = ['agendatec', 'helpdesk', 'vistetec', 'adhoc'];
 
         apps.forEach(appName => {
             const badge = document.getElementById(`badge-${appName}`);
@@ -461,6 +461,8 @@ class DashboardNotificationWidget {
             appId = 'maint';
         } else if (url.includes('/vistetec')) {
             appId = 'vistetec';
+        } else if (url.includes('/adhoc')) {
+            appId = 'adhoc';
         } else if (url.includes('/compras')) {
             appId = 'compras';
         } else if (url.includes('/itcj/profile')) {
