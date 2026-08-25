@@ -51,3 +51,15 @@ from itcj2.apps.maint.models import (  # noqa: F401
     MaintMaintenanceType, MaintServiceOrigin,
     MaintNotificationTemplate,
 )
+
+# Adhoc
+from itcj2.apps.adhoc.models import (  # noqa: F401
+    AdhocArea, adhoc_user_areas, AdhocProcess,
+    AdhocIndicatorYear, AdhocIndicator, AdhocIndicatorTracking,
+    AdhocMailConfig,
+    AdhocDocumentCategory, AdhocDocumentClassification,
+    AdhocApprovalFlow, AdhocApprovalFlowStep, adhoc_flow_step_assignees, AdhocDocument,
+    AdhocIncidentCategory, AdhocIncident,
+    AdhocProgramCategory, AdhocProgramEvent, AdhocProgramEventFile,
+    AdhocTask, adhoc_task_assignees, AdhocTaskComment, AdhocTaskApproval,
+)

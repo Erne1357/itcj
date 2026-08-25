@@ -32,6 +32,7 @@ import itcj2.apps.warehouse.models  # noqa: F401, E402
 import itcj2.apps.maint.models      # noqa: F401, E402
 import itcj2.apps.titulatec.models  # noqa: F401, E402
 import itcj2.apps.directory.models  # noqa: F401, E402
+import itcj2.apps.adhoc.models      # noqa: F401, E402
 
 target_metadata = Base.metadata
 
