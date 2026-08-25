@@ -1,0 +1,18 @@
+{# ===========================================================================
+   home_placeholder.html — pantalla temporal de F0.
+   TODO(F5): se sustituye por el dashboard real ("Tareas") de /adhoc/dashboard.
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, empty_state %}
+
+{% block title %}Calidad · ITCJ{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  {{ page_header("Calidad", "Sistema de Gestión de Calidad · ISO 9001", "bi-clipboard2-check-fill") }}
+
+  <div class="adhoc-card">
+    {{ empty_state("Calidad — en migración. Las secciones se irán habilitando.", "bi-cone-striped") }}
+  </div>
+</div>
+{% endblock %}

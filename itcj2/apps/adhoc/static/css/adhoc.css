@@ -1,0 +1,258 @@
+/* ===========================================================================
+   adhoc.css — capa de diseño de Calidad. Se carga DESPUÉS de Bootstrap 5.3.
+
+   REGLA 1 (colisiones): prohibido redefinir .form-control, .form-group,
+   .form-row, .card, .badge-… , .alert-… y .bg-… — son de Bootstrap 5.3 y
+   pisarlas rompe media UI. Todo lo propio va prefijado .adhoc-… .
+
+   REGLA 2 (gotcha real de este repo): NUNCA escribas la secuencia de cierre de
+   comentario pegada a un token dentro de un comentario CSS. Un comentario que
+   diga "los tokens --adhoc-" seguido de asterisco y barra CIERRA el comentario
+   ahí mismo, y el bloque :root siguiente se queda sin parsear: todas las
+   variables quedan indefinidas y los colores se pintan en blanco. Si necesitas
+   citar un patrón con comodín, escribe "--adhoc-…" con puntos suspensivos.
+   =========================================================================== */
+
+:root {
+  /* Marca (violeta del legacy) */
+  --adhoc-primary: #4834d4;
+  --adhoc-primary-hover: #3a29a8;
+  --adhoc-secondary: #686de0;
+
+  /* Superficies */
+  --adhoc-bg: #ecf0f3;
+  --adhoc-surface: #ffffff;
+  --adhoc-dark: #2d3436;
+  --adhoc-muted: #636e72;
+  --adhoc-border: #dfe6e9;
+
+  /* Forma */
+  --adhoc-radius: 12px;
+  --adhoc-shadow: 0 10px 20px rgba(0, 0, 0, .05), 0 6px 6px rgba(0, 0, 0, .07);
+
+  /* Semánticos */
+  --adhoc-success: #27ae60;
+  --adhoc-warning: #f39c12;
+  --adhoc-danger: #e74c3c;
+  --adhoc-info: #2980b9;
+
+  /* Estados del tablero de indicadores (legacy: blanco/rojo/amarillo/verde) */
+  --adhoc-state-white: #ffffff;
+  --adhoc-state-red: #e74c3c;
+  --adhoc-state-yellow: #f39c12;
+  --adhoc-state-green: #27ae60;
+}
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+.adhoc-shell {
+  background: var(--adhoc-bg);
+  color: var(--adhoc-dark);
+  min-height: 100vh;
+}
+
+/* ── App bar ───────────────────────────────────────────────────────────── */
+.adhoc-appbar {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+  padding: calc(env(safe-area-inset-top, 0px) + .5rem) 1rem .5rem;
+  background: linear-gradient(135deg, var(--adhoc-primary) 0%, var(--adhoc-primary-hover) 100%);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(45, 52, 54, .22);
+}
+
+.adhoc-appbar-title {
+  display: flex;
+  align-items: center;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* El botón "volver al inicio" lo estiliza core/css/apps/mobile-app-shell.css
+   (círculo translúcido) y solo se muestra dentro del iframe del dashboard. */
+.adhoc-appbar .mobile-back-to-dashboard {
+  flex: 0 0 auto;
+}
+
+/* ── Navegación ────────────────────────────────────────────────────────── */
+.adhoc-nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.adhoc-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.adhoc-nav-list {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adhoc-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .35rem .7rem;
+  border-radius: 999px;
+  font-size: .875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, .82);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .12s ease, color .12s ease;
+}
+
+.adhoc-nav-link:hover,
+.adhoc-nav-link:focus-visible {
+  background: rgba(255, 255, 255, .14);
+  color: #fff;
+}
+
+.adhoc-nav-link.is-active {
+  background: rgba(255, 255, 255, .22);
+  color: #fff;
+}
+
+@media (max-width: 575.98px) {
+  .adhoc-nav-label {
+    display: none;
+  }
+
+  .adhoc-nav-link {
+    padding: .35rem .55rem;
+    font-size: 1rem;
+  }
+}
+
+/* ── Página ────────────────────────────────────────────────────────────── */
+.adhoc-page {
+  display: block;
+}
+
+.adhoc-page-title {
+  color: var(--adhoc-dark);
+  font-weight: 600;
+}
+
+.adhoc-page-subtitle {
+  color: var(--adhoc-muted);
+  font-size: .875rem;
+}
+
+/* ── Tarjeta ───────────────────────────────────────────────────────────── */
+.adhoc-card {
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-radius: var(--adhoc-radius);
+  box-shadow: var(--adhoc-shadow);
+  padding: 1rem;
+}
+
+/* ── Estado vacío ──────────────────────────────────────────────────────── */
+.adhoc-empty {
+  padding: 2.5rem 1rem;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-empty-icon {
+  display: block;
+  margin-bottom: .5rem;
+  font-size: 2.25rem;
+  opacity: .55;
+}
+
+.adhoc-empty-text {
+  font-size: .9375rem;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* Se apoyan en .badge de Bootstrap y solo aportan color. El tono lo elige la
+   macro Jinja status_badge() del partial _macros.html. */
+.adhoc-badge {
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+
+.adhoc-badge-neutral {
+  background: var(--adhoc-border);
+  color: var(--adhoc-dark);
+}
+
+.adhoc-badge-muted {
+  background: var(--adhoc-muted);
+  color: #fff;
+}
+
+.adhoc-badge-info {
+  background: var(--adhoc-info);
+  color: #fff;
+}
+
+.adhoc-badge-success {
+  background: var(--adhoc-success);
+  color: #fff;
+}
+
+.adhoc-badge-warning {
+  background: var(--adhoc-warning);
+  color: #fff;
+}
+
+.adhoc-badge-danger {
+  background: var(--adhoc-danger);
+  color: #fff;
+}
+
+.adhoc-badge-primary {
+  background: var(--adhoc-primary);
+  color: #fff;
+}
+
+/* ── Estados del tablero de indicadores ────────────────────────────────── */
+/* Reemplazan a .bg-blanco/.bg-rojo/.bg-amarillo/.bg-verde del legacy, que
+   colisionaban con las utilidades .bg-… de Bootstrap. */
+.adhoc-state-white {
+  background: var(--adhoc-state-white);
+  color: var(--adhoc-dark);
+  border: 1px solid var(--adhoc-border);
+}
+
+.adhoc-state-red {
+  background: var(--adhoc-state-red);
+  color: #fff;
+}
+
+.adhoc-state-yellow {
+  background: var(--adhoc-state-yellow);
+  color: var(--adhoc-dark);
+}
+
+.adhoc-state-green {
+  background: var(--adhoc-state-green);
+  color: #fff;
+}
+
+/* ── Botón "Volver" (macro back_button) ────────────────────────────────── */
+.adhoc-back {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+/* ── Accesibilidad / motion ────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-nav-link {
+    transition: none;
+  }
+}
