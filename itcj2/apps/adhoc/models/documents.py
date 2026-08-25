@@ -3,7 +3,8 @@ Documentos de Calidad con flujo de aprobación multi-paso y multi-validador.
 
 `AdhocApprovalFlowStep.flow_id` es NOT NULL (el legacy lo tenía nullable: un
 paso sin flujo es basura). `AdhocDocument.approval_date` es `DateTime` (el
-legacy la declaraba `Date` pero le asignaba un `datetime.utcnow()`).
+legacy la declaraba `Date` pero le asignaba un `datetime` completo vía
+`utcnow`).
 `AdhocDocument.current_step` es el relationship que el legacy no tenía —
 resolvía `FlowStep.query.get(doc.current_step_id)` a mano.
 
