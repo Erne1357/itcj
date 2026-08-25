@@ -1,0 +1,413 @@
+/* ===========================================================================
+   dashboard.css — tablero de tareas de Calidad y modal de workflow.
+   Reemplaza los dos bloques <style> (110 líneas) que el legacy tenía dentro de
+   templates/app_prueba/dashboard/dashboard.html, más los 52 style="..." de sus
+   tarjetas y modales.
+
+   Reglas (plan 6.4): todo prefijado ".adhoc-", tokens de adhoc.css, y NUNCA
+   redefinir .form-control, .card, .badge-…, .alert-…, .bg-… (chocan con
+   Bootstrap 5.3).
+
+   OJO con el gotcha del repo: jamás escribir el cierre de comentario pegado a
+   un comodín de token; cierra el comentario antes de tiempo y deja el :root
+   siguiente sin parsear.
+   =========================================================================== */
+
+/* ── Tablero ───────────────────────────────────────────────────────────── */
+
+/* Tira horizontal con scroll-snap, como el legacy. El desbordamiento vive
+   AQUÍ, así que el <body> nunca hace scroll horizontal. */
+.adhoc-kanban {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.adhoc-kanban::-webkit-scrollbar {
+  height: 10px;
+}
+
+.adhoc-kanban::-webkit-scrollbar-track {
+  background: var(--adhoc-soft);
+  border-radius: 8px;
+}
+
+.adhoc-kanban::-webkit-scrollbar-thumb {
+  background: var(--adhoc-primary);
+  border-radius: 8px;
+}
+
+/* ── Tarjeta ───────────────────────────────────────────────────────────── */
+
+.adhoc-kcard {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: .75rem;
+  width: 20rem;
+  max-width: 88vw;
+  padding: 1rem;
+  background: var(--adhoc-surface);
+  border: 1px solid var(--adhoc-border);
+  border-left: 4px solid var(--adhoc-primary);
+  border-radius: var(--adhoc-radius);
+  box-shadow: var(--adhoc-shadow);
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+
+.adhoc-kcard:hover,
+.adhoc-kcard:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 26px rgba(45, 52, 54, .12);
+}
+
+.adhoc-kcard:focus-visible {
+  outline: 3px solid var(--adhoc-secondary);
+  outline-offset: 2px;
+}
+
+.adhoc-kcard.is-attention {
+  border-left-color: var(--adhoc-danger);
+}
+
+.adhoc-kcard.is-locked {
+  border-left-color: var(--adhoc-disabled);
+  background: var(--adhoc-soft);
+}
+
+.adhoc-kcard-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.adhoc-kcard-lock {
+  margin-left: auto;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-kcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+.adhoc-kcard-kicker {
+  margin: 0;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--adhoc-primary);
+}
+
+.adhoc-kcard-kicker.is-danger {
+  color: var(--adhoc-danger);
+}
+
+.adhoc-kcard-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--adhoc-dark);
+}
+
+.adhoc-kcard-sub {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-kcard-flag {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: .25rem 0 0;
+  padding: .5rem .625rem;
+  font-size: .78rem;
+  font-weight: 700;
+  color: var(--adhoc-danger);
+  background: rgba(231, 76, 60, .1);
+  border-left: 3px solid var(--adhoc-danger);
+  border-radius: 6px;
+}
+
+.adhoc-kcard-foot {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  padding: .625rem;
+  font-size: .82rem;
+  color: var(--adhoc-muted);
+  background: var(--adhoc-soft);
+  border-radius: 8px;
+}
+
+.adhoc-kcard-meta i {
+  color: var(--adhoc-primary);
+}
+
+.adhoc-kcard-origin {
+  font-size: .75rem;
+  color: var(--adhoc-disabled);
+}
+
+/* Parpadeo del icono de atención (el legacy lo declaraba inline en cada
+   tarjeta). Se desactiva si el usuario pidió menos movimiento. */
+@keyframes adhoc-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+.adhoc-blink {
+  animation: adhoc-blink 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adhoc-blink {
+    animation: none;
+  }
+
+  .adhoc-kcard {
+    transition: none;
+  }
+}
+
+/* ── Modal de workflow: origen de la tarea ─────────────────────────────── */
+
+.adhoc-wf-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  width: 100%;
+  padding: .75rem 1rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--adhoc-primary);
+  background: var(--adhoc-primary-tint);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 8px;
+  transition: background .2s ease;
+}
+
+.adhoc-wf-banner:hover {
+  background: var(--adhoc-hover);
+}
+
+.adhoc-wf-parent {
+  margin-top: .625rem;
+  padding: 1rem;
+  background: var(--adhoc-soft);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 8px;
+}
+
+.adhoc-wf-parent-title {
+  margin: 0 0 .75rem;
+  font-weight: 600;
+  color: var(--adhoc-dark);
+}
+
+.adhoc-wf-version {
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-wf-download {
+  margin-top: .5rem;
+}
+
+/* ── Modal de workflow: la tarea ───────────────────────────────────────── */
+
+.adhoc-wf-task {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 2px dashed var(--adhoc-border);
+}
+
+.adhoc-wf-task-title {
+  margin-bottom: .875rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--adhoc-primary);
+}
+
+.adhoc-wf-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: .875rem;
+  margin: 0;
+}
+
+@media (min-width: 576px) {
+  .adhoc-wf-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 992px) {
+  .adhoc-wf-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.adhoc-wf-cell {
+  min-width: 0;
+}
+
+.adhoc-wf-label {
+  margin: 0;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--adhoc-muted);
+}
+
+.adhoc-wf-value {
+  margin: 0;
+  font-size: .95rem;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  color: var(--adhoc-dark);
+}
+
+.adhoc-wf-value.is-primary {
+  font-weight: 700;
+  color: var(--adhoc-primary);
+}
+
+/* ── Validaciones (tabla adhoc_task_approvals) ─────────────────────────── */
+
+.adhoc-wf-approvals {
+  margin-top: 1rem;
+  padding: .75rem 1rem;
+  background: var(--adhoc-soft);
+  border-radius: 8px;
+}
+
+.adhoc-wf-approvals-head {
+  margin: 0 0 .5rem;
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--adhoc-dark);
+}
+
+.adhoc-wf-approvals-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adhoc-wf-approval {
+  font-size: .85rem;
+}
+
+.adhoc-wf-approval.is-ok i {
+  color: var(--adhoc-success);
+}
+
+.adhoc-wf-approval.is-ko i {
+  color: var(--adhoc-danger);
+}
+
+/* ── Comentarios ───────────────────────────────────────────────────────── */
+
+.adhoc-wf-comments {
+  margin-top: 1.5rem;
+}
+
+.adhoc-wf-comments-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .75rem;
+}
+
+.adhoc-wf-comment-form {
+  margin-bottom: 1rem;
+  padding: .875rem;
+  background: var(--adhoc-soft);
+  border: 1px solid var(--adhoc-border);
+  border-radius: 8px;
+}
+
+.adhoc-wf-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .625rem;
+  margin-top: .625rem;
+}
+
+.adhoc-wf-comment-file {
+  max-width: 22rem;
+}
+
+.adhoc-wf-comments-table td {
+  vertical-align: top;
+}
+
+.adhoc-wf-date {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.adhoc-wf-author {
+  font-weight: 700;
+  color: var(--adhoc-info);
+}
+
+.adhoc-wf-muted {
+  color: var(--adhoc-muted);
+  text-align: center;
+}
+
+/* ── Pie del modal ─────────────────────────────────────────────────────── */
+
+.adhoc-wf-footer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: .625rem;
+}
+
+.adhoc-wf-notice {
+  margin: 0;
+  padding: .625rem .75rem;
+  font-size: .85rem;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 8px;
+}
+
+.adhoc-wf-notice.is-warning {
+  color: #8a5300;
+  background: rgba(243, 156, 18, .15);
+}
+
+.adhoc-wf-notice.is-danger {
+  color: var(--adhoc-danger);
+  background: rgba(231, 76, 60, .12);
+}
+
+.adhoc-wf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .75rem;
+}

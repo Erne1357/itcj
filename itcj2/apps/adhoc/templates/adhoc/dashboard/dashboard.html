@@ -1,0 +1,233 @@
+{# ===========================================================================
+   dashboard/dashboard.html — tablero de "mis tareas" + modal de workflow.
+   Ruta: GET /adhoc/dashboard  ·  permiso: adhoc.dashboard.page.view
+
+   Reemplaza a templates/app_prueba/dashboard/dashboard.html, la pantalla más
+   sucia del legacy: 260 líneas de JS incrustado, 110 de CSS incrustado, 10
+   manejadores inline y 3 modales caseros con .modal-overlay. Aquí:
+
+     · el JS vive en static/js/dashboard/dashboard.js (IIFE),
+     · el CSS en static/css/dashboard/dashboard.css,
+     · el modal es un bootstrap.Modal dentro de {% block modals %} (a nivel
+       <body>, fuera de cualquier contenedor con transform),
+     · las tarjetas no llevan manejadores inline: se abren por delegación desde
+       data-adhoc-task.
+
+   Las tarjetas llegan ya resueltas desde pages/dashboard.py::build_card(): el
+   template no navega ninguna relación del ORM (el legacy hacía
+   tarea.creator.first_name dentro del bucle → un SELECT por tarjeta).
+   =========================================================================== #}
+{% extends "adhoc/base_adhoc.html" %}
+{% from "adhoc/partials/_macros.html" import page_header, empty_state, priority_badge, status_badge, page_data_script %}
+
+{% block title %}Mis tareas · Calidad · ITCJ{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/adhoc/css/dashboard/dashboard.css?v={{ sv('css/dashboard/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+  {{ page_header("Hola, " ~ user_name, "Estas son tus tareas pendientes.", "bi-list-task") }}
+
+  {% if cards %}
+  {# Tira horizontal con scroll-snap, como el legacy. El overflow vive en este
+     contenedor, así que el <body> nunca desborda en horizontal. #}
+  <div class="adhoc-kanban" data-adhoc-kanban role="list">
+    {% for c in cards %}
+    <article class="adhoc-kcard{% if c.needs_attention %} is-attention{% endif %}{% if c.is_locked %} is-locked{% endif %}"
+             role="listitem"
+             tabindex="0"
+             data-adhoc-task="{{ c.id }}"
+             data-adhoc-task-status="{{ c.status }}"
+             aria-label="Abrir la tarea {{ c.description }}">
+      <div class="adhoc-kcard-head">
+        {{ priority_badge(c.priority) }}
+        {{ status_badge(c.status, 'task') }}
+        {% if c.is_locked %}<i class="bi bi-lock-fill adhoc-kcard-lock" aria-hidden="true"></i>{% endif %}
+      </div>
+
+      <div class="adhoc-kcard-body">
+        {% if c.is_review %}
+          <p class="adhoc-kcard-kicker">
+            {% if c.parent_kind == 'document' %}
+              <i class="bi bi-file-earmark-check" aria-hidden="true"></i> Revisión de documento
+            {% else %}
+              <i class="bi bi-list-check" aria-hidden="true"></i> Validar conclusión y eficacia
+            {% endif %}
+          </p>
+          <p class="adhoc-kcard-title">
+            {{ c.parent_title or c.description }}{% if c.parent_version %} (v{{ c.parent_version }}){% endif %}
+          </p>
+          <p class="adhoc-kcard-sub">{{ c.description }}</p>
+        {% elif c.is_rejected %}
+          <p class="adhoc-kcard-kicker is-danger">
+            <i class="bi bi-exclamation-triangle-fill adhoc-blink" aria-hidden="true"></i> Notificación de rechazo
+          </p>
+          <p class="adhoc-kcard-title">{{ c.description }}</p>
+        {% else %}
+          <p class="adhoc-kcard-title">{{ c.description }}</p>
+        {% endif %}
+
+        {% if c.needs_attention %}
+        <p class="adhoc-kcard-flag">
+          <i class="bi bi-exclamation-triangle-fill adhoc-blink" aria-hidden="true"></i> ¡Atención requerida!
+        </p>
+        {% endif %}
+      </div>
+
+      <footer class="adhoc-kcard-foot">
+        <span class="adhoc-kcard-meta">
+          <i class="bi bi-calendar-check" aria-hidden="true"></i>
+          <strong>Límite:</strong> {{ c.due_label }}
+        </span>
+        <span class="adhoc-kcard-meta">
+          <i class="bi bi-person-badge" aria-hidden="true"></i>
+          <strong>Solicitante:</strong> {{ c.creator_name }}
+        </span>
+        <span class="adhoc-kcard-origin">
+          Origen: {{ c.parent_label }}
+          {%- if c.comments_count %} · {{ c.comments_count }} comentario(s){% endif %}
+        </span>
+      </footer>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="adhoc-card">
+    {{ empty_state("¡Todo al día! No tienes tareas pendientes asignadas en este momento.", "bi-cup-hot") }}
+  </div>
+  {% endif %}
+{% endblock %}
+
+
+{% block modals %}
+{# Modal de workflow. Todo su contenido dinámico lo pinta dashboard.js con
+   AdhocUtils.escapeHtml(): aquí solo va el esqueleto y los textos de carga.
+   El legacy volcaba ${c.texto} y ${c.usuario} a innerHTML sin escapar — el XSS
+   almacenado más grave de la app (dashboard.html:395). #}
+<div class="modal fade" id="adhoc-wf-modal" tabindex="-1"
+     aria-labelledby="adhoc-wf-modal-title" aria-hidden="true"
+     data-adhoc-wf-modal>
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title" id="adhoc-wf-modal-title">
+          <i class="bi bi-list-check me-2" aria-hidden="true"></i>Gestión y validación de tarea
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+
+        {# — Origen de la tarea (documento / incidencia / evento) — #}
+        <button type="button" class="adhoc-wf-banner" data-adhoc-wf-parent-toggle
+                aria-expanded="false" aria-controls="adhoc-wf-parent">
+          <span>
+            <i class="bi bi-diagram-3 me-2" aria-hidden="true"></i>
+            Tarea perteneciente a: <span id="adhoc-wf-parent-type">Cargando…</span>
+          </span>
+          <i class="bi bi-chevron-down" id="adhoc-wf-parent-icon" aria-hidden="true"></i>
+        </button>
+        <div class="adhoc-wf-parent d-none" id="adhoc-wf-parent"></div>
+
+        {# — La tarea — #}
+        <section class="adhoc-wf-task">
+          <h6 class="adhoc-wf-task-title" id="adhoc-wf-title">Cargando tarea…</h6>
+
+          <dl class="adhoc-wf-grid">
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Responsable(s)</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-assignees">…</dd>
+            </div>
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Fecha de inicio</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-start">…</dd>
+            </div>
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Fecha compromiso</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-due">…</dd>
+            </div>
+            <div class="adhoc-wf-cell">
+              <dt class="adhoc-wf-label">Estatus</dt>
+              <dd class="adhoc-wf-value" id="adhoc-wf-status">…</dd>
+            </div>
+          </dl>
+
+          {# Quién ya validó y quién falta. Información que el legacy destruía:
+             modelaba la aprobación borrando al usuario de los asignados. #}
+          <div class="adhoc-wf-approvals d-none" id="adhoc-wf-approvals"></div>
+        </section>
+
+        {# — Comentarios — #}
+        <section class="adhoc-wf-comments">
+          <div class="adhoc-wf-comments-head">
+            <h6 class="mb-0">
+              <i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Historial de comentarios
+            </h6>
+            {% if page_data.can_comment %}
+            <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-new>
+              <i class="bi bi-chat-left-dots" aria-hidden="true"></i>
+              <span class="d-none d-sm-inline">Agregar comentario</span>
+            </button>
+            {% endif %}
+          </div>
+
+          {% if page_data.can_comment %}
+          <div class="adhoc-wf-comment-form d-none" id="adhoc-wf-comment-form">
+            <label class="form-label adhoc-label" for="adhoc-wf-comment-text">Comentario o justificación</label>
+            <textarea class="form-control" id="adhoc-wf-comment-text" rows="3"
+                      placeholder="Escribe tu comentario o justificación aquí…"></textarea>
+            <div class="adhoc-wf-comment-actions">
+              <input type="file" class="form-control form-control-sm adhoc-wf-comment-file" id="adhoc-wf-comment-file">
+              <button type="button" class="btn btn-sm btn-primary" data-adhoc-wf-comment-save>
+                <i class="bi bi-floppy" aria-hidden="true"></i> Guardar comentario
+              </button>
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="adhoc-table-wrap" data-adhoc-table-wrap>
+            <table class="adhoc-table adhoc-wf-comments-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="adhoc-col-start">Fecha</th>
+                  <th scope="col" class="adhoc-col-start">Comentario</th>
+                  <th scope="col" class="adhoc-col-center">Adjunto</th>
+                </tr>
+              </thead>
+              <tbody id="adhoc-wf-comments">
+                <tr><td colspan="3" class="adhoc-wf-muted">Consultando historial…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div class="modal-footer adhoc-wf-footer">
+        <p class="adhoc-wf-notice d-none" id="adhoc-wf-notice" role="status"></p>
+        {% if page_data.can_workflow %}
+        <div class="adhoc-wf-actions">
+          <button type="button" class="btn btn-success d-none" data-adhoc-wf-action="terminar">
+            <i class="bi bi-check-circle" aria-hidden="true"></i> ¡Terminé esta tarea!
+          </button>
+          <button type="button" class="btn btn-danger d-none" data-adhoc-wf-action="rechazar">
+            <i class="bi bi-x-lg" aria-hidden="true"></i> Rechazar
+          </button>
+          <button type="button" class="btn btn-primary d-none" data-adhoc-wf-action="aprobar">
+            <i class="bi bi-hand-thumbs-up" aria-hidden="true"></i> Aprobar y validar
+          </button>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+{% block extra_js %}
+{{ page_data_script(page_data) }}
+<script src="/static/adhoc/js/dashboard/dashboard.js?v={{ sv('js/dashboard/dashboard.js') }}"></script>
+{% endblock %}
