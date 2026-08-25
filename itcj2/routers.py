@@ -37,6 +37,10 @@ def register_routers(app: FastAPI):
     from itcj2.apps.directory.router import directory_router
     app.include_router(directory_router)
 
+    # Adhoc API v2 (Calidad / SGC ISO 9001 — /api/adhoc/v2)
+    from itcj2.apps.adhoc.router import adhoc_router
+    app.include_router(adhoc_router)
+
     # ── Fase 4: Page routers ─────────────────────────────────────────────────
     # Core pages (prefix /itcj): login, dashboard, perfil, config, móvil
     from itcj2.core.pages.router import core_pages_router
@@ -66,6 +70,11 @@ def register_routers(app: FastAPI):
     # Directory pages (prefix /directory): directorio de extensiones telefónicas
     from itcj2.apps.directory.pages.router import directory_pages_router
     app.include_router(directory_pages_router)
+
+    # Adhoc pages (prefix /adhoc): dashboard, documentos, incidencias, programas,
+    # indicadores, panel de control, reportes
+    from itcj2.apps.adhoc.pages.router import adhoc_pages_router
+    app.include_router(adhoc_pages_router)
 
     # Redirect raíz: autenticado → dashboard o móvil, no autenticado → login
     @app.get("/", include_in_schema=False)

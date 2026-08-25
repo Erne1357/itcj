@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     # de orígenes, sockets, filtros, detalle de equipo, asignación, home). Sin
     # este bump el navegador serviría los assets viejos desde caché y los
     # cambios no se verían hasta un refresh forzado.
-    STATIC_VERSION: str = "1.0.1111506"
+    # Bump 2026-08-25: alta de la app adhoc (Calidad) — nuevos estáticos bajo
+    # /static/adhoc/ y ajuste del dashboard del core.
+    STATIC_VERSION: str = "1.0.1111507"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -112,6 +114,13 @@ class Settings(BaseSettings):
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
+
+    # Adhoc (Calidad / SGC ISO 9001) — adjuntos de documentos, eventos de
+    # programa, comentarios de tarea e indicadores.
+    # Estructura: instance/apps/adhoc/{documents,program_events,task_comments,indicators}/{entity_id}/
+    ADHOC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "adhoc")
+    ADHOC_MAX_FILE_SIZE: int = 10 * 1024 * 1024
+    ADHOC_ALLOWED_EXTENSIONS: str = "pdf,doc,docx,xls,xlsx,ppt,pptx,jpg,jpeg,png,webp,csv,txt"
 
 
     model_config = {"env_file": ".env", "extra": "ignore"}
